@@ -111,6 +111,21 @@ function categoryFolderName(category) {
  *   `content` is base64 — Apps Script cannot receive a stream, and a JSON
  *   body cannot carry raw bytes.
  */
+/** What Drive's OCR can usefully read. Anything else is returned untouched. */
+var OCR_TYPES = {
+  'image/jpeg': true,
+  'image/png': true,
+  'image/webp': true,
+  'image/gif': true,
+  'application/pdf': true,
+};
+
+/** A scan larger than this risks the six-minute execution limit. */
+var MAX_OCR_BYTES = 8 * 1024 * 1024;
+
+/** The same cap the browser applies, for the same Sheets-cell reason. */
+var MAX_OCR_CHARS = 20000;
+
 function driveUpload(payload, context) {
   if (!payload.content) throw fail('no file content was supplied', 400);
   if (!payload.documentId) throw fail('no document id was supplied', 400);
@@ -163,7 +178,76 @@ function driveUpload(payload, context) {
     url: file.getUrl(),
     versionCount: countRevisions(file.getId()),
     size: file.getSize(),
+    // Empty unless this is a scan the browser could not read for itself.
+    text: payload.ocr ? readScan(file, payload.mimeType) : '',
   };
+}
+
+/**
+ * The text in a scan, read by Drive's own OCR.
+ *
+ * A photograph of a bill is pixels, and the browser cannot read pixels — it
+ * can only lift out a text layer that a scan does not have. Drive can, and
+ * doing it here means the file never leaves the household's own Google
+ * account: no third-party OCR service, no new dependency, and no key shared
+ * with anybody. The alternative was bundling fifteen megabytes of WASM into an
+ * application whose whole premise is that it has no runtime dependencies.
+ *
+ * The mechanism is a *copy* of the file already uploaded, converted to a
+ * Google Doc — conversion is what triggers OCR — then exported as plain text
+ * and thrown away. Copying rather than re-uploading means the bytes cross the
+ * wire once. The temporary Doc is always trashed, including when the export
+ * fails, or a household's Drive slowly fills with copies of its own paperwork.
+ *
+ * Everything here is best effort. A scan that cannot be read is a scan you can
+ * still open and still find by its title; an upload that failed because the
+ * OCR did would be a worse outcome than the one it was avoiding.
+ */
+function readScan(file, mimeType) {
+  if (!OCR_TYPES[mimeType]) return '';
+  if (file.getSize() > MAX_OCR_BYTES) return '';
+
+  var token = ScriptApp.getOAuthToken();
+  var copyId = null;
+
+  try {
+    var copy = UrlFetchApp.fetch(
+      'https://www.googleapis.com/drive/v3/files/' + file.getId() + '/copy?ocrLanguage=en',
+      {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({
+          name: 'familyos-ocr-' + file.getId(),
+          mimeType: 'application/vnd.google-apps.document',
+        }),
+        headers: { Authorization: 'Bearer ' + token },
+        muteHttpExceptions: true,
+      },
+    );
+    if (copy.getResponseCode() >= 300) return '';
+    copyId = JSON.parse(copy.getContentText()).id;
+
+    var exported = UrlFetchApp.fetch(
+      'https://www.googleapis.com/drive/v3/files/' + copyId + '/export?mimeType=text/plain',
+      { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true },
+    );
+    if (exported.getResponseCode() >= 300) return '';
+
+    return exported.getContentText().slice(0, MAX_OCR_CHARS);
+  } catch (err) {
+    log('ocr', 'failed', err.message, 0);
+    return '';
+  } finally {
+    if (copyId) {
+      try {
+        DriveApp.getFileById(copyId).setTrashed(true);
+      } catch (err) {
+        // A copy that cannot be trashed is litter, not a failure worth
+        // surfacing — but it is worth being able to find later.
+        log('ocr', 'orphan', 'could not trash ' + copyId, 0);
+      }
+    }
+  }
 }
 
 /**

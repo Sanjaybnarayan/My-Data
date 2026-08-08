@@ -216,13 +216,27 @@ export class DocumentStore {
           // something a human can read; the id travels so a later rename moves
           // that folder rather than orphaning it.
           person: await this.#personFor(document),
+          // Only ask the server to read it if this device could not. A PDF
+          // with a text layer was already read here, and asking Drive to read
+          // it again would spend an OCR pass on an answer we have.
+          ocr: !document.ocrText,
         });
 
-        await this.#db.repo('document').update(document.id, {
+        const patch = {
           driveFileId: result.fileId,
           driveFolderId: result.folderId,
           versionCount: result.versionCount ?? document.versionCount ?? 1,
-        });
+        };
+
+        // Text that came back from Drive's OCR goes through exactly the same
+        // redaction as text read here — the rule about what may reach a
+        // searchable field does not depend on who did the reading.
+        if (result.text && !document.ocrText) {
+          const read = readDocument(indexableText([{ lines: [result.text] }]));
+          Object.assign(patch, { ocrText: read.indexable }, suggestions(read, document));
+        }
+
+        await this.#db.repo('document').update(document.id, patch);
         await this.#db.adapter.write('blobs', { ...blob, uploaded: true, driveFileId: result.fileId });
         uploaded++;
       } catch (err) {

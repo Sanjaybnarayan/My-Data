@@ -40,7 +40,17 @@ number found in a document is removed from the indexed text and handed back
 separately, to be put somewhere encrypted. Getting better at reading must not
 make the application worse at keeping a secret.
 
-**OCR is still not implemented — but text extraction is.** A PDF made by a
+**Scans are read by Drive, in your own account.** A photograph of a bill is
+pixels, and a browser cannot read pixels. So when a file arrives that this
+device could not read for itself, the Apps Script backend copies it to a Google
+Doc — conversion is what triggers OCR — exports the text, and throws the copy
+away. The file never leaves the household's Google account, no third-party OCR
+service is involved, and nothing is bundled: the alternative was fifteen
+megabytes of WASM in an application whose premise is that it has no runtime
+dependencies. It needs the backend redeployed to take effect, and text that
+comes back is redacted on exactly the same terms as text read on the device.
+
+**Text extraction on the device.** A PDF made by a
 computer carries its text as text, and every PDF uploaded to Documents is now
 read on the device and stored in `ocrText`, so it can be found by a policy
 number that appears inside it and nowhere in anything anybody typed.

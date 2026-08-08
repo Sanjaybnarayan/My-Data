@@ -237,3 +237,65 @@ describe('an uploaded document', () => {
     assert.equal(document.identifiers[0].kind, 'PAN', 'it should still be offered to the caller');
   });
 });
+
+/* ------------------------------------------------- text that came from OCR */
+
+describe('a scan read by the server', () => {
+  test('OCR text is redacted on the same terms as text read here', async () => {
+    // The rule about what may reach a searchable field does not depend on who
+    // did the reading. A scanned PAN card is the case that matters: the
+    // browser cannot read pixels, so this is the only path its number takes.
+    const db = await makeDb();
+    const transport = {
+      configured: true,
+      async upload(payload) {
+        assert.ok(payload.ocr, 'a file this device could not read must ask the server to');
+        return {
+          fileId: 'drv_1',
+          folderId: 'fld_1',
+          versionCount: 1,
+          text: 'INCOME TAX DEPARTMENT Permanent Account Number ABCDE1234F',
+        };
+      },
+    };
+
+    const store = new DocumentStore({ db, transport });
+    const { document } = await store.capture({
+      name: 'pan.jpg',
+      type: 'image/jpeg',
+      size: 3,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    }, { title: 'PAN card', category: 'identity' });
+
+    assert.not(document.ocrText, 'an image cannot be read on the device');
+
+    await store.flush();
+
+    const saved = await db.repo('document').get(document.id);
+    assert.includes(saved.ocrText, 'INCOME TAX DEPARTMENT');
+    assert.not(saved.ocrText.includes('ABCDE1234F'), 'the PAN reached a searchable field');
+    assert.equal(saved.driveFileId, 'drv_1');
+  });
+
+  test('a document already read here does not ask the server to read it again', async () => {
+    const db = await makeDb();
+    let asked = null;
+    const transport = {
+      configured: true,
+      async upload(payload) {
+        asked = payload.ocr;
+        return { fileId: 'drv_2', folderId: 'fld_1', versionCount: 1, text: '' };
+      },
+    };
+
+    const bytes = new PdfDocument({ title: 'Bill' }).paragraph('Amount payable 100.00').build();
+    const store = new DocumentStore({ db, transport });
+    await store.capture(
+      { name: 'b.pdf', type: 'application/pdf', size: bytes.length, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) },
+      { category: 'other' },
+    );
+    await store.flush();
+
+    assert.equal(asked, false, 'a PDF read on the device must not be OCR-ed again');
+  });
+});
