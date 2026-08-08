@@ -5,7 +5,8 @@
  *   node tools/statement.mjs statement.pdf [more.pdf …]
  *   node tools/statement.mjs --json statement.pdf > analysis.json
  *   node tools/statement.mjs --csv  statement.pdf > transactions.csv
- *   node tools/statement.mjs --override "ahg inddrive=salary" a.pdf
+ *   node tools/statement.mjs --business="Acme Partners" a.pdf
+ *   node tools/statement.mjs --override="some shop=groceries" a.pdf
  *
  * Nothing leaves this machine. The PDF is read here, the rules are in
  * `js/domain/categorise.js`, and the only output is what you see. That matters
@@ -20,7 +21,7 @@ import { read } from './pdf-text.mjs';
 import { parseStatement, reconcile } from '../js/domain/statement.js';
 import {
   categorise, resolveAliases, summarise, peopleLedger, recurring, lendingLedger,
-  insights, counterpartyKey,
+  businessLedger, insights, counterpartyKey,
 } from '../js/domain/categorise.js';
 
 const args = process.argv.slice(2);
@@ -30,10 +31,22 @@ const overrides = Object.fromEntries(
     .map((a) => a.slice('--override='.length).split('='))
     .map(([name, category]) => [counterpartyKey(name), category]),
 );
+/*
+ * A firm the household owns. Direction decides what it means — money out of it
+ * is earnings, money into it is capital — so this cannot be expressed as an
+ * override, which maps a name to one category regardless of direction. It is
+ * the one fact no rule can derive: a business account looks exactly like a
+ * stranger's until somebody says otherwise.
+ */
+const businesses = args.filter((a) => a.startsWith('--business='))
+  .map((a) => a.slice('--business='.length).replace(/^["']|["']$/g, ''))
+  .filter(Boolean);
+
 const files = args.filter((a) => !a.startsWith('--'));
 
 if (!files.length) {
-  console.error('usage: node tools/statement.mjs [--json|--csv] [--override=NAME=category] <file.pdf …>');
+  console.error('usage: node tools/statement.mjs [--json|--csv] [--business=NAME] '
+    + '[--override=NAME=category] <file.pdf …>');
   process.exit(1);
 }
 
@@ -48,7 +61,9 @@ const statements = await Promise.all(files.map(async (file) => {
 
 const holder = statements.map((s) => s.parsed.account.holder).find(Boolean) ?? '';
 const transactions = resolveAliases(
-  statements.flatMap((s) => categorise(s.parsed.transactions, { holder, overrides, aliases: false })),
+  statements.flatMap((s) => categorise(s.parsed.transactions, {
+    holder, businesses, overrides, aliases: false,
+  })),
 );
 const asOf = transactions.map((t) => t.date).sort().at(-1) ?? null;
 const summary = summarise(transactions);
@@ -68,6 +83,7 @@ if (flags.has('--json')) {
     people: peopleLedger(transactions),
     recurring: recurring(transactions, { asOf }),
     lending: lendingLedger(transactions),
+    businesses: businessLedger(transactions),
     insights: insights(transactions, summary),
   }, null, 2));
 } else if (flags.has('--csv')) {
@@ -142,6 +158,14 @@ function report() {
   heading('Borrowing and lending');
   for (const line of lendingLedger(transactions).slice(0, 20)) {
     console.log(`  ${String(line.count).padStart(4)}  ${pad(line.kind, 12)} ${pad(line.name, 26)} in ${R(line.borrowed).padStart(13)}  out ${R(line.repaid).padStart(13)}  outstanding ${R(line.outstanding).padStart(13)}`);
+  }
+
+  const firms = businessLedger(transactions);
+  if (firms.length) {
+    heading('Your business, both directions');
+    for (const firm of firms) {
+      console.log(`  ${String(firm.count).padStart(4)}  ${pad(firm.name, 26)} drawn ${R(firm.drawn).padStart(12)}  put in ${R(firm.contributed).padStart(12)}  net ${R(firm.net).padStart(12)} over ${firm.months} months`);
+    }
   }
 
   heading('Worth saying out loud');
