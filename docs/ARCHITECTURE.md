@@ -202,15 +202,71 @@ DOM nodes, and components are functions returning nodes plus an optional
 row count. Module code is loaded with dynamic `import()` on first navigation,
 so the initial payload is the shell plus the dashboard.
 
-## 8. Testing
+## 8. Statements
+
+The largest thing in `domain/`, and the one with the most decisions in it. Four
+stages, each usable on its own:
+
+```
+data/pdf-read.js      PDF bytes    → positioned text runs, grouped into rows
+domain/statement.js   rows         → transactions, with a self-check
+domain/categorise.js  transactions → rails, counterparties, categories
+domain/import.js      categorised  → account routing, dedup, records
+```
+
+**A statement is a table, so it is read as one.** The single fact that decides
+whether money came in or went out is which column the number was printed in,
+and flattening the page to text destroys it. `pdf-read.js` keeps every run's x,
+and `statement.js` finds the column boundaries from the statement's own heading
+row — no per-bank table, no tuning. Where positions are unavailable it falls
+back to reading balance movement and *says which mode it used*, because that
+fallback cannot see an overdraft and the caller deserves to know.
+
+**The printed balance is not trusted.** Kotak prints an overdrawn balance as a
+bare number, so the running balance is computed here from the opening balance
+and the signed amounts, and the printed figure is used only to check it. A row
+where the two disagree is reported rather than accepted: a mis-parsed statement
+produces confident, wrong totals, which is worse than an admitted failure.
+
+**Three questions are kept apart.** The rail the money moved on, who was at the
+other end, and what it was for are decided separately, because a categoriser
+that collapses them cannot answer "how much did I move to people this year" —
+a transfer to a friend and a payment to a restaurant look identical to it. The
+rules are ordered and unweighted, so every answer traces to one readable line,
+and each classification carries the `rule` that produced it.
+
+**Four kinds, not two.** Every category is `spending`, `income`, `transfer` or
+`internal`. Sweeps, own-account moves and investments are internal; money
+between people is a transfer. Folding those into an outgoings total is the
+commonest way a statement analysis reports several times the truth.
+
+**Re-importing is harmless.** Each transaction carries a fingerprint of what a
+bank cannot restate — account, date, amount, direction, reference, narration
+and balance-after. Deliberately excluded: the serial number, which restarts at
+1 in every statement. Deliberately *not* truncated: the narration, because
+three cash withdrawals of the same amount at the same machine in one day differ
+only in a trailing reference, and a prefix merges them into one.
+
+Two facts no rule can derive are stated rather than guessed: which accounts the
+household holds — matched by the number printed on the statement, tolerating a
+mask against a full number but never letting a bank name pick between two
+accounts — and which businesses it owns (`meta: finance.businesses`). A firm's
+account is indistinguishable from a stranger's until somebody says otherwise.
+
+## 9. Testing
 
 `tests/run.mjs` — no browser, no dependencies. It imports the real
 source modules (they are DOM-free by construction) and runs them against a
 `MemoryAdapter` that implements the same `StorageAdapter` interface as
 IndexedDB. Covered: validation, envelope rules, soft delete, RBAC, conflict
 resolution, outbox backoff, money arithmetic, XIRR, reminders, the CSV/XLSX/PDF
-writers, and the AI intent parser.
+writers, statement parsing and categorisation, import routing and dedup, and
+the AI intent parser.
 
-The rule from `tests/README.md` in the parent repository applies here too: when
-adding a check, break the thing it covers and confirm the check fails before
-trusting it.
+`tests/browser.mjs` — the same application in a real Chromium: first run, the
+recovery screen that cannot be skipped, a save through the actual form, a
+reload that relocks, and every screen — failing on any console error, any empty
+render, or any horizontal overflow at 390px.
+
+When adding a check, break the thing it covers and confirm the check fails
+before trusting it.
