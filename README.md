@@ -107,4 +107,4 @@ conflict resolution, real XLSX and PDF bytes.
 | `js/security/` | Keys, field encryption, roles, sessions |
 | `js/sync/` | Outbox, conflict resolution, the Apps Script client |
 | `apps-script/` | The backend, which runs in your own Google account |
-| `docs/` | Architecture, setup, deployment |
+| `docs/` | Architecture, status, setup, deployment |
