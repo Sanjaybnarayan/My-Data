@@ -1,0 +1,81 @@
+name: tests
+
+# The application has no dependencies and no build step — it is native ES
+# modules served as files — so there is nothing to install for the fast suite
+# and nothing to cache. Only the browser checks need anything installed, and
+# only because driving a browser needs a browser.
+#
+# Pushes to a branch with an open pull request would otherwise run twice, once
+# for the push and once for the pull request, so push is limited to the default
+# branch and pull_request covers everything else.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push supersedes whatever was already running for the same ref.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Everything below the view layer is DOM-free by construction, so this
+      # imports the code that ships rather than a test double of it.
+      - name: Run the suite
+        run: node tests/run.mjs
+
+      # The single-file build is generated, never committed, so the only way to
+      # know it still builds is to build it. Its own audit fails the run if a
+      # module has grown an import or export shape the bundler would silently
+      # mistranslate.
+      - name: Check the single-file build still builds
+        run: node tools/bundle.mjs /tmp/familyos.html
+
+  # A separate job because it downloads a browser, which is minutes rather than
+  # seconds. Keeping it apart means the fast suite still reports quickly and a
+  # failure here is attributable to the browser rather than to logic.
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # First run, a save through the real form, a reload that relocks, and
+      # every screen — failing on any console error, any empty render, or any
+      # horizontal overflow at 390px.
+      # `--shots` so a failure leaves something to look at; the screenshots are
+      # only uploaded when the run fails.
+      - name: Run the browser checks
+        run: node tests/browser.mjs --shots
+
+      - name: Keep the screenshots when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shots
+          path: shots/
+          if-no-files-found: ignore

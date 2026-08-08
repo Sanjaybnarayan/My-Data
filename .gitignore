@@ -1,0 +1,14 @@
+# One family's deployment: the OAuth client id and the Apps Script URL.
+# Neither is a secret — a browser cannot keep a client secret, so there is
+# none — but neither is shared, and a fork should not carry somebody else's.
+# Settings → Google account can supply both without this file existing.
+familyos.config.json
+
+# Built by tools/bundle.mjs. Regenerate it rather than committing it; a
+# committed bundle is a second copy of the source that goes stale silently.
+dist/
+
+# Written by the browser checks when they fail.
+shots/
+
+node_modules/

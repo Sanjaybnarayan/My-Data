@@ -1,0 +1,25 @@
+{
+  "name": "FamilyOS",
+  "short_name": "FamilyOS",
+  "description": "A private, offline-first record keeper for your household — identity, money, documents, health, vehicles and property.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fbfbfc",
+  "theme_color": "#1a73e8",
+  "categories": ["productivity", "finance", "utilities"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    { "src": "./assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./assets/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Add a transaction", "url": "./index.html#/finance/transaction/new", "description": "Record money in or out" },
+    { "name": "Documents", "url": "./index.html#/documents", "description": "Find a document" },
+    { "name": "Emergency", "url": "./index.html#/emergency", "description": "Emergency contacts and medical information" }
+  ]
+}

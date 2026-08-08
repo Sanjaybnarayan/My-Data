@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Signing in…</title>
+<meta name="robots" content="noindex">
+<!--
+  The OAuth redirect target. Google returns the access token in the URL
+  fragment; this page hands it to the opener and closes.
+
+  It is deliberately its own file with no stylesheet and no application code.
+  Anything running here runs alongside a live token, so the smallest possible
+  surface is the right one — one module import and nothing else.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'">
+<style>
+  body { font: 15px system-ui, sans-serif; padding: 2rem; color: #3d444f; background: #fbfbfc; }
+  @media (prefers-color-scheme: dark) { body { color: #e9ebef; background: #0e1014; } }
+</style>
+</head>
+<body>
+<p>Completing sign-in — this window will close by itself.</p>
+<script type="module">
+  import { completeOAuthRedirect } from './js/auth/google.js';
+  completeOAuthRedirect();
+</script>
+</body>
+</html>
