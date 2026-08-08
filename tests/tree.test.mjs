@@ -10,6 +10,7 @@ import {
   personFolderName, documentPath, categoryFolderName, HOUSEHOLD_FOLDER,
 } from '../js/domain/filing.js';
 import { subjectOf } from '../js/modules/documents.js';
+import { canReadText, indexableText } from '../js/domain/filing.js';
 import { toMinor } from '../js/core/money.js';
 
 setSuite('tree & automation');
@@ -483,3 +484,56 @@ function fakeFile(name, text = 'a small but real pdf') {
     arrayBuffer: async () => bytes.buffer,
   };
 }
+
+/* ------------------------------------------------------- reading documents */
+
+setSuite('documents');
+
+describe('reading what is inside a document', () => {
+  test('only a PDF is worth trying to read', () => {
+    // Both a scanned and a generated PDF arrive as application/pdf, so this
+    // says what is worth attempting, not what will succeed.
+    assert.ok(canReadText('application/pdf'));
+    assert.not(canReadText('image/jpeg'));
+    assert.not(canReadText('application/vnd.ms-excel'));
+    assert.not(canReadText(''));
+    assert.not(canReadText(undefined));
+  });
+
+  test('pages become one searchable string', () => {
+    const text = indexableText([
+      { lines: ['Policy   number', 'ABC 123'] },
+      { lines: ['Sum assured', '5,00,000'] },
+    ]);
+    assert.equal(text, 'Policy number ABC 123 Sum assured 5,00,000');
+  });
+
+  test('nothing to read is an empty string, not a crash', () => {
+    assert.equal(indexableText([]), '');
+    assert.equal(indexableText(null), '');
+    assert.equal(indexableText([{}, { lines: [] }]), '');
+  });
+
+  test('a long document is cut, because the field becomes a spreadsheet cell', () => {
+    // A Sheets cell holds 50,000 characters. Exceeding it would not truncate
+    // the text — it would reject the write for the whole row.
+    const pages = [{ lines: Array.from({ length: 5000 }, () => 'lorem ipsum dolor') }];
+    const text = indexableText(pages);
+    assert.ok(text.length <= 20_000, `${text.length} characters is over the cap`);
+    assert.ok(text.length > 19_000, 'the cut should take the cap, not far less');
+  });
+
+  test('the cut lands on a word boundary', () => {
+    // Half an account number matches nothing and reads like corruption.
+    const pages = [{ lines: [`${'x'.repeat(40)} `.repeat(20)] }];
+    const text = indexableText(pages, { limit: 100 });
+    assert.ok(text.length <= 100);
+    assert.not(text.endsWith(' '), 'trailing space should be trimmed');
+    assert.ok(/x$/.test(text), 'the cut should leave a whole word');
+  });
+
+  test('a single word longer than the cap is still cut', () => {
+    const text = indexableText([{ lines: ['y'.repeat(500)] }], { limit: 50 });
+    assert.equal(text.length, 50, 'no word boundary exists, so the cap still applies');
+  });
+});

@@ -5,6 +5,9 @@ import {
   categoryFor, methodFor, kindFor, toRecord, planStatement, toStatementRecord, reviewBatch,
 } from '../js/domain/import.js';
 import { entities } from '../js/data/schema.js';
+import { DocumentStore } from '../js/sync/drive.js';
+import { PdfDocument } from '../js/reports/pdf.js';
+import { matches } from '../js/domain/filing.js';
 import {
   config, configure, isConfigured, loadStoredConfig, saveStoredConfig,
 } from '../js/core/config.js';
@@ -435,5 +438,74 @@ describe('configuring a hosted copy', () => {
     });
     assert.equal(config().pbkdf2Iterations, before,
       'a stored deployment must not be able to weaken the key derivation');
+  });
+});
+
+/* ---------------------------------------------- reading an uploaded document */
+
+describe('a document that can be read', () => {
+  /** A File, as a browser hands one to `capture`. */
+  const asFile = (bytes, { name, type }) => ({
+    name,
+    type,
+    size: bytes.length,
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  });
+
+  test('a PDF upload becomes searchable by what is inside it', async () => {
+    // Written with this application's own PDF writer and read back with its own
+    // reader. That round trip is the point: the two were built separately and
+    // nothing else checks they agree.
+    const bytes = new PdfDocument({ title: 'Motor policy' })
+      .paragraph('Policy number KA51AB1234')
+      .paragraph('Insured value 450000')
+      .build();
+
+    const db = await makeDb();
+    const store = new DocumentStore({ db, transport: null });
+
+    const { document } = await store.capture(
+      asFile(bytes, { name: 'policy.pdf', type: 'application/pdf' }),
+      { title: 'Motor policy', category: 'insurance' },
+    );
+
+    const saved = await db.repo('document').get(document.id);
+    assert.ok(saved.ocrText, 'nothing was read out of the document');
+    assert.includes(saved.ocrText, 'KA51AB1234');
+
+    // The whole reason the text is stored: finding the document by a number
+    // that appears inside it and nowhere in anything anybody typed.
+    assert.ok(matches(saved, 'KA51AB1234'), 'the document is not findable by its contents');
+    assert.not(matches(saved, 'KA99ZZ0000'));
+  });
+
+  test('a file with no readable text is still stored', async () => {
+    // The upload must never depend on the reader succeeding.
+    const db = await makeDb();
+    const store = new DocumentStore({ db, transport: null });
+
+    const { document } = await store.capture(
+      asFile(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), { name: 'scan.jpg', type: 'image/jpeg' }),
+      { title: 'A photograph', category: 'other' },
+    );
+
+    const saved = await db.repo('document').get(document.id);
+    assert.ok(saved, 'the record must exist whether or not text was read');
+    assert.not(saved.ocrText);
+  });
+
+  test('a PDF the reader chokes on costs the text, not the file', async () => {
+    const db = await makeDb();
+    const store = new DocumentStore({ db, transport: null });
+
+    const { document } = await store.capture(
+      asFile(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a, 0x00, 0x01]),
+        { name: 'broken.pdf', type: 'application/pdf' }),
+      { title: 'Truncated', category: 'other' },
+    );
+
+    const saved = await db.repo('document').get(document.id);
+    assert.ok(saved, 'a malformed PDF must not fail the upload');
+    assert.equal(saved.title, 'Truncated');
   });
 });

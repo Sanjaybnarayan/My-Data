@@ -28,6 +28,7 @@ import { encryptBytes, decryptBytes, toBase64 } from '../security/crypto.js';
 import { AppError, TransportError } from '../core/errors.js';
 import { safeFileName } from '../security/sanitize.js';
 import { bus, TOPIC } from '../core/bus.js';
+import { canReadText, indexableText } from '../domain/filing.js';
 
 /** Drive rejects nothing on size, but a base64 body through Apps Script does. */
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
@@ -85,7 +86,41 @@ export class DocumentStore {
       createdAt: new Date().toISOString(),
     });
 
+    // The file is safe from here on. Reading its text is a best-effort extra
+    // and is deliberately attempted *after* the record and the blob exist, so
+    // a PDF this cannot parse costs a search index entry and never the file.
+    const ocrText = await this.#readText(bytes, file.type);
+    if (ocrText) {
+      await this.#db.repo('document').update(document.id, { ocrText });
+      document.ocrText = ocrText;
+    }
+
     return { document, blobId };
+  }
+
+  /**
+   * The text inside a document, where there is any to be had.
+   *
+   * The reader is imported on demand rather than at the top of this file: it is
+   * six hundred lines that nobody needs until they upload a PDF, and this class
+   * is constructed at boot.
+   *
+   * Every failure is swallowed on purpose. A document whose text could not be
+   * read is a document you can still open, still file and still find by its
+   * title — an upload that failed because of it would be a worse outcome than
+   * the one it was protecting against.
+   */
+  async #readText(bytes, mimeType) {
+    if (!canReadText(mimeType)) return '';
+
+    try {
+      const { extract } = await import('../data/pdf-read.js');
+      const result = await extract(bytes);
+      if (result.encrypted) return '';
+      return indexableText(result.pages);
+    } catch {
+      return '';
+    }
   }
 
   /**
