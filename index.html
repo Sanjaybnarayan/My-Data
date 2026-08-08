@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FamilyOS</title>
+<meta name="description" content="A private, offline-first record keeper for your household.">
+
+<!--
+  Content Security Policy.
+
+  `script-src 'self' 'unsafe-inline'` covers the one inline block below; every
+  other script is a module from this origin. `connect-src` is deliberately
+  narrow: this application talks to Google and to nothing else, so an injected
+  script has nowhere to send what it steals. `object-src 'none'` and
+  `base-uri 'none'` close the two classic bypasses.
+
+  `frame-ancestors` is deliberately absent: a browser ignores it when it
+  arrives in a meta tag, and a directive that does nothing but log an error is
+  worse than none. Send it as a header — docs/DEPLOYMENT.md lists the full set.
+-->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' 'unsafe-inline';
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: blob: https://lh3.googleusercontent.com;
+  font-src 'self';
+  connect-src 'self' https://script.google.com https://script.googleusercontent.com https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com;
+  frame-src 'self' blob: https://accounts.google.com;
+  object-src 'none';
+  base-uri 'none';
+  form-action 'none';
+">
+
+<meta name="theme-color" content="#fbfbfc">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="FamilyOS">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./assets/icon-192.png">
+
+<link rel="stylesheet" href="./css/tokens.css">
+<link rel="stylesheet" href="./css/base.css">
+<link rel="stylesheet" href="./css/components.css">
+
+<script>
+  /*
+   * Theme, before the first paint.
+   *
+   * This has to be inline and it has to be here. A module script is deferred,
+   * so by the time it runs the page has already painted white — and a dark-mode
+   * user gets a full-screen flash on every launch. Reading one string from
+   * localStorage synchronously is the price of not doing that to them.
+   */
+  try {
+    var stored = localStorage.getItem('familyos.theme');
+    if (stored === 'light' || stored === 'dark') {
+      document.documentElement.setAttribute('data-theme', stored);
+      document.querySelector('meta[name="theme-color"]')
+        .setAttribute('content', stored === 'dark' ? '#0e1014' : '#fbfbfc');
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0e1014');
+    }
+  } catch (e) { /* private mode with storage disabled: the default is fine */ }
+</script>
+</head>
+
+<body>
+  <div id="app">
+    <!--
+      The first paint, before any JavaScript has run. Not a spinner — a
+      spinner tells a person nothing except that something is happening, and
+      on a fast device it flashes. This is the shape of what is coming.
+    -->
+    <div class="lock-screen">
+      <div class="lock-card">
+        <div class="brand-mark" style="margin:0 auto;width:48px;height:48px">FO</div>
+        <h1 style="font-size:var(--text-xl)">FamilyOS</h1>
+        <p class="small muted">Opening your records…</p>
+        <noscript>
+          <p class="small" style="color:var(--danger)">
+            FamilyOS needs JavaScript. Everything it does — the encryption, the
+            offline store, the sync — runs in your browser, so there is no
+            server-rendered version to fall back to.
+          </p>
+        </noscript>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

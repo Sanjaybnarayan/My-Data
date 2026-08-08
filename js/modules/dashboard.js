@@ -1,0 +1,363 @@
+/**
+ * The dashboard.
+ *
+ * What a household actually needs to see on opening the app: what it is
+ * worth, what is about to expire, what is due, and what changed. Every figure
+ * is computed from stored records by the `domain/` functions — nothing on this
+ * screen is a number somebody typed into a "dashboard settings" page.
+ *
+ * Widgets are individually toggleable and reorderable, and the arrangement is
+ * stored in `meta`, so it syncs with everything else and a second device shows
+ * the same dashboard.
+ */
+
+import { h, replace } from '../ui/dom.js';
+import { icon } from '../ui/icons.js';
+import {
+  card, cardHeader, metric, money, badge, button, empty, progress, listItem,
+  pageHeader, avatar, dueBadge,
+} from '../ui/components/basics.js';
+import { donutChart, barChart, seriesColour } from '../ui/components/charts.js';
+import { app } from '../context.js';
+import { bus, TOPIC } from '../core/bus.js';
+import { Router } from '../ui/router.js';
+import { netWorth } from '../domain/networth.js';
+import * as fin from '../domain/finance.js';
+import { portfolioSummary, allocation } from '../domain/portfolio.js';
+import { allReminders } from '../domain/reminders.js';
+import { recentActivity, describe as describeAudit } from '../data/audit.js';
+import { formatCompact, format } from '../core/money.js';
+import { formatDay, relativeDays, today } from '../core/dates.js';
+import { summarise } from '../ai/summary.js';
+
+const WIDGET_KEY = 'dashboard.widgets';
+
+const ALL_WIDGETS = [
+  'summary', 'networth', 'spending', 'reminders', 'bills', 'budgets',
+  'portfolio', 'dates', 'tasks', 'activity',
+];
+
+export async function render() {
+  const { db } = app();
+  const host = h('div', {});
+
+  const enabled = (await db.meta(WIDGET_KEY)) ?? ALL_WIDGETS;
+
+  async function paint() {
+    const data = await loadAll(db);
+    replace(host, [
+      pageHeader(greeting(db.actor), {
+        subtitle: formatDay(today()),
+        actions: [button('Customise', {
+          variant: 'subtle', iconName: 'settings', onClick: () => customise(enabled, paint),
+        })],
+      }),
+      h('div', { class: 'grid grid--wide' },
+        enabled.map((id) => WIDGETS[id]?.(data)).filter(Boolean)),
+    ]);
+  }
+
+  await paint();
+  const off = bus.on(TOPIC.dataChanged, () => paint());
+
+  return { node: host, destroy: off };
+}
+
+/* -------------------------------------------------------------- data load */
+
+/**
+ * One read of everything the dashboard needs, rather than a read per widget.
+ * Nine widgets each fetching transactions is nine passes over the same store.
+ */
+async function loadAll(db) {
+  const names = ['account', 'transaction', 'holding', 'investmentTransaction', 'property',
+    'vehicle', 'loan', 'policy', 'recurringPayment', 'budget', 'task', 'person',
+    'importantDate', 'document', 'subscription', 'healthRecord', 'appointment',
+    'education', 'certificate', 'digitalAsset', 'medication', 'vaccination'];
+
+  const byEntity = {};
+  for (const name of names) {
+    try {
+      byEntity[name] = await db.repo(name).list({ decrypt: false, limit: 10_000 });
+    } catch {
+      // A role without read access simply has no data for that widget.
+      byEntity[name] = [];
+    }
+  }
+
+  const accounts = fin.accountBalances(byEntity.account, byEntity.transaction);
+
+  return {
+    ...byEntity,
+    accounts,
+    net: netWorth({
+      accounts: byEntity.account,
+      transactions: byEntity.transaction,
+      holdings: byEntity.holding,
+      properties: byEntity.property,
+      vehicles: byEntity.vehicle,
+      loans: byEntity.loan,
+    }),
+    compare: fin.comparePeriods(byEntity.transaction),
+    reminders: allReminders(byEntity, { horizonDays: 45 }),
+    bills: fin.upcomingBills(byEntity.recurringPayment, byEntity.loan, { days: 30 }),
+    activity: await recentActivity(db.adapter, { limit: 8 }),
+    people: Object.fromEntries(byEntity.person.map((p) => [p.id, p.name])),
+  };
+}
+
+/* ---------------------------------------------------------------- widgets */
+
+const WIDGETS = {
+  summary: (data) => card({}, [
+    cardHeader('At a glance', null, { iconName: 'sparkle' }),
+    h('p', { style: { lineHeight: '1.7' } }, summarise(data)),
+  ]),
+
+  networth: (data) => card({}, [
+    cardHeader('Family net worth', h('a', {
+      class: 'btn btn--small', href: Router.href({ module: 'investments' }),
+    }, 'Details')),
+    metric({
+      label: 'Assets minus liabilities',
+      value: formatCompact(data.net.total),
+      hint: `${format(data.net.assets)} assets · ${format(data.net.liabilities)} owed`,
+    }),
+    data.net.breakdown.length
+      ? donutChart(
+        data.net.breakdown.filter((b) => b.value > 0),
+        { label: 'Net worth breakdown', size: 150 },
+      )
+      : h('p', { class: 'small faint' }, 'Add an account or an investment to see this.'),
+    data.net.staleValuations.length
+      ? h('p', { class: 'small faint' }, [
+        icon('info', { size: 14 }),
+        ` ${data.net.staleValuations.length} item${data.net.staleValuations.length === 1 ? '' : 's'} `
+        + 'valued at cost or excluded — update the valuations for a truer figure.',
+      ])
+      : null,
+  ]),
+
+  spending: (data) => {
+    const series = fin.monthlySeries(data.transaction, 6);
+    const categories = fin.byCategory(fin.inPeriod(data.transaction, 'month')).slice(0, 6);
+
+    return card({}, [
+      cardHeader('This month', h('a', {
+        class: 'btn btn--small', href: Router.href({ module: 'finance', entity: 'transaction' }),
+      }, 'All')),
+      h('div', { class: 'row', style: { gap: 'var(--space-6)' } }, [
+        metric({
+          label: 'Spent',
+          value: formatCompact(data.compare.current.expense),
+          delta: data.compare.expenseChange,
+          goodWhen: 'down',
+          hint: 'vs last month',
+        }),
+        metric({
+          label: 'Received',
+          value: formatCompact(data.compare.current.income),
+          delta: data.compare.incomeChange,
+          hint: 'vs last month',
+        }),
+      ]),
+      barChart(series.map((m) => ({ label: m.label, value: m.expense })), {
+        height: 110,
+        label: 'Monthly spending over six months',
+        tone: () => seriesColour(1),
+      }),
+      categories.length
+        ? h('div', { class: 'stack stack--tight', style: { marginTop: 'var(--space-4)' } },
+          categories.map((c, i) => h('div', { class: 'row row--between small' }, [
+            h('span', { class: 'legend-item' }, [
+              h('span', { class: 'legend-swatch', style: { background: seriesColour(i) } }),
+              c.label,
+            ]),
+            money(c.value),
+          ])))
+        : null,
+    ]);
+  },
+
+  reminders: (data) => {
+    const rows = data.reminders.filter((r) => r.group === 'expiry').slice(0, 8);
+    return card({ class: 'card--flush' }, [
+      h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
+        cardHeader('Expiring & due', badge(String(rows.length), rows.some((r) => r.days < 0) ? 'danger' : ''), { iconName: 'alert' })),
+      rows.length
+        ? h('div', { class: 'list' }, rows.map((r) => listItem({
+          title: r.title,
+          subtitle: `${r.label} · ${formatDay(r.date)}`,
+          trailing: dueBadge(r.date, { leadDays: 30 }),
+          href: Router.href({ module: r.module, entity: r.entity, id: r.recordId }),
+        })))
+        : empty({ title: 'Nothing expiring', message: 'Everything is in date.', iconName: 'check' }),
+    ]);
+  },
+
+  bills: (data) => card({ class: 'card--flush' }, [
+    h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
+      cardHeader('Bills in the next 30 days', null, { iconName: 'repeat' })),
+    data.bills.length
+      ? h('div', { class: 'list' }, data.bills.slice(0, 8).map((bill) => listItem({
+        title: bill.name,
+        subtitle: `${formatDay(bill.dueOn)}${bill.autoDebit ? ' · auto-debit' : ''}`,
+        value: format(bill.amount),
+        trailing: bill.overdue ? badge('overdue', 'danger') : null,
+        href: Router.href({
+          module: 'finance',
+          entity: bill.source === 'loan' ? 'loan' : 'recurringPayment',
+          id: bill.id,
+        }),
+      })))
+      : empty({ title: 'No bills due', iconName: 'check' }),
+    data.bills.length
+      ? h('div', { class: 'card-footer', style: { padding: 'var(--space-3) var(--space-5)' } }, [
+        h('span', { class: 'small muted' }, 'Total due'),
+        h('span', { class: 'spacer' }),
+        money(data.bills.reduce((t, b) => t + b.amount, 0)),
+      ])
+      : null,
+  ]),
+
+  budgets: (data) => {
+    const rows = fin.budgetStatus(data.budget, data.transaction);
+    if (!rows.length) return null;
+    return card({}, [
+      cardHeader('Budgets', null, { iconName: 'target' }),
+      h('div', { class: 'stack' }, rows.slice(0, 6).map((b) => h('div', { class: 'stack stack--tight' }, [
+        h('div', { class: 'row row--between small' }, [
+          h('span', {}, b.category),
+          h('span', { class: 'numeric muted' }, `${format(b.spent)} of ${format(b.limit)}`),
+        ]),
+        progress(b.spent, b.limit, { warnAt: (b.alertAtPercent ?? 80) / 100 }),
+      ]))),
+    ]);
+  },
+
+  portfolio: (data) => {
+    const summary = portfolioSummary(data.holding);
+    if (!summary.count) return null;
+    return card({}, [
+      cardHeader('Investments', h('a', {
+        class: 'btn btn--small', href: Router.href({ module: 'investments' }),
+      }, 'Open')),
+      h('div', { class: 'row', style: { gap: 'var(--space-6)' } }, [
+        metric({ label: 'Value', value: formatCompact(summary.value) }),
+        metric({
+          label: 'Gain',
+          value: formatCompact(summary.gain),
+          delta: summary.gainPercent,
+          compact: true,
+        }),
+      ]),
+      donutChart(allocation(data.holding), { label: 'Asset allocation', size: 140 }),
+    ]);
+  },
+
+  dates: (data) => {
+    const rows = data.reminders.filter((r) => r.group === 'date').slice(0, 6);
+    if (!rows.length) return null;
+    return card({ class: 'card--flush' }, [
+      h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
+        cardHeader('Coming up', null, { iconName: 'cake' })),
+      h('div', { class: 'list' }, rows.map((d) => listItem({
+        leading: avatar(data.people[d.personId] ?? d.title),
+        title: d.title,
+        subtitle: `${formatDay(d.date)} · ${relativeDays(d.date)}`,
+        trailing: d.turning ? badge(`turns ${d.turning}`) : null,
+      }))),
+    ]);
+  },
+
+  tasks: (data) => {
+    const open = data.task
+      .filter((t) => t.status !== 'done')
+      .sort((a, b) => (a.dueOn || '9999').localeCompare(b.dueOn || '9999'))
+      .slice(0, 6);
+    return card({ class: 'card--flush' }, [
+      h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
+        cardHeader('Tasks', h('a', {
+          class: 'btn btn--small', href: Router.href({ module: 'tasks' }),
+        }, 'All'), { iconName: 'check' })),
+      open.length
+        ? h('div', { class: 'list' }, open.map((t) => listItem({
+          title: t.title,
+          subtitle: t.dueOn ? relativeDays(t.dueOn) : 'no due date',
+          trailing: t.priority === 'urgent' ? badge('urgent', 'danger') : null,
+          href: Router.href({ module: 'tasks', entity: 'task', id: t.id }),
+        })))
+        : empty({ title: 'Nothing outstanding', iconName: 'check' }),
+    ]);
+  },
+
+  activity: (data) => card({ class: 'card--flush' }, [
+    h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
+      cardHeader('Recent activity', null, { iconName: 'clock' })),
+    data.activity.length
+      ? h('div', { class: 'list' }, data.activity.map((entry) => listItem({
+        title: describeAudit(entry, (id) => data.people[id] ?? 'Someone'),
+        subtitle: relativeDays(entry.at.slice(0, 10)),
+      })))
+      : empty({ title: 'Nothing yet', iconName: 'clock' }),
+  ]),
+};
+
+/* -------------------------------------------------------------- customise */
+
+async function customise(enabled, repaint) {
+  const { modal } = await import('../ui/components/modal.js');
+  const { db } = app();
+  const selection = new Set(enabled);
+
+  const body = h('div', { class: 'stack' }, ALL_WIDGETS.map((id) => h('label', {
+    class: 'checkbox',
+  }, [
+    h('input', {
+      type: 'checkbox',
+      checked: selection.has(id),
+      onChange: (e) => (e.target.checked ? selection.add(id) : selection.delete(id)),
+    }),
+    h('span', {}, WIDGET_LABELS[id] ?? id),
+  ])));
+
+  const { close } = modal({
+    title: 'Dashboard widgets',
+    body,
+    footer: [
+      button('Cancel', { variant: 'subtle', onClick: () => close() }),
+      button('Save', {
+        variant: 'primary',
+        onClick: async () => {
+          const next = ALL_WIDGETS.filter((id) => selection.has(id));
+          await db.setMeta(WIDGET_KEY, next);
+          enabled.length = 0;
+          enabled.push(...next);
+          close();
+          await repaint();
+        },
+      }),
+    ],
+  });
+}
+
+const WIDGET_LABELS = {
+  summary: 'Summary in words',
+  networth: 'Family net worth',
+  spending: 'This month’s spending',
+  reminders: 'Expiring & due',
+  bills: 'Upcoming bills',
+  budgets: 'Budgets',
+  portfolio: 'Investments',
+  dates: 'Birthdays & anniversaries',
+  tasks: 'Tasks',
+  activity: 'Recent activity',
+};
+
+function greeting(actor) {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  return actor?.name ? `${part}, ${actor.name.split(' ')[0]}` : part;
+}
+
+export { ALL_WIDGETS, loadAll };
