@@ -76,7 +76,10 @@ without a token belonging to your account.
 
 ### Netlify / Vercel / Cloudflare Pages
 
-Publish directory `.` (the repository root), no build command. Add a `_headers` file:
+Publish directory `.` (the repository root), no build command.
+
+`netlify.toml` is committed and already carries all of this, so connecting the
+repository needs no further settings. For a host that reads `_headers` instead:
 
 ```
 /*

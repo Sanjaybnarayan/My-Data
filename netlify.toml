@@ -1,0 +1,56 @@
+# Netlify configuration.
+#
+# The application is the repository root and there is nothing to build — it is
+# native ES modules served as files — so `publish` is "." and the build command
+# is empty. Connecting this repository in Netlify's UI, or running
+#
+#     npx netlify-cli deploy --prod --dir .
+#
+# from a clone, needs no further settings.
+#
+# The headers are the ones docs/DEPLOYMENT.md asks a host for. Two of them are
+# not optional:
+#
+#   - `index.html` and `sw.js` must not be cached hard. If they are, a browser
+#     keeps serving an old shell that points at files a deploy has already
+#     replaced, and the app looks broken until somebody clears their cache.
+#   - Everything under `js/` can be cached forever, because a release changes
+#     the service worker's VERSION and the worker is what decides which files
+#     are current.
+#
+# `Cross-Origin-Opener-Policy` is `same-origin-allow-popups` rather than
+# `same-origin` because the Google sign-in flow uses a popup that has to be
+# able to `postMessage` back to the opener.
+
+[build]
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/js/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/css/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Cross-Origin-Opener-Policy = "same-origin-allow-popups"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(self), payment=()"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains"
