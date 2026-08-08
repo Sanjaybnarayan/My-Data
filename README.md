@@ -67,6 +67,16 @@ household's shared, backed-up one.
   scratch. An offline-first application that cannot start without a network
   request is not offline-first.
 
+## Documents
+
+Uploads are encrypted on the device before they are stored, and filed into a
+folder per person in your own Drive. A PDF is also **read** on upload — its text
+is extracted here, in your browser, and indexed — so searching for a policy
+number finds the policy even though that number appears nowhere you typed it.
+
+A scanned PDF is pictures of text and cannot be read this way; it is stored and
+previewed like anything else, and findable by its title.
+
 ## Bank statements
 
 **Finance → Import** takes every statement PDF you have — all accounts, all

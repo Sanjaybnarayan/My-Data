@@ -134,5 +134,53 @@ export function formatSize(bytes) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/* -------------------------------------------------- reading what is inside */
+
+/**
+ * Whether a document's text can be read without OCR.
+ *
+ * A PDF made by a computer — a statement, a policy, a bill — carries its text
+ * as text, and that can be lifted out exactly. A *scanned* PDF carries pictures
+ * of text and cannot, which is a different problem and still an unsolved one
+ * here. Both arrive as `application/pdf`, so this says what is worth trying,
+ * not what will succeed.
+ */
+export function canReadText(mimeType) {
+  return String(mimeType ?? '') === 'application/pdf';
+}
+
+/**
+ * A document's text, trimmed to something worth storing.
+ *
+ * The cap is not arbitrary. This text lands in `ocrText`, which is searchable,
+ * which means it is also a column in the household's Google Sheet — and a
+ * Sheets cell holds fifty thousand characters. A two-hundred-page policy would
+ * exceed that and break the sync for the whole row, so it is cut here, where
+ * the reason is visible, rather than at the boundary where the failure would be
+ * a rejected write nobody could explain.
+ *
+ * Twenty thousand characters is roughly eight pages of prose: enough to hold
+ * the policy number, the account number and the names, which is what anybody is
+ * actually searching a document for.
+ *
+ * @param {Array<{lines: string[]}>} pages from the PDF reader
+ * @param {{limit?: number}} [options]
+ */
+export function indexableText(pages, { limit = 20_000 } = {}) {
+  const text = (pages ?? [])
+    .flatMap((page) => page?.lines ?? [])
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (text.length <= limit) return text;
+
+  // Cut at a word boundary, so the tail is not half an account number — which
+  // would match nothing and read like corruption.
+  const cut = text.slice(0, limit);
+  const boundary = cut.lastIndexOf(' ');
+  return (boundary > 0 ? cut.slice(0, boundary) : cut).trim();
+}
+
 /** Every category the schema allows, so a caller never invents one. */
 export { CATEGORIES };
