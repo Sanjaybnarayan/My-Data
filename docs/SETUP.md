@@ -189,6 +189,16 @@ Every import also writes a **Statement** record under Finance, holding the
 period, the bank's own opening and closing balances and any rows that could not
 be read. Statements are the evidence a month was loaded at all.
 
+### Scanned documents
+
+A PDF made by a computer is read in your browser. A **photograph or a scan** is
+pixels, and is read by Drive's own OCR in your own Google account when the file
+uploads — so it needs the backend deployed, and a scan uploaded while you are
+offline is read whenever the upload eventually goes through.
+
+Nothing about this sends your documents to anybody: the file is copied to a
+Google Doc inside your Drive, the text is exported, and the copy is thrown away.
+
 ### If you run a business
 
 Name it under **Your businesses** on the Import screen, exactly as it appears on

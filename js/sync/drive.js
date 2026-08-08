@@ -29,6 +29,7 @@ import { AppError, TransportError } from '../core/errors.js';
 import { safeFileName } from '../security/sanitize.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { canReadText, indexableText } from '../domain/filing.js';
+import { readDocument, suggestions } from '../domain/extract.js';
 
 /** Drive rejects nothing on size, but a base64 body through Apps Script does. */
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
@@ -89,13 +90,18 @@ export class DocumentStore {
     // The file is safe from here on. Reading its text is a best-effort extra
     // and is deliberately attempted *after* the record and the blob exist, so
     // a PDF this cannot parse costs a search index entry and never the file.
-    const ocrText = await this.#readText(bytes, file.type);
-    if (ocrText) {
-      await this.#db.repo('document').update(document.id, { ocrText });
-      document.ocrText = ocrText;
+    const read = await this.#readText(bytes, file.type);
+    if (read) {
+      const patch = { ocrText: read.indexable, ...suggestions(read, document) };
+      await this.#db.repo('document').update(document.id, patch);
+      Object.assign(document, patch);
+      // Identifiers are handed back, never stored here. `ocrText` is
+      // searchable, and searchable means unencrypted — see domain/extract.js
+      // for why placing them somewhere encrypted is the caller's job.
+      document.identifiers = read.identifiers;
     }
 
-    return { document, blobId };
+    return { document, blobId, read };
   }
 
   /**
@@ -111,15 +117,21 @@ export class DocumentStore {
    * the one it was protecting against.
    */
   async #readText(bytes, mimeType) {
-    if (!canReadText(mimeType)) return '';
+    if (!canReadText(mimeType)) return null;
 
     try {
       const { extract } = await import('../data/pdf-read.js');
       const result = await extract(bytes);
-      if (result.encrypted) return '';
-      return indexableText(result.pages);
+      if (result.encrypted) return null;
+
+      const text = indexableText(result.pages);
+      if (!text) return null;
+
+      // `readDocument` returns the redacted text as `indexable`; nothing else
+      // in this class ever touches the raw string again.
+      return readDocument(text);
     } catch {
-      return '';
+      return null;
     }
   }
 
@@ -204,13 +216,27 @@ export class DocumentStore {
           // something a human can read; the id travels so a later rename moves
           // that folder rather than orphaning it.
           person: await this.#personFor(document),
+          // Only ask the server to read it if this device could not. A PDF
+          // with a text layer was already read here, and asking Drive to read
+          // it again would spend an OCR pass on an answer we have.
+          ocr: !document.ocrText,
         });
 
-        await this.#db.repo('document').update(document.id, {
+        const patch = {
           driveFileId: result.fileId,
           driveFolderId: result.folderId,
           versionCount: result.versionCount ?? document.versionCount ?? 1,
-        });
+        };
+
+        // Text that came back from Drive's OCR goes through exactly the same
+        // redaction as text read here — the rule about what may reach a
+        // searchable field does not depend on who did the reading.
+        if (result.text && !document.ocrText) {
+          const read = readDocument(indexableText([{ lines: [result.text] }]));
+          Object.assign(patch, { ocrText: read.indexable }, suggestions(read, document));
+        }
+
+        await this.#db.repo('document').update(document.id, patch);
         await this.#db.adapter.write('blobs', { ...blob, uploaded: true, driveFileId: result.fileId });
         uploaded++;
       } catch (err) {

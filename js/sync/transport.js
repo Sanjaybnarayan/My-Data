@@ -167,8 +167,8 @@ export class AppsScriptTransport {
    * `person` is `{ id, name }` or null, and decides which folder the file
    * lands in — dropping it here would file everybody's papers together.
    */
-  upload({ name, mimeType, content, category, documentId, person }) {
-    return this.call('upload', { name, mimeType, content, category, documentId, person });
+  upload({ name, mimeType, content, category, documentId, person, ocr }) {
+    return this.call('upload', { name, mimeType, content, category, documentId, person, ocr });
   }
 
   download(fileId) {
