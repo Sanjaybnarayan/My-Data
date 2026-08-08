@@ -17,7 +17,7 @@
  * invalidate.
  */
 
-const VERSION = 'familyos-v2';
+const VERSION = 'familyos-v3';
 const SHELL_CACHE = `${VERSION}-shell`;
 
 /**
@@ -76,6 +76,7 @@ const SHELL = [
   './js/auth/lock.js',
 
   './js/domain/automation.js',
+  './js/domain/extract.js',
   './js/domain/filing.js',
   './js/domain/categorise.js',
   './js/domain/finance.js',

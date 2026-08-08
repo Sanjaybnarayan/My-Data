@@ -15,7 +15,7 @@ honest half: the line between what is built and what is not.
 | **Security** | AES-256-GCM field encryption bound to entity, record and field; one data key wrapped separately by PIN, WebAuthn and a recovery phrase; RBAC enforced in the repository rather than the interface; session timeout; rate-limited unlock |
 | **Offline** | Every read and write local; outbox with exponential backoff; three-way field-level conflict merge with a deterministic tie-break so two devices converge without talking to each other |
 | **Modules** | Sixteen, over thirty-three entities. Fifteen are the same file reading the schema; the exceptions are dashboard, finance, investments, documents, family, calendar, reports, settings and the assistant |
-| **Documents** | Capture, encrypt on the device, upload to a per-person Drive folder, preview PDFs and images, and read the text out of a PDF so it is searchable by its contents |
+| **Documents** | Capture, encrypt on the device, upload to a per-person Drive folder, preview PDFs and images, read the text out of a PDF, and pull structured fields out of a bill or a policy — a due date fills itself in and the existing reminders pick it up |
 | **Statements** | PDF reader, column-aware parser, categoriser, import planner. Every account's statements at once, matched to accounts by the number printed on them, deduplicated by fingerprint, checked against the bank's own balances before anything is written |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
@@ -32,6 +32,13 @@ financial records, is the only acceptable failure mode. Wiring it to a hosted
 model would be a transport swap in `ai/assistant.js`, not a redesign, but no
 model is called today and none should be without a decision about what leaves
 the device.
+
+**Identifiers are redacted before anything is indexed.** `ocrText` is
+searchable, and in this schema searchable means unencrypted — a search index
+over ciphertext finds nothing. So a PAN, an Aadhaar, a passport or a card
+number found in a document is removed from the indexed text and handed back
+separately, to be put somewhere encrypted. Getting better at reading must not
+make the application worse at keeping a secret.
 
 **OCR is still not implemented — but text extraction is.** A PDF made by a
 computer carries its text as text, and every PDF uploaded to Documents is now
