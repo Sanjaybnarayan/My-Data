@@ -80,13 +80,11 @@ instead, the deployment access is not set to "Anyone".
 3. **APIs & Services → OAuth consent screen**:
    - User type: **External**, unless you have a Workspace account.
    - Fill in the app name and your email.
-   - Scopes: add `drive.file` and `spreadsheets`. That is enough for
-     everything, **Continue with Google** included. `drive.appdata` is
-     optional and only moves the unlock key into a hidden folder instead of a
-     visible file. **Not** the Gmail scope — the browser never talks to
-     Gmail. Mail is read by the Apps Script backend under its own
-     authorisation, and the browser's token is only ever used to prove which
-     Google account is asking.
+   - Scopes: see the table below. The short version is `openid`, `email`,
+     `profile`, `drive.file` and `spreadsheets`; everything else is optional
+     and each buys one named feature. **Settings → Google permissions** in the
+     app lists the same thing with a copy button, and is generated from the
+     code rather than written out here, so it cannot go stale.
    - Test users: **add your own email address, and every family member's.**
      While the app is in testing mode, only listed users can sign in.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
@@ -239,6 +237,51 @@ per-application folder that does not appear in your Drive listing. That is a
 difference in tidiness, not in security: the hidden folder is not a boundary,
 and anyone who can sign in as you reads either. A key written in one place is
 found from the other, so adding or removing the scope later loses nothing.
+
+## Google permissions, in full
+
+Two consent surfaces, and conflating them is why somebody adds a scope in the
+Cloud Console and nothing changes.
+
+**The OAuth consent screen** is what a person grants when they press a button
+in the app. **The Apps Script deployment** authorises itself, once, from its
+own `appsscript.json`, on the "this app isn't verified" screen during
+deployment — family members never see it and adding it to the consent screen
+does nothing.
+
+### On the OAuth consent screen — required
+
+| Scope | What it is | Why |
+| --- | --- | --- |
+| `openid` | Sign in | Proves which Google account is asking. Nothing more. |
+| `email` | Your email address | The backend admits accounts by address, and mailboxes are named by one. |
+| `drive.file` | Files this app creates in your Drive | Documents you upload, and the unlock key if you sign in with Google. Deliberately narrow: it cannot see anything else in your Drive. |
+| `spreadsheets` | Your spreadsheets | The backup workbook is a Google Sheet in your own Drive. |
+
+### Optional — each buys one feature
+
+| Scope | What it is | Add it if |
+| --- | --- | --- |
+| `profile` | Your name and picture | Shown in the corner of the app. Cosmetic. |
+| `drive.appdata` | A hidden folder of its own | Tidier home for the unlock key. Optional: without it the key goes in an ordinary visible file, which works identically. |
+| `gmail.readonly` | Read your mail | Only if you attach a mailbox with “Add a Gmail account” in Shops. Asked for separately, per mailbox, never at ordinary sign-in. |
+
+### The Apps Script deployment authorises separately
+
+| Scope | Why |
+| --- | --- |
+| `spreadsheets` | The backend writes the backup workbook. |
+| `drive.file` | Document folders, uploads, and the OCR conversion. |
+| `script.external_request` | Verifies your access token with Google before answering anything. |
+| `userinfo.email` | Compares the caller against the account that deployed it. |
+| `gmail.readonly` | Only if you kept `Gmail.gs`. Delete that file and this scope to opt out. |
+
+Everything here is declared once, in `js/core/scopes.js`, and read by the code
+that asks for it, by **Settings → Google permissions**, and by a test that
+fails if this file and `apps-script/appsscript.json` disagree. This table was
+generated from it.
+
+---
 
 ## Adding family members
 

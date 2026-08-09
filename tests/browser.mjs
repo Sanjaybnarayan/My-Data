@@ -320,6 +320,19 @@ async function main() {
       check('the privacy card loads without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
+      // The scopes were declared in four files and described in a fifth, in
+      // prose, which is how the setup page came to say the browser never
+      // reads mail. This is the list that cannot drift from what the code
+      // asks for, in front of the person doing the configuring.
+      check('Settings lists the Google permissions to add',
+        /Google permissions/.test(body), body.slice(0, 400));
+      check('and names the console page they go on',
+        /OAuth consent screen/.test(body));
+      check('and marks the optional ones as optional',
+        (await page.locator('.badge', { hasText: 'optional' }).count()) >= 2);
+      check('and says drive.appdata is not needed',
+        /do not need drive\.appdata/i.test(body), body.slice(0, 1200));
+
       if (SHOTS) await shot(page, 'settings-privacy');
     }
 

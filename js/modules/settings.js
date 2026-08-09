@@ -19,6 +19,7 @@ import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { config, isConfigured, saveStoredConfig, setLocalOnly } from '../core/config.js';
 import { privacyReport, whereData } from '../domain/privacy.js';
+import { consentScreen } from '../core/scopes.js';
 import { entities, entity, ROLES } from '../data/schema.js';
 import { Outbox } from '../sync/outbox.js';
 import { formatInstant, formatDay } from '../core/dates.js';
@@ -50,6 +51,7 @@ async function paint(host) {
     h('div', { class: 'grid grid--wide' }, [
       privacyCard(db, host),
       googleCard(auth, sync, status),
+      permissionsCard(),
       householdCard(),
       syncCard(db, sync, status),
       securityCard(db),
@@ -233,6 +235,68 @@ function privacyCard(db, host) {
       onClick: () => { open = !open; paintDetail(); },
     }, 'Show me field by field'),
     detail,
+  ]);
+}
+
+/* -------------------------------------------------------------- permissions */
+
+/**
+ * Exactly which Google permissions to add, and where.
+ *
+ * Here rather than only in a setup document, because the person doing the
+ * configuring is looking at this screen and the document is a scroll and a tab
+ * away. Built from `core/scopes.js`, which is also what the code asks for — so
+ * this cannot describe a permission the application does not request, which is
+ * how the setup page came to say the browser never reads mail.
+ */
+function permissionsCard() {
+  const { required, optional } = consentScreen();
+
+  const copy = (list, label) => button(label, {
+    variant: 'subtle',
+    iconName: 'copy',
+    onClick: async () => {
+      try {
+        await navigator.clipboard.writeText(list.map((scope) => scope.id).join('\n'));
+        toast('Copied — paste into “Add or remove scopes”', { kind: 'success' });
+      } catch {
+        toast('Could not reach the clipboard. Select the list and copy it.', { kind: 'error' });
+      }
+    },
+  });
+
+  const row = (scope) => listItem({
+    title: scope.id.replace('https://www.googleapis.com/auth/', ''),
+    subtitle: `${scope.title} — ${scope.why}`,
+    value: '',
+  });
+
+  return card({}, [
+    cardHeader('Google permissions', [copy([...required, ...optional], 'Copy all')], {
+      subtitle: 'Cloud Console → APIs & Services → OAuth consent screen → Scopes',
+      iconName: 'key',
+    }),
+
+    h('p', { class: 'small muted' },
+      'Two consent surfaces, and mixing them up is why adding a scope in the console '
+      + 'sometimes changes nothing. This list is the one a person grants in the browser. '
+      + 'The Apps Script backend authorises itself separately, from its own manifest, '
+      + 'when you deploy it — nothing here affects that.'),
+
+    h('h3', { class: 'small' }, 'Required'),
+    h('div', { class: 'list' }, required.map(row)),
+    copy(required, 'Copy the required five'),
+
+    h('h3', { class: 'small', style: { marginTop: 'var(--space-4)' } }, 'Optional'),
+    h('div', { class: 'list' }, optional.map((scope) => listItem({
+      title: scope.id.replace('https://www.googleapis.com/auth/', ''),
+      subtitle: `${scope.title} — ${scope.why}`,
+      trailing: badge('optional', ''),
+    }))),
+    h('p', { class: 'small faint' },
+      'Each optional one buys a single named feature and nothing works worse without it. '
+      + 'Notably you do not need drive.appdata: without it the unlock key goes in an '
+      + 'ordinary visible file in your Drive, which works identically.'),
   ]);
 }
 

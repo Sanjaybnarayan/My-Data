@@ -47,8 +47,9 @@
 import { randomBytes, toBase64, fromBase64 } from './crypto.js';
 import { AppError } from '../core/errors.js';
 
-/** The application's own hidden folder in the user's Drive. */
-export const APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+// Declared in `core/scopes.js` alongside what it is for; re-exported so this
+// module stays the one place that knows how the key is stored.
+export { APPDATA_SCOPE } from '../core/scopes.js';
 
 const FILES = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';

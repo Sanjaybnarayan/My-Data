@@ -39,6 +39,7 @@ const SHELL = [
   './js/app.js',
   './js/context.js',
 
+  './js/core/scopes.js',
   './js/core/bus.js',
   './js/core/config.js',
   './js/core/dates.js',

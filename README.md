@@ -190,8 +190,8 @@ else: never a workbook, never a Drive folder, never anything to sync. See
 ## Tests
 
 ```
-npm test              # 610 checks, no browser, nothing installed
-npm run test:browser  # 128 checks in a real Chromium
+npm test              # 621 checks, no browser, nothing installed
+npm run test:browser  # 132 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is
