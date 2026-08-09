@@ -54,10 +54,17 @@ household's shared, backed-up one.
 
 - **Offline-first.** Every read and write is local. Sync is a background
   reconciliation, not the path a screen waits on.
-- **Encrypted on the device.** A random 256-bit key encrypts the sensitive
-  fields; your PIN, a fingerprint and a recovery phrase each wrap a copy of it.
-  Nobody who has not got one of those three can read the data — including
-  whoever hosts it.
+- **Encrypted on the device — the sensitive fields, not every field.** A random
+  256-bit key encrypts identity numbers, account numbers, policy numbers,
+  passwords, diagnoses and the like; your PIN, a fingerprint and a recovery
+  phrase each wrap a copy of it. **The rest is stored as it reads**, because a
+  search index over ciphertext finds nothing and a table cannot sort a column
+  it cannot read — so a payee, a bank narration, an amount and a date are
+  readable on this device and in your Google Sheet. Settings → Privacy counts
+  it field by field rather than asking you to take that on trust.
+- **Local-only, if you want it.** One switch and nothing leaves the device: no
+  sync, no uploads, no mail, no key escrow. Enforced at all four exits, not
+  just the sync engine. The cost is that there is then no backup at all.
 - **Or sign in with Google, if you would rather.** One press gets you in with
   backup already configured, on every device, with nothing to remember. It
   keeps the unlocking key in a hidden folder in your own Drive, which means
@@ -183,8 +190,8 @@ else: never a workbook, never a Drive folder, never anything to sync. See
 ## Tests
 
 ```
-npm test              # 587 checks, no browser, nothing installed
-npm run test:browser  # 122 checks in a real Chromium
+npm test              # 604 checks, no browser, nothing installed
+npm run test:browser  # 128 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is

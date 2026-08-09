@@ -59,6 +59,7 @@ import { GoogleAuth } from '../auth/google.js';
 import { today, addDays, addMonths, formatDay } from '../core/dates.js';
 import { format } from '../core/money.js';
 import { userMessage } from '../core/errors.js';
+import { config } from '../core/config.js';
 
 /** Where a household's own shops are kept. */
 const SHOPS = 'inbox.shops';
@@ -174,6 +175,13 @@ export async function render() {
 
     if (!query) {
       toast('Choose at least one shop to look for.', { kind: 'error' });
+      return;
+    }
+    // The fourth way out of this device, and it gets the same check as the
+    // other three rather than relying on nobody having added a mailbox.
+    if (config().localOnly) {
+      toast('Local-only is on, so nothing here reads your mail. '
+        + 'Turn it off in Settings → Privacy first.', { kind: 'error' });
       return;
     }
     if (!mailboxes.length) {

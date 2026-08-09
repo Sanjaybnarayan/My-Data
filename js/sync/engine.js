@@ -33,6 +33,7 @@ import { entities, sheetManifest } from '../data/schema.js';
 import { indexEntry, indexKey } from '../data/search.js';
 import { schemaFingerprint } from '../data/migrations.js';
 import { unsyncedAudit } from '../data/audit.js';
+import { config } from '../core/config.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { TransportError } from '../core/errors.js';
 
@@ -89,6 +90,13 @@ export class SyncEngine {
   }
 
   async #run({ full = false } = {}) {
+    // Checked before the transport and separately from it: "no deployment
+    // configured" is an accident somebody may correct by pasting a URL into
+    // Settings, and this is a decision that has been made.
+    if (config().localOnly) {
+      this.#setState(SYNC_STATE.idle);
+      return { skipped: 'local-only' };
+    }
     if (!this.#transport?.configured) {
       this.#setState(SYNC_STATE.idle);
       return { skipped: 'not-configured' };

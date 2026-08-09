@@ -24,7 +24,7 @@ honest half: the line between what is built and what is not.
 | **Backend** | Apps Script, loaded into Node and tested against literal stubs: admission, the member list, the cache, the request contract |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 587 checks with no browser and nothing installed; 122 more in a real Chromium. Both in CI |
+| **Tests** | 604 checks with no browser and nothing installed; 128 more in a real Chromium. Both in CI |
 
 ## Deliberately not built
 
@@ -117,6 +117,23 @@ beside the other three rather than a replacement, it is offered with the cost
 written next to the button, and turning it off deletes the key out of Drive
 rather than forgetting it locally. Escrowed or not, what Drive holds is a
 wrapping key and never the data key.
+
+**Most fields are not encrypted, and the application now says so where a
+household will see it.** Twenty-eight fields carry `encrypted: true` — identity
+and account numbers, passwords, diagnoses, nominees, policy and registration
+identifiers. The other four hundred are stored as written, on this device and
+in the household's Google Sheet alike, because a search index over ciphertext
+finds nothing and a table cannot sort a column it cannot read. Settings →
+Privacy counts both halves from the schema and names, per field, the reason it
+is readable. Two checks in the suite hold the line: nothing sealed may also be
+searchable, and nothing sealed may be a list column except two titles that are
+named explicitly.
+
+**Local-only is a switch, not the absence of configuration.** Sync, document
+upload, mail reading and key escrow each check it separately, because there are
+four ways out and one check at the top of the sync engine would leave three
+open. It is off by default: a household that never turns it on still gets a
+backup, and a backup nobody has is how records are lost.
 
 **Market prices are entered by hand.** No third-party price API is bundled. An
 Apps Script `GOOGLEFINANCE` bridge would cover the instruments Sheets supports.
