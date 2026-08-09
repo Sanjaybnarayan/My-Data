@@ -125,6 +125,10 @@ are the seam that actually exists, and one Gmail connection covers all of them
 at once — including shops nobody built an integration for, which you add by
 naming the domain their receipts arrive from.
 
+A first scan walks forward on its own — each pass starts where the last one
+stopped — so a backfill over years of mail is one press rather than a date
+field you keep nudging.
+
 Gmail has no per-sender permission, so the meaningful limit is the query. It
 names senders and a date and nothing else, and the screen prints it in full
 before it runs. What is stored is the merchant, date, total, order number and a

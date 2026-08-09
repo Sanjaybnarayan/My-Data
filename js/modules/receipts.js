@@ -84,6 +84,15 @@ const ROUTE = {
 /** One call's ceiling. The backend caps it too; this is the polite request. */
 const SCAN_LIMIT = 200;
 
+/**
+ * How many calls one Scan will make per mailbox before stopping.
+ *
+ * Enough to walk a few years of receipts in one press, bounded so a mailbox
+ * that keeps reporting more can never turn into an unbounded loop against
+ * somebody's Gmail quota.
+ */
+const MAX_PASSES = 12;
+
 export async function render() {
   const { db } = app();
 
@@ -182,37 +191,59 @@ export async function render() {
 
     for (const mailbox of mailboxes) {
       try {
-        const result = await linkTo(mailbox).mail(query, SCAN_LIMIT);
-        const messages = result.messages ?? [];
+        const run = {
+          mailbox, searched: 0, recognised: 0, added: 0, passes: 0, truncated: false,
+        };
+        let from = since;
 
-        // Read here, on the device. Bodies go no further than this call, and
-        // the decisions it makes are unit-tested rather than only clickable.
-        const scan = planScan(messages, { mailboxId: mailbox.id, shops, known });
+        // A first backfill over years of mail is more than one call's worth,
+        // and asking somebody to keep nudging a date field until the numbers
+        // stop changing is a chore, not a feature. So it walks forward on its
+        // own: each pass starts the day of the newest receipt the last one
+        // found, and it stops when a pass stops making progress.
+        for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+          const result = await linkTo(mailbox).mail(currentQuery(from), SCAN_LIMIT);
+          const messages = result.messages ?? [];
 
-        for (const receipt of scan.fresh) {
-          await db.repo('receipt').create({
-            date: receipt.date ?? today(),
-            merchant: receipt.merchant,
-            merchantKey: receipt.merchantKey,
-            category: receipt.category,
-            amount: receipt.amount ?? 0,
-            orderId: receipt.orderId ?? '',
-            subscription: Boolean(receipt.subscription),
-            refund: Boolean(receipt.refund),
-            subject: receipt.subject ?? '',
-            mailbox: receipt.mailbox,
-            messageId: receipt.messageId,
-          });
+          // Read here, on the device. Bodies go no further than this call, and
+          // the decisions it makes are unit-tested rather than only clickable.
+          const scan = planScan(messages, { mailboxId: mailbox.id, shops, known });
+
+          for (const receipt of scan.fresh) {
+            await db.repo('receipt').create({
+              date: receipt.date ?? today(),
+              merchant: receipt.merchant,
+              merchantKey: receipt.merchantKey,
+              category: receipt.category,
+              amount: receipt.amount ?? 0,
+              orderId: receipt.orderId ?? '',
+              subscription: Boolean(receipt.subscription),
+              refund: Boolean(receipt.refund),
+              subject: receipt.subject ?? '',
+              mailbox: receipt.mailbox,
+              messageId: receipt.messageId,
+            });
+          }
+
+          run.searched += scan.searched;
+          run.recognised += scan.read.length;
+          run.added += scan.fresh.length;
+          run.passes = pass + 1;
+          added += scan.fresh.length;
+
+          if (!result.truncated) break;
+
+          // Gmail's `after:` is day-granular, so a day holding more than one
+          // call's worth cannot be paged past by date. Requiring the window to
+          // actually move is what stops that becoming a loop.
+          const newest = latestDate(scan.read.map((r) => ({ date: r.date })));
+          if (!newest || newest <= from) { run.truncated = true; break; }
+          from = newest;
+
+          if (pass === MAX_PASSES - 1) run.truncated = true;
         }
 
-        added += scan.fresh.length;
-        runs.push({
-          mailbox,
-          searched: scan.searched,
-          recognised: scan.read.length,
-          added: scan.fresh.length,
-          truncated: Boolean(result.truncated),
-        });
+        runs.push(run);
       } catch (err) {
         runs.push({ mailbox, error: userMessage(err) });
       }
@@ -294,9 +325,9 @@ export async function render() {
     }
   }
 
-  function currentQuery() {
+  function currentQuery(from = since) {
     return searchQuery({
-      since,
+      since: from,
       keys: [...chosen],
       extra: shops,
     });
@@ -770,15 +801,17 @@ export async function render() {
           subtitle: run.error
             ? run.error
             : `${run.searched} read · ${run.recognised} receipts · ${run.added} new`
-              + (run.truncated ? ` · stopped at ${SCAN_LIMIT}` : ''),
+              + (run.passes > 1 ? ` · ${run.passes} passes` : '')
+              + (run.truncated ? ' · more to come' : ''),
           leading: badge(run.error ? 'failed' : 'read', run.error ? 'warn' : 'success'),
         }))
         : []),
 
       good.some((run) => run.truncated)
         ? h('p', { class: 'muted small' },
-          `A mailbox stopped at ${SCAN_LIMIT} messages, which is the backend's limit for `
-          + 'one call. Scan again with a later date to work through the rest.')
+          'A mailbox still has more than this scan could reach — either a single day '
+          + `holds more than ${SCAN_LIMIT} receipts, or there were more than ${MAX_PASSES} `
+          + 'calls’ worth. Press Scan again and it carries on from where it stopped.')
         : null,
       searched && !recognised
         ? h('p', { class: 'muted small' },
