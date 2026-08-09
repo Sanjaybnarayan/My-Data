@@ -45,6 +45,7 @@ export class GoogleAuth {
   #token = null;
   #expiresAt = 0;
   #profile = null;
+  #granted = [];
   #renewTimer = null;
   #inflight = null;
 
@@ -69,6 +70,27 @@ export class GoogleAuth {
 
   get profile() {
     return this.#profile;
+  }
+
+  /** The scopes Google actually granted, which is not always what was asked. */
+  get granted() {
+    return [...this.#granted];
+  }
+
+  /**
+   * What was asked for and not given.
+   *
+   * Google returns a perfectly good token after somebody unticks a permission
+   * on the consent screen, and after a Cloud project that never listed a scope
+   * drops it. Both then surface as a refusal from whichever API call needed
+   * it — which names the wrong problem, and sends people looking at their
+   * Drive rather than at their consent screen.
+   *
+   * `include_granted_scopes` means the grant can legitimately be *wider* than
+   * the request, so only the missing direction is interesting.
+   */
+  missingScopes() {
+    return missingScopes(this.scopes, this.#granted);
   }
 
   /** The sync transport calls this before every request. */
@@ -208,9 +230,10 @@ export class GoogleAuth {
     });
   }
 
-  #accept({ accessToken, expiresIn }) {
+  #accept({ accessToken, expiresIn, scope }) {
     this.#token = accessToken;
     this.#expiresAt = Date.now() + (Number(expiresIn) || 3600) * 1000;
+    this.#granted = String(scope ?? '').split(/\s+/).filter(Boolean);
 
     clearTimeout(this.#renewTimer);
     const delay = Math.max(30_000, this.#expiresAt - Date.now() - RENEW_MARGIN_MS);
@@ -254,6 +277,25 @@ export class GoogleAuth {
   }
 }
 
+/**
+ * What was asked for and not given.
+ *
+ * A free function because it is the whole of the logic and none of the state,
+ * and because a rule this easy to get backwards deserves to be tested without
+ * standing up an OAuth flow to do it.
+ *
+ * @param {string[]} asked
+ * @param {string[]} granted as Google returned them
+ */
+export function missingScopes(asked, granted) {
+  // A response that says nothing about scopes claims nothing. Reporting every
+  // scope as missing would be worse than reporting none.
+  if (!granted?.length) return [];
+  // `include_granted_scopes` means the grant is often *wider* than the
+  // request — earlier consents come back too — so only one direction matters.
+  return (asked ?? []).filter((scope) => !granted.includes(scope));
+}
+
 function redirectUriFor() {
   const { origin, pathname } = globalThis.location ?? { origin: '', pathname: '/' };
   return `${origin}${pathname.replace(/[^/]*$/, '')}oauth-callback.html`;
@@ -271,6 +313,12 @@ export function completeOAuthRedirect(target = globalThis) {
     state: fragment.get('state'),
     accessToken: fragment.get('access_token'),
     expiresIn: fragment.get('expires_in'),
+    // What was actually granted, which is not always what was asked for:
+    // Google returns a token happily after somebody unticks a permission on
+    // the consent screen, and after a project that never listed a scope
+    // quietly drops it. Without this the first sign of either is a refusal
+    // from an API call, which names the wrong problem.
+    scope: fragment.get('scope'),
     error: fragment.get('error'),
   };
 

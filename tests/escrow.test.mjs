@@ -2,6 +2,7 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import { DriveEscrow, APPDATA_SCOPE } from '../js/security/escrow.js';
 import { Keyring } from '../js/security/keyring.js';
 import { toBase64 } from '../js/security/crypto.js';
+import { missingScopes, completeOAuthRedirect } from '../js/auth/google.js';
 
 setSuite('escrow');
 
@@ -140,6 +141,44 @@ describe('when Google says no', () => {
   test('the scope is the app folder alone', () => {
     assert.equal(APPDATA_SCOPE, 'https://www.googleapis.com/auth/drive.appdata');
     assert.not(/drive\.file|drive\.readonly|auth\/drive$/.test(APPDATA_SCOPE));
+  });
+});
+
+/* ------------------------------------------------- what Google granted */
+
+describe('a token is not proof the permission was given', () => {
+  // Google hands back a working token whether or not it granted everything
+  // asked for — somebody unticks a permission on the consent screen, or a
+  // Cloud project that never listed a scope drops it. Both then surface two
+  // calls later as "Drive refused", which names the wrong problem and sends
+  // people to look at their Drive instead of their consent screen.
+  test('a scope asked for and not granted is reported', () => {
+    assert.deep(missingScopes(['openid', APPDATA_SCOPE], ['openid']), [APPDATA_SCOPE]);
+  });
+
+  test('a grant wider than the request is not a problem', () => {
+    // `include_granted_scopes` means earlier consents come back too, and
+    // treating that as an error would refuse a perfectly good sign-in.
+    assert.length(missingScopes(['openid'], ['openid', APPDATA_SCOPE]), 0);
+  });
+
+  test('a response that says nothing about scopes claims nothing', () => {
+    // Reporting every scope as missing would be worse than reporting none.
+    assert.length(missingScopes(['openid', APPDATA_SCOPE], []), 0);
+    assert.length(missingScopes(['openid'], undefined), 0);
+  });
+
+  test('the callback carries the granted scopes back, or none of this works', () => {
+    const posted = [];
+    completeOAuthRedirect({
+      location: { hash: '#access_token=t&expires_in=3599&state=s&scope=openid%20' + encodeURIComponent(APPDATA_SCOPE), pathname: '/cb' },
+      history: { replaceState() {} },
+      opener: null,
+      parent: { postMessage: (message) => posted.push(message) },
+    });
+
+    assert.includes(posted[0].scope, APPDATA_SCOPE);
+    assert.equal(posted[0].accessToken, 't');
   });
 });
 
