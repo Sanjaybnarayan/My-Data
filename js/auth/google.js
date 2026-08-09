@@ -171,7 +171,19 @@ export class GoogleAuth {
       const poll = setInterval(() => {
         if (popup.closed) {
           cleanup();
-          reject(new AppError('Sign-in was cancelled.', { code: 'cancelled' }));
+          // A closed popup and a refused redirect are indistinguishable from
+          // here — Google shows its own error page inside the popup and the
+          // person closes it. Reporting only "cancelled" for both sends
+          // somebody looking for a mistake they did not make, when the usual
+          // cause is a redirect URI the OAuth client does not list. So the
+          // message names the one thing they can check, and prints the exact
+          // string it has to match.
+          reject(new AppError(
+            'Sign-in did not complete. If you did not close the window yourself, '
+            + 'Google refused the redirect — the OAuth client must list exactly '
+            + `this as an authorised redirect URI: ${this.redirectUri}`,
+            { code: 'cancelled', redirectUri: this.redirectUri },
+          ));
         }
       }, 500);
 
@@ -296,7 +308,16 @@ export function missingScopes(asked, granted) {
   return (asked ?? []).filter((scope) => !granted.includes(scope));
 }
 
-function redirectUriFor() {
+/**
+ * Where Google is told to send the answer.
+ *
+ * Exported because Settings shows it: it has to be registered on the OAuth
+ * client character for character, and a person cannot check a string they
+ * cannot see. Derived from wherever this copy happens to be served, so a
+ * localhost install and a GitHub Pages one give different answers and both
+ * are right.
+ */
+export function redirectUriFor() {
   const { origin, pathname } = globalThis.location ?? { origin: '', pathname: '/' };
   return `${origin}${pathname.replace(/[^/]*$/, '')}oauth-callback.html`;
 }
