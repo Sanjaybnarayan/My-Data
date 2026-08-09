@@ -69,12 +69,16 @@ export async function boot() {
   const enrolled = await db.keyring.isEnrolled();
   const credentialId = await db.meta('auth.webauthnCredentialId');
 
+  // Carried out of the lock screen so the session that let somebody in is the
+  // one that syncs, rather than the app asking them to sign in twice.
+  let googleSession = null;
+
   await new Promise((resolve) => {
     replace(root(), lockScreen({
       keyring: db.keyring,
       limiter,
       biometricCredentialId: credentialId,
-      google: googleUnlock(),
+      google: googleUnlock((auth) => { googleSession = auth; }),
       mode: enrolled ? 'unlock' : 'enrol',
       onUnlocked: async ({ firstRun }) => {
         if (firstRun) {
@@ -90,15 +94,19 @@ export async function boot() {
     }));
   });
 
-  await start(db, limiter);
+  await start(db, limiter, googleSession);
 }
 
-async function start(db, limiter) {
+async function start(db, limiter, googleSession = null) {
   const actor = await resolveActor(db);
   db.setActor(actor);
   await db.logAudit(ACTIONS.unlock, {});
 
-  const auth = new GoogleAuth();
+  // Somebody who signed in to get past the lock screen is already signed in.
+  // Building a second `GoogleAuth` here would ask them again — through a
+  // hidden iframe that a strict browser blocks, and that on a machine with
+  // several Google accounts can renew as the wrong one.
+  const auth = googleSession ?? new GoogleAuth();
   const transport = new AppsScriptTransport({
     url: config().apiUrl,
     getToken: () => auth.getToken(),
@@ -170,19 +178,34 @@ async function start(db, limiter) {
  * consent covers both being let in and having somewhere to sync — which is the
  * point of offering it at all. Without a client id configured there is nothing
  * to offer, and the lock screen shows the PIN alone.
+ *
+ * `keep` receives the signed-in session so the rest of the application uses
+ * the *same* one. That sharing is not a tidiness: letting the sync engine
+ * build its own `GoogleAuth` meant a household signed in, landed in the app,
+ * and was immediately asked to sign in again — through a hidden iframe with
+ * `prompt=none`, which a browser strict about third-party cookies blocks, and
+ * which on a machine with several Google accounts can succeed *as the wrong
+ * one*. The session that let somebody in is the session that syncs.
+ *
+ * @param {(auth: GoogleAuth) => void} keep
  */
-function googleUnlock() {
+function googleUnlock(keep) {
   // Local-only means the unlock key does not go to Google either. Offering
   // this while that switch is on would put the one thing that opens the data
   // into the one place the household has said to keep out of.
   if (config().localOnly) return null;
   if (!config().googleClientId) return null;
 
+  // The extra scope is asked for only on this path. Adding it to the ordinary
+  // sign-in would break every household that has not put `drive.appdata` on
+  // their consent screen — including the ones that never wanted this button.
   const auth = new GoogleAuth({ scopes: [...config().scopes, APPDATA_SCOPE] });
   const escrow = new DriveEscrow({ getToken: () => auth.getToken() });
 
   const connect = async () => {
     await auth.signIn({ prompt: 'select_account consent' });
+    await auth.fetchProfile().catch(() => {});
+    keep(auth);
     return escrow;
   };
 
