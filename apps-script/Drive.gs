@@ -330,6 +330,30 @@ function driveDownload(fileId) {
   };
 }
 
+/**
+ * Move a file to the owner's Drive bin.
+ *
+ * Trashed, not destroyed. A deletion in this application is a soft one that
+ * Settings can undo, and a Drive file erased outright would be the one half of
+ * that pair which does not come back. Google keeps a binned file for thirty
+ * days, which is the same promise, and emptying the bin stays the owner's
+ * decision to make in their own Drive.
+ *
+ * A file that is already gone is a success, not an error: the caller wanted it
+ * absent and it is absent.
+ */
+function driveTrash(fileId) {
+  if (!fileId) throw fail('no file id was supplied', 400);
+
+  try {
+    var file = DriveApp.getFileById(fileId);
+    file.setTrashed(true);
+    return { trashed: true, name: file.getName() };
+  } catch (err) {
+    return { trashed: false, missing: true };
+  }
+}
+
 function driveVersions(fileId) {
   var url = 'https://www.googleapis.com/drive/v3/files/' + fileId
     + '/revisions?fields=revisions(id,modifiedTime,size)';

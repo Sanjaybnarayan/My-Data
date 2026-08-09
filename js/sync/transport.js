@@ -179,6 +179,11 @@ export class AppsScriptTransport {
     return this.call('versions', { fileId });
   }
 
+  /** Move a Drive file to the owner's bin. Trashed, never destroyed. */
+  trash(fileId) {
+    return this.call('trash', { fileId });
+  }
+
   /** The per-person document folders that exist in Drive. */
   personFolders() {
     return this.call('folders', {});
@@ -239,6 +244,7 @@ export class FakeTransport {
   upload(file) { return this.call('upload', file); }
   download(fileId) { return this.call('download', { fileId }); }
   fileVersions(fileId) { return this.call('versions', { fileId }); }
+  trash(fileId) { return this.call('trash', { fileId }); }
   personFolders() { return this.call('folders', {}); }
   mail(query, limit) { return this.call('mail', { query, limit }); }
   members(emails) { return this.call('members', emails ? { emails } : {}); }

@@ -171,7 +171,16 @@ export async function listSection(entityName, { fixedFilter, autoOpenNew = false
 
 /* ---------------------------------------------------------- detail screen */
 
-export async function recordDetail(entityName, id) {
+/**
+ * @param {string} entityName
+ * @param {string} id
+ * @param {{onDelete?: (id: string) => Promise<string|void>}} [options]
+ *   `onDelete` replaces the record-only delete for entities that own more than
+ *   a row — a document also owns bytes on this device and a file in Drive, and
+ *   removing the row alone leaves both behind with nothing pointing at them.
+ *   Return a string to say what actually happened.
+ */
+export async function recordDetail(entityName, id, options = {}) {
   const def = entity(entityName);
   const { db, router } = app();
 
@@ -232,8 +241,11 @@ export async function recordDetail(entityName, id) {
     if (!ok) return;
 
     try {
-      await db.repo(entityName).remove(id);
-      toast(`${def.labels.one} deleted`, {
+      let detail = '';
+      if (options.onDelete) detail = (await options.onDelete(id)) || '';
+      else await db.repo(entityName).remove(id);
+
+      toast(detail || `${def.labels.one} deleted`, {
         action: {
           label: 'Undo',
           onClick: async () => {
