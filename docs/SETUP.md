@@ -148,6 +148,45 @@ this device with row counts in the sheet and tells you if they disagree.
 
 ---
 
+## A second mailbox for receipts
+
+Finance → Shops reads the receipts shops email you. Apps Script's `GmailApp`
+can only read **the mailbox the script was authorised against** — there is no
+account parameter and consumer Gmail has no delegation — so a household whose
+receipts arrive at more than one address needs one deployment per address.
+
+This does not touch the backup. A mailbox added this way answers mail searches
+and nothing else: it is never given a workbook, never given a Drive folder, and
+never syncs. One Google account still holds all of that.
+
+For each extra account:
+
+1. Sign in to <https://script.google.com> **as that account** and create a
+   project. Copy in the same files from `apps-script/` and deploy it exactly as
+   in Step 1. (Only `Gmail.gs` and `Code.gs` will ever be called, but deploying
+   the whole thing keeps the two copies identical and upgradeable together.)
+2. Add that account's email as a test user on the OAuth consent screen — the
+   same consent screen from Step 2, not a new one. Without this, Google refuses
+   the sign-in.
+3. In the app: **Finance → Shops → Mailboxes**, paste the new `/exec` URL, give
+   it a name, and press **Connect**. A sign-in window opens; choose that Google
+   account. The app checks the deployment answers before saving it, so a
+   mistyped URL or the wrong account fails there rather than as an empty scan a
+   month later.
+
+Every scan then reads each mailbox in turn and reports what each one returned.
+A mailbox that cannot be read — signed out, or not yet redeployed with
+`Gmail.gs` — is named in the results and the others are still read.
+
+The sign-in for an extra mailbox asks for **identity only** (`openid email`).
+It is used to prove which Google account is asking; the mail itself is read by
+that account's own backend under its own authorisation. Which means each person
+grants their own Gmail permission and can revoke it from
+<https://myaccount.google.com/permissions> without affecting anybody else's —
+no single account ends up holding a key to everyone's inbox.
+
+---
+
 ## Adding family members
 
 1. **Identity → People → Add** — one record per person, with a role:

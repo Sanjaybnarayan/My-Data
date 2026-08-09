@@ -48,11 +48,19 @@ export class GoogleAuth {
   #renewTimer = null;
   #inflight = null;
 
+  /**
+   * `loginHint` matters once there is more than one of these. A browser signed
+   * into several Google accounts has a *default* one, and `prompt=none` picks
+   * it — so a second instance would silently renew as the wrong account and
+   * have its token refused by the backend it was built for. The hint pins it
+   * before any profile has been fetched.
+   */
   constructor({ clientId = config().googleClientId, scopes = config().scopes,
-    redirectUri = redirectUriFor() } = {}) {
+    redirectUri = redirectUriFor(), loginHint = '' } = {}) {
     this.clientId = clientId;
     this.scopes = scopes;
     this.redirectUri = redirectUri;
+    this.loginHint = loginHint;
   }
 
   get isSignedIn() {
@@ -86,7 +94,8 @@ export class GoogleAuth {
       nonce,
     });
     if (prompt) params.set('prompt', prompt);
-    if (this.#profile?.email) params.set('login_hint', this.#profile.email);
+    const hint = this.#profile?.email || this.loginHint;
+    if (hint) params.set('login_hint', hint);
     return `${AUTH_ENDPOINT}?${params}`;
   }
 
@@ -118,15 +127,17 @@ export class GoogleAuth {
       const onMessage = (event) => {
         if (event.origin !== globalThis.location.origin) return;
         if (event.data?.type !== 'familyos-oauth') return;
+
+        // A state we did not issue is not our response: a forgery, a stale
+        // window, or — once a household has a second mailbox — another
+        // instance's silent renewal finishing while this popup is open.
+        // Ignoring is both the safe answer and the correct one; failing this
+        // sign-in because some other flow finished would be neither. If the
+        // real response never comes, the closed-popup poll below still ends it.
+        if (event.data.state !== state) return;
+
         cleanup();
 
-        if (event.data.state !== state) {
-          // A mismatched state is a cross-site request forgery attempt, or a
-          // stale window from an earlier attempt. Either way, refuse it.
-          reject(new AppError('The sign-in response did not match the request.',
-            { code: 'state-mismatch' }));
-          return;
-        }
         if (event.data.error) {
           reject(new AppError(`Google refused sign-in: ${event.data.error}`, { code: 'denied' }));
           return;

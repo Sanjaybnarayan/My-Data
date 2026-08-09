@@ -229,14 +229,27 @@ async function main() {
 
       // A household shop, added through the real input, has to reach the real
       // query — that is the whole of "and much more".
-      await page.locator('input[placeholder="receipts.myshop.in"]').fill('thelocalbakery.in');
-      await page.locator('input[placeholder="What to call it"]').fill('The Local Bakery');
+      await page.locator('input[aria-label="Sender domain"]').fill('thelocalbakery.in');
+      await page.locator('input[aria-label="Shop name"]').fill('The Local Bakery');
       await page.getByRole('button', { name: 'Add', exact: true }).click();
       await page.waitForTimeout(200);
 
       const after = (await page.locator('.app-content').innerText()).trim();
       check('a shop the household names joins the query',
         /from:thelocalbakery\.in/.test(after), after.slice(0, 400));
+
+      // The mailbox list starts with the account already signed in, and says
+      // out loud that adding another does not move the backup.
+      check('the primary mailbox is listed on its own', /This account/.test(after));
+      check('an added mailbox is described as mail only',
+        /answers mail searches and\s+nothing else/i.test(after), after.slice(0, 600));
+
+      // A wrong URL has to fail here rather than as an empty scan later.
+      await page.locator('input[aria-label="Apps Script deployment URL"]').fill('someone@gmail.com');
+      await page.getByRole('button', { name: 'Connect' }).click();
+      await page.waitForTimeout(300);
+      check('a mailbox that is not a deployment URL is refused',
+        /not an Apps Script deployment URL/i.test(await page.locator('body').innerText()));
 
       if (SHOTS) await shot(page, 'finance-shops');
     }

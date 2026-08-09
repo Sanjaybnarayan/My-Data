@@ -48,7 +48,12 @@ import { confirm } from '../ui/components/modal.js';
 import { app } from '../context.js';
 import { MERCHANTS, searchQuery, customMerchant } from '../domain/merchants.js';
 import { readReceipt, byMerchant, subscriptions, reconcile } from '../domain/inbox.js';
+import {
+  PRIMARY, readMailbox, addMailbox, removeMailbox, allMailboxes, receiptKey,
+} from '../domain/mailboxes.js';
 import { categoryLabel } from '../domain/categorise.js';
+import { AppsScriptTransport } from '../sync/transport.js';
+import { GoogleAuth } from '../auth/google.js';
 import { today, addDays, addMonths, formatDay } from '../core/dates.js';
 import { format } from '../core/money.js';
 import { userMessage } from '../core/errors.js';
@@ -57,6 +62,15 @@ import { userMessage } from '../core/errors.js';
 const SHOPS = 'inbox.shops';
 /** Where the chosen shop keys are kept, so a scan is not re-configured monthly. */
 const CHOSEN = 'inbox.chosen';
+/** Where the extra mailboxes are kept. */
+const MAILBOXES = 'inbox.mailboxes';
+
+/**
+ * All a second mailbox's token is for is proving which Google account is
+ * asking. Not Drive, not Sheets, and emphatically not Gmail — the mail is read
+ * by that account's own backend, under its own authorisation.
+ */
+const IDENTITY_ONLY = ['openid', 'email'];
 
 /** One call's ceiling. The backend caps it too; this is the polite request. */
 const SCAN_LIMIT = 200;
@@ -71,6 +85,10 @@ export async function render() {
   let shops = (await db.meta(SHOPS, [])).map(customMerchant).filter(Boolean);
   /** Which shops to scan for. Empty means all of them. */
   let chosen = new Set(await db.meta(CHOSEN, []));
+  /** Mailboxes beyond the signed-in one. */
+  let mailboxes = (await db.meta(MAILBOXES, [])).map(readMailbox).filter(Boolean);
+  /** One transport per mailbox, kept so a scan does not rebuild them per run. */
+  const links = new Map();
 
   let receipts = await db.repo('receipt').list({ limit: 20_000 });
   let transactions = [];
@@ -85,69 +103,117 @@ export async function render() {
 
   /* ---------------------------------------------------------------- scanning */
 
+  /**
+   * The transport for one mailbox.
+   *
+   * The primary is the application's own — it is already signed in and already
+   * the backend everything else uses. An added mailbox gets a transport of its
+   * own pointed at that account's deployment, and an identity-only sign-in to
+   * satisfy the check every backend makes that the caller is the account it
+   * runs as.
+   */
+  function linkTo(mailbox) {
+    if (mailbox.primary) return app().transport;
+    if (links.has(mailbox.id)) return links.get(mailbox.id);
+
+    const auth = new GoogleAuth({ scopes: IDENTITY_ONLY, loginHint: mailbox.email });
+    const link = new AppsScriptTransport({
+      url: mailbox.url,
+      getToken: () => auth.getToken(),
+      deviceId: db.deviceId,
+    });
+    links.set(mailbox.id, link);
+    return link;
+  }
+
+  /**
+   * Read every mailbox in turn.
+   *
+   * One at a time rather than in parallel: each is a separate Apps Script
+   * execution with its own six-minute budget and its own rate limit, and a
+   * fan-out would trade a slower scan for a partial one. A mailbox that fails
+   * is reported and the rest continue — one account being signed out is not a
+   * reason to return nothing.
+   */
   async function scan() {
-    const { transport } = app();
     const query = currentQuery();
 
     if (!query) {
       toast('Choose at least one shop to look for.', { kind: 'error' });
       return;
     }
-    if (!transport.configured) {
+    if (!app().transport.configured) {
       toast('Connect a Google account in Settings first.', { kind: 'error' });
       return;
     }
 
     busy = true;
+    lastScan = null;
     paint();
 
-    try {
-      const result = await transport.mail(query, SCAN_LIMIT);
-      const messages = result.messages ?? [];
+    const known = new Set(receipts.map((r) => receiptKey(r.mailbox, r.messageId)));
+    const runs = [];
+    let added = 0;
 
-      // Read here, on the device. Bodies go no further than this loop.
-      const read = messages.map((message) => readReceipt(message, shops)).filter(Boolean);
+    for (const mailbox of allMailboxes(mailboxes)) {
+      try {
+        const result = await linkTo(mailbox).mail(query, SCAN_LIMIT);
+        const messages = result.messages ?? [];
 
-      const known = new Set(receipts.map((r) => r.messageId).filter(Boolean));
-      const fresh = read.filter((r) => r.messageId && !known.has(r.messageId));
+        // Read here, on the device. Bodies go no further than this loop.
+        const read = messages.map((message) => readReceipt(message, shops)).filter(Boolean);
+        const fresh = read.filter((r) => r.messageId
+          && !known.has(receiptKey(mailbox.id, r.messageId)));
 
-      for (const receipt of fresh) {
-        await db.repo('receipt').create({
-          date: receipt.date ?? today(),
-          merchant: receipt.merchant,
-          merchantKey: receipt.merchantKey,
-          category: receipt.category,
-          amount: receipt.amount ?? 0,
-          orderId: receipt.orderId ?? '',
-          subscription: Boolean(receipt.subscription),
-          refund: Boolean(receipt.refund),
-          subject: receipt.subject ?? '',
-          messageId: receipt.messageId,
+        for (const receipt of fresh) {
+          known.add(receiptKey(mailbox.id, receipt.messageId));
+          await db.repo('receipt').create({
+            date: receipt.date ?? today(),
+            merchant: receipt.merchant,
+            merchantKey: receipt.merchantKey,
+            category: receipt.category,
+            amount: receipt.amount ?? 0,
+            orderId: receipt.orderId ?? '',
+            subscription: Boolean(receipt.subscription),
+            refund: Boolean(receipt.refund),
+            subject: receipt.subject ?? '',
+            mailbox: mailbox.id,
+            messageId: receipt.messageId,
+          });
+        }
+
+        added += fresh.length;
+        runs.push({
+          mailbox,
+          searched: messages.length,
+          recognised: read.length,
+          added: fresh.length,
+          truncated: Boolean(result.truncated),
         });
+      } catch (err) {
+        runs.push({ mailbox, error: userMessage(err) });
       }
-
-      receipts = await db.repo('receipt').list({ limit: 20_000 });
-      lastScan = {
-        searched: messages.length,
-        recognised: read.length,
-        added: fresh.length,
-        truncated: Boolean(result.truncated),
-        query,
-      };
-
-      // The next scan starts where this one ended rather than repeating it.
-      if (fresh.length) since = latestDate(receipts);
-
-      toast(fresh.length
-        ? `${fresh.length} new ${fresh.length === 1 ? 'receipt' : 'receipts'}`
-        : 'Nothing new — every receipt found is already here', { kind: 'success' });
-    } catch (err) {
-      toast(userMessage(err), { kind: 'error' });
-    } finally {
-      busy = false;
-      await loadTransactions();
-      paint();
     }
+
+    receipts = await db.repo('receipt').list({ limit: 20_000 });
+    lastScan = { runs, added, query };
+
+    // The next scan starts where this one ended rather than repeating it.
+    if (added) since = latestDate(receipts);
+
+    const failed = runs.filter((run) => run.error);
+    if (failed.length && failed.length === runs.length) {
+      toast(failed[0].error, { kind: 'error' });
+    } else {
+      toast(added
+        ? `${added} new ${added === 1 ? 'receipt' : 'receipts'}`
+          + (failed.length ? ` — ${failed.length} mailbox could not be read` : '')
+        : 'Nothing new — every receipt found is already here', { kind: 'success' });
+    }
+
+    busy = false;
+    await loadTransactions();
+    paint();
   }
 
   async function loadTransactions() {
@@ -161,6 +227,78 @@ export async function render() {
       keys: [...chosen],
       extra: shops,
     });
+  }
+
+  /* -------------------------------------------------------------- mailboxes */
+
+  /**
+   * Attach a mailbox by signing in as the account that owns it.
+   *
+   * The sign-in is what proves the URL and the account belong together — the
+   * backend at that URL only answers a token issued for the account it runs
+   * as, so a wrong pairing fails here rather than silently returning nothing
+   * on every scan afterwards.
+   */
+  async function connectMailbox(url, label) {
+    const draft = readMailbox({ url, label });
+    if (!draft) {
+      toast('That is not an Apps Script deployment URL — it should end in /exec.',
+        { kind: 'error' });
+      return;
+    }
+
+    busy = true;
+    paint();
+
+    try {
+      const auth = new GoogleAuth({ scopes: IDENTITY_ONLY });
+      await auth.signIn({ prompt: 'select_account consent' });
+      const profile = await auth.fetchProfile();
+
+      const mailbox = readMailbox({ url, label, email: profile?.email ?? '' });
+      // Prove it answers before it is written down, so a mistyped URL or the
+      // wrong account is a message now rather than an empty scan later.
+      await new AppsScriptTransport({
+        url: mailbox.url, getToken: () => auth.getToken(), deviceId: db.deviceId,
+      }).call('ping');
+
+      mailboxes = addMailbox(mailboxes, mailbox);
+      links.delete(mailbox.id);
+      await db.setMeta(MAILBOXES, mailboxes);
+      toast(`${mailbox.label} connected`, { kind: 'success' });
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    } finally {
+      busy = false;
+      paint();
+    }
+  }
+
+  /**
+   * Forget a mailbox, and decide what happens to what it found.
+   *
+   * Deleting the receipts is offered rather than assumed: somebody removing a
+   * mailbox they no longer read still spent that money, and silently dropping
+   * a year of it out of every total would be a strange thing for a record
+   * keeper to do on its own.
+   */
+  async function forgetMailbox(mailbox) {
+    const mine = receipts.filter((receipt) => receipt.mailbox === mailbox.id);
+
+    const ok = await confirm({
+      title: `Stop reading ${mailbox.label}?`,
+      message: mine.length
+        ? `${mine.length} ${mine.length === 1 ? 'receipt' : 'receipts'} already read from it `
+          + 'will be kept — the money was still spent. Nothing new will be read.'
+        : 'Nothing new will be read from it.',
+      confirmLabel: 'Stop reading it',
+    });
+    if (!ok) return;
+
+    mailboxes = removeMailbox(mailboxes, mailbox.id);
+    links.delete(mailbox.id);
+    await db.setMeta(MAILBOXES, mailboxes);
+    paint();
   }
 
   /* ------------------------------------------------------------------ shops */
@@ -251,6 +389,7 @@ export async function render() {
     replace(body, [
       explainer(),
       scanCard(),
+      mailboxesCard(),
       shopsCard(),
       lastScan ? scanResultCard() : null,
       shown.length ? spendCard(shown) : nothingYet(),
@@ -292,6 +431,74 @@ export async function render() {
       h('pre', { class: 'mono small', style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' } },
         query || '— no shops chosen, so nothing would be searched —'),
     ]);
+  }
+
+  function mailboxesCard() {
+    const url = h('input', {
+      type: 'url',
+      class: 'input',
+      placeholder: 'https://script.google.com/macros/s/…/exec',
+      'aria-label': 'Apps Script deployment URL',
+      onKeyDown: (event) => { if (event.key === 'Enter') submit(); },
+    });
+    const label = h('input', {
+      type: 'text',
+      class: 'input',
+      placeholder: 'Personal, Work, …',
+      'aria-label': 'Mailbox name',
+      onKeyDown: (event) => { if (event.key === 'Enter') submit(); },
+    });
+
+    const submit = () => {
+      if (!url.value.trim()) return;
+      void connectMailbox(url.value, label.value);
+      url.value = '';
+      label.value = '';
+    };
+
+    const counts = new Map();
+    for (const receipt of receipts) {
+      const key = receipt.mailbox || PRIMARY.id;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+
+    return card({}, [
+      cardHeader('Mailboxes', null, {
+        subtitle: `${mailboxes.length + 1} searched every scan`,
+        iconName: 'bank',
+      }),
+
+      ...allMailboxes(mailboxes).map((mailbox) => listItem({
+        title: mailbox.label,
+        subtitle: [
+          mailbox.email || (mailbox.primary ? 'the account you are signed in with' : ''),
+          `${counts.get(mailbox.id) ?? 0} receipts`,
+        ].filter(Boolean).join(' · '),
+        leading: badge(mailbox.primary ? 'primary' : 'mail only', mailbox.primary ? 'success' : 'info'),
+        trailing: mailbox.primary ? null
+          : button('Remove', { onClick: () => forgetMailbox(mailbox) }),
+      })),
+
+      divider(),
+      h('p', { class: 'small muted' }, [
+        'Receipts arrive at more than one address in most households, and a total '
+        + 'covering only one of them is misleading rather than merely incomplete. ',
+        h('strong', {}, 'Apps Script can only read the mailbox it was authorised against'),
+        ', so each extra account deploys its own copy of ',
+        h('code', {}, 'apps-script/'),
+        ' and you paste its ',
+        h('code', {}, '/exec'),
+        ' URL here. That account grants its own Gmail permission and can revoke '
+        + 'it without touching the others — no single account ends up holding a '
+        + 'key to everybody’s inbox.',
+      ]),
+      h('p', { class: 'small faint' },
+        'Backup stays where it is. A mailbox added here answers mail searches and '
+        + 'nothing else — it is never given a workbook, a Drive folder, or anything to sync.'),
+      h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-2)' } }, [
+        url, label, button('Connect', { onClick: submit, disabled: busy }),
+      ]),
+    ].filter(Boolean));
   }
 
   function shopsCard() {
@@ -357,23 +564,50 @@ export async function render() {
   }
 
   function scanResultCard() {
+    const good = lastScan.runs.filter((run) => !run.error);
+    const searched = good.reduce((total, run) => total + run.searched, 0);
+    const recognised = good.reduce((total, run) => total + run.recognised, 0);
+
     return card({ class: 'card--quiet' }, [
-      cardHeader('Last scan', null, { iconName: 'info' }),
+      cardHeader('Last scan', null, {
+        subtitle: `${lastScan.runs.length} ${lastScan.runs.length === 1 ? 'mailbox' : 'mailboxes'}`,
+        iconName: 'info',
+      }),
       h('div', { class: 'grid grid--tight' }, [
-        metric({ label: 'Messages read', value: String(lastScan.searched) }),
-        metric({ label: 'Receipts recognised', value: String(lastScan.recognised) }),
+        metric({ label: 'Messages read', value: String(searched) }),
+        metric({ label: 'Receipts recognised', value: String(recognised) }),
         metric({ label: 'New', value: String(lastScan.added) }),
       ]),
-      lastScan.truncated
+
+      // Per mailbox, because "nothing new" from three accounts and "nothing new
+      // because two of them failed" are very different answers.
+      ...(lastScan.runs.length > 1 || lastScan.runs.some((run) => run.error)
+        ? lastScan.runs.map((run) => listItem({
+          title: run.mailbox.label,
+          subtitle: run.error
+            ? run.error
+            : `${run.searched} read · ${run.recognised} receipts · ${run.added} new`
+              + (run.truncated ? ` · stopped at ${SCAN_LIMIT}` : ''),
+          leading: badge(run.error ? 'failed' : 'read', run.error ? 'warn' : 'success'),
+        }))
+        : []),
+
+      good.some((run) => run.truncated)
         ? h('p', { class: 'muted small' },
-          `Stopped at ${SCAN_LIMIT} messages, which is the backend's limit for one call. `
-          + 'Scan again with a later date to work through the rest.')
+          `A mailbox stopped at ${SCAN_LIMIT} messages, which is the backend's limit for `
+          + 'one call. Scan again with a later date to work through the rest.')
         : null,
-      lastScan.searched && !lastScan.recognised
+      searched && !recognised
         ? h('p', { class: 'muted small' },
           'Mail came back but none of it looked like a receipt — usually a shop that '
           + 'sends from a different address than expected. The From line of one of '
-          + 'those emails, added as a shop above, will fix it.')
+          + 'those emails, added as a shop below, will fix it.')
+        : null,
+      lastScan.runs.some((run) => run.error)
+        ? h('p', { class: 'muted small' },
+          'A mailbox that could not be read is usually one whose Google account is '
+          + 'signed out, or whose backend has not been redeployed since Gmail.gs was '
+          + 'added. The others were still read.')
         : null,
     ].filter(Boolean));
   }

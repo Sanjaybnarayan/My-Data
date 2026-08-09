@@ -331,6 +331,10 @@ const receipt = {
     ref('transaction', 'transaction', { label: 'Paid by', hidden: true }),
     ref('person', 'person', { label: 'Ordered by' }),
     text('subject', { label: 'Subject line', search: true }),
+    // Which mailbox it was read from. A household's receipts are rarely all in
+    // one account, and a total that silently covers only one of them is worse
+    // than one that says which.
+    text('mailbox', { label: 'From mailbox', list: true }),
     // Not hidden data — a link. The message is in Gmail either way.
     text('messageId', { label: 'Gmail message', hidden: true }),
     text('merchantKey', { hidden: true }),

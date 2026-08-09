@@ -82,6 +82,7 @@ const SHELL = [
   './js/domain/finance.js',
   './js/domain/import.js',
   './js/domain/inbox.js',
+  './js/domain/mailboxes.js',
   './js/domain/merchants.js',
   './js/domain/networth.js',
   './js/domain/portfolio.js',

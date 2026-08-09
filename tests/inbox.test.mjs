@@ -5,6 +5,9 @@ import {
 import {
   readReceipt, readTotal, readOrderId, byMerchant, subscriptions, reconcile,
 } from '../js/domain/inbox.js';
+import {
+  PRIMARY, readMailbox, addMailbox, removeMailbox, allMailboxes, receiptKey,
+} from '../js/domain/mailboxes.js';
 import { CATEGORIES } from '../js/domain/categorise.js';
 import { entity } from '../js/data/schema.js';
 
@@ -128,6 +131,62 @@ describe('the search query is the actual privacy boundary', () => {
       const domain = term.slice('from:'.length);
       assert.ok(/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(domain), `${domain} is not a domain`);
     }
+  });
+});
+
+/* ------------------------------------------------------------ mailboxes */
+
+describe('more than one mailbox', () => {
+  const url = 'https://script.google.com/macros/s/AKfycbxSecondAccount123/exec';
+
+  test('a mailbox is an Apps Script deployment, not an email address', () => {
+    // Gmail's API has no account parameter and Apps Script reads only the
+    // mailbox it was authorised against, so a second inbox means a second
+    // deployment. Accepting a bare address would promise something that
+    // cannot work.
+    assert.ok(readMailbox({ url }));
+    assert.equal(readMailbox({ url: 'someone@gmail.com' }), null);
+    assert.equal(readMailbox({ url: 'https://example.com/exec' }), null);
+    assert.equal(readMailbox({ url: `${url}?x=1` }), null);
+  });
+
+  test('a Workspace deployment URL is a deployment too', () => {
+    assert.ok(readMailbox({ url: 'https://script.google.com/a/macros/firm.in/s/AKfycbxAbc123/exec' }));
+  });
+
+  test('the id comes from the deployment, so the same URL is the same mailbox', () => {
+    const once = readMailbox({ url, label: 'Work' });
+    const again = readMailbox({ url, label: 'Work mail' });
+    assert.equal(once.id, again.id);
+
+    const list = addMailbox(addMailbox([], once), again);
+    assert.length(list, 1, 'pasting the same URL twice doubled every receipt from it');
+    assert.equal(list[0].label, 'Work mail', 're-adding should correct the label');
+  });
+
+  test('the primary mailbox is always first and is never stored', () => {
+    const all = allMailboxes([readMailbox({ url })]);
+    assert.equal(all[0].id, PRIMARY.id);
+    assert.ok(all[0].primary);
+    assert.not(all[1].primary);
+  });
+
+  test('a receipt is keyed by mailbox and message together', () => {
+    // A Gmail message id is unique within one mailbox, not across several.
+    assert.not(receiptKey('mb_a', '18f2') === receiptKey('mb_b', '18f2'));
+    // Receipts written before there were mailboxes belong to the primary.
+    assert.equal(receiptKey('', '18f2'), receiptKey(PRIMARY.id, '18f2'));
+  });
+
+  test('removing one leaves the others', () => {
+    const a = readMailbox({ url });
+    const b = readMailbox({ url: 'https://script.google.com/macros/s/AKfycbxThirdAccount9/exec' });
+    assert.length(removeMailbox([a, b], a.id), 1);
+  });
+
+  test('a mailbox falls back to its address for a name', () => {
+    assert.equal(readMailbox({ url, email: 'Work@Example.COM' }).label, 'work@example.com');
+    assert.equal(readMailbox({ url }).label, 'Another mailbox');
   });
 });
 

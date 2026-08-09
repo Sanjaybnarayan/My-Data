@@ -117,14 +117,23 @@ before it runs. What is stored is the merchant, date, total, order number and a
 Gmail message id — the message body is read on your device and never written
 down.
 
+**More than one mailbox.** Apps Script can only read the mailbox it was
+authorised against, so each extra address deploys its own copy of `apps-script/`
+and you paste its `/exec` URL into Shops → Mailboxes. Every scan reads each in
+turn and reports what each returned. This does not move the backup — a mailbox
+added this way answers mail searches and nothing else, and one account still
+holds the workbook and the Drive folders. It also means each person grants and
+revokes their own Gmail permission: no single account holds a key to everyone's
+inbox.
+
 Needs `apps-script/` redeployed with the `gmail.readonly` scope; see
 `docs/SETUP.md`.
 
 ## Tests
 
 ```
-npm test              # 454 checks, no browser, nothing installed
-npm run test:browser  # 77 checks in a real Chromium
+npm test              # 461 checks, no browser, nothing installed
+npm run test:browser  # 80 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is

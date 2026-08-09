@@ -17,10 +17,10 @@ honest half: the line between what is built and what is not.
 | **Modules** | Sixteen, over thirty-four entities. Fifteen are the same file reading the schema; the exceptions are dashboard, finance, investments, documents, family, calendar, reports, settings and the assistant |
 | **Documents** | Capture, encrypt on the device, upload to a per-person Drive folder, preview PDFs and images, read the text out of a PDF, and pull structured fields out of a bill or a policy — a due date fills itself in and the existing reminders pick it up |
 | **Statements** | PDF reader, column-aware parser, categoriser, import planner. Every account's statements at once, matched to accounts by the number printed on them, deduplicated by fingerprint, checked against the bank's own balances before anything is written |
-| **Receipts** | A merchant registry, the Gmail query built from it, a receipt reader, a per-shop ledger, subscriptions reported by what they cost a year, and a match back to the bank rows that settled them |
+| **Receipts** | A merchant registry, the Gmail query built from it, a receipt reader, a per-shop ledger, subscriptions reported by what they cost a year, and a match back to the bank rows that settled them. Several mailboxes, each read through its own account's backend |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 454 checks with no browser and nothing installed; 77 more in a real Chromium. Both in CI |
+| **Tests** | 461 checks with no browser and nothing installed; 80 more in a real Chromium. Both in CI |
 
 ## Deliberately not built
 
