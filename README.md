@@ -88,6 +88,14 @@ up as a break in the balances.
 
 The PDF is decoded in your browser. Nothing is uploaded anywhere.
 
+**Finance → People, Lending and Insights** read the whole imported history, not
+one file: who money has gone back and forth with and where each stands, what
+has been borrowed and how much is still out, and the handful of facts about the
+period that would change a decision. A counterparty the rules get wrong can be
+corrected there, and the correction applies to every month already imported —
+the categoriser is re-run over the narrations rather than its old conclusions
+being read back.
+
 There is a command-line version of the same thing:
 
 ```
@@ -139,8 +147,8 @@ else: never a workbook, never a Drive folder, never anything to sync. See
 ## Tests
 
 ```
-npm test              # 472 checks, no browser, nothing installed
-npm run test:browser  # 81 checks in a real Chromium
+npm test              # 508 checks, no browser, nothing installed
+npm run test:browser  # 87 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is

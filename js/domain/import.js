@@ -237,6 +237,7 @@ export function toRecord(row, { accountId, statementId = '', personId = '' }) {
     account: accountId,
     category: categoryFor(row.category),
     payee: row.counterparty,
+    direction: row.direction,
     method: methodFor(row.channel),
     person: personId,
     reference: row.reference || '',

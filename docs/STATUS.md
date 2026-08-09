@@ -18,9 +18,11 @@ honest half: the line between what is built and what is not.
 | **Documents** | Capture, encrypt on the device, upload to a per-person Drive folder, preview PDFs and images, read the text out of a PDF, and pull structured fields out of a bill or a policy — a due date fills itself in and the existing reminders pick it up |
 | **Statements** | PDF reader, column-aware parser, categoriser, import planner. Every account's statements at once, matched to accounts by the number printed on them, deduplicated by fingerprint, checked against the bank's own balances before anything is written |
 | **Receipts** | A merchant registry, the Gmail query built from it, a receipt reader, a per-shop ledger, subscriptions reported by what they cost a year, and a match back to the bank rows that settled them. Several mailboxes, each attached by a Google sign-in or by a deployment |
+| **Ledgers** | Person-to-person, borrowing and lending, and insights — over the whole imported history rather than one statement, with retroactive corrections |
+| **Backend** | Apps Script, loaded into Node and tested against literal stubs: admission, the member list, the cache, the request contract |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 472 checks with no browser and nothing installed; 81 more in a real Chromium. Both in CI |
+| **Tests** | 508 checks with no browser and nothing installed; 87 more in a real Chromium. Both in CI |
 
 ## Deliberately not built
 
@@ -112,7 +114,13 @@ anything you intend to keep.
 - **Categorisation is rules, not judgement.** A shop trading under a person's
   name reads as a person; a friend whose UPI handle is their business name
   reads as a merchant. Every classification carries the rule that produced it,
-  and both an override map and a named-businesses list exist to correct it.
+  and both are correctable from Finance → People or Lending: naming a business,
+  or overriding one counterparty's category. A correction is applied when the
+  figures are read, so it reaches every month already imported.
+- **Direction was not always stored.** Transactions imported before it was
+  carry only `kind`, which cannot tell the two halves of a transfer apart.
+  Those are counted as outgoing and the ledgers say how many, rather than
+  presenting a guess as a reading. Re-importing replaces it.
 - **A statement shows one side of a transfer.** The far end is often not an
   account this household holds, so imported transfers have no destination.
 - **Payment apps hide the merchant.** Money through Razorpay or PhonePe with no

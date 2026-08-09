@@ -210,7 +210,7 @@ const account = {
 };
 
 const transaction = {
-  name: 'transaction', module: 'finance', sheet: 'Transactions', version: 2,
+  name: 'transaction', module: 'finance', sheet: 'Transactions', version: 3,
   labels: { one: 'Transaction', many: 'Transactions' }, icon: 'receipt',
   acl: restricted,
   sort: '-date',
@@ -251,6 +251,10 @@ const transaction = {
     note(),
 
     /* Written by the statement importer, and only by it. */
+    // Which way the money went, as the statement's columns said. `kind` cannot
+    // stand in for it — a transfer is a transfer in both directions — and
+    // every ledger that nets two directions against each other needs to know.
+    pick('direction', ['in', 'out'], { hidden: true }),
     text('reference', { label: 'Bank reference', search: true, hidden: true }),
     text('narration', { label: 'As the bank wrote it', search: true, hidden: true }),
     money('balance', { label: 'Balance after', hidden: true }),

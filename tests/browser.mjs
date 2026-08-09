@@ -262,6 +262,30 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-shops');
     }
 
+    /* ------------------------------------------------------- the ledgers */
+
+    {
+      // These existed in domain/categorise.js from the beginning and were
+      // reachable only from a command line. The point of the check is that
+      // they are now reachable at all.
+      for (const [tab, expected] of [
+        ['people', /Person to person|No person-to-person|Nothing imported yet/i],
+        ['lending', /Borrowing and lending|No borrowing|Nothing imported yet/i],
+        ['insights', /Worth saying out loud|Nothing imported yet/i],
+      ]) {
+        const before = consoleErrors.length;
+        await go(page, `#/finance/${tab}`);
+        await page.waitForTimeout(400);
+
+        const body = (await page.locator('.app-content').innerText()).trim();
+        check(`the ${tab} ledger renders`, expected.test(body), body.slice(0, 200));
+        check(`the ${tab} ledger loads without a console error`,
+          consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+      }
+
+      if (SHOTS) await shot(page, 'finance-insights');
+    }
+
     /* ------------------------------------------------------- documents */
 
     await go(page, '#/documents');
