@@ -1,0 +1,89 @@
+name: deploy
+
+# FamilyOS is served as native ES modules with no build step, so "deploying"
+# is copying the application's own files to a host that speaks HTTPS. That is
+# not a convenience here — two things need a real origin and cannot work from
+# a file on disk:
+#
+#   - Installing it. A browser only offers "Install app" for a page served
+#     over HTTPS with a registered service worker.
+#   - Signing in with Google, for backup and for reading receipts out of Gmail.
+#     OAuth redirects to a URI registered on the client, and a `file://` page
+#     has no origin to register.
+#
+# The Netlify configuration in `netlify.toml` does the same job for anyone who
+# prefers it. Both can coexist; neither is required by the other.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# `pages: write` and `id-token: write` are what the deploy action needs;
+# `contents: read` is everything else this workflow does.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and never cancel one half-done: a partially replaced
+# site is worse than an old complete one. Queued rather than superseded.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `enablement: true` turns Pages on through the API if it is not already,
+      # so a fresh fork deploys without anybody visiting a settings screen.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      # Only the files the application actually serves. The repository also
+      # holds its tests, its tooling and the Apps Script backend's source —
+      # all public already, none of it any use to a browser, and every one of
+      # them a file a host would have to send.
+      #
+      # This list is the same one `sw.js` precaches from. If they ever
+      # disagree, the worker fails to install and the app silently stops
+      # working offline, so the check below compares them rather than trusting
+      # that two lists stay in step.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp -r index.html oauth-callback.html manifest.webmanifest sw.js .nojekyll \
+                js css assets _site/
+
+      - name: Check the service worker precaches nothing that was left out
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const sw = fs.readFileSync("sw.js", "utf8");
+            const wanted = [...sw.matchAll(/'"'"'\.\/([^'"'"']+)'"'"'/g)].map((m) => m[1]);
+            const missing = wanted.filter((p) => !fs.existsSync("_site/" + p));
+            if (missing.length) {
+              console.error("These are precached but were not published:");
+              for (const p of missing) console.error("  " + p);
+              process.exit(1);
+            }
+            console.log(wanted.length + " precached files, all published");
+          '
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
