@@ -41,10 +41,9 @@
 
 import { TransportError } from '../core/errors.js';
 
-export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
-
-/** Identity, plus the mail itself. Nothing about Drive or Sheets. */
-export const MAIL_SCOPES = Object.freeze(['openid', 'email', GMAIL_SCOPE]);
+// Declared in `core/scopes.js` alongside what each is for, and re-exported
+// here so callers of this module do not have to know that.
+export { GMAIL_SCOPE, MAIL_SCOPES } from '../core/scopes.js';
 
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me';
 

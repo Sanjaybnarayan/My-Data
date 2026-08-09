@@ -11,6 +11,8 @@
  * cannot keep one.
  */
 
+import { BASE_SCOPES } from './scopes.js';
+
 export const defaults = Object.freeze({
   /** Google Cloud OAuth 2.0 Web client id. */
   googleClientId: '',
@@ -55,15 +57,9 @@ export const defaults = Object.freeze({
    */
   localOnly: false,
 
-  scopes: [
-    'openid',
-    'email',
-    'profile',
-    // drive.file is deliberately narrow: FamilyOS sees only the files it
-    // creates, never the rest of the user's Drive.
-    'https://www.googleapis.com/auth/drive.file',
-    'https://www.googleapis.com/auth/spreadsheets',
-  ],
+  // Declared in `core/scopes.js` with what each one is for, because the same
+  // list was previously written out in four files and described in a fifth.
+  scopes: BASE_SCOPES,
 });
 
 let current = { ...defaults };
