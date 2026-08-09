@@ -22,6 +22,7 @@ import { buildShell } from './ui/shell.js';
 import { lockScreen, recoveryKitScreen } from './auth/lock.js';
 import { Session, AttemptLimiter } from './security/session.js';
 import { GoogleAuth } from './auth/google.js';
+import { DriveEscrow, APPDATA_SCOPE } from './security/escrow.js';
 import { AppsScriptTransport } from './sync/transport.js';
 import { SyncEngine } from './sync/engine.js';
 import { DocumentStore } from './sync/drive.js';
@@ -67,6 +68,7 @@ export async function boot() {
       keyring: db.keyring,
       limiter,
       biometricCredentialId: credentialId,
+      google: googleUnlock(),
       mode: enrolled ? 'unlock' : 'enrol',
       onUnlocked: async ({ firstRun }) => {
         if (firstRun) {
@@ -147,6 +149,40 @@ async function start(db, limiter) {
 
   registerServiceWorker();
   bus.emit(TOPIC.authState, { signedIn: auth.isSignedIn });
+}
+
+/* ------------------------------------------------------------ google entry */
+
+/**
+ * The sign-in-with-Google path, assembled for the lock screen.
+ *
+ * Kept here rather than in the lock screen because the lock screen renders
+ * before the data key exists and must not know about transports, Drive or
+ * scopes. All it gets is two functions that return 32 bytes.
+ *
+ * The sign-in asks for the ordinary scopes *plus* `drive.appdata`, so one
+ * consent covers both being let in and having somewhere to sync — which is the
+ * point of offering it at all. Without a client id configured there is nothing
+ * to offer, and the lock screen shows the PIN alone.
+ */
+function googleUnlock() {
+  if (!config().googleClientId) return null;
+
+  const auth = new GoogleAuth({ scopes: [...config().scopes, APPDATA_SCOPE] });
+  const escrow = new DriveEscrow({ getToken: () => auth.getToken() });
+
+  const connect = async () => {
+    await auth.signIn({ prompt: 'select_account consent' });
+    return escrow;
+  };
+
+  return {
+    available: true,
+    /** A device joining a household that already has a key in Drive. */
+    signIn: async () => (await connect()).read(),
+    /** A fresh household: mint one and put it where every device can reach it. */
+    enrol: async () => (await connect()).create(),
+  };
 }
 
 /* ----------------------------------------------------------------- routing */

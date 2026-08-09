@@ -58,6 +58,11 @@ household's shared, backed-up one.
   fields; your PIN, a fingerprint and a recovery phrase each wrap a copy of it.
   Nobody who has not got one of those three can read the data — including
   whoever hosts it.
+- **Or sign in with Google, if you would rather.** One press gets you in with
+  backup already configured, on every device, with nothing to remember. It
+  keeps the unlocking key in a hidden folder in your own Drive, which means
+  anyone who can sign in as you can read your data — so it is offered beside
+  the PIN with that said plainly, never as the default. You can have both.
 - **Yours in a format you can read.** The backup is a Google Sheet in your own
   Drive, one tab per record type, every column named. Stop using this and the
   data is still yours in something anything can open.
@@ -178,8 +183,8 @@ else: never a workbook, never a Drive folder, never anything to sync. See
 ## Tests
 
 ```
-npm test              # 571 checks, no browser, nothing installed
-npm run test:browser  # 120 checks in a real Chromium
+npm test              # 587 checks, no browser, nothing installed
+npm run test:browser  # 122 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is

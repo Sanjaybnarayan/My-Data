@@ -80,10 +80,12 @@ instead, the deployment access is not set to "Anyone".
 3. **APIs & Services → OAuth consent screen**:
    - User type: **External**, unless you have a Workspace account.
    - Fill in the app name and your email.
-   - Scopes: add `drive.file` and `spreadsheets`. **Not** the Gmail scope —
-     the browser never talks to Gmail. Mail is read by the Apps Script
-     backend under its own authorisation, and the browser's token is only
-     ever used to prove which Google account is asking.
+   - Scopes: add `drive.file` and `spreadsheets`. Add `drive.appdata` too if
+     you want **Continue with Google** as a way in — see below for what that
+     costs. **Not** the Gmail scope — the browser never talks to Gmail. Mail
+     is read by the Apps Script backend under its own authorisation, and the
+     browser's token is only ever used to prove which Google account is
+     asking.
    - Test users: **add your own email address, and every family member's.**
      While the app is in testing mode, only listed users can sign in.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
@@ -189,6 +191,45 @@ Every scan reads each mailbox in turn and reports what each returned. One that
 cannot be read is named in the results and the others are still read.
 
 ---
+
+## Continue with Google, and what it costs
+
+Once a client id is configured, the lock screen offers **Continue with Google**
+beside the PIN. Press it, pick the account, and you are in with backup already
+set up — on that device and on every other one, with nothing to remember and
+nothing to type.
+
+It works by keeping the key that unlocks your data in your own Google Drive, in
+`appDataFolder`: a hidden per-application folder that only FamilyOS can see,
+that does not appear in your Drive listing, and that disappears when you
+disconnect the app. The key kept there is *not* your data and not the key your
+records are encrypted with — it is a key that unwraps that one, exactly like
+the one your PIN derives.
+
+**The cost is real and it is this: anyone who can sign in as that Google
+account can read everything.**
+
+The PIN was the one thing standing between "somebody has your Google password"
+and "somebody has your family's medical records and identity documents".
+Choosing this removes it. Anyone who phishes the account, picks up an unlocked
+laptop with the session live, or is handed the password to fix something, gets
+the lot.
+
+That is a reasonable trade for some households and a bad one for others, so it
+is a choice made in the open rather than a default:
+
+| | Setup | Who can read your data |
+| --- | --- | --- |
+| **Continue with Google** | one press | anyone who can sign in as you |
+| **PIN** | six digits, once per device | anyone who has your PIN *and* a device |
+
+You can have both — a PIN as well as Google is strictly better than Google
+alone, because either opens it and only one of them is worth stealing. Turning
+Google off later deletes the key out of Drive rather than merely forgetting it,
+and leaves your PIN, fingerprint and recovery phrase untouched.
+
+Without `drive.appdata` on the consent screen the button does not appear and
+nothing else changes.
 
 ## Adding family members
 

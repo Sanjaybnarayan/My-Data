@@ -982,3 +982,26 @@
   .ledger-detail > td { padding: var(--space-3); }
   .ledger-detail-grid { grid-template-columns: 1fr; }
 }
+
+/* ------------------------------------------------------------- unlock */
+
+/* A separator between the quick way in and the private one. Neither is drawn
+   as the exception — the rule just says they are alternatives. */
+.lock-or {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.lock-or::before,
+.lock-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}

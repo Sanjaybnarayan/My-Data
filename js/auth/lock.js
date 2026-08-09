@@ -23,10 +23,19 @@ const PIN_LENGTH_MAX = 12;
 
 /**
  * @param {{keyring, limiter, biometricCredentialId?: string,
- *          onUnlocked: Function, mode?: 'unlock'|'enrol'}} options
+ *          onUnlocked: Function, mode?: 'unlock'|'enrol',
+ *          google?: {available: boolean, signIn: Function, enrol: Function}}} options
+ *
+ * `google` is the sign-in-with-Google path. It hands back the 32 bytes that
+ * unwrap the data key — `signIn` fetches the household's escrowed key, `enrol`
+ * mints one — and this screen only ever passes them to the keyring. How they
+ * are kept, and what keeping them that way costs, is in `security/escrow.js`.
+ *
  * @returns {Node}
  */
-export function lockScreen({ keyring, limiter, biometricCredentialId, onUnlocked, mode = 'unlock' }) {
+export function lockScreen({
+  keyring, limiter, biometricCredentialId, onUnlocked, mode = 'unlock', google = null,
+}) {
   let pin = '';
   let confirming = false;
   let firstEntry = '';
@@ -202,10 +211,61 @@ export function lockScreen({ keyring, limiter, biometricCredentialId, onUnlocked
     else if (event.key === 'Enter') { event.preventDefault(); submit(); }
   });
 
+  /**
+   * Sign in with Google, and be in.
+   *
+   * On a fresh household this mints a key and enrols it; on a device that has
+   * never seen this household it fetches the one already in their Drive.
+   * Either way it ends unlocked with backup already configured, which is the
+   * whole reason to offer it.
+   */
+  async function withGoogle() {
+    if (!google?.available) return;
+    replace(message, 'Opening Google…');
+
+    try {
+      if (mode === 'enrol') {
+        const rawKey = await google.enrol();
+        await keyring.enrolRawKey(rawKey, 'google');
+        onUnlocked({ method: 'google', firstRun: true });
+        return;
+      }
+
+      const rawKey = await google.signIn();
+      if (!rawKey) {
+        replace(message, 'That Google account has no FamilyOS key on it. '
+          + 'Use your PIN, or your recovery phrase.');
+        return;
+      }
+      await keyring.unlockWithRawKey(rawKey, 'google');
+      limiter?.clear?.();
+      onUnlocked({ method: 'google' });
+    } catch (err) {
+      replace(message, userMessage(err));
+    }
+  }
+
+  const googleOption = () => (google?.available
+    ? h('div', { class: 'stack stack--tight' }, [
+      button(mode === 'enrol' ? 'Continue with Google' : 'Sign in with Google', {
+        variant: 'primary', iconName: 'cloud', onClick: withGoogle,
+      }),
+      // Said here, where the choice is made, and not in a document nobody
+      // opens. A household picking the fast path should know what it gives up.
+      h('p', { class: 'small faint' }, mode === 'enrol'
+        ? 'Fastest, and it sets up backup at the same time. Your unlock key is kept '
+          + 'in your own Google Drive, so anyone who can sign in as you can read this '
+          + 'data. A PIN is the stronger choice — you can have both.'
+        : 'Signs you in and syncs, on any device.'),
+      h('div', { class: 'lock-or' }, mode === 'enrol' ? 'or choose a PIN' : 'or use your PIN'),
+    ])
+    : null);
+
   replace(card, [
     h('div', { class: 'brand-mark', style: { margin: '0 auto', width: '48px', height: '48px' } }, 'FO'),
     h('h1', { style: { fontSize: 'var(--text-xl)' } },
       mode === 'enrol' ? 'Choose a PIN' : 'Welcome back'),
+    googleOption(),
     h('p', { class: 'small muted' }, mode === 'enrol'
       ? 'This PIN encrypts everything sensitive in FamilyOS. It is not stored anywhere '
         + 'and cannot be reset for you.'
