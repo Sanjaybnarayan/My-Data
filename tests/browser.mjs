@@ -337,12 +337,33 @@ async function main() {
       const cell = (rowIndex, which) => page.locator('.ledger-row').nth(rowIndex)
         .locator('td.col--amount').nth(which);
 
+
       check('an expense lands in Out and leaves In empty',
         (await cell(0, 1).innerText()).includes('645')
         && (await cell(0, 0).innerText()).trim() === '');
       check('income lands in In and leaves Out empty',
         (await cell(1, 0).innerText()).includes('50,000')
         && (await cell(1, 1).innerText()).trim() === '');
+
+      // A month of statements repeats one date down twenty rows. A heading says
+      // it once, and carries that day's own totals.
+      check('rows are grouped under a day heading',
+        (await page.locator('.ledger-day').count()) > 0);
+      check('the heading carries the day and not just a rule',
+        /9 Aug 2026/.test(await page.locator('.ledger-day').first().innerText()));
+      check('the date is not then repeated on every row beneath it',
+        !/2026/.test(await page.locator('.ledger-row').first().locator('.col--date').innerText()));
+
+      // Grouped by day while sorted by amount would be a heading per row.
+      await page.locator('table.table--ledger thead th').nth(4).click();
+      await page.waitForTimeout(300);
+      check('sorting by something else drops the headings',
+        (await page.locator('.ledger-day').count()) === 0);
+      check('and the date comes back into the row',
+        /2026/.test(await page.locator('.ledger-row').first().locator('.col--date').innerText()));
+
+      await page.locator('table.table--ledger thead th').first().click();
+      await page.waitForTimeout(300);
 
       // Banding has to come from the row's own position: an opened row adds a
       // sibling to the same tbody, and `:nth-child` stripes would flip below it.

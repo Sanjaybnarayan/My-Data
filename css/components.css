@@ -781,6 +781,28 @@
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+/* A day heading. Quiet enough to be furniture and firm enough to be a break:
+   the eye should find where one day ends without reading any digits. */
+.ledger-day > td {
+  background: var(--surface-sunken);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  position: sticky;
+  top: 2.25rem;
+  z-index: 1;
+}
+
+.ledger-day-count {
+  margin-left: var(--space-3);
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
 .ledger-chevron {
   display: inline-block;
   width: 1em;
@@ -951,6 +973,11 @@
      wherever the money went — and the colour says which way. */
   .table--ledger .col--amount { grid-column: 2; order: 2; text-align: right; font-weight: 600; }
   .table--ledger .col--amount:empty { display: none; }
+
+  /* The heading spans the card list rather than pretending to have columns. */
+  .table--ledger .ledger-day { display: flex; justify-content: space-between; gap: var(--space-2); }
+  .table--ledger .ledger-day > td { border: 0; position: static; padding: var(--space-2) var(--space-3); }
+  .table--ledger .ledger-day > td:empty { display: none; }
 
   .ledger-detail > td { padding: var(--space-3); }
   .ledger-detail-grid { grid-template-columns: 1fr; }

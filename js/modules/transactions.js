@@ -353,10 +353,7 @@ export async function render() {
         column('amount', 'Out', 'col--amount cell--numeric'),
         column('balance', 'Balance', 'col--amount cell--numeric'),
       ])),
-      h('tbody', {}, rows.flatMap((record, index) => [
-        summaryRow(record, index),
-        open.has(record.id) ? detailRow(record) : null,
-      ].filter(Boolean))),
+      h('tbody', {}, tableBody(rows, all)),
       // The foot totals every matching row, not the drawn page. A footer that
       // silently summed only what fits on screen would be a way to read the
       // wrong number without noticing.
@@ -386,6 +383,68 @@ export async function render() {
     return wrap;
   }
 
+  /**
+   * The rows, with a heading before each new day.
+   *
+   * A month of statements repeats the same date down twenty rows, and reading
+   * it means finding where one day ends by noticing the digits changed. A
+   * heading says it once and carries that day's own totals, which is the
+   * figure somebody is usually after when they scroll to a date.
+   *
+   * Only when the table is sorted by date. Grouped by day while sorted by
+   * amount would produce a heading per row and mean nothing.
+   */
+  function tableBody(rows, all) {
+    const grouped = sort.key === 'date';
+    const perDay = grouped ? dayTotals(all) : null;
+    const out = [];
+    let day = null;
+
+    rows.forEach((record, index) => {
+      if (grouped && record.date !== day) {
+        day = record.date;
+        out.push(dayRow(day, perDay.get(day)));
+      }
+      out.push(summaryRow(record, index, grouped));
+      if (open.has(record.id)) out.push(detailRow(record));
+    });
+
+    return out;
+  }
+
+  /**
+   * Each day's own totals, over every matching row rather than the drawn page.
+   *
+   * A page that happens to cut a day in half would otherwise report that half
+   * as the day, which is the sort of number somebody quotes.
+   */
+  function dayTotals(all) {
+    const days = new Map();
+    for (const record of all) {
+      const entry = days.get(record.date) ?? { moneyIn: 0, moneyOut: 0, count: 0 };
+      if (directionOf(record) === 'in') entry.moneyIn += record.amount ?? 0;
+      else entry.moneyOut += record.amount ?? 0;
+      entry.count += 1;
+      days.set(record.date, entry);
+    }
+    return days;
+  }
+
+  function dayRow(date, sums = { moneyIn: 0, moneyOut: 0, count: 0 }) {
+    return h('tr', { class: 'ledger-day' }, [
+      h('td', { colspan: '4', class: 'ledger-day-label' }, [
+        formatDay(date),
+        h('span', { class: 'ledger-day-count' },
+          `${sums.count} ${sums.count === 1 ? 'transaction' : 'transactions'}`),
+      ]),
+      h('td', { class: 'col--amount cell--numeric money--positive' },
+        sums.moneyIn ? format(sums.moneyIn) : null),
+      h('td', { class: 'col--amount cell--numeric money--negative' },
+        sums.moneyOut ? format(sums.moneyOut) : null),
+      h('td', {}),
+    ]);
+  }
+
   function column(key, label, className) {
     const active = sort.key === key;
     return h('th', {
@@ -401,7 +460,7 @@ export async function render() {
     }, label);
   }
 
-  function summaryRow(record, index) {
+  function summaryRow(record, index, grouped = false) {
     const direction = directionOf(record);
     const expanded = open.has(record.id);
 
@@ -414,10 +473,13 @@ export async function render() {
         expanded && 'ledger-row--open'],
       'aria-expanded': String(expanded),
     }, [
+      // Under a day heading the date is already said, so the cell carries only
+      // the control. Saying it twice on every row is the repetition the
+      // heading exists to remove.
       h('td', { 'data-label': 'Date', class: 'col--date' }, [
         h('span', { class: 'ledger-chevron', 'aria-hidden': 'true' }, expanded ? '▾' : '▸'),
-        formatDay(record.date),
-      ]),
+        grouped ? null : formatDay(record.date),
+      ].filter(Boolean)),
 
       h('td', { 'data-label': 'Description', class: 'col--description' }, [
         h('div', { class: 'ledger-payee' }, record.payee || '(unnamed)'),
