@@ -68,6 +68,7 @@ const SHELL = [
   './js/sync/conflict.js',
   './js/sync/engine.js',
   './js/sync/outbox.js',
+  './js/sync/gmail.js',
   './js/sync/transport.js',
   './js/sync/drive.js',
 

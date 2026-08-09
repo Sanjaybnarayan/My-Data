@@ -193,6 +193,17 @@ export class AppsScriptTransport {
     return this.call('mail', { query, limit });
   }
 
+  /**
+   * The Google accounts allowed to reach this backend.
+   *
+   * Called with nothing it reads the list; called with `emails` it replaces
+   * it, which only the deploying account may do. The owner is admitted by
+   * identity and is never in the list.
+   */
+  members(emails) {
+    return this.call('members', emails ? { emails } : {});
+  }
+
   /** Row counts per sheet, to verify a backup actually landed. */
   verify() {
     return this.call('verify', {});
@@ -230,5 +241,6 @@ export class FakeTransport {
   fileVersions(fileId) { return this.call('versions', { fileId }); }
   personFolders() { return this.call('folders', {}); }
   mail(query, limit) { return this.call('mail', { query, limit }); }
+  members(emails) { return this.call('members', emails ? { emails } : {}); }
   verify() { return this.call('verify', {}); }
 }

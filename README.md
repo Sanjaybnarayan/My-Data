@@ -117,23 +117,30 @@ before it runs. What is stored is the merchant, date, total, order number and a
 Gmail message id — the message body is read on your device and never written
 down.
 
-**More than one mailbox.** Apps Script can only read the mailbox it was
-authorised against, so each extra address deploys its own copy of `apps-script/`
-and you paste its `/exec` URL into Shops → Mailboxes. Every scan reads each in
-turn and reports what each returned. This does not move the backup — a mailbox
-added this way answers mail searches and nothing else, and one account still
-holds the workbook and the Drive folders. It also means each person grants and
-revokes their own Gmail permission: no single account holds a key to everyone's
-inbox.
+**More than one mailbox.** Add as many as your receipts arrive at. Each scan
+reads them in turn and reports what each returned; one that cannot be read is
+named and the rest are still read.
 
-Needs `apps-script/` redeployed with the `gmail.readonly` scope; see
+Three ways to attach one, offered in that order:
+
+- **Sign in with Google** — one click, nothing to deploy. Costs a
+  `gmail.readonly` token in the page for an hour at a time; Gmail has no
+  narrower scope that can still see a total. Each mailbox is its own consent,
+  revocable on its own, and the app's ordinary sign-in never gains it.
+- **Use this deployment** — if you deployed `Gmail.gs`, your backend reads its
+  own account's mail with no token in the browser at all.
+- **Use another account's deployment** — the most setup, and the only way to
+  read a *second* mailbox with no Gmail token in the page.
+
+None of them moves the backup. A mailbox answers mail searches and nothing
+else: never a workbook, never a Drive folder, never anything to sync. See
 `docs/SETUP.md`.
 
 ## Tests
 
 ```
-npm test              # 461 checks, no browser, nothing installed
-npm run test:browser  # 80 checks in a real Chromium
+npm test              # 472 checks, no browser, nothing installed
+npm run test:browser  # 81 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is

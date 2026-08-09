@@ -238,11 +238,19 @@ async function main() {
       check('a shop the household names joins the query',
         /from:thelocalbakery\.in/.test(after), after.slice(0, 400));
 
-      // The mailbox list starts with the account already signed in, and says
-      // out loud that adding another does not move the backup.
-      check('the primary mailbox is listed on its own', /This account/.test(after));
-      check('an added mailbox is described as mail only',
-        /answers mail searches and\s+nothing else/i.test(after), after.slice(0, 600));
+      // Adding a mailbox is a sign-in, and the cost of that sign-in is stated
+      // on the same screen rather than in a document nobody opens.
+      check('a mailbox is added by signing in',
+        /Add a Gmail account/.test(after), after.slice(0, 600));
+      check('what the sign-in costs is said where it is offered',
+        /holds a Gmail token/i.test(after), after.slice(0, 900));
+      check('a mailbox is described as mail only',
+        /answers mail searches and\s+nothing else/i.test(after), after.slice(0, 900));
+
+      // The deployment route is folded away rather than removed: it is the
+      // only way to read a second mailbox without a Gmail token in the page.
+      await page.locator('summary', { hasText: 'deployment instead of signing in' }).click();
+      await page.waitForTimeout(150);
 
       // A wrong URL has to fail here rather than as an empty scan later.
       await page.locator('input[aria-label="Apps Script deployment URL"]').fill('someone@gmail.com');

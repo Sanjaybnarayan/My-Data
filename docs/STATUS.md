@@ -17,10 +17,10 @@ honest half: the line between what is built and what is not.
 | **Modules** | Sixteen, over thirty-four entities. Fifteen are the same file reading the schema; the exceptions are dashboard, finance, investments, documents, family, calendar, reports, settings and the assistant |
 | **Documents** | Capture, encrypt on the device, upload to a per-person Drive folder, preview PDFs and images, read the text out of a PDF, and pull structured fields out of a bill or a policy — a due date fills itself in and the existing reminders pick it up |
 | **Statements** | PDF reader, column-aware parser, categoriser, import planner. Every account's statements at once, matched to accounts by the number printed on them, deduplicated by fingerprint, checked against the bank's own balances before anything is written |
-| **Receipts** | A merchant registry, the Gmail query built from it, a receipt reader, a per-shop ledger, subscriptions reported by what they cost a year, and a match back to the bank rows that settled them. Several mailboxes, each read through its own account's backend |
+| **Receipts** | A merchant registry, the Gmail query built from it, a receipt reader, a per-shop ledger, subscriptions reported by what they cost a year, and a match back to the bank rows that settled them. Several mailboxes, each attached by a Google sign-in or by a deployment |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 461 checks with no browser and nothing installed; 80 more in a real Chromium. Both in CI |
+| **Tests** | 472 checks with no browser and nothing installed; 81 more in a real Chromium. Both in CI |
 
 ## Deliberately not built
 
@@ -71,6 +71,16 @@ a household owns, and a scraper breaks on every redesign anyway. So Shops reads
 receipts, and one Gmail connection covers every merchant at once — including
 ones nobody added, which a household can name by domain.
 
+**Reading mail from the browser is a real escalation, and it is offered
+anyway.** Signing a mailbox in puts a `gmail.readonly` token in the page for an
+hour at a time; a script injected into this application could reach it, as it
+could already reach the Drive and Sheets tokens. Gmail publishes no narrower
+permission that would work — the metadata-only scope returns headers without
+bodies, and a receipt's total is in the body. The alternative is real and kept:
+an Apps Script deployment reads the mail with no token in the page. The
+deployment is tighter and the sign-in is one click, and a feature nobody sets
+up is a feature nobody has, so both exist and the screen says which is which.
+
 **The Gmail scope is broad and the query is the limit.** Gmail has no
 "only these senders" permission; reading mail means a scope that can read all
 of it. Pretending otherwise would be the dishonest version. What actually holds
@@ -78,6 +88,14 @@ is threefold: the query names a fixed list of senders and is printed on screen
 before it runs, the backend refuses any mail search without a `from:` term, and
 nothing but merchant, date, total, order number and a message id is written
 down — the body is read on the device and discarded.
+
+**The backend admits a list of accounts, not one.** It runs as the account
+that deployed it and used to refuse every other token, which made the documented
+way to add a family member impossible — their sign-in worked and every sync
+after it returned 403. The owner now keeps a list in Settings → Household
+accounts. Being on it grants the right to *reach* the workbook, never to read
+it: the sensitive fields are ciphertext and the key is wrapped on each person's
+own device.
 
 **Market prices are entered by hand.** No third-party price API is bundled. An
 Apps Script `GOOGLEFINANCE` bridge would cover the instruments Sheets supports.

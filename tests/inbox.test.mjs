@@ -6,8 +6,10 @@ import {
   readReceipt, readTotal, readOrderId, byMerchant, subscriptions, reconcile,
 } from '../js/domain/inbox.js';
 import {
-  PRIMARY, readMailbox, addMailbox, removeMailbox, allMailboxes, receiptKey,
+  BACKEND, readMailbox, googleMailbox, scriptMailbox,
+  addMailbox, removeMailbox, receiptKey,
 } from '../js/domain/mailboxes.js';
+import { GmailClient, readBody, MAIL_SCOPES } from '../js/sync/gmail.js';
 import { CATEGORIES } from '../js/domain/categorise.js';
 import { entity } from '../js/data/schema.js';
 
@@ -139,54 +141,171 @@ describe('the search query is the actual privacy boundary', () => {
 describe('more than one mailbox', () => {
   const url = 'https://script.google.com/macros/s/AKfycbxSecondAccount123/exec';
 
-  test('a mailbox is an Apps Script deployment, not an email address', () => {
-    // Gmail's API has no account parameter and Apps Script reads only the
-    // mailbox it was authorised against, so a second inbox means a second
-    // deployment. Accepting a bare address would promise something that
-    // cannot work.
-    assert.ok(readMailbox({ url }));
-    assert.equal(readMailbox({ url: 'someone@gmail.com' }), null);
-    assert.equal(readMailbox({ url: 'https://example.com/exec' }), null);
-    assert.equal(readMailbox({ url: `${url}?x=1` }), null);
+  test('a signed-in account is a mailbox, keyed by its address', () => {
+    const box = googleMailbox({ email: 'Work@Example.COM' });
+    assert.equal(box.kind, 'google');
+    assert.equal(box.email, 'work@example.com');
+    assert.equal(box.id, 'gm_work@example.com');
+    // Signing the same account in twice is one mailbox, not doubled receipts.
+    assert.length(addMailbox(addMailbox([], box), googleMailbox({ email: 'work@example.com' })), 1);
+  });
+
+  test('something that is not an address is refused', () => {
+    assert.equal(googleMailbox({ email: 'nobody' }), null);
+    assert.equal(googleMailbox({}), null);
+  });
+
+  test('a deployment is recognised by its URL, and nothing else is', () => {
+    assert.ok(scriptMailbox({ url }));
+    assert.equal(scriptMailbox({ url: 'someone@gmail.com' }), null);
+    assert.equal(scriptMailbox({ url: 'https://example.com/exec' }), null);
+    assert.equal(scriptMailbox({ url: `${url}?x=1` }), null);
   });
 
   test('a Workspace deployment URL is a deployment too', () => {
-    assert.ok(readMailbox({ url: 'https://script.google.com/a/macros/firm.in/s/AKfycbxAbc123/exec' }));
+    assert.ok(scriptMailbox({ url: 'https://script.google.com/a/macros/firm.in/s/AKfycbxAbc123/exec' }));
   });
 
   test('the id comes from the deployment, so the same URL is the same mailbox', () => {
-    const once = readMailbox({ url, label: 'Work' });
-    const again = readMailbox({ url, label: 'Work mail' });
-    assert.equal(once.id, again.id);
-
-    const list = addMailbox(addMailbox([], once), again);
+    const list = addMailbox(
+      addMailbox([], scriptMailbox({ url, label: 'Work' })),
+      scriptMailbox({ url, label: 'Work mail' }),
+    );
     assert.length(list, 1, 'pasting the same URL twice doubled every receipt from it');
     assert.equal(list[0].label, 'Work mail', 're-adding should correct the label');
   });
 
-  test('the primary mailbox is always first and is never stored', () => {
-    const all = allMailboxes([readMailbox({ url })]);
-    assert.equal(all[0].id, PRIMARY.id);
-    assert.ok(all[0].primary);
-    assert.not(all[1].primary);
+  test('a stored mailbox is read back by kind, and a broken one is dropped', () => {
+    assert.equal(readMailbox({ kind: 'google', email: 'a@b.com' }).id, 'gm_a@b.com');
+    assert.equal(readMailbox({ kind: 'backend' }).id, BACKEND.id);
+    assert.equal(readMailbox({ kind: 'script', url }).kind, 'script');
+    assert.equal(readMailbox({ kind: 'google', email: 'rubbish' }), null);
+    assert.equal(readMailbox({}), null);
+  });
+
+  test('a mailbox stored before there were kinds is a deployment', () => {
+    // That was the only sort there was, so an entry with a URL and no kind
+    // must keep working rather than vanish on the next release.
+    assert.equal(readMailbox({ url }).kind, 'script');
   });
 
   test('a receipt is keyed by mailbox and message together', () => {
     // A Gmail message id is unique within one mailbox, not across several.
     assert.not(receiptKey('mb_a', '18f2') === receiptKey('mb_b', '18f2'));
-    // Receipts written before there were mailboxes belong to the primary.
-    assert.equal(receiptKey('', '18f2'), receiptKey(PRIMARY.id, '18f2'));
+    // Receipts written before there were mailboxes belong to the backend.
+    assert.equal(receiptKey('', '18f2'), receiptKey(BACKEND.id, '18f2'));
   });
 
   test('removing one leaves the others', () => {
-    const a = readMailbox({ url });
-    const b = readMailbox({ url: 'https://script.google.com/macros/s/AKfycbxThirdAccount9/exec' });
+    const a = googleMailbox({ email: 'a@b.com' });
+    const b = scriptMailbox({ url });
     assert.length(removeMailbox([a, b], a.id), 1);
   });
 
   test('a mailbox falls back to its address for a name', () => {
-    assert.equal(readMailbox({ url, email: 'Work@Example.COM' }).label, 'work@example.com');
-    assert.equal(readMailbox({ url }).label, 'Another mailbox');
+    assert.equal(scriptMailbox({ url, email: 'Work@Example.COM' }).label, 'work@example.com');
+    assert.equal(scriptMailbox({ url }).label, 'Another mailbox');
+  });
+});
+
+/* --------------------------------------------------- reading Gmail here */
+
+describe('reading Gmail from the browser', () => {
+  const encode = (text) => Buffer.from(text, 'utf8').toString('base64url');
+
+  const inbox = {
+    'msg_1': {
+      id: 'msg_1',
+      internalDate: String(Date.UTC(2026, 4, 14)),
+      payload: {
+        headers: [
+          { name: 'From', value: 'Zomato <noreply@zomato.com>' },
+          { name: 'Subject', value: 'Order #ZO12345678 delivered' },
+        ],
+        mimeType: 'multipart/alternative',
+        parts: [
+          { mimeType: 'text/html', body: { data: encode('<p>Grand Total &#8377;9,999.00</p>') } },
+          { mimeType: 'text/plain', body: { data: encode('Grand Total ₹645.00') } },
+        ],
+      },
+    },
+  };
+
+  function client({ onCall = () => {}, token = 'tok' } = {}) {
+    return new GmailClient({
+      getToken: async () => token,
+      fetchImpl: async (url, options) => {
+        onCall(url, options);
+        const list = /\/messages\?/.test(url);
+        const body = list
+          ? { messages: Object.keys(inbox).map((id) => ({ id })) }
+          : inbox[decodeURIComponent(url.split('/messages/')[1].split('?')[0])];
+        return { ok: true, status: 200, json: async () => body, text: async () => '' };
+      },
+    });
+  }
+
+  test('it refuses a query that does not name senders', async () => {
+    // The same refusal the backend makes. Neither route will read a whole
+    // mailbox, and the client not building one is not a reason to skip the
+    // check here.
+    await assert.throws(() => client().mail('after:2026/01/01'), /name the senders/i);
+  });
+
+  test('the token travels as a bearer header and the query as written', async () => {
+    const seen = [];
+    await client({ onCall: (url, options) => seen.push({ url, options }) })
+      .mail('from:zomato.com -in:trash', 5);
+
+    assert.equal(seen[0].options.headers.Authorization, 'Bearer tok');
+    assert.includes(decodeURIComponent(seen[0].url.replace(/\+/g, ' ')), 'q=from:zomato.com -in:trash');
+  });
+
+  test('a message comes back in the shape a receipt is read from', async () => {
+    const { messages } = await client().mail('from:zomato.com', 5);
+    const [message] = messages;
+
+    assert.equal(message.from, 'Zomato <noreply@zomato.com>');
+    assert.equal(message.date, '2026-05-14');
+    // text/plain wins over text/html even when the HTML part comes first —
+    // taking the wrong one here would report a ₹9,999 dinner.
+    assert.includes(message.body, '₹645.00');
+
+    // And it reads as a receipt without any translation in between.
+    assert.equal(readReceipt(message).amount, 64_500);
+  });
+
+  test('a rupee sign survives the decode', () => {
+    // Gmail bodies are base64url over UTF-8, and a naive decode turns ₹ into
+    // mojibake — which then fails to match any amount pattern at all.
+    assert.includes(readBody({ mimeType: 'text/plain', body: { data: encode('Total ₹1,299.00') } }), '₹1,299.00');
+  });
+
+  test('an HTML-only receipt is stripped rather than skipped', () => {
+    const html = readBody({
+      mimeType: 'text/html',
+      body: { data: encode('<style>x{}</style><table><tr><td>Grand Total</td><td>&#8377;450.00</td></tr></table>') },
+    });
+    assert.not(/</.test(html), html);
+    assert.equal(readTotal(html), 45_000);
+  });
+
+  test('the scopes are identity and mail, and nothing about Drive or Sheets', () => {
+    assert.includes(MAIL_SCOPES, 'https://www.googleapis.com/auth/gmail.readonly');
+    assert.not(MAIL_SCOPES.some((scope) => /drive|spreadsheets/.test(scope)), MAIL_SCOPES.join(' '));
+  });
+
+  test('a refusal from Google is reported as one, not as an empty mailbox', async () => {
+    const denied = new GmailClient({
+      getToken: async () => 'tok',
+      fetchImpl: async () => ({ ok: false, status: 403, text: async () => 'insufficient scope' }),
+    });
+    await assert.throws(() => denied.mail('from:zomato.com'), /permission to read its mail/i);
+  });
+
+  test('being signed out is not retried forever', async () => {
+    const out = new GmailClient({ getToken: async () => null });
+    await assert.throws(() => out.mail('from:zomato.com'), /not signed in/i);
   });
 });
 

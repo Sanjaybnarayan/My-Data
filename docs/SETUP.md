@@ -148,42 +148,45 @@ this device with row counts in the sheet and tells you if they disagree.
 
 ---
 
-## A second mailbox for receipts
+## Mailboxes for receipts
 
-Finance → Shops reads the receipts shops email you. Apps Script's `GmailApp`
-can only read **the mailbox the script was authorised against** — there is no
-account parameter and consumer Gmail has no delegation — so a household whose
-receipts arrive at more than one address needs one deployment per address.
+Finance → Shops reads the receipts shops email you. There are three ways to
+attach a mailbox and they trade differently, so the screen offers all three and
+the easy one first.
 
-This does not touch the backup. A mailbox added this way answers mail searches
-and nothing else: it is never given a workbook, never given a Drive folder, and
-never syncs. One Google account still holds all of that.
+**Sign in with Google.** Press *Add a Gmail account*, pick the account, done.
+Add as many as you have. Nothing to deploy.
 
-For each extra account:
+The cost, plainly: reading mail from the page means the page holds a
+`gmail.readonly` token for an hour at a time. Gmail has no narrower permission
+that works — the one returning headers without bodies cannot see a total. So a
+script injected into this application, which could already reach its Drive and
+Sheets tokens, could also read a connected mailbox. Each mailbox is its own
+consent, for its own account, revocable on its own at
+<https://myaccount.google.com/permissions>. The application's ordinary sign-in
+never gains the mail permission.
 
-1. Sign in to <https://script.google.com> **as that account** and create a
-   project. Copy in the same files from `apps-script/` and deploy it exactly as
-   in Step 1. (Only `Gmail.gs` and `Code.gs` will ever be called, but deploying
-   the whole thing keeps the two copies identical and upgradeable together.)
-2. Add that account's email as a test user on the OAuth consent screen — the
-   same consent screen from Step 2, not a new one. Without this, Google refuses
-   the sign-in.
-3. In the app: **Finance → Shops → Mailboxes**, paste the new `/exec` URL, give
-   it a name, and press **Connect**. A sign-in window opens; choose that Google
-   account. The app checks the deployment answers before saving it, so a
-   mistyped URL or the wrong account fails there rather than as an empty scan a
-   month later.
+**Use this deployment.** If you deployed `Gmail.gs` in Step 1, your backend can
+read the mailbox of the account that deployed it — with the Gmail permission
+granted to that script rather than to the page. No token in the browser. Reads
+one mailbox: that account's.
 
-Every scan then reads each mailbox in turn and reports what each one returned.
-A mailbox that cannot be read — signed out, or not yet redeployed with
-`Gmail.gs` — is named in the results and the others are still read.
+**Use another account's deployment.** The most setup by a distance, and the only
+way to read a *second* mailbox with no Gmail token in the page. That account:
 
-The sign-in for an extra mailbox asks for **identity only** (`openid email`).
-It is used to prove which Google account is asking; the mail itself is read by
-that account's own backend under its own authorisation. Which means each person
-grants their own Gmail permission and can revoke it from
-<https://myaccount.google.com/permissions> without affecting anybody else's —
-no single account ends up holding a key to everyone's inbox.
+1. Signs in to <https://script.google.com> and creates a project, copies in the
+   same files from `apps-script/`, and deploys exactly as in Step 1.
+2. Is added as a test user on **the same** OAuth consent screen from Step 2.
+   Without this, Google refuses the sign-in.
+3. Hands you its `/exec` URL, which goes into Shops → Mailboxes under *Add
+   another account's deployment*.
+
+Whichever you use, **the backup does not move.** A mailbox answers mail
+searches and nothing else: never a workbook, never a Drive folder, never
+anything to sync. One account still holds all of that.
+
+Every scan reads each mailbox in turn and reports what each returned. One that
+cannot be read is named in the results and the others are still read.
 
 ---
 
@@ -200,8 +203,20 @@ no single account ends up holding a key to everyone's inbox.
    | `guest` | emergency contacts only | nothing |
 
 2. Add their email as a test user on the OAuth consent screen (Step 2.3).
-3. On their device: open the app, set their own PIN, sign in with their Google
+3. **Settings → Household accounts → Admit** their email. The backend runs as
+   one Google account and, until an account is on this list, refuses any token
+   that is not that account's — so without this step their sign-in succeeds and
+   every sync afterwards returns a 403. Only the account that deployed the
+   backend can change the list; it is admitted by identity and never appears
+   on it.
+4. On their device: open the app, set their own PIN, sign in with their Google
    account, and sync. They get their own encryption key wrapping the same data.
+
+Being on that list grants the right to *reach* the workbook, not to read it.
+The sensitive fields in it are ciphertext, and the key that opens them is
+wrapped by a PIN, a fingerprint or the recovery phrase on each person's own
+device — it never goes near Google. Somebody admitted but without one of those
+three sees rows of ciphertext and nothing else.
 
 The roles are enforced in the repository, not in the interface — a child's
 device does not merely hide the Finance screen, it refuses the read.

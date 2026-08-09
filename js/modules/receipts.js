@@ -49,10 +49,12 @@ import { app } from '../context.js';
 import { MERCHANTS, searchQuery, customMerchant } from '../domain/merchants.js';
 import { readReceipt, byMerchant, subscriptions, reconcile } from '../domain/inbox.js';
 import {
-  PRIMARY, readMailbox, addMailbox, removeMailbox, allMailboxes, receiptKey,
+  BACKEND, readMailbox, googleMailbox, scriptMailbox,
+  addMailbox, removeMailbox, receiptKey,
 } from '../domain/mailboxes.js';
 import { categoryLabel } from '../domain/categorise.js';
 import { AppsScriptTransport } from '../sync/transport.js';
+import { GmailClient, MAIL_SCOPES } from '../sync/gmail.js';
 import { GoogleAuth } from '../auth/google.js';
 import { today, addDays, addMonths, formatDay } from '../core/dates.js';
 import { format } from '../core/money.js';
@@ -66,11 +68,18 @@ const CHOSEN = 'inbox.chosen';
 const MAILBOXES = 'inbox.mailboxes';
 
 /**
- * All a second mailbox's token is for is proving which Google account is
- * asking. Not Drive, not Sheets, and emphatically not Gmail — the mail is read
- * by that account's own backend, under its own authorisation.
+ * All a *deployment* mailbox's token is for is proving which Google account is
+ * asking. Not Drive, not Sheets, and not Gmail — the mail is read by that
+ * account's own backend, under its own authorisation.
  */
 const IDENTITY_ONLY = ['openid', 'email'];
+
+/** How each mailbox is actually read, said in the list rather than in a doc. */
+const ROUTE = {
+  google: 'read from this device',
+  backend: 'read by your Apps Script backend',
+  script: 'read by that account’s own backend',
+};
 
 /** One call's ceiling. The backend caps it too; this is the polite request. */
 const SCAN_LIMIT = 200;
@@ -89,6 +98,8 @@ export async function render() {
   let mailboxes = (await db.meta(MAILBOXES, [])).map(readMailbox).filter(Boolean);
   /** One transport per mailbox, kept so a scan does not rebuild them per run. */
   const links = new Map();
+  /** One sign-in per mailbox, kept so a scan does not re-authorise per run. */
+  const auths = new Map();
 
   let receipts = await db.repo('receipt').list({ limit: 20_000 });
   let transactions = [];
@@ -113,17 +124,31 @@ export async function render() {
    * runs as.
    */
   function linkTo(mailbox) {
-    if (mailbox.primary) return app().transport;
+    if (mailbox.kind === 'backend') return app().transport;
     if (links.has(mailbox.id)) return links.get(mailbox.id);
 
-    const auth = new GoogleAuth({ scopes: IDENTITY_ONLY, loginHint: mailbox.email });
-    const link = new AppsScriptTransport({
-      url: mailbox.url,
-      getToken: () => auth.getToken(),
-      deviceId: db.deviceId,
-    });
+    const link = mailbox.kind === 'google'
+      // Its own sign-in, for its own account, carrying the Gmail scope. The
+      // application's ordinary sign-in never gains it.
+      ? new GmailClient({
+        getToken: () => authFor(mailbox, MAIL_SCOPES).getToken(),
+      })
+      : new AppsScriptTransport({
+        url: mailbox.url,
+        getToken: () => authFor(mailbox, IDENTITY_ONLY).getToken(),
+        deviceId: db.deviceId,
+      });
+
     links.set(mailbox.id, link);
     return link;
+  }
+
+  /** One sign-in per mailbox, pinned to its address so renewal cannot drift. */
+  function authFor(mailbox, scopes) {
+    if (!auths.has(mailbox.id)) {
+      auths.set(mailbox.id, new GoogleAuth({ scopes, loginHint: mailbox.email }));
+    }
+    return auths.get(mailbox.id);
   }
 
   /**
@@ -142,8 +167,8 @@ export async function render() {
       toast('Choose at least one shop to look for.', { kind: 'error' });
       return;
     }
-    if (!app().transport.configured) {
-      toast('Connect a Google account in Settings first.', { kind: 'error' });
+    if (!mailboxes.length) {
+      toast('Add a mailbox first.', { kind: 'error' });
       return;
     }
 
@@ -155,7 +180,7 @@ export async function render() {
     const runs = [];
     let added = 0;
 
-    for (const mailbox of allMailboxes(mailboxes)) {
+    for (const mailbox of mailboxes) {
       try {
         const result = await linkTo(mailbox).mail(query, SCAN_LIMIT);
         const messages = result.messages ?? [];
@@ -232,16 +257,76 @@ export async function render() {
   /* -------------------------------------------------------------- mailboxes */
 
   /**
-   * Attach a mailbox by signing in as the account that owns it.
+   * Sign in with a Google account and read its mail from here.
+   *
+   * The account is not asked for — it is whichever one the person picks in
+   * Google's own window, which is the only place that answer can be given
+   * truthfully. `select_account` so a household with several signed in is
+   * asked which, rather than silently getting the default.
+   */
+  async function connectGoogle() {
+    busy = true;
+    paint();
+
+    try {
+      const auth = new GoogleAuth({ scopes: MAIL_SCOPES });
+      await auth.signIn({ prompt: 'select_account consent' });
+      const profile = await auth.fetchProfile();
+
+      const mailbox = googleMailbox({ email: profile?.email ?? '' });
+      if (!mailbox) throw new Error('Google did not say which account that was.');
+
+      // Prove the permission was actually granted before it is written down.
+      // Google's consent screen lets somebody untick a scope, and a mailbox
+      // that fails on every scan afterwards is a worse answer than one that
+      // fails now.
+      await new GmailClient({ getToken: () => auth.getToken() })
+        .mail(currentQuery() || 'from:example.com', 1);
+
+      auths.set(mailbox.id, auth);
+      links.delete(mailbox.id);
+      mailboxes = addMailbox(mailboxes, mailbox);
+      await save();
+      toast(`${mailbox.label} connected`, { kind: 'success' });
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    } finally {
+      busy = false;
+      paint();
+    }
+  }
+
+  /** Read mail through the deployment this application already syncs with. */
+  async function connectBackend() {
+    busy = true;
+    paint();
+
+    try {
+      // The same proof the Google route does: this deployment either has
+      // Gmail.gs or it does not, and finding out now beats finding out on the
+      // first scan.
+      await app().transport.mail(currentQuery() || 'from:example.com', 1);
+      mailboxes = addMailbox(mailboxes, BACKEND);
+      await save();
+      toast('Reading mail through this deployment', { kind: 'success' });
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    } finally {
+      busy = false;
+      paint();
+    }
+  }
+
+  /**
+   * Attach another account's deployment.
    *
    * The sign-in is what proves the URL and the account belong together — the
    * backend at that URL only answers a token issued for the account it runs
    * as, so a wrong pairing fails here rather than silently returning nothing
    * on every scan afterwards.
    */
-  async function connectMailbox(url, label) {
-    const draft = readMailbox({ url, label });
-    if (!draft) {
+  async function connectScript(url, label) {
+    if (!scriptMailbox({ url })) {
       toast('That is not an Apps Script deployment URL — it should end in /exec.',
         { kind: 'error' });
       return;
@@ -255,16 +340,15 @@ export async function render() {
       await auth.signIn({ prompt: 'select_account consent' });
       const profile = await auth.fetchProfile();
 
-      const mailbox = readMailbox({ url, label, email: profile?.email ?? '' });
-      // Prove it answers before it is written down, so a mistyped URL or the
-      // wrong account is a message now rather than an empty scan later.
+      const mailbox = scriptMailbox({ url, label, email: profile?.email ?? '' });
       await new AppsScriptTransport({
         url: mailbox.url, getToken: () => auth.getToken(), deviceId: db.deviceId,
       }).call('ping');
 
-      mailboxes = addMailbox(mailboxes, mailbox);
+      auths.set(mailbox.id, auth);
       links.delete(mailbox.id);
-      await db.setMeta(MAILBOXES, mailboxes);
+      mailboxes = addMailbox(mailboxes, mailbox);
+      await save();
       toast(`${mailbox.label} connected`, { kind: 'success' });
     } catch (err) {
       toast(userMessage(err), { kind: 'error' });
@@ -273,6 +357,8 @@ export async function render() {
       paint();
     }
   }
+
+  const save = () => db.setMeta(MAILBOXES, mailboxes);
 
   /**
    * Forget a mailbox, and decide what happens to what it found.
@@ -297,7 +383,11 @@ export async function render() {
 
     mailboxes = removeMailbox(mailboxes, mailbox.id);
     links.delete(mailbox.id);
-    await db.setMeta(MAILBOXES, mailboxes);
+    // Signing out revokes the token rather than leaving an hour of read access
+    // sitting in memory after somebody has said they are done with it.
+    await auths.get(mailbox.id)?.signOut().catch(() => {});
+    auths.delete(mailbox.id);
+    await save();
     paint();
   }
 
@@ -434,6 +524,84 @@ export async function render() {
   }
 
   function mailboxesCard() {
+    const counts = new Map();
+    for (const receipt of receipts) {
+      const key = receipt.mailbox || BACKEND.id;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+
+    const attached = new Set(mailboxes.map((mailbox) => mailbox.id));
+
+    return card({}, [
+      cardHeader('Mailboxes', [
+        button('Add a Gmail account', {
+          variant: 'primary', iconName: 'plus', onClick: connectGoogle, disabled: busy,
+        }),
+      ], {
+        subtitle: mailboxes.length
+          ? `${mailboxes.length} read every scan`
+          : 'None yet — one sign-in is the whole setup',
+        iconName: 'bank',
+      }),
+
+      mailboxes.length
+        ? h('div', {}, mailboxes.map((mailbox) => listItem({
+          title: mailbox.label,
+          subtitle: [
+            ROUTE[mailbox.kind],
+            `${counts.get(mailbox.id) ?? 0} receipts`,
+          ].filter(Boolean).join(' · '),
+          leading: badge(mailbox.kind === 'google' ? 'signed in' : 'deployment',
+            mailbox.kind === 'google' ? 'success' : 'info'),
+          trailing: button('Remove', { onClick: () => forgetMailbox(mailbox) }),
+        })))
+        : h('p', { class: 'muted' },
+          'Press “Add a Gmail account” and choose the account your receipts arrive '
+          + 'at. Add as many as you have — food and shopping at one address, bills '
+          + 'and business orders at another is the normal case, and a total covering '
+          + 'only one of them is misleading rather than merely incomplete.'),
+
+      divider(),
+      h('p', { class: 'small muted' }, [
+        h('strong', {}, 'What signing in costs. '),
+        'Reading mail from this page means the page holds a Gmail token for an hour '
+        + 'at a time. Gmail has no narrower permission that would work — the one that '
+        + 'returns headers without bodies cannot see a total. So a script injected '
+        + 'into this application, which could already reach its Drive and Sheets '
+        + 'tokens, could also read a connected mailbox. That is a real difference, '
+        + 'and it is why the harder route below still exists.',
+      ]),
+      h('p', { class: 'small faint' },
+        'Each mailbox is its own sign-in, for its own account, revocable on its own '
+        + 'at myaccount.google.com/permissions without disturbing sync. The '
+        + 'application’s ordinary sign-in never gains the mail permission.'),
+      h('p', { class: 'small faint' },
+        'Backup stays where it is either way. A mailbox answers mail searches and '
+        + 'nothing else — never a workbook, a Drive folder, or anything to sync.'),
+
+      backendOption(attached),
+      scriptOption(),
+    ].filter(Boolean));
+  }
+
+  /** The no-token-in-the-page route, when this deployment can do it. */
+  function backendOption(attached) {
+    if (attached.has(BACKEND.id)) return null;
+
+    return h('details', { class: 'small', style: { marginTop: 'var(--space-3)' } }, [
+      h('summary', {}, 'Read this account’s mail without a token in the page'),
+      h('p', { class: 'muted' }, [
+        'If ', h('code', {}, 'Gmail.gs'), ' was deployed with your Apps Script '
+        + 'backend, it can read the mailbox of the account that deployed it — with '
+        + 'the Gmail permission granted to that script rather than to this page. '
+        + 'Tighter, and no extra setup if you already deployed it.',
+      ]),
+      button('Use this deployment', { onClick: connectBackend, disabled: busy }),
+    ]);
+  }
+
+  /** The same, for a second account: the most setup, the least exposure. */
+  function scriptOption() {
     const url = h('input', {
       type: 'url',
       class: 'input',
@@ -451,54 +619,21 @@ export async function render() {
 
     const submit = () => {
       if (!url.value.trim()) return;
-      void connectMailbox(url.value, label.value);
+      void connectScript(url.value, label.value);
       url.value = '';
       label.value = '';
     };
 
-    const counts = new Map();
-    for (const receipt of receipts) {
-      const key = receipt.mailbox || PRIMARY.id;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-
-    return card({}, [
-      cardHeader('Mailboxes', null, {
-        subtitle: `${mailboxes.length + 1} searched every scan`,
-        iconName: 'bank',
-      }),
-
-      ...allMailboxes(mailboxes).map((mailbox) => listItem({
-        title: mailbox.label,
-        subtitle: [
-          mailbox.email || (mailbox.primary ? 'the account you are signed in with' : ''),
-          `${counts.get(mailbox.id) ?? 0} receipts`,
-        ].filter(Boolean).join(' · '),
-        leading: badge(mailbox.primary ? 'primary' : 'mail only', mailbox.primary ? 'success' : 'info'),
-        trailing: mailbox.primary ? null
-          : button('Remove', { onClick: () => forgetMailbox(mailbox) }),
-      })),
-
-      divider(),
-      h('p', { class: 'small muted' }, [
-        'Receipts arrive at more than one address in most households, and a total '
-        + 'covering only one of them is misleading rather than merely incomplete. ',
-        h('strong', {}, 'Apps Script can only read the mailbox it was authorised against'),
-        ', so each extra account deploys its own copy of ',
-        h('code', {}, 'apps-script/'),
-        ' and you paste its ',
-        h('code', {}, '/exec'),
-        ' URL here. That account grants its own Gmail permission and can revoke '
-        + 'it without touching the others — no single account ends up holding a '
-        + 'key to everybody’s inbox.',
-      ]),
-      h('p', { class: 'small faint' },
-        'Backup stays where it is. A mailbox added here answers mail searches and '
-        + 'nothing else — it is never given a workbook, a Drive folder, or anything to sync.'),
-      h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-2)' } }, [
+    return h('details', { class: 'small', style: { marginTop: 'var(--space-2)' } }, [
+      h('summary', {}, 'Add another account’s deployment instead of signing in'),
+      h('p', { class: 'muted' },
+        'The most setup by a distance, and the only way to read a second mailbox '
+        + 'without this page ever holding a Gmail token: that account deploys its '
+        + 'own copy of apps-script/, and its /exec URL goes here. See docs/SETUP.md.'),
+      h('div', { class: 'row', style: { gap: 'var(--space-2)' } }, [
         url, label, button('Connect', { onClick: submit, disabled: busy }),
       ]),
-    ].filter(Boolean));
+    ]);
   }
 
   function shopsCard() {
