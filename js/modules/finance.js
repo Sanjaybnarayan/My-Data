@@ -37,7 +37,7 @@ const TABS = [
 ];
 
 /** Screens that produce records rather than listing one entity. */
-const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights']);
+const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights', 'transaction']);
 
 export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity) {
@@ -88,6 +88,14 @@ export async function render(route) {
   // until somebody opens the tab.
   if (active === 'import') {
     const screen = await (await import('./statements.js')).render();
+    replace(body, screen.node);
+    return { node: host, destroy: screen.destroy };
+  }
+
+  // Transactions get a ledger rather than the schema's generic table: money in
+  // and money out need separate columns, and one row needs to open in place.
+  if (active === 'transaction' && !route.id) {
+    const screen = await (await import('./transactions.js')).render();
     replace(body, screen.node);
     return { node: host, destroy: screen.destroy };
   }

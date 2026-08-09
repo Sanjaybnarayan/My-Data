@@ -94,6 +94,16 @@ arithmetic.
 
 Either way the file is decoded in your browser. Nothing is uploaded anywhere.
 
+**Finance → Transactions** is a ledger, not a list: money in and money out are
+separate right-aligned columns with the balance beside them, because a column
+where ₹50,000 arriving and ₹50,000 leaving are printed identically is a list of
+numbers rather than a ledger. Any row opens in place to show everything the
+import kept — the narration exactly as the bank wrote it, the reference, the
+balance after, the statement it came from and the receipt that matched it —
+without leaving the screen you were comparing it against. Rows group under a day heading carrying that day's own totals. Filter by
+account, category, direction, date or amount, and every total is of the rows
+shown.
+
 **Finance → People, Lending and Insights** read the whole imported history, not
 one file: who money has gone back and forth with and where each stands, what
 has been borrowed and how much is still out, and the handful of facts about the
@@ -157,8 +167,8 @@ else: never a workbook, never a Drive folder, never anything to sync. See
 ## Tests
 
 ```
-npm test              # 551 checks, no browser, nothing installed
-npm run test:browser  # 90 checks in a real Chromium
+npm test              # 554 checks, no browser, nothing installed
+npm run test:browser  # 117 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is

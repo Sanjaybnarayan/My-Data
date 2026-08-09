@@ -118,6 +118,7 @@ const SHELL = [
   './js/modules/reports.js',
   './js/modules/settings.js',
   './js/modules/statements.js',
+  './js/modules/transactions.js',
 
   './js/ai/assistant.js',
   './js/ai/intents.js',

@@ -285,6 +285,188 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-shops');
     }
 
+    /* --------------------------------------------------- the transactions */
+
+    {
+      const before = consoleErrors.length;
+
+      // Real transactions through the real form, so the ledger below has
+      // something to align — and one of each direction, because a column that
+      // only ever holds expenses proves nothing about the layout.
+      for (const row of [
+        { amount: '645', payee: 'ZOMATO LIMITED', kind: 'expense' },
+        { amount: '50000', payee: 'ACME SOFTWARE PAYROLL', kind: 'income' },
+        { amount: '2499', payee: 'BLINKIT COMMERCE PRIVATE LIMITED', kind: 'expense' },
+      ]) {
+        // Away first: setting the hash to the value it already holds fires no
+        // `hashchange`, so the second pass would never re-open the form.
+        await go(page, '#/finance/transaction');
+        await go(page, '#/finance/transaction/new');
+        await page.waitForSelector('.modal', { timeout: 5000 });
+        await page.locator('#f-transaction-amount').fill(row.amount);
+        await page.locator('#f-transaction-payee').fill(row.payee);
+        await page.locator('#f-transaction-kind').selectOption(row.kind);
+        // Account is required and does not default — the same validator the
+        // repository uses refuses the save without it.
+        await page.locator('#f-transaction-account').selectOption({ index: 1 });
+        await page.locator('.modal button[type="submit"]').click();
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+      }
+
+      await go(page, '#/finance/transaction');
+      await page.waitForTimeout(500);
+
+      check('transactions render as a ledger, not the generic table',
+        (await page.locator('table.table--ledger').count()) === 1);
+
+      // The whole reason this screen exists: money in and money out are
+      // separate columns. One signed column would make ₹645 arriving and
+      // ₹645 leaving look identical.
+      // Lower-cased because the heading style uppercases them, and what is
+      // being asserted is the columns, not the typography.
+      const headers = (await page.locator('table.table--ledger thead th').allInnerTexts())
+        .map((text) => text.trim().toLowerCase());
+      check('In and Out are separate columns',
+        headers.includes('in') && headers.includes('out'), headers.join(' | '));
+      check('a balance column runs beside them', headers.includes('balance'));
+
+      // Row 0 is the Zomato expense, row 1 the salary. Cell 0 of each row is
+      // In and cell 1 is Out, so this is the layout's whole claim in two
+      // assertions: an expense is only ever on the right of the pair, and
+      // money arriving is only ever on the left.
+      const cell = (rowIndex, which) => page.locator('.ledger-row').nth(rowIndex)
+        .locator('td.col--amount').nth(which);
+
+
+      check('an expense lands in Out and leaves In empty',
+        (await cell(0, 1).innerText()).includes('645')
+        && (await cell(0, 0).innerText()).trim() === '');
+      check('income lands in In and leaves Out empty',
+        (await cell(1, 0).innerText()).includes('50,000')
+        && (await cell(1, 1).innerText()).trim() === '');
+
+      // A month of statements repeats one date down twenty rows. A heading says
+      // it once, and carries that day's own totals.
+      check('rows are grouped under a day heading',
+        (await page.locator('.ledger-day').count()) > 0);
+      check('the heading carries the day and not just a rule',
+        /9 Aug 2026/.test(await page.locator('.ledger-day').first().innerText()));
+      check('the date is not then repeated on every row beneath it',
+        !/2026/.test(await page.locator('.ledger-row').first().locator('.col--date').innerText()));
+
+      // Grouped by day while sorted by amount would be a heading per row.
+      await page.locator('table.table--ledger thead th').nth(4).click();
+      await page.waitForTimeout(300);
+      check('sorting by something else drops the headings',
+        (await page.locator('.ledger-day').count()) === 0);
+      check('and the date comes back into the row',
+        /2026/.test(await page.locator('.ledger-row').first().locator('.col--date').innerText()));
+
+      await page.locator('table.table--ledger thead th').first().click();
+      await page.waitForTimeout(300);
+
+      // Banding has to come from the row's own position: an opened row adds a
+      // sibling to the same tbody, and `:nth-child` stripes would flip below it.
+      const banded = await page.locator('.ledger-row--band').count();
+      check('rows are banded so the eye holds one row across seven columns',
+        banded > 0, String(banded));
+
+      // Figures have to line up by place value or a column of them is
+      // unreadable, which is the entire argument for the layout.
+      const numeric = await page.locator('.ledger-row td.col--amount').nth(1).evaluate(
+        (node) => getComputedStyle(node).fontVariantNumeric,
+      );
+      check('amounts use tabular figures so digits align', /tabular-nums/.test(numeric), numeric);
+
+      // Under `table-layout: fixed` a `min-width` is ignored, so the most
+      // informative column is exactly as wide as it was told to be and not a
+      // pixel more. It has to be the widest thing on the row.
+      const widths = await page.locator('.ledger-row').first().evaluate((row) => {
+        const width = (selector) => row.querySelector(selector)?.getBoundingClientRect().width ?? 0;
+        return { description: width('.col--description'), account: width('.col--account') };
+      });
+      check('the description column is the one that gets the space',
+        widths.description > widths.account, JSON.stringify(widths));
+
+      // A fixed column does not grow for its content — it spills into its
+      // neighbour, which is how "9 Aug 2026" and a payee ended up printed as
+      // one word. Nothing may be wider than the cell holding it.
+      const spill = await page.locator('.ledger-row').first().evaluate((row) => [...row.cells]
+        .filter((cell) => cell.scrollWidth > cell.clientWidth + 1)
+        .map((cell) => `${cell.className}: ${cell.scrollWidth} > ${cell.clientWidth}`));
+      check('no column overflows into the one beside it', spill.length === 0, spill.join(' | '));
+
+      // A row opens in place rather than navigating, because comparing it
+      // against its neighbours is why somebody opened it.
+      check('no row is open to begin with', (await page.locator('.ledger-detail').count()) === 0);
+      await page.locator('.ledger-row').first().click();
+      await page.waitForTimeout(250);
+      check('clicking a row opens its detail in place',
+        (await page.locator('.ledger-detail').count()) === 1);
+      check('the opened row stays on the same screen',
+        (await page.locator('table.table--ledger').count()) === 1);
+      check('the opened row offers a category without a form',
+        (await page.locator('.ledger-detail-actions select').count()) === 1);
+
+      await page.locator('.ledger-row').first().click();
+      await page.waitForTimeout(250);
+      check('clicking again closes it', (await page.locator('.ledger-detail').count()) === 0);
+
+      // Filters that changed the list but not the sums would be a way to read
+      // the wrong number confidently.
+      await page.locator('input[aria-label="Search transactions"]').fill('nothing matches this');
+      await page.waitForTimeout(300);
+      check('a filter that matches nothing says so rather than showing everything',
+        /Nothing matches those filters/i.test(await page.locator('.app-content').innerText()));
+      await page.locator('input[aria-label="Search transactions"]').fill('');
+      await page.waitForTimeout(300);
+
+      check('the transactions ledger loads without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-transactions');
+
+      // A phone cannot show seven columns, and a ledger squeezed into one is
+      // worse than a stack of cards. What must survive the squeeze is the one
+      // alignment that matters: the figure stays on the right of the payee.
+      await page.setViewportSize({ width: 400, height: 900 });
+      await page.waitForTimeout(400);
+
+      const stacked = await page.locator('.ledger-row').first().evaluate((row) => {
+        const description = row.querySelector('.col--description');
+        const figures = [...row.querySelectorAll('.col--amount')]
+          .filter((cell) => cell.textContent.trim());
+        return {
+          columns: getComputedStyle(row).display,
+          shown: figures.length,
+          right: figures.length
+            ? figures[0].getBoundingClientRect().right > description.getBoundingClientRect().right
+            : false,
+          figure: figures[0]?.textContent.trim() ?? '',
+          payee: row.querySelector('.ledger-payee')?.textContent.trim() ?? '',
+          // What is drawn, not what is in the DOM: a cell clipped by its own
+          // width still reports its full text content.
+          clipped: [...row.cells].filter((cell) => cell.scrollWidth > cell.clientWidth + 1).length,
+        };
+      });
+
+      check('a phone stacks each row into a card', stacked.columns === 'grid', stacked.columns);
+      check('exactly one money column survives the stack', stacked.shown === 1, String(stacked.shown));
+      check('and it stays on the right, where an amount belongs', stacked.right);
+
+      // The check above passed while every cell was clipped to two characters,
+      // which is how a date read "9 A…" and an amount read "₹". Layout right
+      // and content unreadable is still broken.
+      check('the amount is legible and not clipped to its currency sign',
+        stacked.figure.includes('645'), stacked.figure);
+      check('the payee is legible', stacked.payee.includes('ZOMATO LIMITED'), stacked.payee);
+      check('nothing on the card is clipped', stacked.clipped === 0, String(stacked.clipped));
+
+      if (SHOTS) await shot(page, 'finance-transactions-phone');
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(300);
+    }
+
     /* ------------------------------------------------------- the ledgers */
 
     {
