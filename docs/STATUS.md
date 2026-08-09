@@ -24,7 +24,7 @@ honest half: the line between what is built and what is not.
 | **Backend** | Apps Script, loaded into Node and tested against literal stubs: admission, the member list, the cache, the request contract |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 571 checks with no browser and nothing installed; 120 more in a real Chromium. Both in CI |
+| **Tests** | 587 checks with no browser and nothing installed; 122 more in a real Chromium. Both in CI |
 
 ## Deliberately not built
 
@@ -106,6 +106,17 @@ no account balance to run, and the sign convention is inverted — a purchase
 increases what is owed. Every assumption the bank-statement parser makes about
 balances is wrong on a card, which is why cards were unsupported until there
 was a reader that takes the direction from the heading the bank wrote.
+
+**Signing in with Google trades the PIN away, and says so.** The key that
+unwraps the data can be escrowed in the household's own Drive `appDataFolder`,
+which makes opening the app one press on any device and configures backup at
+the same time. It also means anyone who can sign in as that Google account can
+read everything — the PIN was the one thing standing between a compromised
+Google password and a family's medical records. So it is a fourth wrapping
+beside the other three rather than a replacement, it is offered with the cost
+written next to the button, and turning it off deletes the key out of Drive
+rather than forgetting it locally. Escrowed or not, what Drive holds is a
+wrapping key and never the data key.
 
 **Market prices are entered by hand.** No third-party price API is bundled. An
 Apps Script `GOOGLEFINANCE` bridge would cover the instruments Sheets supports.

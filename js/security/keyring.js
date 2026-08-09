@@ -94,6 +94,39 @@ export class Keyring {
     return dataKey;
   }
 
+  /**
+   * First run, without a PIN: mint the data key and wrap it under 32 bytes
+   * somebody else is holding for us.
+   *
+   * The counterpart to `enrolPin` for the sign-in-with-Google path, where the
+   * wrapping key lives in the household's own Drive rather than in their head.
+   * Identical in every other respect — same data key, same wrapping, same
+   * refusal to run twice — because the difference between the two is *where
+   * the key that unwraps it is kept*, and nothing else.
+   *
+   * @param {Uint8Array} rawKey 32 bytes
+   */
+  async enrolRawKey(rawKey, method = 'google', label = '') {
+    if (await this.isEnrolled()) {
+      throw new AppError('this device already has a data key', { code: 'already-enrolled' });
+    }
+    if (!(rawKey?.length === 32)) {
+      throw new AppError('an unlock key must be 32 bytes', { code: 'bad-key' });
+    }
+
+    const dataKey = await generateDataKey();
+    const kek = await importKeyEncryptionKey(rawKey);
+    const wrapped = await wrapDataKey(dataKey, kek);
+
+    this.#methods = [{
+      method, ...wrapped, label, createdAt: new Date().toISOString(),
+    }];
+    await this.#save();
+    this.#dataKey = dataKey;
+    bus.emit(TOPIC.unlocked, { method });
+    return dataKey;
+  }
+
   async unlockWithPin(pin) {
     const entry = (await this.#load()).find((m) => m.method === 'pin');
     if (!entry) throw new LockedError('no PIN is enrolled on this device');

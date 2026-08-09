@@ -59,6 +59,7 @@ const SHELL = [
   './js/data/validate.js',
 
   './js/security/crypto.js',
+  './js/security/escrow.js',
   './js/security/fieldcrypto.js',
   './js/security/keyring.js',
   './js/security/rbac.js',

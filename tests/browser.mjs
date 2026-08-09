@@ -86,6 +86,14 @@ async function main() {
     check('the app boots to the enrolment screen',
       await page.locator('text=Choose a PIN').isVisible());
 
+    // With no Google client id configured there is nothing to sign in to, and
+    // a "Continue with Google" button that could only fail would be worse than
+    // no button at all. First run has to still work on a PIN alone.
+    check('no Google option is offered when none is configured',
+      (await page.getByRole('button', { name: 'Continue with Google' }).count()) === 0);
+    check('and the keypad is still the way in',
+      (await page.locator('.keypad').count()) === 1);
+
     for (const digit of PIN) await page.getByRole('button', { name: digit, exact: true }).click();
     await page.getByRole('button', { name: 'Done' }).click();
     await page.waitForTimeout(200);
