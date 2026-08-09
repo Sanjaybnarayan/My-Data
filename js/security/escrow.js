@@ -53,8 +53,15 @@ export const APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const FILES = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
 
-/** One file, one household. The name is fixed so any device finds it. */
-const NAME = 'familyos.keywrap.json';
+/**
+ * One file, one household. The name is fixed so any device finds it.
+ *
+ * Two names because there are two places it can live, and a household who
+ * finds the visible one in their Drive should be able to tell what it is
+ * without opening it.
+ */
+const HIDDEN_NAME = 'familyos.keywrap.json';
+const VISIBLE_NAME = 'FamilyOS unlock key.json';
 
 /**
  * A key-encryption key kept in the household's own Drive.
@@ -67,11 +74,39 @@ const NAME = 'familyos.keywrap.json';
 export class DriveEscrow {
   #getToken;
   #fetch;
+  #hidden;
 
-  /** @param {{getToken: () => Promise<string>, fetchImpl?: typeof fetch}} options */
-  constructor({ getToken, fetchImpl } = {}) {
+  /**
+   * `hidden` picks where the key lives, and it exists because requiring the
+   * hidden folder turned out to be a way of not working.
+   *
+   * `drive.appdata` has to be added to a household's OAuth consent screen in
+   * the Cloud Console before Google will grant it, and Google grants the *rest*
+   * of the request regardless — so a household that had not done that got a
+   * successful sign-in and then a refusal, for a reason living in a different
+   * console from the application.
+   *
+   * `drive.file` is already granted, for everything else this application does
+   * with Drive, and covers a file the application itself created. So the key
+   * can go in an ordinary file with no new permission at all. It is visible in
+   * the household's Drive rather than hidden in an app folder, which is a
+   * difference in tidiness and not in security: `appDataFolder` is not a
+   * boundary — anyone who can sign in as that account reads either.
+   *
+   * Visible is arguably the better default anyway. A household that wants to
+   * know where the key to their records is can see it, and delete it.
+   *
+   * @param {{getToken: () => Promise<string>, fetchImpl?: typeof fetch,
+   *          hidden?: boolean}} options
+   */
+  constructor({ getToken, fetchImpl, hidden = false } = {}) {
     this.#getToken = getToken;
     this.#fetch = fetchImpl ?? globalThis.fetch?.bind(globalThis);
+    this.#hidden = hidden;
+  }
+
+  get name() {
+    return this.#hidden ? HIDDEN_NAME : VISIBLE_NAME;
   }
 
   get configured() {
@@ -143,24 +178,50 @@ export class DriveEscrow {
     return true;
   }
 
+  /**
+   * Look in both places, whichever one this instance writes to.
+   *
+   * A household that added `drive.appdata` later, or removed it, should not
+   * lose the key they already have — so the search covers the hidden folder
+   * and the visible file regardless. Under `drive.file` alone the query simply
+   * returns nothing for the hidden one, which is the correct answer rather
+   * than an error.
+   */
   async #find() {
-    const params = new URLSearchParams({
-      spaces: 'appDataFolder',
-      q: `name = '${NAME}' and trashed = false`,
-      fields: 'files(id)',
-      pageSize: '1',
-    });
+    for (const hidden of [this.#hidden, !this.#hidden]) {
+      const params = new URLSearchParams({
+        q: `name = '${hidden ? HIDDEN_NAME : VISIBLE_NAME}' and trashed = false`,
+        fields: 'files(id)',
+        pageSize: '1',
+      });
+      if (hidden) params.set('spaces', 'appDataFolder');
 
-    const response = await this.#call(`${FILES}?${params}`);
-    const body = await response.json();
-    return body.files?.[0]?.id ?? null;
+      try {
+        const response = await this.#call(`${FILES}?${params}`);
+        const body = await response.json();
+        if (body.files?.[0]?.id) return body.files[0].id;
+      } catch (err) {
+        // Searching the app folder without the scope is a refusal, and it is
+        // not an answer about the file this instance actually writes.
+        if (hidden !== this.#hidden) continue;
+        throw err;
+      }
+    }
+    return null;
   }
 
   async #createFile() {
+    const metadata = { name: this.name };
+    // Only `appDataFolder` needs naming. A `drive.file` creation with no
+    // parent lands in the household's Drive, where they can see it — which is
+    // the point of it not being hidden.
+    if (this.#hidden) metadata.parents = ['appDataFolder'];
+    else metadata.description = 'Unlocks FamilyOS. Delete this to stop signing in with Google.';
+
     const response = await this.#call(FILES, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: NAME, parents: ['appDataFolder'] }),
+      body: JSON.stringify(metadata),
     });
     const body = await response.json();
     if (!body.id) throw new AppError('Drive did not accept the key file', { code: 'escrow-failed' });

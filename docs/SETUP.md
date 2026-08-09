@@ -80,12 +80,13 @@ instead, the deployment access is not set to "Anyone".
 3. **APIs & Services → OAuth consent screen**:
    - User type: **External**, unless you have a Workspace account.
    - Fill in the app name and your email.
-   - Scopes: add `drive.file` and `spreadsheets`. Add `drive.appdata` too if
-     you want **Continue with Google** as a way in — see below for what that
-     costs. **Not** the Gmail scope — the browser never talks to Gmail. Mail
-     is read by the Apps Script backend under its own authorisation, and the
-     browser's token is only ever used to prove which Google account is
-     asking.
+   - Scopes: add `drive.file` and `spreadsheets`. That is enough for
+     everything, **Continue with Google** included. `drive.appdata` is
+     optional and only moves the unlock key into a hidden folder instead of a
+     visible file. **Not** the Gmail scope — the browser never talks to
+     Gmail. Mail is read by the Apps Script backend under its own
+     authorisation, and the browser's token is only ever used to prove which
+     Google account is asking.
    - Test users: **add your own email address, and every family member's.**
      While the app is in testing mode, only listed users can sign in.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
@@ -228,8 +229,16 @@ alone, because either opens it and only one of them is worth stealing. Turning
 Google off later deletes the key out of Drive rather than merely forgetting it,
 and leaves your PIN, fingerprint and recovery phrase untouched.
 
-Without `drive.appdata` on the consent screen the button does not appear and
-nothing else changes.
+**No extra permission is needed.** The key goes in an ordinary file in your
+Drive called `FamilyOS unlock key.json`, created under the `drive.file`
+permission the application already uses — so this works with the consent screen
+you already have.
+
+Adding `drive.appdata` is optional. It moves the key into a hidden
+per-application folder that does not appear in your Drive listing. That is a
+difference in tidiness, not in security: the hidden folder is not a boundary,
+and anyone who can sign in as you reads either. A key written in one place is
+found from the other, so adding or removing the scope later loses nothing.
 
 ## Adding family members
 
