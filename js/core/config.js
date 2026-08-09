@@ -79,6 +79,14 @@ export function configure(patch) {
  * handles by asking for the two ids.
  */
 export async function loadConfig(fetchImpl = globalThis.fetch, url = './familyos.config.json') {
+  // A page opened straight off disk has an opaque origin, and a browser
+  // refuses the fetch before it is made — the `catch` below handles it, but
+  // the refusal is logged by the browser itself and cannot be caught. The
+  // single-file build exists to be opened exactly that way, so somebody
+  // looking at the console would find a red CORS error on a first run that
+  // went perfectly. There is no file to find beside a one-file build anyway.
+  if (globalThis.location?.protocol === 'file:') return current;
+
   try {
     const res = await fetchImpl(url, { cache: 'no-store' });
     if (!res.ok) return current;

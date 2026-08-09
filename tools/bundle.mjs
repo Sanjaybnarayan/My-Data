@@ -36,9 +36,11 @@
  * worker exists and the browser storage is the household's own.
  */
 
-import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY = 'js/app.js';
@@ -85,6 +87,29 @@ function transform(path, source) {
   code = code.replace(
     /^import\s*\*\s*as\s+(\w+)\s*from\s*['"]([^'"]+)['"];?/gm,
     (_, name, specifier) => `const ${name} = __req(${JSON.stringify(id(path, specifier))});`,
+  );
+
+  // export { a, b as c } from './x.js'   →   const { a, b: c } = __req('id')
+  //
+  // Before the plain `export {}` rule below, which would otherwise match the
+  // first half of this and leave ` from './x.js';` behind as a line of its
+  // own. That is a syntax error, and it is not one the audit noticed, because
+  // the wreckage starts with a space and the audit only looked at column zero.
+  // The whole bundle failed to parse, the page stopped at "Opening your
+  // records…", and the build reported success.
+  code = code.replace(
+    /^export\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"];?/gm,
+    (_, names, specifier) => {
+      const bindings = [];
+      for (const part of names.split(',').map((n) => n.trim()).filter(Boolean)) {
+        const [local, alias] = part.split(/\s+as\s+/).map((s) => s.trim());
+        // Re-exported under the name it arrives with, then handed on: the
+        // binding has to exist locally for the factory's return to name it.
+        exported.set(alias ?? local, alias ?? local);
+        bindings.push(alias ? `${local}: ${alias}` : local);
+      }
+      return `const { ${bindings.join(', ')} } = __req(${JSON.stringify(id(path, specifier))});`;
+    },
   );
 
   // export { a, b as c };
@@ -175,6 +200,16 @@ function audit(path, code, exported) {
     problems.push(`an import or export this build does not understand: ${line.trim()}`);
   }
 
+  // A module specifier with nothing in front of it. Anchoring the rule above
+  // at column zero is right, and it is also why this is needed: a rewrite that
+  // consumes the front of a statement leaves its tail indented, so the tail of
+  // a half-eaten `export {…} from './x.js'` slipped past unseen. Whatever
+  // produced it, a bare `from './x.js'` is never valid JavaScript.
+  const dangling = code.split('\n').find((l) => /^\s+from\s*['"][^'"]+['"];?\s*$/.test(l));
+  if (dangling) {
+    problems.push(`a statement this build rewrote only half of: ${dangling.trim()}`);
+  }
+
   // Comments discuss `import()` — the router's header explains that routes are
   // loaded with one — so they are stripped before looking for a real call.
   const bare = code.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
@@ -242,10 +277,51 @@ function __req(id) {
 const __dyn = (id) => Promise.resolve(__req(id));
 `;
 
-const script = `<script type="module">
-${runtime}
+const moduleSource = `${runtime}
 ${factories.join('\n\n')}
-__req(${JSON.stringify(ENTRY)});
+__req(${JSON.stringify(ENTRY)});`;
+
+/*
+ * Does the thing we are about to write actually parse?
+ *
+ * The per-module audit checks assumptions about the *input*. This checks the
+ * output, which is the only claim that matters and the one nothing was making:
+ * a rewrite that left a half-eaten statement behind produced a bundle that
+ * could not parse at all, and the build printed its module count and reported
+ * success. The page loaded, showed "Opening your records…", and stopped.
+ *
+ * `SourceTextModule` compiles without evaluating, so this is a parse and not a
+ * run. It needs `--experimental-vm-modules`, and a build should not depend on
+ * a flag the person running it has to remember, so a child process supplies it.
+ */
+function parses(source) {
+  const check = 'import vm from "node:vm";'
+    + 'import fs from "node:fs";'
+    + 'try { new vm.SourceTextModule(fs.readFileSync(process.env.BUNDLE_CHECK, "utf8")); }'
+    + 'catch (err) { process.stdout.write(err.message); }';
+
+  const scratch = join(tmpdir(), `familyos-bundle-${process.pid}.mjs`);
+  writeFileSync(scratch, source);
+  try {
+    return execFileSync(
+      process.execPath,
+      ['--experimental-vm-modules', '--no-warnings', '--input-type=module', '-e', check],
+      { env: { ...process.env, BUNDLE_CHECK: scratch }, encoding: 'utf8' },
+    ).trim();
+  } finally {
+    rmSync(scratch, { force: true });
+  }
+}
+
+const failure = parses(moduleSource);
+if (failure) {
+  console.error(`\nThe bundle does not parse: ${failure}`);
+  console.error('Nothing was written. Run `node --check` on the emitted script to locate it.');
+  process.exit(1);
+}
+
+const script = `<script type="module">
+${moduleSource}
 <\/script>`;
 
 /*
