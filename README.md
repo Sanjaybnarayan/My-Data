@@ -190,7 +190,7 @@ else: never a workbook, never a Drive folder, never anything to sync. See
 ## Tests
 
 ```
-npm test              # 604 checks, no browser, nothing installed
+npm test              # 608 checks, no browser, nothing installed
 npm run test:browser  # 128 checks in a real Chromium
 ```
 

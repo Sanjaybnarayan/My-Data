@@ -33,7 +33,7 @@ import { mountToasts, toast } from './ui/components/toast.js';
 import { bus, TOPIC } from './core/bus.js';
 import { h, replace } from './ui/dom.js';
 import { ACTIONS } from './data/audit.js';
-import { userMessage } from './core/errors.js';
+import { userMessage, AppError } from './core/errors.js';
 import { modules } from './data/schema.js';
 
 const root = () => document.getElementById('app');
@@ -204,6 +204,22 @@ function googleUnlock(keep) {
 
   const connect = async () => {
     await auth.signIn({ prompt: 'select_account consent' });
+
+    // Google hands back a working token whether or not it granted everything
+    // asked for. Left unchecked, a missing `drive.appdata` surfaces two calls
+    // later as "Drive refused access to the app folder", which sends somebody
+    // to look at their Drive when the answer is on their consent screen.
+    const missing = auth.missingScopes();
+    if (missing.includes(APPDATA_SCOPE)) {
+      throw new AppError(
+        'Google signed you in but did not grant the app-folder permission, so there is '
+        + 'nowhere to keep the unlock key. Add drive.appdata to the OAuth consent screen '
+        + '(Cloud Console → APIs & Services → OAuth consent screen → Scopes), then try '
+        + 'again. Your PIN still works in the meantime.',
+        { code: 'appdata-not-granted' },
+      );
+    }
+
     await auth.fetchProfile().catch(() => {});
     keep(auth);
     return escrow;

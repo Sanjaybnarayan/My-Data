@@ -24,7 +24,7 @@ honest half: the line between what is built and what is not.
 | **Backend** | Apps Script, loaded into Node and tested against literal stubs: admission, the member list, the cache, the request contract |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 604 checks with no browser and nothing installed; 128 more in a real Chromium. Both in CI |
+| **Tests** | 608 checks with no browser and nothing installed; 128 more in a real Chromium. Both in CI |
 
 ## Deliberately not built
 
