@@ -15,6 +15,7 @@ setSuite('escrow');
  */
 function fakeDrive({ files = new Map(), status = 200 } = {}) {
   const calls = [];
+  const state = { lastBody: null };
   let next = 1;
 
   const respond = (body, code = status) => ({
@@ -40,6 +41,7 @@ function fakeDrive({ files = new Map(), status = 200 } = {}) {
     }
 
     if (options.method === 'POST') {
+      state.lastBody = options.body;
       const id = `file${next++}`;
       files.set(id, null);
       return respond({ id });
@@ -55,7 +57,14 @@ function fakeDrive({ files = new Map(), status = 200 } = {}) {
     return respond({ files: found.length ? [{ id: found[0] }] : [] });
   };
 
-  return { files, calls, escrow: (token = 'tok') => new DriveEscrow({ getToken: async () => token, fetchImpl }) };
+  return {
+    files,
+    calls,
+    get lastBody() { return state.lastBody; },
+    escrow: (token = 'tok', hidden = false) => new DriveEscrow({
+      getToken: async () => token, fetchImpl, hidden,
+    }),
+  };
 }
 
 /* ---------------------------------------------------------------- the key */
@@ -85,15 +94,34 @@ describe('a key kept in the household own Drive', () => {
     assert.length([...drive.files.keys()], 1);
   });
 
-  test('the key is written to the hidden app folder and nowhere else', async () => {
+  test('by default it needs no permission beyond the one already granted', async () => {
+    // `drive.appdata` has to be added to a household's OAuth consent screen
+    // before Google will grant it, and Google grants the rest of the request
+    // either way — so requiring it meant a successful sign-in followed by a
+    // refusal, for a reason living in a different console. `drive.file`
+    // covers a file this application created, and is enough.
     const drive = fakeDrive();
     await drive.escrow().create();
 
     const create = drive.calls.find((call) => call.method === 'POST');
     assert.ok(create, 'no file was created');
-    // Everything goes through the app-folder space. A call without it would be
-    // reaching into the household's ordinary Drive.
+    assert.not(JSON.parse(drive.lastBody ?? '{}').parents,
+      'the default path asked for the app folder it may not have');
+  });
+
+  test('given the app folder, it uses it', async () => {
+    const drive = fakeDrive();
+    await drive.escrow('tok', true).create();
     assert.ok(drive.calls.some((call) => call.url.includes('spaces=appDataFolder')));
+  });
+
+  test('a key put in one place is found from the other', async () => {
+    // A household that adds `drive.appdata` later, or removes it, must not
+    // lose the key they already have.
+    const drive = fakeDrive();
+    const made = await drive.escrow('tok', false).create();
+    const read = await drive.escrow('tok', true).read();
+    assert.equal(toBase64(read), toBase64(made));
   });
 
   test('what is stored is the wrapping key, never the data key', async () => {
