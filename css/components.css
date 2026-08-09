@@ -722,3 +722,236 @@
   80% { transform: translateX(5px); }
 }
 @media (prefers-reduced-motion: reduce) { .shake { animation: none; } }
+
+/* ---------------------------------------------------------------- ledger */
+
+/*
+ * The transactions table.
+ *
+ * A ledger is read down a column, not across a row, so everything here serves
+ * vertical alignment: fixed column widths so figures do not shift as the page
+ * scrolls, tabular figures so digits line up by place value, and separate In
+ * and Out columns so the eye never has to read a sign to know which way money
+ * went.
+ */
+
+.table--ledger { table-layout: fixed; width: 100%; }
+
+/*
+ * Percentages, not rems, and they add to 100.
+ *
+ * `table-layout: fixed` distributes from the first row, so a column gets
+ * exactly what it is told and `min-width` is not consulted. With rem widths
+ * the six fixed columns claimed nearly the whole table and the description —
+ * the one column carrying what a transaction actually *was* — got whatever
+ * rounding left over, which on a 1280px screen was about ninety pixels and an
+ * ellipsis. Percentages keep the ratio at every width instead.
+ */
+.table--ledger .col--date { width: 12%; white-space: nowrap; }
+.table--ledger .col--description { width: 28%; }
+.table--ledger .col--category { width: 12%; }
+.table--ledger .col--account { width: 15%; }
+.table--ledger .col--amount { width: 11%; }
+
+/* A fixed column does not grow for its content: it overflows into the one
+   beside it, and a date running into a payee reads as neither. Clipping is
+   the honest failure — the row opens for anything that did not fit. */
+.table--ledger tbody td { overflow: hidden; text-overflow: ellipsis; }
+.table--ledger .ledger-detail > td { overflow: visible; }
+
+.table--ledger td,
+.table--ledger th { padding: var(--space-2) var(--space-3); }
+
+.table--ledger tbody td { vertical-align: top; }
+
+/* Alternating bands. At a glance they are what keeps the eye on one row
+   across seven columns; anything stronger becomes the loudest thing on the
+   screen, which a background must never be.
+
+   Banded by a class rather than `:nth-child`, because an opened row inserts a
+   detail row into the same tbody and every stripe below it would flip. */
+.ledger-row--band { background: var(--surface-sunken); }
+.ledger-row { cursor: pointer; transition: background var(--duration-fast) var(--ease); }
+.ledger-row:hover { background: var(--surface-hover); }
+.ledger-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.ledger-row--open,
+.ledger-row--open.ledger-row--band {
+  background: var(--accent-subtle);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.ledger-chevron {
+  display: inline-block;
+  width: 1em;
+  color: var(--text-faint);
+  font-size: 0.8em;
+}
+
+.ledger-payee {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The bank's own words, kept to one line until the row is opened. A narration
+   is often ninety characters and would otherwise set the height of every row
+   in the table. */
+.ledger-narration {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ledger-row--open .ledger-payee,
+.ledger-row--open .ledger-narration { white-space: normal; overflow: visible; }
+
+/* ------------------------------------------------------- the opened row */
+
+.ledger-detail > td {
+  background: var(--accent-subtle);
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
+}
+
+.ledger-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-3) var(--space-5);
+}
+
+.ledger-fact--wide { grid-column: 1 / -1; }
+
+.ledger-fact-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  margin-bottom: 2px;
+}
+
+.ledger-fact-value { font-size: var(--text-sm); overflow-wrap: anywhere; }
+
+.narration {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  display: block;
+  white-space: pre-wrap;
+}
+
+.ledger-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+/* --------------------------------------------------------------- totals */
+
+.table--ledger tfoot td {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface-raised);
+  border-top: 2px solid var(--border-strong);
+  border-bottom: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.table-wrap--tall { max-height: 78dvh; overflow-y: auto; }
+
+/* --------------------------------------------------------------- filters */
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.filter-bar--secondary {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.search-box--grow { flex: 1 1 16rem; }
+
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.input--compact,
+.select--compact {
+  width: auto;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.input--compact[type='date'] { min-width: 9rem; }
+.input--compact[type='number'] { width: 6rem; }
+
+.card--tight { padding: var(--space-4); }
+
+/* ---------------------------------------------------------------- phone */
+
+/*
+ * Seven columns do not fit a phone, and a ledger squeezed into one is worse
+ * than a stack of cards. Each row becomes a card that keeps the one alignment
+ * that matters: the amount stays on the right, against the payee.
+ */
+@media (max-width: 860px) {
+  .table--ledger { table-layout: auto; }
+  .table--ledger thead { display: none; }
+  .table--ledger tfoot { display: none; }
+
+  /* The percentage widths above are for seven columns across a desk. Carried
+     into a two-column card they are a definite width on a grid item, which
+     clipped every cell to a few characters — a date to "9 A…" and an amount
+     to the rupee sign alone. Nothing is a fixed fraction of anything here. */
+  .table--ledger .col--date,
+  .table--ledger .col--description,
+  .table--ledger .col--category,
+  .table--ledger .col--account,
+  .table--ledger .col--amount { width: auto; }
+
+  .table--ledger tbody td { overflow: visible; text-overflow: clip; }
+  .table--ledger .ledger-payee,
+  .table--ledger .ledger-narration { white-space: normal; overflow: visible; }
+
+  .table--ledger .ledger-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px var(--space-3);
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table--ledger .ledger-row td { border: 0; padding: 0; }
+  .table--ledger .col--date { grid-column: 1; order: 1; font-size: var(--text-xs); color: var(--text-faint); }
+  .table--ledger .col--description { grid-column: 1; order: 3; }
+  .table--ledger .col--category { grid-column: 1; order: 4; }
+  .table--ledger .col--account { grid-column: 1; order: 5; font-size: var(--text-xs); }
+
+  /* Both money columns land in the same place, so a card shows one figure
+     wherever the money went — and the colour says which way. */
+  .table--ledger .col--amount { grid-column: 2; order: 2; text-align: right; font-weight: 600; }
+  .table--ledger .col--amount:empty { display: none; }
+
+  .ledger-detail > td { padding: var(--space-3); }
+  .ledger-detail-grid { grid-template-columns: 1fr; }
+}

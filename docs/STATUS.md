@@ -18,11 +18,12 @@ honest half: the line between what is built and what is not.
 | **Documents** | Capture, encrypt on the device, upload to a per-person Drive folder, preview PDFs and images, read the text out of a PDF, and pull structured fields out of a bill or a policy — a due date fills itself in and the existing reminders pick it up |
 | **Statements** | PDF reader, column-aware parser, CSV/TSV reader, credit-card exports, categoriser, import planner. Every account's statements at once, matched to accounts by the number printed on them, deduplicated by fingerprint, checked against the bank's own balances before anything is written |
 | **Receipts** | A merchant registry, the Gmail query built from it, a receipt reader, a per-shop ledger, subscriptions reported by what they cost a year, and a match back to the bank rows that settled them. Several mailboxes, each attached by a Google sign-in or by a deployment |
+| **Transactions** | A ledger with separate In and Out columns, a running balance, sortable headings, filters whose totals follow them, and rows that open in place; stacks into cards on a phone |
 | **Ledgers** | Person-to-person, borrowing and lending, and insights — over the whole imported history rather than one statement, with retroactive corrections |
 | **Backend** | Apps Script, loaded into Node and tested against literal stubs: admission, the member list, the cache, the request contract |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 551 checks with no browser and nothing installed; 90 more in a real Chromium. Both in CI |
+| **Tests** | 551 checks with no browser and nothing installed; 112 more in a real Chromium. Both in CI |
 
 ## Deliberately not built
 
