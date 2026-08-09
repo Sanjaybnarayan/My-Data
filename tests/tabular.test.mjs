@@ -3,6 +3,7 @@ import {
   parseDelimited, detectHeader, readAmount, readDate, parseTable, looksLikeCard,
 } from '../js/domain/tabular.js';
 import { planStatement } from '../js/domain/import.js';
+import { reconcile } from '../js/domain/statement.js';
 
 setSuite('tabular');
 
@@ -156,6 +157,26 @@ describe('a bank statement as a table', () => {
     assert.equal(parseTable(csv).closingBalance, 5_735_500);
   });
 
+  test('the opening balance is worked back from the first row', () => {
+    // A table has no summary block to read one from, but it does not need
+    // one: the first row prints the balance *after* itself, so undoing that
+    // row gives the balance before it. The first row here takes ₹645 out and
+    // leaves ₹9,355, so the account opened at ₹10,000.
+    assert.equal(parseTable(csv).openingBalance, 1_000_000);
+  });
+
+  test('an ordinary statement reconciles', () => {
+    // It did not, and nothing said so out loud. `openingBalance` came from
+    // `balances.length ? null : null` — a ternary with the same answer in both
+    // branches — so it was always null, `expected` was measured from zero
+    // rather than from where the account started, and every CSV whose opening
+    // balance was not zero arrived flagged as "does not fully add up". Which
+    // is the warning that means rows are missing, on a file with none missing.
+    const check = reconcile(parseTable(csv));
+    assert.ok(check.balanced, `off by ${check.difference}`);
+    assert.ok(check.checkable, 'a bank export has both balances, so the answer means something');
+  });
+
   test('a quoted narration with a comma survives into the transaction', () => {
     assert.includes(parseTable(csv).transactions[2].description, 'KORAMANGALA');
   });
@@ -208,6 +229,15 @@ describe('a credit card statement', () => {
     // the cards from the bank accounts first.
     assert.ok(looksLikeCard(csv));
     assert.not(looksLikeCard('Kotak Mahindra Bank\nAccount No: 123\nDate,Narration,Balance'));
+  });
+
+  test('a card has nothing to reconcile against, and says so', () => {
+    // Without this the check compares the rows against themselves and agrees
+    // every time — a confident "it balances" backed by nothing, on the one
+    // kind of file where nothing can be verified at all.
+    const check = reconcile(parseTable(csv, { card: true }));
+    assert.not(check.checkable);
+    assert.ok(check.balanced, 'nothing to compare against still reads as no discrepancy');
   });
 
   test('a purchase is money leaving the household even though it credits nothing', () => {

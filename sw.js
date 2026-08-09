@@ -76,6 +76,7 @@ const SHELL = [
 
   './js/auth/biometric.js',
   './js/auth/google.js',
+  './js/auth/google-unlock.js',
   './js/auth/lock.js',
 
   './js/domain/automation.js',

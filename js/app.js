@@ -24,8 +24,6 @@ import { buildShell } from './ui/shell.js';
 import { lockScreen, recoveryKitScreen } from './auth/lock.js';
 import { Session, AttemptLimiter } from './security/session.js';
 import { GoogleAuth } from './auth/google.js';
-import { DriveEscrow, APPDATA_SCOPE } from './security/escrow.js';
-import { UNLOCK_SCOPES } from './core/scopes.js';
 import { AppsScriptTransport } from './sync/transport.js';
 import { SyncEngine } from './sync/engine.js';
 import { DocumentStore } from './sync/drive.js';
@@ -45,6 +43,20 @@ export async function boot() {
   mountToasts();
 
   await loadConfig();
+
+  // Before the lock screen, and deliberately not awaited.
+  //
+  // It used to run at the end of `start()`, which meant it never ran at all
+  // until somebody had chosen a PIN and got through enrolment. A browser
+  // decides whether a site is installable by looking for a registered worker,
+  // so on a first visit there was none to find and no "Install app" was ever
+  // offered — the one thing that makes this a PWA rather than a web page. The
+  // shell was also uncached until after enrolment, so a first run with a bad
+  // connection had nothing to fall back on.
+  //
+  // It needs nothing from the keyring: it caches the shell, which is the same
+  // for every household and holds none of their data.
+  registerServiceWorker();
 
   const db = new Database({ currency: config().currency });
   await db.open();
@@ -69,6 +81,7 @@ export async function boot() {
 
   const enrolled = await db.keyring.isEnrolled();
   const credentialId = await db.meta('auth.webauthnCredentialId');
+  const methods = await db.keyring.methods();
 
   // Carried out of the lock screen so the session that let somebody in is the
   // one that syncs, rather than the app asking them to sign in twice.
@@ -79,9 +92,10 @@ export async function boot() {
       keyring: db.keyring,
       limiter,
       biometricCredentialId: credentialId,
-      google: googleUnlock((auth) => { googleSession = auth; }),
+      googleEnrolled: methods.some((m) => m.method === 'google'),
       mode: enrolled ? 'unlock' : 'enrol',
-      onUnlocked: async ({ firstRun }) => {
+      onUnlocked: async ({ firstRun, googleSession: session }) => {
+        if (session) googleSession = session;
         if (firstRun) {
           await new Promise((done) => {
             replace(root(), recoveryKitScreen({
@@ -162,75 +176,10 @@ async function start(db, limiter, googleSession = null) {
   const { runAutomations } = await import('./domain/automation.js');
   runAutomations(db).catch((err) => console.warn('automations failed', err));
 
-  registerServiceWorker();
   bus.emit(TOPIC.authState, { signedIn: auth.isSignedIn });
 }
 
 /* ------------------------------------------------------------ google entry */
-
-/**
- * The sign-in-with-Google path, assembled for the lock screen.
- *
- * Kept here rather than in the lock screen because the lock screen renders
- * before the data key exists and must not know about transports, Drive or
- * scopes. All it gets is two functions that return 32 bytes.
- *
- * This is the only place the browser asks for Drive at all. An ordinary
- * sign-in wants to know who you are and nothing more; only this button needs
- * somewhere to keep a key. Without a client id configured there is nothing to
- * offer, and the lock screen shows the PIN alone.
- *
- * `keep` receives the signed-in session so the rest of the application uses
- * the *same* one. That sharing is not a tidiness: letting the sync engine
- * build its own `GoogleAuth` meant a household signed in, landed in the app,
- * and was immediately asked to sign in again — through a hidden iframe with
- * `prompt=none`, which a browser strict about third-party cookies blocks, and
- * which on a machine with several Google accounts can succeed *as the wrong
- * one*. The session that let somebody in is the session that syncs.
- *
- * @param {(auth: GoogleAuth) => void} keep
- */
-function googleUnlock(keep) {
-  // Local-only means the unlock key does not go to Google either. Offering
-  // this while that switch is on would put the one thing that opens the data
-  // into the one place the household has said to keep out of.
-  if (config().localOnly) return null;
-  if (!config().googleClientId) return null;
-
-  // Drive is asked for *here* and nowhere else. An ordinary sign-in wants to
-  // know who you are and nothing more; only this button needs somewhere to
-  // put a key, so only this button asks for it.
-  //
-  // `drive.appdata` inside that is asked for but not required — Google grants
-  // the rest whether or not a household added it to their consent screen, so
-  // asking costs nothing and having it only buys a tidier place for the file.
-  const auth = new GoogleAuth({ scopes: UNLOCK_SCOPES });
-
-  const connect = async () => {
-    await auth.signIn({ prompt: 'select_account consent' });
-    await auth.fetchProfile().catch(() => {});
-    keep(auth);
-
-    // Where the key goes is decided by what Google actually granted, not by
-    // what was asked for. `drive.appdata` has to be added to a household's
-    // consent screen in the Cloud Console before Google will grant it, and it
-    // grants the rest of the request either way — so requiring it meant a
-    // successful sign-in followed by a refusal, for a reason in a different
-    // console. `drive.file` is already granted and is enough.
-    return new DriveEscrow({
-      getToken: () => auth.getToken(),
-      hidden: auth.granted.includes(APPDATA_SCOPE),
-    });
-  };
-
-  return {
-    available: true,
-    /** A device joining a household that already has a key in Drive. */
-    signIn: async () => (await connect()).read(),
-    /** A fresh household: mint one and put it where every device can reach it. */
-    enrol: async () => (await connect()).create(),
-  };
-}
 
 /* ----------------------------------------------------------------- routing */
 

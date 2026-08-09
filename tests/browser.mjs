@@ -86,6 +86,17 @@ async function main() {
     check('the app boots to the enrolment screen',
       await page.locator('text=Choose a PIN').isVisible());
 
+    // Asked here, on a first visit, and not later — which is the whole point.
+    // Registration used to happen at the end of `start()`, so it never ran
+    // until somebody had chosen a PIN and cleared enrolment. A browser decides
+    // installability by looking for a registered worker, so a first-time
+    // visitor was never offered "Install app", and the shell was uncached
+    // until after enrolment. Checked after unlocking, both placements look
+    // identical and the regression sails through.
+    check('a service worker is registered before anyone has enrolled',
+      await page.evaluate(() => navigator.serviceWorker.getRegistration().then(Boolean)),
+      'without one on the first visit, a browser never offers to install the app');
+
     // With no Google client id configured there is nothing to sign in to, and
     // a "Continue with Google" button that could only fail would be worse than
     // no button at all. First run has to still work on a PIN alone.
@@ -348,6 +359,19 @@ async function main() {
       check('the origin and redirect URI are shown, exactly',
         body.includes('Authorised redirect URI')
         && body.includes('/oauth-callback.html'), body.slice(0, 1600));
+
+      // Which ways in this device actually has. The question this card exists
+      // to answer is "how do I get back in", and a household that never
+      // printed a recovery phrase should find that out here rather than on
+      // the morning they need it.
+      check('Settings says what unlocks this device',
+        /This device unlocks with/.test(body), body.slice(0, 400));
+
+      const security = await page.locator('.card', { hasText: 'This device unlocks with' })
+        .innerText();
+      check('and names the PIN this run enrolled', /PIN/.test(security), security);
+      check('and does not warn about a recovery phrase that exists',
+        !/No recovery phrase\./.test(security), security);
 
       if (SHOTS) await shot(page, 'settings-privacy');
     }
@@ -697,6 +721,46 @@ async function main() {
       consoleErrors.slice(0, 5).join(' | '));
     check('every asset the app asks for exists', missing.length === 0,
       [...new Set(missing)].join(' | '));
+
+    /* ------------------------------------------------------ offline, really */
+
+    // Last, because it kills the server and nothing can be served afterwards.
+    //
+    // "Offline-first" is the claim this application is built around and
+    // nothing was checking it. Playwright's `setOffline` would not have been
+    // enough either — it makes requests fail, which a service worker can
+    // paper over while still depending on a host being *reachable*. Killing
+    // the server is the honest version of the question.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await go(page, '#/dashboard');
+
+    const registered = await page.evaluate(async () => {
+      const reg = await navigator.serviceWorker.getRegistration();
+      return Boolean(reg?.active);
+    });
+    check('a service worker is registered and active', registered,
+      'without one a browser will not offer to install the app at all');
+
+    server.kill('SIGKILL');
+    await page.waitForTimeout(800);
+
+    try {
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForSelector('.lock-card', { timeout: 20_000 });
+      check('the app still loads with the server gone', true);
+
+      for (const digit of PIN) {
+        await page.getByRole('button', { name: digit, exact: true }).click();
+      }
+      await page.waitForSelector('.app-nav', { timeout: 20_000 });
+      check('and unlocks, and draws the shell', true);
+
+      await go(page, '#/finance');
+      const offlineBody = (await page.locator('.app-content').innerText()).trim();
+      check('and a module still renders from cache', offlineBody.length > 0);
+    } catch (err) {
+      check('the app still loads with the server gone', false, err.message);
+    }
   } finally {
     await browser.close();
     server.kill();

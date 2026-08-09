@@ -94,6 +94,17 @@ export async function deriveKeyEncryptionKey(secret, salt, iterations) {
   );
 }
 
+/**
+ * The raw bytes of a data key.
+ *
+ * Only used to answer "are these two the same key?", which cannot be asked of
+ * two `CryptoKey` objects directly — they are opaque and never equal. Keep the
+ * answer, not the bytes.
+ */
+export async function exportKeyBytes(key) {
+  return new Uint8Array(await subtle().exportKey('raw', key));
+}
+
 /** Import raw key bytes — used by the WebAuthn PRF path, which supplies 32. */
 export async function importKeyEncryptionKey(rawBytes) {
   return subtle().importKey(

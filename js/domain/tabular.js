@@ -286,9 +286,32 @@ export function parseTable(text, options = {}) {
     mode: 'table',
     // A card statement has no running balance, and inventing one would make
     // the importer's reconciliation check fail on every file.
-    openingBalance: options.card ? null : (balances.length ? null : null),
+    //
+    // A bank export does have one, and the opening balance is worked back from
+    // it — see `openingFrom`. This used to read `balances.length ? null : null`,
+    // a ternary with the same answer in both branches, so it was always null
+    // whatever the file contained.
+    openingBalance: options.card ? null : openingFrom(transactions),
     closingBalance: options.card ? null : (balances.at(-1) ?? null),
   };
+}
+
+/**
+ * Where the account stood before the first row.
+ *
+ * A table carries no summary block, so there is nothing to read it from — but
+ * the first row prints the balance *after* itself, and undoing what that row
+ * did gives the balance before it.
+ *
+ * Without this `reconcile` measures from zero rather than from where the
+ * account started, and every statement that did not happen to open at zero
+ * came in flagged as "does not fully add up" — the warning that means rows are
+ * missing, on a file with none missing.
+ */
+function openingFrom(transactions) {
+  const first = transactions.find((row) => row.printedBalance !== null);
+  if (!first) return null;
+  return first.printedBalance - (first.direction === 'in' ? first.amount : -first.amount);
 }
 
 /**

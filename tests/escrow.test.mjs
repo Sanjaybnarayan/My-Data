@@ -1,8 +1,11 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { DriveEscrow, APPDATA_SCOPE } from '../js/security/escrow.js';
 import { Keyring } from '../js/security/keyring.js';
-import { toBase64 } from '../js/security/crypto.js';
+import { toBase64, exportKeyBytes } from '../js/security/crypto.js';
 import { missingScopes, completeOAuthRedirect } from '../js/auth/google.js';
+import {
+  unlockFreshDevice, linkExistingDevice, unlinkGoogleUnlock,
+} from '../js/auth/google-unlock.js';
 
 setSuite('escrow');
 
@@ -64,6 +67,20 @@ function fakeDrive({ files = new Map(), status = 200 } = {}) {
     escrow: (token = 'tok', hidden = false) => new DriveEscrow({
       getToken: async () => token, fetchImpl, hidden,
     }),
+    /**
+     * Mint and store in one step, which is what `create()` used to do.
+     *
+     * It is a test helper now and not an API, because doing both in one call
+     * is exactly how a second device came to write over the first one's key —
+     * see `unlockFreshDevice`. Here the ordering is not in question, so the
+     * shorthand is fine.
+     */
+    seed: async (token = 'tok', hidden = false, wrapped = { iv: 'aXY=', key: 'a2V5' }) => {
+      const escrow = new DriveEscrow({ getToken: async () => token, fetchImpl, hidden });
+      const bytes = DriveEscrow.mintRawKey();
+      await escrow.put(bytes, wrapped);
+      return bytes;
+    },
   };
 }
 
@@ -72,11 +89,11 @@ function fakeDrive({ files = new Map(), status = 200 } = {}) {
 describe('a key kept in the household own Drive', () => {
   test('it is minted, stored, and comes back the same', async () => {
     const drive = fakeDrive();
-    const made = await drive.escrow().create();
+    const made = await drive.seed();
 
     assert.equal(made.length, 32, 'a wrapping key must be 32 bytes');
     const read = await drive.escrow().read();
-    assert.equal(toBase64(read), toBase64(made));
+    assert.equal(toBase64(read.rawKey), toBase64(made));
   });
 
   test('a household that has never escrowed one gets null, not an error', async () => {
@@ -89,8 +106,8 @@ describe('a key kept in the household own Drive', () => {
     // A second file in the folder would be a coin flip over which key a new
     // device found, and half the time it would be the wrong one.
     const drive = fakeDrive();
-    await drive.escrow().create();
-    await drive.escrow().create();
+    await drive.seed();
+    await drive.seed();
     assert.length([...drive.files.keys()], 1);
   });
 
@@ -101,7 +118,7 @@ describe('a key kept in the household own Drive', () => {
     // refusal, for a reason living in a different console. `drive.file`
     // covers a file this application created, and is enough.
     const drive = fakeDrive();
-    await drive.escrow().create();
+    await drive.seed();
 
     const create = drive.calls.find((call) => call.method === 'POST');
     assert.ok(create, 'no file was created');
@@ -111,7 +128,7 @@ describe('a key kept in the household own Drive', () => {
 
   test('given the app folder, it uses it', async () => {
     const drive = fakeDrive();
-    await drive.escrow('tok', true).create();
+    await drive.seed('tok', true);
     assert.ok(drive.calls.some((call) => call.url.includes('spaces=appDataFolder')));
   });
 
@@ -119,9 +136,9 @@ describe('a key kept in the household own Drive', () => {
     // A household that adds `drive.appdata` later, or removes it, must not
     // lose the key they already have.
     const drive = fakeDrive();
-    const made = await drive.escrow('tok', false).create();
+    const made = await drive.seed('tok', false);
     const read = await drive.escrow('tok', true).read();
-    assert.equal(toBase64(read), toBase64(made));
+    assert.equal(toBase64(read.rawKey), toBase64(made));
   });
 
   test('what is stored is the wrapping key, never the data key', async () => {
@@ -129,7 +146,7 @@ describe('a key kept in the household own Drive', () => {
     // *unwraps* the data, so revoking it leaves the ciphertext as unreadable
     // as it was before.
     const drive = fakeDrive();
-    await drive.escrow().create();
+    await drive.seed();
     const stored = JSON.parse([...drive.files.values()].find(Boolean));
 
     assert.ok(stored.key, 'nothing was stored');
@@ -141,7 +158,7 @@ describe('a key kept in the household own Drive', () => {
     // had their key in their Google account, which is the thing they decided
     // against.
     const drive = fakeDrive();
-    await drive.escrow().create();
+    await drive.seed();
     assert.ok(await drive.escrow().drop());
     assert.length([...drive.files.keys()], 0);
   });
@@ -224,62 +241,195 @@ describe('signing in with Google unlocks the same data', () => {
   test('a fresh household enrols with the escrowed key and is unlocked', async () => {
     const drive = fakeDrive();
     const keyring = new Keyring(meta(), 1000);
-    const rawKey = await drive.escrow().create();
 
-    await keyring.enrolRawKey(rawKey, 'google');
+    const { outcome } = await unlockFreshDevice(keyring, drive.escrow(), 'a@example.com');
+
+    assert.equal(outcome, 'found');
     assert.ok(keyring.key, 'the data key is not in memory after enrolling');
     assert.ok(await keyring.isEnrolled());
   });
 
-  test('another device signs in and gets the very same data key', async () => {
-    // The point of escrowing: a second device with no PIN typed on it reaches
-    // the same records, because it unwrapped the same key.
+  test('the first device publishes the wrapping, not only the key', async () => {
+    // Without it a second device gets the right bytes and still cannot open
+    // anything: its own keyring is empty, and `meta` never syncs.
     const drive = fakeDrive();
-    const store = meta();
-    const first = new Keyring(store, 1000);
-    const rawKey = await drive.escrow().create();
-    const dataKey = await first.enrolRawKey(rawKey, 'google');
+    await unlockFreshDevice(new Keyring(meta(), 1000), drive.escrow(), '');
 
-    const second = new Keyring(store, 1000);
-    const fetched = await drive.escrow().read();
-    const unlocked = await second.unlockWithRawKey(fetched, 'google');
+    const stored = JSON.parse([...drive.files.values()].find(Boolean));
+    assert.ok(stored.wrapped?.iv && stored.wrapped?.key);
+  });
 
+  test('another device signs in and gets the very same data key', async () => {
+    // The point of escrowing. The two keyrings get *separate* stores, because
+    // that is what a second device is — this test shared one before, so the
+    // "second device" was reading the first one's wrapping out of its own
+    // keyring and the case was never covered at all.
+    const drive = fakeDrive();
+    const first = new Keyring(meta(), 1000);
+    await unlockFreshDevice(first, drive.escrow(), 'a@example.com');
+
+    const second = new Keyring(meta(), 1000);
+    const { outcome } = await unlockFreshDevice(second, drive.escrow(), 'a@example.com');
+
+    assert.equal(outcome, 'adopted');
     assert.equal(
-      toBase64(new Uint8Array(await crypto.subtle.exportKey('raw', unlocked))),
-      toBase64(new Uint8Array(await crypto.subtle.exportKey('raw', dataKey))),
+      toBase64(await exportKeyBytes(second.key)),
+      toBase64(await exportKeyBytes(first.key)),
     );
+  });
+
+  test('a second device does not write over the first one key', async () => {
+    // The bug in its own words. A device with no keyring takes the enrolment
+    // path, enrolment minted and stored in one call, and storing replaces the
+    // file — so setting up a second phone left the first one wrapped under
+    // bytes that no longer existed anywhere. Silently, and with no error.
+    const drive = fakeDrive();
+    await unlockFreshDevice(new Keyring(meta(), 1000), drive.escrow(), '');
+    const before = JSON.parse([...drive.files.values()].find(Boolean));
+
+    await unlockFreshDevice(new Keyring(meta(), 1000), drive.escrow(), '');
+    const after = JSON.parse([...drive.files.values()].find(Boolean));
+
+    assert.equal(after.key, before.key, 'the household key was replaced');
+    assert.deep(after.wrapped, before.wrapped);
+  });
+
+  test('an adopted wrapping that will not open leaves the device fresh', async () => {
+    // Better unenrolled and able to try again than enrolled with a key that
+    // opens nothing, which is indistinguishable from data loss.
+    const drive = fakeDrive();
+    await drive.seed('tok', false, { iv: 'AAAAAAAAAAAAAAAA', key: 'bm90LWEta2V5' });
+
+    const keyring = new Keyring(meta(), 1000);
+    await assert.throws(() => unlockFreshDevice(keyring, drive.escrow(), ''));
+    assert.not(await keyring.isEnrolled(), 'a failed adoption must not leave it enrolled');
+  });
+
+  test('a key from before wrappings were stored is reported, not written over', async () => {
+    // An existing household upgrading. The bytes are real and another device
+    // is wrapped under them, so minting over the top is the same destruction
+    // by a different route.
+    const drive = fakeDrive();
+    await drive.seed('tok', false, null);
+    const before = JSON.parse([...drive.files.values()].find(Boolean));
+
+    await assert.throws(
+      () => unlockFreshDevice(new Keyring(meta(), 1000), drive.escrow(), ''),
+      'escrow-legacy',
+    );
+    assert.equal(JSON.parse([...drive.files.values()].find(Boolean)).key, before.key);
   });
 
   test('a different key does not open it', async () => {
     const drive = fakeDrive();
     const keyring = new Keyring(meta(), 1000);
-    await keyring.enrolRawKey(await drive.escrow().create(), 'google');
+    await unlockFreshDevice(keyring, drive.escrow(), '');
 
     const other = new Uint8Array(32).fill(7);
     await assert.throws(() => keyring.unlockWithRawKey(other, 'google'), /did not unlock/i);
   });
 
-  test('a PIN can be added beside it, so both ways in work', async () => {
-    // Stated in the interface as "you can have both", and it has to be true.
+  test('enrolling twice is refused, because it would orphan every record', async () => {
     const drive = fakeDrive();
     const keyring = new Keyring(meta(), 1000);
-    await keyring.enrolRawKey(await drive.escrow().create(), 'google');
-    await keyring.changePinFromUnlocked?.('123456').catch(() => {});
-
-    const methods = await keyring.methods();
-    assert.includes(methods.map((m) => m.method ?? m), 'google');
+    const rawKey = DriveEscrow.mintRawKey();
+    await keyring.enrolRawKey(rawKey, 'google');
+    await assert.throws(() => keyring.enrolRawKey(rawKey, 'google'), /already has a data key/);
   });
 
   test('a key of the wrong size is refused rather than padded', async () => {
     const keyring = new Keyring(meta(), 1000);
     await assert.throws(() => keyring.enrolRawKey(new Uint8Array(16), 'google'), /32 bytes/);
   });
+});
 
-  test('enrolling twice is refused, because it would orphan every record', async () => {
+/* ------------------------------------------------- turning it on later */
+
+describe('turning Continue with Google on from Settings', () => {
+  const meta = () => {
+    const store = new Map();
+    return {
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => store.set(key, value),
+    };
+  };
+
+  test('a household that started with a PIN can add it', async () => {
+    // Impossible before this: enrolment ran only on a device with no data key,
+    // so there was no path from "set up with a PIN" to "also use Google".
     const drive = fakeDrive();
     const keyring = new Keyring(meta(), 1000);
-    const rawKey = await drive.escrow().create();
-    await keyring.enrolRawKey(rawKey, 'google');
-    await assert.throws(() => keyring.enrolRawKey(rawKey, 'google'), /already has a data key/);
+    await keyring.enrolPin('4913');
+
+    const { outcome } = await linkExistingDevice(keyring, drive.escrow(), 'a@example.com');
+
+    assert.equal(outcome, 'published');
+    assert.deep((await keyring.methods()).map((m) => m.method).sort(), ['google', 'pin']);
+  });
+
+  test('and a new phone can then join that household', async () => {
+    const drive = fakeDrive();
+    const desktop = new Keyring(meta(), 1000);
+    await desktop.enrolPin('4913');
+    await linkExistingDevice(desktop, drive.escrow(), '');
+
+    const phone = new Keyring(meta(), 1000);
+    await unlockFreshDevice(phone, drive.escrow(), '');
+
+    assert.equal(
+      toBase64(await exportKeyBytes(phone.key)),
+      toBase64(await exportKeyBytes(desktop.key)),
+    );
+  });
+
+  test('an account holding a different household key is refused', async () => {
+    // Publishing over it would lock those records away, and nobody would find
+    // out until somebody else could not get in.
+    const drive = fakeDrive();
+    await unlockFreshDevice(new Keyring(meta(), 1000), drive.escrow(), 'other@example.com');
+    const before = JSON.parse([...drive.files.values()].find(Boolean));
+
+    const mine = new Keyring(meta(), 1000);
+    await mine.enrolPin('4913');
+
+    await assert.throws(
+      () => linkExistingDevice(mine, drive.escrow(), 'me@example.com'),
+      'escrow-conflict',
+    );
+    assert.deep(JSON.parse([...drive.files.values()].find(Boolean)).wrapped, before.wrapped);
+  });
+
+  test('a legacy key is replaced from a device that is unlocked', async () => {
+    // Safe here and not in `unlockFreshDevice`: this device holds the data key,
+    // so what it publishes is known to open the household records — which is
+    // exactly what the old file could not promise.
+    const drive = fakeDrive();
+    await drive.seed('tok', false, null);
+
+    const keyring = new Keyring(meta(), 1000);
+    await keyring.enrolPin('4913');
+    const { outcome } = await linkExistingDevice(keyring, drive.escrow(), '');
+
+    assert.equal(outcome, 'published');
+    assert.ok(JSON.parse([...drive.files.values()].find(Boolean)).wrapped);
+  });
+
+  test('turning it off locally leaves every other device working', async () => {
+    const drive = fakeDrive();
+    const keyring = new Keyring(meta(), 1000);
+    await keyring.enrolPin('4913');
+    await linkExistingDevice(keyring, drive.escrow(), '');
+
+    await unlinkGoogleUnlock(keyring, null);
+
+    assert.deep((await keyring.methods()).map((m) => m.method), ['pin']);
+    assert.ok((await drive.escrow().read()).wrapped, 'the file is not this device to delete');
+  });
+
+  test('removing the only way in is refused', async () => {
+    const drive = fakeDrive();
+    const keyring = new Keyring(meta(), 1000);
+    await unlockFreshDevice(keyring, drive.escrow(), '');
+    await assert.throws(() => unlinkGoogleUnlock(keyring, null), 'last-method');
   });
 });
