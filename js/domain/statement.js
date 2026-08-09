@@ -393,5 +393,11 @@ export function reconcile({ transactions, openingBalance, closingBalance }) {
     difference,
     // A rupee of rounding is tolerable; anything more means rows were missed.
     balanced: Math.abs(difference) <= 100,
+    // Whether that answer means anything. With no closing balance to compare
+    // against, `difference` is the sum of the rows minus the sum of the same
+    // rows — zero however wrong they are — so `balanced` would be a confident
+    // yes backed by nothing. A credit card export is exactly that case: no
+    // running balance per row, and nothing to reconcile against.
+    checkable: openingBalance !== null && closingBalance !== null,
   };
 }
