@@ -14,7 +14,9 @@
  *     show data it already has.
  */
 
-import { loadConfig, loadStoredConfig, config, isConfigured } from './core/config.js';
+import {
+  loadConfig, loadStoredConfig, loadLocalOnly, config, isConfigured,
+} from './core/config.js';
 import { Database } from './data/database.js';
 import { setContext } from './context.js';
 import { applyTheme, storedTheme, watchSystemTheme } from './ui/theme.js';
@@ -49,6 +51,10 @@ export async function boot() {
   // A deployment entered in Settings overrides the file, because a hosted copy
   // has no way to be given the file at all.
   await loadStoredConfig(db);
+
+  // Before the lock screen, because it decides whether there is a Google way
+  // in at all, and before anything schedules a sync.
+  await loadLocalOnly(db);
 
   // Ask the browser not to evict us. A household's records being cleared to
   // reclaim disk is not an acceptable outcome, and the prompt is free.
@@ -166,6 +172,10 @@ async function start(db, limiter) {
  * to offer, and the lock screen shows the PIN alone.
  */
 function googleUnlock() {
+  // Local-only means the unlock key does not go to Google either. Offering
+  // this while that switch is on would put the one thing that opens the data
+  // into the one place the household has said to keep out of.
+  if (config().localOnly) return null;
   if (!config().googleClientId) return null;
 
   const auth = new GoogleAuth({ scopes: [...config().scopes, APPDATA_SCOPE] });

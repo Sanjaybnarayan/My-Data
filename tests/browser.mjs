@@ -293,6 +293,36 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-shops');
     }
 
+    /* ------------------------------------------------------------ privacy */
+
+    {
+      const before = consoleErrors.length;
+      await go(page, '#/settings');
+      await page.waitForTimeout(500);
+
+      const body = (await page.locator('.app-content').innerText()).trim();
+      check('Settings answers where the data is', /Privacy/.test(body), body.slice(0, 200));
+      check('and offers to keep it on this device',
+        (await page.getByRole('button', { name: 'Keep everything local' }).count()) === 1);
+
+      // The sentence that stops somebody assuming more than is true. If this
+      // ever stops being shown, the application is overclaiming.
+      check('it says plainly that not every field is encrypted',
+        /fields are ciphertext/.test(body), body.slice(0, 900));
+      check('it can be inspected field by field',
+        (await page.getByRole('button', { name: 'Show me field by field' }).count()) === 1);
+
+      await page.getByRole('button', { name: 'Show me field by field' }).click();
+      await page.waitForTimeout(250);
+      check('and inspecting names real entities',
+        /sealed/.test(await page.locator('.app-content').innerText()));
+
+      check('the privacy card loads without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'settings-privacy');
+    }
+
     /* --------------------------------------------------- the transactions */
 
     {

@@ -17,7 +17,8 @@ import { modal, confirm, prompt } from '../ui/components/modal.js';
 import { toast } from '../ui/components/toast.js';
 import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
-import { config, isConfigured, saveStoredConfig } from '../core/config.js';
+import { config, isConfigured, saveStoredConfig, setLocalOnly } from '../core/config.js';
+import { privacyReport, whereData } from '../domain/privacy.js';
 import { entities, entity, ROLES } from '../data/schema.js';
 import { Outbox } from '../sync/outbox.js';
 import { formatInstant, formatDay } from '../core/dates.js';
@@ -47,6 +48,7 @@ async function paint(host) {
     pageHeader('Settings', { subtitle: `Device ${db.deviceId.slice(0, 12)}…` }),
 
     h('div', { class: 'grid grid--wide' }, [
+      privacyCard(db, host),
       googleCard(auth, sync, status),
       householdCard(),
       syncCard(db, sync, status),
@@ -122,6 +124,115 @@ function googleCard(auth, sync, status) {
         `Backup ${status.lastVerification.verified ? 'verified' : 'MISMATCHED'} `
         + `on ${formatInstant(status.lastVerification.at)}.`)
       : null,
+  ]);
+}
+
+/* --------------------------------------------------------------- privacy */
+
+/**
+ * Where the data is, what is sealed, and the switch that stops it moving.
+ *
+ * Put first because it is the question people actually have, and answered by
+ * counting the schema rather than by asserting anything. "Encrypted on the
+ * device" is true of the fields marked sensitive and not of the rest, and a
+ * household is entitled to see which is which before deciding what to type in.
+ */
+function privacyCard(db, host) {
+  const report = privacyReport();
+  const detail = h('div', {});
+  let open = false;
+
+  const state = {
+    localOnly: config().localOnly,
+    configured: isConfigured(),
+  };
+  const map = whereData(state);
+
+  async function toggle(on) {
+    if (on) {
+      const ok = await confirm({
+        title: 'Keep everything on this device?',
+        message: 'Nothing will sync, no documents will upload, no mail will be read, '
+          + 'and the unlock key will not be kept in Drive.\n\n'
+          + 'The cost is that there is no backup. If this device is lost or its '
+          + 'browser storage is cleared, the records are gone — the recovery phrase '
+          + 'restores a key, not data that was never copied anywhere.'
+          + (state.configured
+            ? '\n\nAnything already in your Google Sheet and Drive stays there. '
+              + 'Delete it from Google if you want it gone.'
+            : ''),
+        confirmLabel: 'Keep it local',
+      });
+      if (!ok) return;
+    }
+
+    await setLocalOnly(db, on);
+    toast(on ? 'Nothing will leave this device' : 'Sync re-enabled', { kind: 'success' });
+    await paint(host);
+  }
+
+  function paintDetail() {
+    replace(detail, open
+      ? h('div', { class: 'stack stack--tight' }, report.entities.map((entry) => h('details', {
+        class: 'small',
+      }, [
+        h('summary', {}, `${entry.label} — ${entry.sealed.length} of ${entry.total} sealed`),
+        entry.sealed.length
+          ? h('p', { class: 'small' }, [
+            h('strong', {}, 'Encrypted: '),
+            entry.sealed.map((f) => f.label).join(', '),
+          ])
+          : null,
+        h('p', { class: 'small muted' }, [
+          h('strong', {}, 'Readable: '),
+          entry.plain.map((f) => f.label).join(', ') || 'nothing',
+        ]),
+      ].filter(Boolean))))
+      : null);
+  }
+
+  return card({}, [
+    cardHeader('Privacy', [
+      button(state.localOnly ? 'Allow syncing' : 'Keep everything local', {
+        variant: state.localOnly ? 'subtle' : 'primary',
+        iconName: 'lock',
+        onClick: () => toggle(!state.localOnly),
+      }),
+    ], {
+      subtitle: state.localOnly ? 'Nothing leaves this device' : 'Where your records are',
+      iconName: 'shield',
+    }),
+
+    h('p', { class: 'muted' }, map.summary),
+
+    h('div', { class: 'list' }, map.places.map((place) => listItem({
+      title: place.where,
+      subtitle: place.what,
+      leading: badge(place.warn ? 'the key' : 'copy', place.warn ? 'warning' : ''),
+    }))),
+
+    h('div', { class: 'grid grid--tight' }, [
+      metric({ label: 'Fields encrypted', value: String(report.sealed) }),
+      metric({
+        label: 'Fields readable',
+        value: String(report.plain),
+        hint: 'searchable, listed, totalled or linked',
+      }),
+    ]),
+
+    // The sentence that stops somebody assuming more than is true.
+    h('p', { class: 'small muted' },
+      `${report.sealed} of ${report.total} fields are ciphertext — the identifiers and `
+      + 'secrets. The rest is stored as it reads, because a search index over ciphertext '
+      + 'finds nothing and a table cannot sort a column it cannot read. That applies on '
+      + 'this device and in your Google Sheet alike.'),
+
+    h('button', {
+      class: 'btn btn--small',
+      type: 'button',
+      onClick: () => { open = !open; paintDetail(); },
+    }, 'Show me field by field'),
+    detail,
   ]);
 }
 

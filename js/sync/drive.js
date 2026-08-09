@@ -30,6 +30,7 @@ import { safeFileName } from '../security/sanitize.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { canReadText, indexableText } from '../domain/filing.js';
 import { readDocument, suggestions } from '../domain/extract.js';
+import { config } from '../core/config.js';
 
 /** Drive rejects nothing on size, but a base64 body through Apps Script does. */
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
@@ -234,6 +235,10 @@ export class DocumentStore {
    * than a lost file.
    */
   async flush({ limit = 5 } = {}) {
+    // A document is the most sensitive thing here — a passport scan, a
+    // prescription — so this is checked before anything is read off disk, not
+    // merely before the request goes out.
+    if (config().localOnly) return { uploaded: 0, skipped: 'local-only' };
     if (!this.#transport?.configured) return { uploaded: 0, skipped: 'not-configured' };
 
     const pending = await this.#db.adapter.query('blobs', {

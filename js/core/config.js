@@ -48,6 +48,13 @@ export const defaults = Object.freeze({
   /** Rows past which a list switches to windowed rendering. */
   virtualListThreshold: 200,
 
+  /**
+   * When true, nothing leaves this device — no sync, no upload, no mail, no
+   * key escrow. Off by default because a household that never turns it on
+   * still gets a backup, and a backup nobody has is how records are lost.
+   */
+  localOnly: false,
+
   scopes: [
     'openid',
     'email',
@@ -91,6 +98,36 @@ export const DEPLOYMENT_KEYS = Object.freeze(['googleClientId', 'apiUrl']);
 
 /** Where an in-app answer is kept, so it survives a redeploy of the site. */
 const STORED = 'deployment.config';
+
+/** Where the local-only switch is kept. Read at boot, before anything syncs. */
+const LOCAL_ONLY = 'privacy.localOnly';
+
+/**
+ * Nothing leaves this device.
+ *
+ * A separate switch from "no deployment configured", because they are
+ * different promises. Absence of configuration is an accident waiting to be
+ * corrected — somebody pastes a URL into Settings and a household's records
+ * start going to Google. This is a decision, and every path out of the
+ * application checks it: sync, document upload, mail reading, and the unlock
+ * key escrow.
+ *
+ * It is enforced in four places rather than one because there are four ways
+ * out, and a single check at the top of the sync engine would leave three of
+ * them open.
+ */
+export async function loadLocalOnly(db) {
+  try {
+    return configure({ localOnly: Boolean(await db.meta(LOCAL_ONLY, false)) });
+  } catch {
+    return current;
+  }
+}
+
+export async function setLocalOnly(db, on) {
+  await db.setMeta(LOCAL_ONLY, Boolean(on));
+  return configure({ localOnly: Boolean(on) });
+}
 
 /**
  * Apply a deployment configured from inside the app.
