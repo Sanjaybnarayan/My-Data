@@ -16,13 +16,13 @@ honest half: the line between what is built and what is not.
 | **Offline** | Every read and write local; outbox with exponential backoff; three-way field-level conflict merge with a deterministic tie-break so two devices converge without talking to each other |
 | **Modules** | Sixteen, over thirty-four entities. Fifteen are the same file reading the schema; the exceptions are dashboard, finance, investments, documents, family, calendar, reports, settings and the assistant |
 | **Documents** | Capture, encrypt on the device, upload to a per-person Drive folder, preview PDFs and images, read the text out of a PDF, and pull structured fields out of a bill or a policy — a due date fills itself in and the existing reminders pick it up |
-| **Statements** | PDF reader, column-aware parser, categoriser, import planner. Every account's statements at once, matched to accounts by the number printed on them, deduplicated by fingerprint, checked against the bank's own balances before anything is written |
+| **Statements** | PDF reader, column-aware parser, CSV/TSV reader, credit-card exports, categoriser, import planner. Every account's statements at once, matched to accounts by the number printed on them, deduplicated by fingerprint, checked against the bank's own balances before anything is written |
 | **Receipts** | A merchant registry, the Gmail query built from it, a receipt reader, a per-shop ledger, subscriptions reported by what they cost a year, and a match back to the bank rows that settled them. Several mailboxes, each attached by a Google sign-in or by a deployment |
 | **Ledgers** | Person-to-person, borrowing and lending, and insights — over the whole imported history rather than one statement, with retroactive corrections |
 | **Backend** | Apps Script, loaded into Node and tested against literal stubs: admission, the member list, the cache, the request contract |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 508 checks with no browser and nothing installed; 87 more in a real Chromium. Both in CI |
+| **Tests** | 551 checks with no browser and nothing installed; 90 more in a real Chromium. Both in CI |
 
 ## Deliberately not built
 
@@ -98,6 +98,12 @@ after it returned 403. The owner now keeps a list in Settings → Household
 accounts. Being on it grants the right to *reach* the workbook, never to read
 it: the sensitive fields are ciphertext and the key is wrapped on each person's
 own device.
+
+**A card statement is read from its columns, never from a balance.** There is
+no account balance to run, and the sign convention is inverted — a purchase
+increases what is owed. Every assumption the bank-statement parser makes about
+balances is wrong on a card, which is why cards were unsupported until there
+was a reader that takes the direction from the heading the bank wrote.
 
 **Market prices are entered by hand.** No third-party price API is bundled. An
 Apps Script `GOOGLEFINANCE` bridge would cover the instruments Sheets supports.

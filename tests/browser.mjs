@@ -204,6 +204,29 @@ async function main() {
       check('the PDF reader can decompress in the browser',
         decoded === 'column x, column y, balance', String(decoded));
 
+      // A real CSV through the real file input. The parse and the plan are
+      // covered by unit tests; what only a browser can show is that a File
+      // reaches them at all.
+      await page.locator('#app input[type=file][accept*="csv"]').setInputFiles({
+        name: 'kotak-may.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from([
+          'Account No: 1234500000',
+          '',
+          'Date,Narration,Withdrawal,Deposit,Balance',
+          '01/05/2026,"UPI/ZOMATO LTD/1001/order",645.00,,9355.00',
+          '02/05/2026,"NEFT SALARY CREDIT",,50000.00,59355.00',
+        ].join('\n')),
+      });
+      await page.waitForTimeout(700);
+
+      const csv = (await page.locator('.app-content').innerText()).trim();
+      check('a CSV statement is read', /kotak-may\.csv/.test(csv), csv.slice(0, 300));
+      check('a CSV says it was read from a table, not by column',
+        /read from a table/i.test(csv), csv.slice(0, 600));
+      check('reading a CSV raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
       if (SHOTS) await shot(page, 'finance-import');
     }
 

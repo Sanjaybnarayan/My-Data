@@ -79,14 +79,20 @@ previewed like anything else, and findable by its title.
 
 ## Bank statements
 
-**Finance → Import** takes every statement PDF you have — all accounts, all
-people — in one go. Each file is matched to an account by the number printed on
+**Finance → Import** takes every statement you have — all accounts, all cards,
+all people — in one go, as PDF or as CSV. Each file is matched to an account by the number printed on
 it, categorised by rules you can read in `js/domain/categorise.js`, and checked
 against the bank's own opening and closing balances before anything is written.
 Re-uploading the same month is harmless, and a month you forgot to upload shows
 up as a break in the balances.
 
-The PDF is decoded in your browser. Nothing is uploaded anywhere.
+**Prefer CSV where your bank offers it.** A PDF is a picture of a table and has
+to be read by where the ink landed; a CSV *is* the table, so none of that can go
+wrong. Credit card exports work too — a card has no running balance and inverts
+the sign, so it is read from the columns the bank labelled rather than from
+arithmetic.
+
+Either way the file is decoded in your browser. Nothing is uploaded anywhere.
 
 **Finance → People, Lending and Insights** read the whole imported history, not
 one file: who money has gone back and forth with and where each stands, what
@@ -147,8 +153,8 @@ else: never a workbook, never a Drive folder, never anything to sync. See
 ## Tests
 
 ```
-npm test              # 508 checks, no browser, nothing installed
-npm run test:browser  # 87 checks in a real Chromium
+npm test              # 551 checks, no browser, nothing installed
+npm run test:browser  # 90 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is

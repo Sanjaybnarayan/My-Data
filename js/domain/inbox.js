@@ -30,6 +30,7 @@
 import { toMinor } from '../core/money.js';
 import { recognise } from './merchants.js';
 import { readDate } from './extract.js';
+import { receiptKey } from './mailboxes.js';
 
 /** Words that mean "this is the number you were charged". Order matters. */
 const TOTAL_LABELS = [
@@ -240,6 +241,73 @@ function sameParty(transaction, receipt) {
 
 function daysBetween(from, to) {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
+ * One mailbox's worth of messages, turned into what to write.
+ *
+ * Pulled out of the screen because the screen is where logic goes to stop
+ * being tested: which messages are receipts, which are already on record, and
+ * which mailbox each belongs to are three decisions with real consequences,
+ * and until they lived here the only way to exercise them was to drive a
+ * browser.
+ *
+ * @param {object[]} messages as the mailbox returned them
+ * @param {{mailboxId: string, shops?: object[], known?: Set<string>}} context
+ *   `known` holds `mailbox:message` keys and is *mutated* as rows are claimed,
+ *   so two mailboxes in one scan cannot both claim the same message id.
+ */
+export function planScan(messages, { mailboxId, shops = [], known = new Set() } = {}) {
+  const read = [];
+  const fresh = [];
+
+  for (const message of messages ?? []) {
+    const receipt = readReceipt(message, shops);
+    if (!receipt) continue;
+    read.push(receipt);
+
+    if (!receipt.messageId) continue;
+    const key = receiptKey(mailboxId, receipt.messageId);
+    if (known.has(key)) continue;
+
+    known.add(key);
+    fresh.push({ ...receipt, mailbox: mailboxId });
+  }
+
+  return { searched: (messages ?? []).length, read, fresh };
+}
+
+/**
+ * A receipt matched to a bank row, as a patch for that row.
+ *
+ * The match is the whole point of holding both: a line reading
+ * `UPI/ZOMATO 645.00` becomes an order with a number, and the categoriser gets
+ * a fact where it previously had a rule. Only fields the receipt actually
+ * knows are returned, and a payee somebody typed by hand is left alone —
+ * a correction a person made outranks one an email implies.
+ */
+export function enrich(receipt, transaction) {
+  const patch = {};
+
+  if (receipt.merchant && looksAutomatic(transaction)) patch.payee = receipt.merchant;
+  if (receipt.orderId && !transaction.reference) patch.reference = receipt.orderId;
+  if (receipt.category && !transaction.categoryLocked) patch.category = receipt.category;
+
+  return patch;
+}
+
+/**
+ * Whether a payee came off a bank narration rather than out of a person.
+ *
+ * A hand-typed payee is somebody's own words about their own money, and an
+ * email is not better evidence than that. A narration fragment is.
+ */
+function looksAutomatic(transaction) {
+  const payee = String(transaction?.payee ?? '').trim();
+  if (!payee) return true;
+  // What the categoriser leaves behind when it could not name anybody, plus
+  // the bare rails a narration names when it names nothing else.
+  return /^(unknown|upi|imps|neft|rtgs|nach|pcd|atw|mb)\b/i.test(payee);
 }
 
 function prune(object) {

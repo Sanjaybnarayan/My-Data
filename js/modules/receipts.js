@@ -47,7 +47,7 @@ import { toast } from '../ui/components/toast.js';
 import { confirm } from '../ui/components/modal.js';
 import { app } from '../context.js';
 import { MERCHANTS, searchQuery, customMerchant } from '../domain/merchants.js';
-import { readReceipt, byMerchant, subscriptions, reconcile } from '../domain/inbox.js';
+import { planScan, enrich, byMerchant, subscriptions, reconcile } from '../domain/inbox.js';
 import {
   BACKEND, readMailbox, googleMailbox, scriptMailbox,
   addMailbox, removeMailbox, receiptKey,
@@ -185,13 +185,11 @@ export async function render() {
         const result = await linkTo(mailbox).mail(query, SCAN_LIMIT);
         const messages = result.messages ?? [];
 
-        // Read here, on the device. Bodies go no further than this loop.
-        const read = messages.map((message) => readReceipt(message, shops)).filter(Boolean);
-        const fresh = read.filter((r) => r.messageId
-          && !known.has(receiptKey(mailbox.id, r.messageId)));
+        // Read here, on the device. Bodies go no further than this call, and
+        // the decisions it makes are unit-tested rather than only clickable.
+        const scan = planScan(messages, { mailboxId: mailbox.id, shops, known });
 
-        for (const receipt of fresh) {
-          known.add(receiptKey(mailbox.id, receipt.messageId));
+        for (const receipt of scan.fresh) {
           await db.repo('receipt').create({
             date: receipt.date ?? today(),
             merchant: receipt.merchant,
@@ -202,17 +200,17 @@ export async function render() {
             subscription: Boolean(receipt.subscription),
             refund: Boolean(receipt.refund),
             subject: receipt.subject ?? '',
-            mailbox: mailbox.id,
+            mailbox: receipt.mailbox,
             messageId: receipt.messageId,
           });
         }
 
-        added += fresh.length;
+        added += scan.fresh.length;
         runs.push({
           mailbox,
-          searched: messages.length,
-          recognised: read.length,
-          added: fresh.length,
+          searched: scan.searched,
+          recognised: scan.read.length,
+          added: scan.fresh.length,
           truncated: Boolean(result.truncated),
         });
       } catch (err) {
@@ -244,6 +242,56 @@ export async function render() {
   async function loadTransactions() {
     if (transactions.length || !receipts.length) return;
     transactions = await db.repo('transaction').list({ decrypt: false, limit: 20_000 });
+  }
+
+  /**
+   * Write what the receipts know back onto the bank rows they settled.
+   *
+   * Finding the pair and then doing nothing with it was the gap: the
+   * Transactions list went on saying `UPI/ZOMATO`, and the categoriser went on
+   * guessing at a merchant an email had already named. This turns a match into
+   * a fact — payee, order number, category — on rows whose payee came off a
+   * narration rather than out of a person.
+   *
+   * Offered rather than automatic. It edits records somebody may have already
+   * corrected by hand, and a screen that rewrote a year of transactions
+   * because a scan found some email would be a bad thing to have to undo.
+   */
+  async function applyMatches(matched) {
+    const patches = matched
+      .map(({ receipt, transaction }) => ({ transaction, patch: enrich(receipt, transaction) }))
+      .filter(({ patch }) => Object.keys(patch).length);
+
+    if (!patches.length) {
+      toast('Every matched row already says what the receipt says.');
+      return;
+    }
+
+    const ok = await confirm({
+      title: `Name ${patches.length} bank ${patches.length === 1 ? 'row' : 'rows'}?`,
+      message: 'Each takes the merchant, order number and category from the receipt '
+        + 'that matched it. Rows whose payee you typed yourself are left alone.',
+      confirmLabel: 'Name them',
+    });
+    if (!ok) return;
+
+    busy = true;
+    paint();
+
+    let written = 0;
+    try {
+      for (const { transaction, patch } of patches) {
+        await db.repo('transaction').update(transaction.id, patch);
+        written += 1;
+      }
+      transactions = await db.repo('transaction').list({ decrypt: false, limit: 20_000 });
+      toast(`${written} transactions named from their receipts`, { kind: 'success' });
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    } finally {
+      busy = false;
+      paint();
+    }
   }
 
   function currentQuery() {
@@ -814,7 +862,13 @@ export async function render() {
     const percent = Math.round(matched.coverage * 100);
 
     return card({}, [
-      cardHeader('Matched to the bank', null, {
+      cardHeader('Matched to the bank', [
+        matched.matched.length
+          ? button('Name the bank rows', {
+            variant: 'primary', onClick: () => applyMatches(matched.matched), disabled: busy,
+          })
+          : null,
+      ].filter(Boolean), {
         subtitle: `${matched.matched.length} of ${receipts.length} receipts found the payment that settled them`,
         iconName: 'link',
       }),

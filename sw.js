@@ -90,6 +90,7 @@ const SHELL = [
   './js/domain/portfolio.js',
   './js/domain/reminders.js',
   './js/domain/statement.js',
+  './js/domain/tabular.js',
   './js/domain/tree.js',
 
   './js/ui/dom.js',

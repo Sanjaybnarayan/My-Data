@@ -4,6 +4,7 @@ import {
 } from '../js/domain/merchants.js';
 import {
   readReceipt, readTotal, readOrderId, byMerchant, subscriptions, reconcile,
+  planScan, enrich,
 } from '../js/domain/inbox.js';
 import {
   BACKEND, readMailbox, googleMailbox, scriptMailbox,
@@ -205,6 +206,96 @@ describe('more than one mailbox', () => {
   test('a mailbox falls back to its address for a name', () => {
     assert.equal(scriptMailbox({ url, email: 'Work@Example.COM' }).label, 'work@example.com');
     assert.equal(scriptMailbox({ url }).label, 'Another mailbox');
+  });
+});
+
+/* ------------------------------------------------------- planning a scan */
+
+describe('what a scan decides before it writes anything', () => {
+  const message = (id, from = 'noreply@zomato.com') => ({
+    id, from, subject: 'Order #ZO1 delivered', date: '2026-05-14', body: 'Grand Total ₹645.00',
+  });
+
+  test('mail from nobody recognised is read past, not written down', () => {
+    const scan = planScan([message('a'), message('b', 'aunt@example.com')], { mailboxId: 'gm_x' });
+    assert.equal(scan.searched, 2);
+    assert.length(scan.read, 1);
+    assert.length(scan.fresh, 1);
+  });
+
+  test('a receipt already on record is not written twice', () => {
+    const known = new Set([receiptKey('gm_x', 'a')]);
+    assert.length(planScan([message('a')], { mailboxId: 'gm_x', known }).fresh, 0);
+  });
+
+  test('the same message id in two mailboxes is two receipts', () => {
+    // A Gmail id is unique within a mailbox and not across several. Treating
+    // them as one would silently lose a purchase.
+    const known = new Set();
+    const first = planScan([message('a')], { mailboxId: 'gm_one', known });
+    const second = planScan([message('a')], { mailboxId: 'gm_two', known });
+
+    assert.length(first.fresh, 1);
+    assert.length(second.fresh, 1);
+    assert.equal(second.fresh[0].mailbox, 'gm_two');
+  });
+
+  test('the same message twice in one scan is claimed once', () => {
+    const known = new Set();
+    const scan = planScan([message('a'), message('a')], { mailboxId: 'gm_x', known });
+    assert.length(scan.fresh, 1);
+  });
+
+  test('a receipt with no message id is read but not stored', () => {
+    // There would be nothing to deduplicate it by, so every later scan would
+    // add it again.
+    const scan = planScan([{ ...message('a'), id: '' }], { mailboxId: 'gm_x' });
+    assert.length(scan.read, 1);
+    assert.length(scan.fresh, 0);
+  });
+
+  test('a household shop is recognised by the scan like any other', () => {
+    const local = customMerchant({ domain: 'thelocalbakery.in', name: 'The Local Bakery' });
+    const scan = planScan([message('a', 'orders@thelocalbakery.in')],
+      { mailboxId: 'gm_x', shops: [local] });
+    assert.equal(scan.fresh[0].merchant, 'The Local Bakery');
+  });
+});
+
+/* ------------------------------------------------- naming the bank rows */
+
+describe('what a matched receipt tells the bank row', () => {
+  const receipt = {
+    merchant: 'Zomato', merchantKey: 'zomato', category: 'food-delivery',
+    amount: 64_500, date: '2026-05-14', orderId: 'ZO12345678',
+  };
+
+  test('a row whose payee came off a narration is named', () => {
+    const patch = enrich(receipt, { payee: 'UPI', reference: '', category: 'other-spend' });
+    assert.equal(patch.payee, 'Zomato');
+    assert.equal(patch.reference, 'ZO12345678');
+    assert.equal(patch.category, 'food-delivery');
+  });
+
+  test('a payee somebody typed themselves is left alone', () => {
+    // A correction a person made outranks one an email implies.
+    const patch = enrich(receipt, { payee: 'Dinner with Anil', reference: '' });
+    assert.equal(patch.payee, undefined);
+    assert.equal(patch.reference, 'ZO12345678', 'the order number is still worth adding');
+  });
+
+  test('a bank reference already on the row is not overwritten', () => {
+    // The bank's own reference is what the bank will answer questions about.
+    assert.equal(enrich(receipt, { payee: 'UPI', reference: 'UPI402913' }).reference, undefined);
+  });
+
+  test('an empty payee counts as unnamed', () => {
+    assert.equal(enrich(receipt, { payee: '' }).payee, 'Zomato');
+    assert.equal(enrich(receipt, {}).payee, 'Zomato');
+  });
+
+  test('a receipt that knows nothing changes nothing', () => {
+    assert.deep(enrich({}, { payee: 'UPI', reference: 'x' }), {});
   });
 });
 
