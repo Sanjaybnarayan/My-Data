@@ -340,6 +340,15 @@ async function main() {
       check('the required permissions are identity only',
         !/drive|spreadsheets|gmail/i.test(required), required);
 
+      // The commonest sign-in failure is not a scope at all: the OAuth client
+      // does not list where this copy is served from. Google shows its own
+      // error inside the popup and the app can only tell that a window shut,
+      // so the two strings that have to match are printed rather than
+      // described.
+      check('the origin and redirect URI are shown, exactly',
+        body.includes('Authorised redirect URI')
+        && body.includes('/oauth-callback.html'), body.slice(0, 1600));
+
       if (SHOTS) await shot(page, 'settings-privacy');
     }
 

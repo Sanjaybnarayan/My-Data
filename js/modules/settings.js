@@ -20,6 +20,7 @@ import { bus, TOPIC } from '../core/bus.js';
 import { config, isConfigured, saveStoredConfig, setLocalOnly } from '../core/config.js';
 import { privacyReport, whereData } from '../domain/privacy.js';
 import { consentScreen } from '../core/scopes.js';
+import { redirectUriFor as redirectUri } from '../auth/google.js';
 import { entities, entity, ROLES } from '../data/schema.js';
 import { Outbox } from '../sync/outbox.js';
 import { formatInstant, formatDay } from '../core/dates.js';
@@ -285,7 +286,41 @@ function permissionsCard() {
 
     h('h3', { class: 'small' }, 'Required'),
     h('div', { class: 'list' }, required.map(row)),
-    copy(required, 'Copy the required five'),
+    copy(required, 'Copy the required scopes'),
+
+    // The commonest reason a sign-in fails has nothing to do with scopes: the
+    // OAuth client does not list where this copy of the app is served from.
+    // Google shows its own error inside the popup, the person closes it, and
+    // the application can only tell that a window shut. So the two strings it
+    // has to match are printed here, exactly, rather than described.
+    h('h3', { class: 'small', style: { marginTop: 'var(--space-4)' } }, 'Where this copy is served from'),
+    h('p', { class: 'small muted' },
+      'On the OAuth client — not the consent screen — these two must be listed '
+      + 'exactly, or Google refuses the sign-in before it asks you anything.'),
+    h('div', { class: 'list' }, [
+      listItem({
+        title: 'Authorised JavaScript origin',
+        subtitle: globalThis.location?.origin ?? '',
+      }),
+      listItem({
+        title: 'Authorised redirect URI',
+        subtitle: redirectUri(),
+      }),
+    ]),
+    button('Copy both', {
+      variant: 'subtle',
+      iconName: 'copy',
+      onClick: async () => {
+        try {
+          await navigator.clipboard.writeText(
+            `${globalThis.location?.origin ?? ''}\n${redirectUri()}`,
+          );
+          toast('Copied', { kind: 'success' });
+        } catch {
+          toast('Could not reach the clipboard.', { kind: 'error' });
+        }
+      },
+    }),
 
     h('h3', { class: 'small', style: { marginTop: 'var(--space-4)' } }, 'Optional'),
     h('div', { class: 'list' }, optional.map((scope) => listItem({
