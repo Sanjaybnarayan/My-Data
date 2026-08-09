@@ -66,19 +66,13 @@ export const SCOPES = Object.freeze([
   {
     id: `${AUTH}drive.file`,
     where: 'browser',
-    required: true,
+    required: false,
     title: 'Files this app creates in your Drive',
-    why: 'Documents you upload, and the unlock key if you sign in with Google. '
-      + 'Deliberately narrow: it cannot see anything else in your Drive.',
-    without: 'No document backup, and no Continue with Google.',
-  },
-  {
-    id: `${AUTH}spreadsheets`,
-    where: 'browser',
-    required: true,
-    title: 'Your spreadsheets',
-    why: 'The backup workbook is a Google Sheet in your own Drive.',
-    without: 'No backup at all — everything stays on the one device.',
+    why: 'Only for Continue with Google, which keeps the unlock key in a file of '
+      + 'its own. Documents you upload do not need it — those go through the '
+      + 'Apps Script backend, under the backend’s own permission. Narrow either '
+      + 'way: it cannot see anything else in your Drive.',
+    without: 'Continue with Google is not offered. Everything else is unaffected.',
   },
   {
     id: `${AUTH}drive.appdata`,
@@ -145,12 +139,33 @@ export const SCOPES = Object.freeze([
 
 const of = (where) => SCOPES.filter((scope) => scope.where === where);
 
-/** The scopes an ordinary sign-in asks for. */
+/**
+ * The scopes an ordinary sign-in asks for: who you are, and nothing else.
+ *
+ * This used to include `spreadsheets` and `drive.file`, and it should not
+ * have. The browser never calls the Sheets API — every sheet this application
+ * writes is written by the Apps Script backend, under the backend's own
+ * authorisation, from its own manifest. The browser's token was being used
+ * only to prove which account was asking, and `spreadsheets` is a *sensitive*
+ * scope covering every spreadsheet a person owns.
+ *
+ * Asking for a permission and never using it is the plainest possible breach
+ * of "request the narrowest scope that does the job", and it is the first
+ * thing an OAuth verification review looks for.
+ *
+ * `drive.file` moved out for the same reason with a smaller blast radius: only
+ * Continue with Google needs it, so only that button asks for it.
+ */
 export const BASE_SCOPES = Object.freeze(
-  of('browser')
-    .filter((scope) => scope.required || scope.id === 'profile')
-    .map((scope) => scope.id),
+  of('browser').filter((scope) => scope.required).map((scope) => scope.id)
+    // Cosmetic and long-standing: the name in the corner of the app.
+    .concat('profile'),
 );
+
+/** Identity, plus the one file the unlock key lives in. */
+export const UNLOCK_SCOPES = Object.freeze([
+  ...BASE_SCOPES, `${AUTH}drive.file`, `${AUTH}drive.appdata`,
+]);
 
 /** Identity only: proves who is asking and nothing else. */
 export const IDENTITY_SCOPES = Object.freeze(['openid', 'email']);

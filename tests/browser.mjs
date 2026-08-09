@@ -333,6 +333,13 @@ async function main() {
       check('and says drive.appdata is not needed',
         /do not need drive\.appdata/i.test(body), body.slice(0, 1200));
 
+      // The tightening that matters: an ordinary sign-in asks who you are and
+      // nothing else, so the required list must not name a Google API.
+      const required = await page.locator('.card', { hasText: 'Google permissions' })
+        .locator('.list').first().innerText();
+      check('the required permissions are identity only',
+        !/drive|spreadsheets|gmail/i.test(required), required);
+
       if (SHOTS) await shot(page, 'settings-privacy');
     }
 

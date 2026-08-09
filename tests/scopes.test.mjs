@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  SCOPES, BASE_SCOPES, MAIL_SCOPES, IDENTITY_SCOPES,
+  SCOPES, BASE_SCOPES, UNLOCK_SCOPES, MAIL_SCOPES, IDENTITY_SCOPES,
   APPDATA_SCOPE, GMAIL_SCOPE, consentScreen, backendScopes,
 } from '../js/core/scopes.js';
 import { config } from '../js/core/config.js';
@@ -72,6 +72,43 @@ describe('the registry matches what the code actually asks for', () => {
     const required = consentScreen().required.map((scope) => scope.id);
     for (const scope of required) assert.includes(BASE_SCOPES, scope, `${scope} is not requested`);
     assert.includes(BASE_SCOPES, 'profile');
+  });
+
+  test('an ordinary sign-in asks for no Google API at all', () => {
+    // It exists to say who is asking. Every Sheet this application writes is
+    // written by the Apps Script backend under the backend's own permission,
+    // and documents go the same way — so the browser has no call to make and
+    // no business holding a scope for one.
+    for (const scope of BASE_SCOPES) {
+      assert.not(/drive|spreadsheets|gmail|calendar|contacts/.test(scope),
+        `an ordinary sign-in asks for ${scope} and never uses it`);
+    }
+  });
+
+  test('the browser never asks for spreadsheets, sensitive and unused', () => {
+    // It grants access to *every* spreadsheet a person owns, and nothing in
+    // js/ calls the Sheets API. Asking for a permission and not using it is
+    // the plainest breach of "narrowest scope that does the job".
+    const sheets = 'https://www.googleapis.com/auth/spreadsheets';
+    assert.not(BASE_SCOPES.includes(sheets));
+    assert.not(UNLOCK_SCOPES.includes(sheets));
+    assert.not(MAIL_SCOPES.includes(sheets));
+    assert.not(consentScreen().required.some((scope) => scope.id === sheets),
+      'the consent screen still asks a person to grant spreadsheets to the browser');
+  });
+
+  test('Drive is asked for only by the button that needs it', () => {
+    const drive = 'https://www.googleapis.com/auth/drive.file';
+    assert.not(BASE_SCOPES.includes(drive), 'every sign-in asks for Drive');
+    assert.includes(UNLOCK_SCOPES, drive);
+  });
+
+  test('the unlock path is the base list plus Drive, and nothing more', () => {
+    const extra = UNLOCK_SCOPES.filter((scope) => !BASE_SCOPES.includes(scope));
+    assert.deep(extra.sort(), [
+      'https://www.googleapis.com/auth/drive.appdata',
+      'https://www.googleapis.com/auth/drive.file',
+    ]);
   });
 
   test('a mailbox sign-in asks for identity and mail, never Drive or Sheets', () => {
