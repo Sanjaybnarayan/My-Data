@@ -25,6 +25,7 @@ import { lockScreen, recoveryKitScreen } from './auth/lock.js';
 import { Session, AttemptLimiter } from './security/session.js';
 import { GoogleAuth } from './auth/google.js';
 import { DriveEscrow, APPDATA_SCOPE } from './security/escrow.js';
+import { UNLOCK_SCOPES } from './core/scopes.js';
 import { AppsScriptTransport } from './sync/transport.js';
 import { SyncEngine } from './sync/engine.js';
 import { DocumentStore } from './sync/drive.js';
@@ -174,10 +175,10 @@ async function start(db, limiter, googleSession = null) {
  * before the data key exists and must not know about transports, Drive or
  * scopes. All it gets is two functions that return 32 bytes.
  *
- * The sign-in asks for the ordinary scopes *plus* `drive.appdata`, so one
- * consent covers both being let in and having somewhere to sync — which is the
- * point of offering it at all. Without a client id configured there is nothing
- * to offer, and the lock screen shows the PIN alone.
+ * This is the only place the browser asks for Drive at all. An ordinary
+ * sign-in wants to know who you are and nothing more; only this button needs
+ * somewhere to keep a key. Without a client id configured there is nothing to
+ * offer, and the lock screen shows the PIN alone.
  *
  * `keep` receives the signed-in session so the rest of the application uses
  * the *same* one. That sharing is not a tidiness: letting the sync engine
@@ -196,11 +197,14 @@ function googleUnlock(keep) {
   if (config().localOnly) return null;
   if (!config().googleClientId) return null;
 
-  // `drive.appdata` is asked for but not required. Google grants the rest of
-  // the request whether or not a household has added it to their consent
-  // screen, so asking costs nothing and getting it only buys a tidier place
-  // to put the key.
-  const auth = new GoogleAuth({ scopes: [...config().scopes, APPDATA_SCOPE] });
+  // Drive is asked for *here* and nowhere else. An ordinary sign-in wants to
+  // know who you are and nothing more; only this button needs somewhere to
+  // put a key, so only this button asks for it.
+  //
+  // `drive.appdata` inside that is asked for but not required — Google grants
+  // the rest whether or not a household added it to their consent screen, so
+  // asking costs nothing and having it only buys a tidier place for the file.
+  const auth = new GoogleAuth({ scopes: UNLOCK_SCOPES });
 
   const connect = async () => {
     await auth.signIn({ prompt: 'select_account consent' });

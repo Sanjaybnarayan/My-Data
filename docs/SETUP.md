@@ -80,11 +80,12 @@ instead, the deployment access is not set to "Anyone".
 3. **APIs & Services → OAuth consent screen**:
    - User type: **External**, unless you have a Workspace account.
    - Fill in the app name and your email.
-   - Scopes: see the table below. The short version is `openid`, `email`,
-     `profile`, `drive.file` and `spreadsheets`; everything else is optional
-     and each buys one named feature. **Settings → Google permissions** in the
-     app lists the same thing with a copy button, and is generated from the
-     code rather than written out here, so it cannot go stale.
+   - Scopes: `openid` and `email`. That is the whole required list — the
+     browser signs you in and proves who is asking, and nothing else. Every
+     sheet and every document is written by the Apps Script backend under
+     *its* permissions, not yours. Everything below is optional and each buys
+     one named feature. **Settings → Google permissions** lists the same thing
+     with a copy button, generated from the code rather than written out here.
    - Test users: **add your own email address, and every family member's.**
      While the app is in testing mode, only listed users can sign in.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
@@ -255,14 +256,13 @@ does nothing.
 | --- | --- | --- |
 | `openid` | Sign in | Proves which Google account is asking. Nothing more. |
 | `email` | Your email address | The backend admits accounts by address, and mailboxes are named by one. |
-| `drive.file` | Files this app creates in your Drive | Documents you upload, and the unlock key if you sign in with Google. Deliberately narrow: it cannot see anything else in your Drive. |
-| `spreadsheets` | Your spreadsheets | The backup workbook is a Google Sheet in your own Drive. |
 
 ### Optional — each buys one feature
 
 | Scope | What it is | Add it if |
 | --- | --- | --- |
 | `profile` | Your name and picture | Shown in the corner of the app. Cosmetic. |
+| `drive.file` | Files this app creates in your Drive | Only for Continue with Google, which keeps the unlock key in a file of its own. Documents you upload do not need it — those go through the Apps Script backend, under the backend’s own permission. Narrow either way: it cannot see anything else in your Drive. |
 | `drive.appdata` | A hidden folder of its own | Tidier home for the unlock key. Optional: without it the key goes in an ordinary visible file, which works identically. |
 | `gmail.readonly` | Read your mail | Only if you attach a mailbox with “Add a Gmail account” in Shops. Asked for separately, per mailbox, never at ordinary sign-in. |
 
