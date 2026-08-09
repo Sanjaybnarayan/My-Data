@@ -115,19 +115,27 @@ export class DriveEscrow {
   }
 
   /**
-   * Mint 32 random bytes, store them, and hand them back to be wrapped with.
+   * 32 fresh bytes. Not stored — `put` does that, with the wrapping they open.
    *
-   * Generated here rather than derived from anything about the account: an
-   * account identifier is not a secret, and a key derived from one would be
+   * Generated rather than derived from anything about the account: an account
+   * identifier is not a secret, and a key derived from one would be
    * reproducible by anybody who knew the email address.
+   *
+   * Minting and storing used to be one call, which is how a second device
+   * came to destroy the first one's key: a device with no keyring takes the
+   * enrolment path, enrolment minted, and minting wrote straight over the file
+   * every other device depended on. Splitting them makes the read that has to
+   * come first impossible to skip — see `unlockFreshDevice`.
    */
-  async create() {
-    const bytes = randomBytes(32);
-    await this.put(bytes);
-    return bytes;
+  static mintRawKey() {
+    return randomBytes(32);
   }
 
-  /** The stored key, or null when this household has not escrowed one. */
+  /**
+   * What this account holds, or null when it holds nothing.
+   *
+   * @returns {Promise<{rawKey: Uint8Array, wrapped: {iv: string, key: string}|null}|null>}
+   */
   async read() {
     const id = await this.#find();
     if (!id) return null;
@@ -138,13 +146,35 @@ export class DriveEscrow {
     if (!body?.key) {
       throw new AppError('the key stored in Drive is not readable', { code: 'escrow-corrupt' });
     }
-    return fromBase64(body.key);
+
+    return {
+      rawKey: fromBase64(body.key),
+      // Absent in files written before the wrapping was stored alongside the
+      // key, and in a file left by a device interrupted between minting and
+      // publishing. Both mean the same thing to a caller — there is a key here
+      // but nothing it is known to open — and both are reported as null rather
+      // than as a wrapping that fails later.
+      wrapped: body.wrapped?.iv && body.wrapped?.key ? body.wrapped : null,
+    };
   }
 
-  /** Store or replace the key. */
-  async put(bytes) {
+  /**
+   * Store or replace the key, and the data key it wraps.
+   *
+   * Both, in one file, and it is worth being plain about what that means:
+   * **anyone who can read this file can read the household's records.** That
+   * is what the feature is — see the note at the top — and it is the only way
+   * a device that has never seen this household can open its data. The wrapped
+   * key cannot come from anywhere else: it lives in `meta`, `meta` is
+   * device-local, and syncing requires being unlocked already.
+   *
+   * @param {Uint8Array} bytes
+   * @param {{iv: string, key: string}} [wrapped] the data key under `bytes`
+   */
+  async put(bytes, wrapped = null) {
     const payload = JSON.stringify({
       key: toBase64(bytes),
+      wrapped,
       // Written for a person opening the file out of curiosity, since it is
       // their Drive and they are entitled to.
       note: 'FamilyOS unlock key. Deleting this file removes the option to sign in '

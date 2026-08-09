@@ -127,6 +127,46 @@ export class Keyring {
     return dataKey;
   }
 
+  /**
+   * The stored wrapping for one method, so it can be published somewhere a
+   * second device will find it. Ciphertext, and useless without the key that
+   * opens it — which is why handing this out is safe and handing out
+   * `this.key` would not be.
+   */
+  async wrappedFor(method) {
+    const entry = (await this.#load()).find((m) => m.method === method);
+    return entry ? { iv: entry.iv, key: entry.key } : null;
+  }
+
+  /**
+   * Install a wrapping made somewhere else — the second-device case.
+   *
+   * The only way a keyring acquires a data key it did not mint, and
+   * deliberately restricted to a device that has none of its own. Adopting
+   * onto an enrolled device would leave two entries wrapping two *different*
+   * data keys, and whichever one you unlocked with would silently fail to
+   * decrypt half the records.
+   *
+   * Nothing is verified here because nothing can be: a wrapping that does not
+   * open is indistinguishable from a wrong key until it is tried. The unlock
+   * that follows is the check.
+   *
+   * @param {{iv: string, key: string}} wrapped
+   */
+  async adoptWrapped(method, wrapped, label = '') {
+    if (await this.isEnrolled()) {
+      throw new AppError('this device already has a data key', { code: 'already-enrolled' });
+    }
+    if (!wrapped?.iv || !wrapped?.key) {
+      throw new AppError('there is no wrapped key to adopt', { code: 'bad-wrap' });
+    }
+    this.#methods = [{
+      method, iv: wrapped.iv, key: wrapped.key, label,
+      createdAt: new Date().toISOString(),
+    }];
+    await this.#save();
+  }
+
   async unlockWithPin(pin) {
     const entry = (await this.#load()).find((m) => m.method === 'pin');
     if (!entry) throw new LockedError('no PIN is enrolled on this device');

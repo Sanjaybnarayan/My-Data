@@ -15,6 +15,9 @@ import { icon } from '../ui/icons.js';
 import { button } from '../ui/components/basics.js';
 import { toast } from '../ui/components/toast.js';
 import { platformAuthenticatorAvailable, unlockWithBiometric } from './biometric.js';
+import {
+  googleUnlockAvailable, connectGoogleUnlock, unlockFreshDevice, GOOGLE_METHOD,
+} from './google-unlock.js';
 import { userMessage } from '../core/errors.js';
 import { generatePassphrase } from '../security/crypto.js';
 
@@ -24,17 +27,22 @@ const PIN_LENGTH_MAX = 12;
 /**
  * @param {{keyring, limiter, biometricCredentialId?: string,
  *          onUnlocked: Function, mode?: 'unlock'|'enrol',
- *          google?: {available: boolean, signIn: Function, enrol: Function}}} options
+ *          googleEnrolled?: boolean}} options
  *
- * `google` is the sign-in-with-Google path. It hands back the 32 bytes that
- * unwrap the data key — `signIn` fetches the household's escrowed key, `enrol`
- * mints one — and this screen only ever passes them to the keyring. How they
- * are kept, and what keeping them that way costs, is in `security/escrow.js`.
+ * The sign-in-with-Google path lives in `auth/google-unlock.js`, which Settings
+ * uses too — this screen decides *when* to offer it and nothing about how it
+ * works. How the key is kept, and what keeping it that way costs, is in
+ * `security/escrow.js`.
+ *
+ * `googleEnrolled` is whether this device has a `google` wrapping already. On
+ * a known device without one the button could only ever report that the
+ * account has no key on it, which is not worth a person's time.
  *
  * @returns {Node}
  */
 export function lockScreen({
-  keyring, limiter, biometricCredentialId, onUnlocked, mode = 'unlock', google = null,
+  keyring, limiter, biometricCredentialId, onUnlocked, mode = 'unlock',
+  googleEnrolled = false,
 }) {
   let pin = '';
   let confirming = false;
@@ -220,32 +228,53 @@ export function lockScreen({
    * whole reason to offer it.
    */
   async function withGoogle() {
-    if (!google?.available) return;
+    if (!offerGoogle) return;
     replace(message, 'Opening Google…');
 
     try {
+      const { auth, escrow, email } = await connectGoogleUnlock();
+
       if (mode === 'enrol') {
-        const rawKey = await google.enrol();
-        await keyring.enrolRawKey(rawKey, 'google');
-        onUnlocked({ method: 'google', firstRun: true });
+        // Reads the account before minting anything. A device with no keyring
+        // is *always* on this path — including the household's second phone —
+        // and minting first is what used to write over the first phone's key.
+        const { outcome } = await unlockFreshDevice(keyring, escrow, email);
+        onUnlocked({
+          method: GOOGLE_METHOD,
+          // An adopted key belongs to a household that already exists, so this
+          // is not a first run: the recovery phrase was printed on the first
+          // device, and printing a second one would wrap the same key twice
+          // and imply the first sheet of paper no longer counts.
+          firstRun: outcome === 'found',
+          googleSession: auth,
+        });
         return;
       }
 
-      const rawKey = await google.signIn();
-      if (!rawKey) {
+      // Unlocking a device that is already set up needs only the bytes: its
+      // own wrapping is already in its keyring. The wrapping in the file is
+      // for devices that have none, which is why its absence is not checked
+      // here and is fatal in `unlockFreshDevice`.
+      const record = await escrow.read();
+      if (!record) {
         replace(message, 'That Google account has no FamilyOS key on it. '
           + 'Use your PIN, or your recovery phrase.');
         return;
       }
-      await keyring.unlockWithRawKey(rawKey, 'google');
+      await keyring.unlockWithRawKey(record.rawKey, GOOGLE_METHOD);
       limiter?.clear?.();
-      onUnlocked({ method: 'google' });
+      onUnlocked({ method: GOOGLE_METHOD, googleSession: auth });
     } catch (err) {
       replace(message, userMessage(err));
     }
   }
 
-  const googleOption = () => (google?.available
+  // Offered on a fresh device, and on a known one that has actually enrolled
+  // it. A button that can only say "there is no key on that account" is not
+  // worth a person's time.
+  const offerGoogle = googleUnlockAvailable() && (mode === 'enrol' || googleEnrolled);
+
+  const googleOption = () => (offerGoogle
     ? h('div', { class: 'stack stack--tight' }, [
       button(mode === 'enrol' ? 'Continue with Google' : 'Sign in with Google', {
         variant: 'primary', iconName: 'cloud', onClick: withGoogle,

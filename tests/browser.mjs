@@ -349,6 +349,19 @@ async function main() {
         body.includes('Authorised redirect URI')
         && body.includes('/oauth-callback.html'), body.slice(0, 1600));
 
+      // Which ways in this device actually has. The question this card exists
+      // to answer is "how do I get back in", and a household that never
+      // printed a recovery phrase should find that out here rather than on
+      // the morning they need it.
+      check('Settings says what unlocks this device',
+        /This device unlocks with/.test(body), body.slice(0, 400));
+
+      const security = await page.locator('.card', { hasText: 'This device unlocks with' })
+        .innerText();
+      check('and names the PIN this run enrolled', /PIN/.test(security), security);
+      check('and does not warn about a recovery phrase that exists',
+        !/No recovery phrase\./.test(security), security);
+
       if (SHOTS) await shot(page, 'settings-privacy');
     }
 
