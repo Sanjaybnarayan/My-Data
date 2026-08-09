@@ -184,6 +184,26 @@ export class AppsScriptTransport {
     return this.call('folders', {});
   }
 
+  /**
+   * Receipts from the household's own Gmail. The query is built by
+   * `domain/merchants.js` and names the senders it is for; the server refuses
+   * one that does not.
+   */
+  mail(query, limit = 100) {
+    return this.call('mail', { query, limit });
+  }
+
+  /**
+   * The Google accounts allowed to reach this backend.
+   *
+   * Called with nothing it reads the list; called with `emails` it replaces
+   * it, which only the deploying account may do. The owner is admitted by
+   * identity and is never in the list.
+   */
+  members(emails) {
+    return this.call('members', emails ? { emails } : {});
+  }
+
   /** Row counts per sheet, to verify a backup actually landed. */
   verify() {
     return this.call('verify', {});
@@ -220,5 +240,7 @@ export class FakeTransport {
   download(fileId) { return this.call('download', { fileId }); }
   fileVersions(fileId) { return this.call('versions', { fileId }); }
   personFolders() { return this.call('folders', {}); }
+  mail(query, limit) { return this.call('mail', { query, limit }); }
+  members(emails) { return this.call('members', emails ? { emails } : {}); }
   verify() { return this.call('verify', {}); }
 }

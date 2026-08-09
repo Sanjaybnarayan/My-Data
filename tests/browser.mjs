@@ -204,7 +204,109 @@ async function main() {
       check('the PDF reader can decompress in the browser',
         decoded === 'column x, column y, balance', String(decoded));
 
+      // A real CSV through the real file input. The parse and the plan are
+      // covered by unit tests; what only a browser can show is that a File
+      // reaches them at all.
+      await page.locator('#app input[type=file][accept*="csv"]').setInputFiles({
+        name: 'kotak-may.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from([
+          'Account No: 1234500000',
+          '',
+          'Date,Narration,Withdrawal,Deposit,Balance',
+          '01/05/2026,"UPI/ZOMATO LTD/1001/order",645.00,,9355.00',
+          '02/05/2026,"NEFT SALARY CREDIT",,50000.00,59355.00',
+        ].join('\n')),
+      });
+      await page.waitForTimeout(700);
+
+      const csv = (await page.locator('.app-content').innerText()).trim();
+      check('a CSV statement is read', /kotak-may\.csv/.test(csv), csv.slice(0, 300));
+      check('a CSV says it was read from a table, not by column',
+        /read from a table/i.test(csv), csv.slice(0, 600));
+      check('reading a CSV raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
       if (SHOTS) await shot(page, 'finance-import');
+    }
+
+    /* ------------------------------------------------ receipts from mail */
+
+    {
+      const before = consoleErrors.length;
+      await go(page, '#/finance/shops');
+      await page.waitForTimeout(400);
+
+      const body = (await page.locator('.app-content').innerText()).trim();
+      check('the shops screen renders', /Read receipts from Gmail/i.test(body));
+
+      // The claim this screen makes about itself has to survive contact with
+      // the screen. If the query stops being printed, the only meaningful
+      // limit on what gets read stops being visible.
+      check('the query it will run is shown before it runs',
+        /from:zomato\.com/i.test(body) && /-in:trash/.test(body), body.slice(0, 400));
+      check('it says plainly that account linking is not on offer',
+        /do not offer one|will not hold those passwords/i.test(body));
+      check('the shops screen loads without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      // A household shop, added through the real input, has to reach the real
+      // query — that is the whole of "and much more".
+      await page.locator('input[aria-label="Sender domain"]').fill('thelocalbakery.in');
+      await page.locator('input[aria-label="Shop name"]').fill('The Local Bakery');
+      await page.getByRole('button', { name: 'Add', exact: true }).click();
+      await page.waitForTimeout(200);
+
+      const after = (await page.locator('.app-content').innerText()).trim();
+      check('a shop the household names joins the query',
+        /from:thelocalbakery\.in/.test(after), after.slice(0, 400));
+
+      // Adding a mailbox is a sign-in, and the cost of that sign-in is stated
+      // on the same screen rather than in a document nobody opens.
+      check('a mailbox is added by signing in',
+        /Add a Gmail account/.test(after), after.slice(0, 600));
+      check('what the sign-in costs is said where it is offered',
+        /holds a Gmail token/i.test(after), after.slice(0, 900));
+      check('a mailbox is described as mail only',
+        /answers mail searches and\s+nothing else/i.test(after), after.slice(0, 900));
+
+      // The deployment route is folded away rather than removed: it is the
+      // only way to read a second mailbox without a Gmail token in the page.
+      await page.locator('summary', { hasText: 'deployment instead of signing in' }).click();
+      await page.waitForTimeout(150);
+
+      // A wrong URL has to fail here rather than as an empty scan later.
+      await page.locator('input[aria-label="Apps Script deployment URL"]').fill('someone@gmail.com');
+      await page.getByRole('button', { name: 'Connect' }).click();
+      await page.waitForTimeout(300);
+      check('a mailbox that is not a deployment URL is refused',
+        /not an Apps Script deployment URL/i.test(await page.locator('body').innerText()));
+
+      if (SHOTS) await shot(page, 'finance-shops');
+    }
+
+    /* ------------------------------------------------------- the ledgers */
+
+    {
+      // These existed in domain/categorise.js from the beginning and were
+      // reachable only from a command line. The point of the check is that
+      // they are now reachable at all.
+      for (const [tab, expected] of [
+        ['people', /Person to person|No person-to-person|Nothing imported yet/i],
+        ['lending', /Borrowing and lending|No borrowing|Nothing imported yet/i],
+        ['insights', /Worth saying out loud|Nothing imported yet/i],
+      ]) {
+        const before = consoleErrors.length;
+        await go(page, `#/finance/${tab}`);
+        await page.waitForTimeout(400);
+
+        const body = (await page.locator('.app-content').innerText()).trim();
+        check(`the ${tab} ledger renders`, expected.test(body), body.slice(0, 200));
+        check(`the ${tab} ledger loads without a console error`,
+          consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+      }
+
+      if (SHOTS) await shot(page, 'finance-insights');
     }
 
     /* ------------------------------------------------------- documents */

@@ -27,10 +27,17 @@ const TABS = [
   { id: 'account', label: 'Accounts' },
   { id: 'import', label: 'Import' },
   { id: 'bankStatement', label: 'Statements' },
+  { id: 'shops', label: 'Shops' },
+  { id: 'people', label: 'People' },
+  { id: 'lending', label: 'Lending' },
+  { id: 'insights', label: 'Insights' },
   { id: 'budget', label: 'Budgets' },
   { id: 'recurringPayment', label: 'Recurring' },
   { id: 'loan', label: 'Loans' },
 ];
+
+/** Screens that produce records rather than listing one entity. */
+const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights']);
 
 export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity) {
@@ -57,7 +64,7 @@ export async function render(route) {
   replace(host, [
     pageHeader('Finance', {
       subtitle: 'Where the money is, and where it went',
-      actions: active === 'import' ? []
+      actions: NO_ADD.has(active) ? []
         : active !== 'overview'
         ? [button('Add', { variant: 'primary', iconName: 'plus', onClick: () => section?.openForm() })]
         : [button('Add transaction', {
@@ -76,10 +83,26 @@ export async function render(route) {
     return { node: host, destroy: overview.destroy };
   }
 
-  // Not an entity — a screen that produces them. Loaded on demand because it
-  // pulls in the PDF reader, which nobody needs until they import something.
+  // Not entities — screens that produce them. Loaded on demand: one pulls in
+  // the PDF reader, the other the merchant registry, and neither is needed
+  // until somebody opens the tab.
   if (active === 'import') {
     const screen = await (await import('./statements.js')).render();
+    replace(body, screen.node);
+    return { node: host, destroy: screen.destroy };
+  }
+
+  if (active === 'shops') {
+    const screen = await (await import('./receipts.js')).render();
+    replace(body, screen.node);
+    return { node: host, destroy: screen.destroy };
+  }
+
+  // The ledgers: who money moved between, who owes whom, and what is worth
+  // saying about it. All three read the same categorised history, so they are
+  // one module with a view argument rather than three that load it three times.
+  if (active === 'people' || active === 'lending' || active === 'insights') {
+    const screen = await (await import('./ledgers.js')).render(active);
     replace(body, screen.node);
     return { node: host, destroy: screen.destroy };
   }

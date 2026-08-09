@@ -237,6 +237,7 @@ export function toRecord(row, { accountId, statementId = '', personId = '' }) {
     account: accountId,
     category: categoryFor(row.category),
     payee: row.counterparty,
+    direction: row.direction,
     method: methodFor(row.channel),
     person: personId,
     reference: row.reference || '',
@@ -270,7 +271,11 @@ export function planStatement(rows, options = {}) {
     account = null, overrides = {}, businesses = [], personId = '',
   } = options;
 
-  const parsed = parseStatement(rows);
+  // A caller that has already read the statement — a CSV or a card export,
+  // which is a table rather than a page — hands the parse in. Everything after
+  // this line is identical either way, which is the point: one importer, one
+  // categorisation, one fingerprint, one review step, whatever the file was.
+  const parsed = options.parsed ?? parseStatement(rows);
   const match = account ? { account, sure: true, score: 100, alternatives: [] }
     : matchAccount(parsed.account, accounts);
 
@@ -286,15 +291,25 @@ export function planStatement(rows, options = {}) {
   const duplicates = [];
   const seen = new Set();
 
+  const stamped = [];
+
   for (const row of categorised) {
     const key = fingerprint(accountId, row);
+    // Stamped onto the row, not merely computed and dropped. The screen uses
+    // it to stop the *second* file in a batch re-importing rows the first one
+    // already claimed — which is the normal case when somebody re-downloads a
+    // wider date range — and without it on the row that check compared every
+    // row against the empty string and passed everything through.
+    const carried = { ...row, importKey: key };
+    stamped.push(carried);
+
     // A statement can legitimately contain the same amount to the same payee
     // twice in a day; the second one is only a duplicate of the *first in this
     // file* if the bank gave both the same reference, which it does not.
-    if (existingKeys.has(key) || seen.has(key)) duplicates.push(row);
+    if (existingKeys.has(key) || seen.has(key)) duplicates.push(carried);
     else {
       seen.add(key);
-      fresh.push(row);
+      fresh.push(carried);
     }
   }
 
@@ -303,7 +318,7 @@ export function planStatement(rows, options = {}) {
     parsed,
     match,
     check,
-    transactions: categorised,
+    transactions: stamped,
     fresh,
     duplicates,
     problems: parsed.problems,

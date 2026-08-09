@@ -79,14 +79,28 @@ previewed like anything else, and findable by its title.
 
 ## Bank statements
 
-**Finance → Import** takes every statement PDF you have — all accounts, all
-people — in one go. Each file is matched to an account by the number printed on
+**Finance → Import** takes every statement you have — all accounts, all cards,
+all people — in one go, as PDF or as CSV. Each file is matched to an account by the number printed on
 it, categorised by rules you can read in `js/domain/categorise.js`, and checked
 against the bank's own opening and closing balances before anything is written.
 Re-uploading the same month is harmless, and a month you forgot to upload shows
 up as a break in the balances.
 
-The PDF is decoded in your browser. Nothing is uploaded anywhere.
+**Prefer CSV where your bank offers it.** A PDF is a picture of a table and has
+to be read by where the ink landed; a CSV *is* the table, so none of that can go
+wrong. Credit card exports work too — a card has no running balance and inverts
+the sign, so it is read from the columns the bank labelled rather than from
+arithmetic.
+
+Either way the file is decoded in your browser. Nothing is uploaded anywhere.
+
+**Finance → People, Lending and Insights** read the whole imported history, not
+one file: who money has gone back and forth with and where each stands, what
+has been borrowed and how much is still out, and the handful of facts about the
+period that would change a decision. A counterparty the rules get wrong can be
+corrected there, and the correction applies to every month already imported —
+the categoriser is re-run over the narrations rather than its old conclusions
+being read back.
 
 There is a command-line version of the same thing:
 
@@ -95,11 +109,56 @@ npm run statement -- statements/*.pdf          # the analysis
 npm run statement -- --csv statements/*.pdf    # every transaction, categorised
 ```
 
+## Shops, subscriptions and receipts
+
+**Finance → Shops** reads the receipts Zomato, Swiggy, Amazon, Flipkart,
+Blinkit, Zepto, Uber, Netflix, your telco and your electricity board already
+email you, and turns them into a per-shop spending ledger, a list of what
+renews on its own and what it costs a *year*, and a match back to the bank rows
+that paid for it.
+
+There is no "connect your Zomato account" button because there is nothing to
+connect to: none of those services publishes a consumer API. The only
+alternative would be for this application to hold the password to every account
+you own and drive their websites as you, which it will not do. Their receipts
+are the seam that actually exists, and one Gmail connection covers all of them
+at once — including shops nobody built an integration for, which you add by
+naming the domain their receipts arrive from.
+
+A first scan walks forward on its own — each pass starts where the last one
+stopped — so a backfill over years of mail is one press rather than a date
+field you keep nudging.
+
+Gmail has no per-sender permission, so the meaningful limit is the query. It
+names senders and a date and nothing else, and the screen prints it in full
+before it runs. What is stored is the merchant, date, total, order number and a
+Gmail message id — the message body is read on your device and never written
+down.
+
+**More than one mailbox.** Add as many as your receipts arrive at. Each scan
+reads them in turn and reports what each returned; one that cannot be read is
+named and the rest are still read.
+
+Three ways to attach one, offered in that order:
+
+- **Sign in with Google** — one click, nothing to deploy. Costs a
+  `gmail.readonly` token in the page for an hour at a time; Gmail has no
+  narrower scope that can still see a total. Each mailbox is its own consent,
+  revocable on its own, and the app's ordinary sign-in never gains it.
+- **Use this deployment** — if you deployed `Gmail.gs`, your backend reads its
+  own account's mail with no token in the browser at all.
+- **Use another account's deployment** — the most setup, and the only way to
+  read a *second* mailbox with no Gmail token in the page.
+
+None of them moves the backup. A mailbox answers mail searches and nothing
+else: never a workbook, never a Drive folder, never anything to sync. See
+`docs/SETUP.md`.
+
 ## Tests
 
 ```
-npm test              # 385 checks, no browser, nothing installed
-npm run test:browser  # 72 checks in a real Chromium
+npm test              # 551 checks, no browser, nothing installed
+npm run test:browser  # 90 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is
@@ -111,7 +170,7 @@ conflict resolution, real XLSX and PDF bytes.
 
 | Path | What |
 | --- | --- |
-| `js/data/schema.js` | Thirty-three entities described once. Stores, indexes, forms, validation, encryption, Sheets tabs and the assistant's vocabulary are all derived from it |
+| `js/data/schema.js` | Thirty-four entities described once. Stores, indexes, forms, validation, encryption, Sheets tabs and the assistant's vocabulary are all derived from it |
 | `js/domain/` | The rules — money, portfolios, statements, categorisation, reminders |
 | `js/modules/` | The screens. Fifteen of them are the same file reading the schema |
 | `js/security/` | Keys, field encryption, roles, sessions |

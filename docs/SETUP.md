@@ -33,8 +33,8 @@ anybody. The trade is that you do the setup once.
 
 1. Go to <https://script.google.com> and create a new project. Call it
    `FamilyOS`.
-2. Copy in the four files from `apps-script/`:
-   - `Code.gs`, `Sheets.gs`, `Drive.gs`
+2. Copy in the five files from `apps-script/`:
+   - `Code.gs`, `Sheets.gs`, `Drive.gs`, `Gmail.gs`
    - `appsscript.json` — click the gear icon → **Show "appsscript.json"
      manifest file in editor**, then replace its contents.
 3. **Deploy → New deployment → Web app**:
@@ -44,6 +44,22 @@ anybody. The trade is that you do the setup once.
    unverified — that is expected: you are the developer and the only user.
    Click **Advanced → Go to FamilyOS (unsafe)**.
 5. Copy the deployment URL. It ends in `/exec`.
+
+> **Why the script asks for Gmail.**
+> `Gmail.gs` reads the receipts shops email you, which is what Finance → Shops
+> is built on. Gmail has no "only these senders" permission, so the scope it
+> asks for can read the whole mailbox — that is Google's design, not a choice
+> made here. What limits it is `Gmail.gs` itself: it refuses any search that
+> does not name senders, and the query the app sends is printed on screen
+> before it runs. If you would rather not grant it, delete `Gmail.gs` and its
+> scope line from `appsscript.json` before deploying; everything else works
+> unchanged and the Shops tab will simply report that mail search is not
+> available.
+>
+> **Upgrading an existing deployment.** Adding `Gmail.gs` changes the scopes,
+> so after **Deploy → Manage deployments → Edit → New version**, run any
+> function once from the editor to be re-prompted for approval. Until you do,
+> mail search returns an authorisation error and nothing else changes.
 
 > **"Anyone" sounds alarming — why is it safe?**
 > The web app runs as *you*, and every request must carry an OAuth access
@@ -64,7 +80,10 @@ instead, the deployment access is not set to "Anyone".
 3. **APIs & Services → OAuth consent screen**:
    - User type: **External**, unless you have a Workspace account.
    - Fill in the app name and your email.
-   - Scopes: add `drive.file` and `spreadsheets`.
+   - Scopes: add `drive.file` and `spreadsheets`. **Not** the Gmail scope —
+     the browser never talks to Gmail. Mail is read by the Apps Script
+     backend under its own authorisation, and the browser's token is only
+     ever used to prove which Google account is asking.
    - Test users: **add your own email address, and every family member's.**
      While the app is in testing mode, only listed users can sign in.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
@@ -129,6 +148,48 @@ this device with row counts in the sheet and tells you if they disagree.
 
 ---
 
+## Mailboxes for receipts
+
+Finance → Shops reads the receipts shops email you. There are three ways to
+attach a mailbox and they trade differently, so the screen offers all three and
+the easy one first.
+
+**Sign in with Google.** Press *Add a Gmail account*, pick the account, done.
+Add as many as you have. Nothing to deploy.
+
+The cost, plainly: reading mail from the page means the page holds a
+`gmail.readonly` token for an hour at a time. Gmail has no narrower permission
+that works — the one returning headers without bodies cannot see a total. So a
+script injected into this application, which could already reach its Drive and
+Sheets tokens, could also read a connected mailbox. Each mailbox is its own
+consent, for its own account, revocable on its own at
+<https://myaccount.google.com/permissions>. The application's ordinary sign-in
+never gains the mail permission.
+
+**Use this deployment.** If you deployed `Gmail.gs` in Step 1, your backend can
+read the mailbox of the account that deployed it — with the Gmail permission
+granted to that script rather than to the page. No token in the browser. Reads
+one mailbox: that account's.
+
+**Use another account's deployment.** The most setup by a distance, and the only
+way to read a *second* mailbox with no Gmail token in the page. That account:
+
+1. Signs in to <https://script.google.com> and creates a project, copies in the
+   same files from `apps-script/`, and deploys exactly as in Step 1.
+2. Is added as a test user on **the same** OAuth consent screen from Step 2.
+   Without this, Google refuses the sign-in.
+3. Hands you its `/exec` URL, which goes into Shops → Mailboxes under *Add
+   another account's deployment*.
+
+Whichever you use, **the backup does not move.** A mailbox answers mail
+searches and nothing else: never a workbook, never a Drive folder, never
+anything to sync. One account still holds all of that.
+
+Every scan reads each mailbox in turn and reports what each returned. One that
+cannot be read is named in the results and the others are still read.
+
+---
+
 ## Adding family members
 
 1. **Identity → People → Add** — one record per person, with a role:
@@ -142,8 +203,20 @@ this device with row counts in the sheet and tells you if they disagree.
    | `guest` | emergency contacts only | nothing |
 
 2. Add their email as a test user on the OAuth consent screen (Step 2.3).
-3. On their device: open the app, set their own PIN, sign in with their Google
+3. **Settings → Household accounts → Admit** their email. The backend runs as
+   one Google account and, until an account is on this list, refuses any token
+   that is not that account's — so without this step their sign-in succeeds and
+   every sync afterwards returns a 403. Only the account that deployed the
+   backend can change the list; it is admitted by identity and never appears
+   on it.
+4. On their device: open the app, set their own PIN, sign in with their Google
    account, and sync. They get their own encryption key wrapping the same data.
+
+Being on that list grants the right to *reach* the workbook, not to read it.
+The sensitive fields in it are ciphertext, and the key that opens them is
+wrapped by a PIN, a fingerprint or the recovery phrase on each person's own
+device — it never goes near Google. Somebody admitted but without one of those
+three sees rows of ciphertext and nothing else.
 
 The roles are enforced in the repository, not in the interface — a child's
 device does not merely hide the Finance screen, it refuses the read.

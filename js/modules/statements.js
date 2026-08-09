@@ -25,6 +25,7 @@ import { toast } from '../ui/components/toast.js';
 import { confirm } from '../ui/components/modal.js';
 import { app } from '../context.js';
 import { extract } from '../data/pdf-read.js';
+import { parseTable, looksLikeCard } from '../domain/tabular.js';
 import {
   planStatement, reviewBatch, toRecord, toStatementRecord, accountFromStatement,
 } from '../domain/import.js';
@@ -48,7 +49,7 @@ export async function render() {
 
   const input = h('input', {
     type: 'file',
-    accept: 'application/pdf,.pdf',
+    accept: 'application/pdf,.pdf,text/csv,.csv,.tsv,.txt',
     multiple: true,
     class: 'sr-only',
     onChange: (event) => {
@@ -63,8 +64,8 @@ export async function render() {
   replace(host, [
     card({}, [
       cardHeader('Import statements', [
-        button('Choose PDFs', { variant: 'primary', iconName: 'plus', onClick: () => input.click() }),
-      ], { subtitle: 'Every account, every month, read on this device', iconName: 'receipt' }),
+        button('Choose files', { variant: 'primary', iconName: 'plus', onClick: () => input.click() }),
+      ], { subtitle: 'Every account and card, every month, read on this device', iconName: 'receipt' }),
     ]),
     input,
     body,
@@ -86,19 +87,14 @@ export async function render() {
 
     for (const file of files) {
       try {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const result = await extract(bytes);
+        const plan = isTable(file)
+          ? await loadTable(file, { accounts, existingKeys, businesses })
+          : await loadPdf(file, { accounts, existingKeys, businesses });
 
-        if (result.encrypted) {
-          next.push({ file: file.name, error: 'This PDF is password-protected. Remove the password and try again.' });
+        if (plan.error) {
+          next.push({ file: file.name, error: plan.error });
           continue;
         }
-
-        const rows = result.pages.flatMap((page) => page.rows);
-        const plan = planStatement(rows, { file: file.name, accounts, existingKeys, businesses });
-        // Kept so a plan can be redone against a newly created account without
-        // asking for the file again.
-        plan.rows = rows;
 
         if (!plan.transactions.length) {
           next.push({ file: file.name, error: 'No transactions found — this may not be a statement.' });
@@ -118,6 +114,46 @@ export async function render() {
     plans = [...plans, ...next];
     busy = false;
     paint();
+  }
+
+  /** A PDF: a picture of a table, which has to be found before it is read. */
+  async function loadPdf(file, options) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const result = await extract(bytes);
+
+    if (result.encrypted) {
+      return { error: 'This PDF is password-protected. Remove the password and try again.' };
+    }
+
+    const rows = result.pages.flatMap((page) => page.rows);
+    const plan = planStatement(rows, { file: file.name, ...options });
+    // Kept so a plan can be redone against a newly created account without
+    // asking for the file again.
+    plan.rows = rows;
+    return plan;
+  }
+
+  /**
+   * A CSV, TSV or card export: already a table.
+   *
+   * Worth preferring where a bank offers it. None of the PDF reader's failure
+   * modes — columns found by where the ink landed, wrapped lines, arithmetic
+   * checked against a printed balance — exist when the bank has already said
+   * which figure is the withdrawal.
+   */
+  async function loadTable(file, options) {
+    const text = await file.text();
+    const card = looksLikeCard(text);
+    const parsed = parseTable(text, { card });
+
+    if (parsed.error) return { error: parsed.error };
+
+    // `parsed` short-circuits the PDF path inside the planner; everything
+    // after it — categorising, fingerprinting, reconciling — is identical.
+    const plan = planStatement([], { file: file.name, parsed, ...options });
+    plan.card = card;
+    plan.rows = null;
+    return plan;
   }
 
   /* --------------------------------------------------------------- writing */
@@ -232,9 +268,9 @@ export async function render() {
     if (!plans.length) {
       replace(body, [instructions(), businessesCard(), empty({
         title: 'No statements loaded',
-        message: 'Choose one or more statement PDFs. Each is matched to an account by the number printed on it.',
+        message: 'Choose one or more statements — PDF, CSV or a credit card export. Each is matched to an account by the number printed on it.',
         iconName: 'file',
-        action: button('Choose PDFs', { variant: 'primary', onClick: () => input.click() }),
+        action: button('Choose files', { variant: 'primary', onClick: () => input.click() }),
       })]);
       return;
     }
@@ -333,7 +369,8 @@ export async function render() {
         chip(plan.duplicates.length ? `${plan.duplicates.length} already here` : 'none duplicated'),
         chip(plan.check.balanced ? 'arithmetic closes' : `off by ${format(plan.check.difference)}`),
         plan.problems.length ? chip(`${plan.problems.length} unreadable`) : null,
-        chip(plan.parsed.mode === 'columns' ? 'read by column' : 'read from balances'),
+        chip(plan.parsed.mode === 'table' ? (plan.card ? 'card export' : 'read from a table')
+          : plan.parsed.mode === 'columns' ? 'read by column' : 'read from balances'),
       ].filter(Boolean)),
 
       plan.problems.length
@@ -440,7 +477,7 @@ function instructions() {
   return card({}, [
     cardHeader('How this works', null, { iconName: 'info' }),
     h('ol', { class: 'muted' }, [
-      h('li', {}, 'Choose every statement PDF you have this month — all accounts, all people, at once.'),
+      h('li', {}, 'Choose every statement you have this month — PDF or CSV, bank accounts and credit cards, all people, at once.'),
       h('li', {}, 'Each file is matched to an account by the number printed on it. Unknown accounts can be created here.'),
       h('li', {}, 'Rows already imported are skipped, so re-uploading the same month is harmless.'),
       h('li', {}, 'Nothing is written until you have seen what each file contains.'),
@@ -460,6 +497,18 @@ function instructions() {
 async function importedKeys(db) {
   const rows = await db.repo('transaction').list({ decrypt: false, limit: Infinity });
   return new Set(rows.map((row) => row.importKey).filter(Boolean));
+}
+
+/**
+ * Whether a file is a table rather than a page.
+ *
+ * By extension and type rather than by sniffing the bytes: a bank's CSV export
+ * is served as everything from `text/csv` to `application/octet-stream`
+ * depending on the browser, and the name is the one thing that stays put.
+ */
+function isTable(file) {
+  return /\.(csv|tsv|txt)$/i.test(file.name)
+    || /^text\/(csv|tab-separated-values|plain)$/.test(file.type ?? '');
 }
 
 /** Where the household's own firms are kept. */

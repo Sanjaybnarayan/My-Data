@@ -48,6 +48,7 @@ async function paint(host) {
 
     h('div', { class: 'grid grid--wide' }, [
       googleCard(auth, sync, status),
+      householdCard(),
       syncCard(db, sync, status),
       securityCard(db),
       appearanceCard(),
@@ -122,6 +123,125 @@ function googleCard(auth, sync, status) {
         + `on ${formatInstant(status.lastVerification.at)}.`)
       : null,
   ]);
+}
+
+/* ------------------------------------------------------------- household */
+
+/**
+ * Which Google accounts may reach this household's backend.
+ *
+ * The backend runs as one account and answers requests carrying an OAuth
+ * token. For a long time it answered *only* that account's token, which meant
+ * the documented way to add a family member — sign in with their own Google
+ * account and sync — could not work: their token was rejected before it
+ * reached anything.
+ *
+ * This is that list. What it grants is the right to reach the workbook, not
+ * the ability to read it: the sensitive fields in it are ciphertext, and the
+ * key that opens them is wrapped by a PIN, a fingerprint or a recovery phrase
+ * on each person's own device and never goes near Google.
+ */
+function householdCard() {
+  const host = h('div', {});
+  const body = h('div', {}, h('p', { class: 'muted' }, 'Checking…'));
+  let members = [];
+  let owner = '';
+  let isOwner = false;
+
+  replace(host, card({}, [
+    cardHeader('Household accounts', null, {
+      subtitle: 'Who may sync with this backup',
+      iconName: 'family',
+    }),
+    body,
+  ]));
+
+  void load();
+  return host;
+
+  async function load() {
+    const { transport } = app();
+    if (!transport.configured) {
+      replace(body, h('p', { class: 'muted' },
+        'No backend is configured, so nothing syncs and there is nobody to admit.'));
+      return;
+    }
+
+    try {
+      const result = await transport.members();
+      members = result.members ?? [];
+      owner = result.owner ?? '';
+      isOwner = Boolean(result.isOwner);
+      paint();
+    } catch (err) {
+      replace(body, [
+        h('p', { class: 'muted' }, userMessage(err)),
+        // An older deployment has no `members` action at all, and saying so
+        // beats an error nobody can act on.
+        h('p', { class: 'small faint' },
+          'A backend deployed before this feature will not know the request. '
+          + 'Redeploy apps-script/ and this will fill itself in.'),
+      ]);
+    }
+  }
+
+  function paint() {
+    const field = h('input', {
+      type: 'email',
+      class: 'input',
+      placeholder: 'family@gmail.com',
+      'aria-label': 'Google account to admit',
+      onKeyDown: (event) => { if (event.key === 'Enter') add(); },
+    });
+
+    const add = () => {
+      const value = field.value.trim().toLowerCase();
+      if (!value.includes('@') || members.includes(value)) return;
+      field.value = '';
+      void save([...members, value]);
+    };
+
+    replace(body, [
+      listItem({
+        title: owner || 'the deploying account',
+        subtitle: 'Owns the backend — admitted by identity, and cannot be removed',
+        leading: badge('owner', 'success'),
+      }),
+      ...members.map((email) => listItem({
+        title: email,
+        subtitle: 'May sync with this backup',
+        leading: badge('member', 'info'),
+        trailing: isOwner ? button('Remove', {
+          onClick: () => save(members.filter((other) => other !== email)),
+        }) : null,
+      })),
+
+      isOwner
+        ? h('div', {}, [
+          h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-3)' } }, [
+            field, button('Admit', { onClick: add }),
+          ]),
+          h('p', { class: 'small muted', style: { marginTop: 'var(--space-2)' } },
+            'They also need to be a test user on your OAuth consent screen, and they '
+            + 'need the household’s recovery phrase or their own PIN enrolled on their '
+            + 'device — this list decides who may reach the backup, not who can read it. '
+            + 'Everything sensitive in it is encrypted with a key Google never sees.'),
+        ])
+        : h('p', { class: 'small muted', style: { marginTop: 'var(--space-3)' } },
+          'Only the account that deployed the backend can change this list.'),
+    ].filter(Boolean));
+  }
+
+  async function save(next) {
+    try {
+      const result = await app().transport.members(next);
+      members = result.members ?? next;
+      toast('Household accounts updated', { kind: 'success' });
+      paint();
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ sync */
