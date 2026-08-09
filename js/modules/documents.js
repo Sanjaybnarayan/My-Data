@@ -345,7 +345,24 @@ export function subjectOf(entityName, record) {
 async function documentDetail(id) {
   const { db } = app();
   const store = documentStore();
-  const base = await recordDetail('document', id);
+  // A document is not only a row: it is a row, an encrypted copy on this
+  // device, and a file in Drive. Deleting the row alone left the other two
+  // behind with nothing pointing at them — quota spent forever on bytes no
+  // screen could show again.
+  const base = await recordDetail('document', id, {
+    onDelete: async (documentId) => {
+      const outcome = await store.discard(documentId);
+      return [
+        'Document deleted',
+        outcome.blob ? 'copy on this device removed' : null,
+        outcome.drive === 'trashed' ? 'file moved to your Drive bin' : null,
+        outcome.drive === 'missing' ? 'it was already gone from Drive' : null,
+        // Said out loud rather than swallowed: the household should know the
+        // file is still sitting in their Drive.
+        outcome.drive === 'offline' ? 'the Drive copy could not be reached — it is still there' : null,
+      ].filter(Boolean).join(' · ');
+    },
+  });
   let record = await db.repo('document').get(id);
   if (!record) return base;
 

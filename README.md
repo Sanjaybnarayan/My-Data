@@ -77,6 +77,11 @@ number finds the policy even though that number appears nowhere you typed it.
 A scanned PDF is pictures of text and cannot be read this way; it is stored and
 previewed like anything else, and findable by its title.
 
+Deleting a document removes all three of it: the record, the encrypted copy on
+this device, and the file in Drive — which is *binned* rather than destroyed, so
+it comes back on Google's own thirty-day terms. If Drive cannot be reached the
+delete still happens and the app says the file is still there.
+
 ## Bank statements
 
 **Finance → Import** takes every statement you have — all accounts, all cards,
@@ -93,6 +98,12 @@ the sign, so it is read from the columns the bank labelled rather than from
 arithmetic.
 
 Either way the file is decoded in your browser. Nothing is uploaded anywhere.
+
+**Finance → Imported files** lists every statement you have imported and removes
+one properly: the record *and* the transactions it created, after telling you
+how many rows and how much money that is. Both come back from Settings →
+Deleted items. Rows left orphaned by a statement deleted the old way are found
+and can be cleared in one go.
 
 **Finance → Transactions** is a ledger, not a list: money in and money out are
 separate right-aligned columns with the balance beside them, because a column
@@ -167,8 +178,8 @@ else: never a workbook, never a Drive folder, never anything to sync. See
 ## Tests
 
 ```
-npm test              # 554 checks, no browser, nothing installed
-npm run test:browser  # 117 checks in a real Chromium
+npm test              # 571 checks, no browser, nothing installed
+npm run test:browser  # 120 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is

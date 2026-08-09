@@ -79,9 +79,17 @@ export function loadAppsScript(files, globals, exports) {
 /**
  * The whole backend, wired to stubs, ready to answer `doPost`.
  *
- * @param {{owner?: string, tokens?: Record<string, object>, properties?: object}} setup
+ * `driveFiles` maps a file id to `{ name }`. A file absent from it is absent
+ * from Drive, which is the case worth testing: a delete of something already
+ * gone is a success, not an error.
+ *
+ * @param {{owner?: string, tokens?: Record<string, object>, properties?: object,
+ *          driveFiles?: Record<string, object>, files?: string[]}} setup
  */
-export function backend({ owner = 'owner@example.com', tokens = {}, properties = {} } = {}) {
+export function backend({
+  owner = 'owner@example.com', tokens = {}, properties = {},
+  driveFiles = {}, files = ['Code.gs', 'Drive.gs'],
+} = {}) {
   const props = propertyStore(properties);
   const cache = cacheStore();
   const fetched = [];
@@ -120,11 +128,24 @@ export function backend({ owner = 'owner@example.com', tokens = {}, properties =
       getScriptLock: () => ({ waitLock() {}, releaseLock() {} }),
     },
 
-    SpreadsheetApp: {}, DriveApp: {}, GmailApp: {},
+    SpreadsheetApp: {},
+    DriveApp: {
+      getFileById(id) {
+        const file = driveFiles[id];
+        // Apps Script throws for an id it cannot resolve; a stub that returned
+        // null instead would test a path that never runs.
+        if (!file) throw new Error(`No item with the given ID could be found: ${id}`);
+        return {
+          getName: () => file.name ?? id,
+          setTrashed(trashed) { file.trashed = trashed; return this; },
+        };
+      },
+    },
+    GmailApp: {},
     console: { log: (...args) => logged.push(args.join(' ')), warn() {}, error() {} },
   };
 
-  const api = loadAppsScript(['Code.gs'], globals, [
+  const api = loadAppsScript(files, globals, [
     'doPost', 'doGet', 'verifyToken', 'admit', 'members', 'isMember',
     'manageMembers', 'dispatch', 'fail',
   ]);
@@ -134,5 +155,5 @@ export function backend({ owner = 'owner@example.com', tokens = {}, properties =
     api.doPost({ postData: { contents: JSON.stringify({ action, token, payload }) } }).getContent(),
   );
 
-  return Object.assign(api, { props, cache, fetched, logged, owner });
+  return Object.assign(api, { props, cache, fetched, logged, owner, driveFiles });
 }

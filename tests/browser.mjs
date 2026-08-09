@@ -467,6 +467,23 @@ async function main() {
       await page.waitForTimeout(300);
     }
 
+    /* ------------------------------------------------- removing an import */
+
+    {
+      const before = consoleErrors.length;
+      await go(page, '#/finance/bankStatement');
+      await page.waitForTimeout(400);
+
+      const body = (await page.locator('.app-content').innerText()).trim();
+      check('imported files are listed as files', /Imported files/i.test(body), body.slice(0, 200));
+      check('and it says removing one takes its transactions too',
+        /Removing one removes\s+both/i.test(body), body.slice(0, 600));
+      check('the imports screen loads without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-imports');
+    }
+
     /* ------------------------------------------------------- the ledgers */
 
     {

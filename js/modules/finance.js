@@ -26,7 +26,7 @@ const TABS = [
   { id: 'transaction', label: 'Transactions' },
   { id: 'account', label: 'Accounts' },
   { id: 'import', label: 'Import' },
-  { id: 'bankStatement', label: 'Statements' },
+  { id: 'bankStatement', label: 'Imported files' },
   { id: 'shops', label: 'Shops' },
   { id: 'people', label: 'People' },
   { id: 'lending', label: 'Lending' },
@@ -37,7 +37,7 @@ const TABS = [
 ];
 
 /** Screens that produce records rather than listing one entity. */
-const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights', 'transaction']);
+const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights', 'transaction', 'bankStatement']);
 
 export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity) {
@@ -96,6 +96,14 @@ export async function render(route) {
   // and money out need separate columns, and one row needs to open in place.
   if (active === 'transaction' && !route.id) {
     const screen = await (await import('./transactions.js')).render();
+    replace(body, screen.node);
+    return { node: host, destroy: screen.destroy };
+  }
+
+  // Imported files, not the raw records: an import is a statement *and* the
+  // transactions it created, and removing one has to remove both.
+  if (active === 'bankStatement' && !route.id) {
+    const screen = await (await import('./imports.js')).render();
     replace(body, screen.node);
     return { node: host, destroy: screen.destroy };
   }

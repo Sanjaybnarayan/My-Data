@@ -100,6 +100,7 @@ function dispatch(action, payload, context) {
     case 'upload':    return driveUpload(payload, context);
     case 'download':  return driveDownload(payload.fileId);
     case 'versions':  return driveVersions(payload.fileId);
+    case 'trash':     return driveTrash(payload.fileId);
     case 'folders':   return { folders: drivePersonFolders() };
     // Reading mail is opt-in: a household that would rather not grant the
     // Gmail scope deletes Gmail.gs and its line in the manifest, and this

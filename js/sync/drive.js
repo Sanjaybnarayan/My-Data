@@ -176,6 +176,58 @@ export class DocumentStore {
   }
 
   /**
+   * Delete a document: the record, the encrypted copy on this device, and the
+   * file in Drive.
+   *
+   * All three, because deleting only the record left the bytes in two places
+   * nothing pointed at — a blob in IndexedDB taking up the household's storage
+   * quota forever, and a file in Drive that no screen in this application
+   * could ever show them again.
+   *
+   * The record is a soft delete like every other and comes back from Settings.
+   * The Drive file is *trashed*, not destroyed, so it comes back too — from
+   * Google's own bin, on the same thirty-day terms. Emptying that bin stays
+   * the household's decision, made in their own Drive.
+   *
+   * The local blob is the one thing removed outright: it can be fetched again
+   * from Drive if the record is restored, and keeping ciphertext for a file
+   * somebody asked to delete is the wrong default.
+   *
+   * @returns {{record: boolean, blob: boolean, drive: 'trashed'|'missing'|'offline'|'none'}}
+   */
+  async discard(documentId) {
+    const document = await this.#db.repo('document').get(documentId);
+    const outcome = { record: false, blob: false, drive: 'none' };
+
+    // Drive first, while the record still says which file. Failing here must
+    // not stop the delete — a household that has asked twice for a document to
+    // go should not be told no because Google is unreachable.
+    if (document?.driveFileId && this.#transport?.configured) {
+      try {
+        const result = await this.#transport.trash(document.driveFileId);
+        outcome.drive = result?.missing ? 'missing' : 'trashed';
+      } catch {
+        outcome.drive = 'offline';
+      }
+    }
+
+    const blobs = await this.#db.adapter.query('blobs', {
+      filter: (b) => b.documentId === documentId,
+    });
+    for (const blob of blobs) {
+      await this.#db.adapter.remove('blobs', blob.id);
+      outcome.blob = true;
+    }
+
+    if (document) {
+      await this.#db.repo('document').remove(documentId);
+      outcome.record = true;
+    }
+
+    return outcome;
+  }
+
+  /**
    * Upload everything not yet in Drive. Called by the sync engine, and safe to
    * interrupt — a blob whose upload did not complete stays marked unuploaded
    * and is retried, which at worst produces a duplicate Drive revision rather
