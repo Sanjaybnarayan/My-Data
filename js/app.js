@@ -44,6 +44,20 @@ export async function boot() {
 
   await loadConfig();
 
+  // Before the lock screen, and deliberately not awaited.
+  //
+  // It used to run at the end of `start()`, which meant it never ran at all
+  // until somebody had chosen a PIN and got through enrolment. A browser
+  // decides whether a site is installable by looking for a registered worker,
+  // so on a first visit there was none to find and no "Install app" was ever
+  // offered — the one thing that makes this a PWA rather than a web page. The
+  // shell was also uncached until after enrolment, so a first run with a bad
+  // connection had nothing to fall back on.
+  //
+  // It needs nothing from the keyring: it caches the shell, which is the same
+  // for every household and holds none of their data.
+  registerServiceWorker();
+
   const db = new Database({ currency: config().currency });
   await db.open();
 
@@ -162,7 +176,6 @@ async function start(db, limiter, googleSession = null) {
   const { runAutomations } = await import('./domain/automation.js');
   runAutomations(db).catch((err) => console.warn('automations failed', err));
 
-  registerServiceWorker();
   bus.emit(TOPIC.authState, { signedIn: auth.isSignedIn });
 }
 
