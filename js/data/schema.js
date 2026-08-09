@@ -30,6 +30,12 @@
  * `migrations.js`, so an old device's rows are never rejected.
  */
 
+// The one thing this file takes from elsewhere. `domain/categorise.js` imports
+// nothing at all, so there is no cycle, and a receipt read out of an email ends
+// up carrying the same category keys as a row read off a bank statement —
+// structurally, rather than by two lists agreeing until one of them changes.
+import { CATEGORIES } from '../domain/categorise.js';
+
 /** Roles, most privileged first. `rbac.js` reads the order. */
 export const ROLES = ['owner', 'spouse', 'adult', 'child', 'guest'];
 
@@ -287,6 +293,48 @@ const bankStatement = {
     { key: 'reconciled', type: 'boolean', label: 'Arithmetic closes', default: false, list: true },
     { key: 'problems', type: 'textarea', label: 'Rows that could not be read' },
     day('importedOn', { label: 'Imported on' }),
+  ],
+};
+
+/**
+ * One receipt, read out of the household's own mail.
+ *
+ * A bank statement says ₹645 went to Zomato on a Tuesday. The receipt says
+ * what was ordered, which subscription renewed, and when the next one falls
+ * due. Kept as a record rather than recomputed on every visit because the mail
+ * it came from can be deleted, archived, or fall outside the next search
+ * window — and because a scan that had to re-read a year of mail every time
+ * the screen opened would be a reason not to open it.
+ *
+ * The email itself is never stored. `messageId` is a pointer back into Gmail,
+ * where the message already lives; it is also the fingerprint that makes
+ * scanning the same month twice harmless.
+ */
+const receipt = {
+  name: 'receipt', module: 'finance', sheet: 'Receipts', version: 1,
+  labels: { one: 'Receipt', many: 'Receipts' }, icon: 'receipt',
+  acl: restricted,
+  sort: '-date',
+  indexes: [['byDate', 'date'], ['byMerchant', 'merchantKey'], ['byMessage', 'messageId']],
+  title: (r) => r.merchant,
+  subtitle: (r) => r.subject,
+  fields: [
+    day('date', { required: true, list: true, default: 'today' }),
+    text('merchant', { required: true, list: true, search: true }),
+    money('amount', { list: true }),
+    // The same keys the statement categoriser uses, so "quick commerce" means
+    // one thing whether it was learnt from a bank narration or an email.
+    pick('category', CATEGORIES.map((c) => c.key), { list: true, default: 'other-spend' }),
+    text('orderId', { label: 'Order number', list: true, search: true }),
+    { key: 'subscription', type: 'boolean', label: 'Recurring', default: false, list: true },
+    { key: 'refund', type: 'boolean', default: false },
+    ref('transaction', 'transaction', { label: 'Paid by', hidden: true }),
+    ref('person', 'person', { label: 'Ordered by' }),
+    text('subject', { label: 'Subject line', search: true }),
+    // Not hidden data — a link. The message is in Gmail either way.
+    text('messageId', { label: 'Gmail message', hidden: true }),
+    text('merchantKey', { hidden: true }),
+    note(),
   ],
 };
 
@@ -931,7 +979,7 @@ const emergencyContact = {
 
 export const entities = Object.freeze(Object.fromEntries(
   [person, relationship, identityDocument, employment, importantDate,
-    account, transaction, bankStatement, budget, recurringPayment, loan,
+    account, transaction, bankStatement, receipt, budget, recurringPayment, loan,
     holding, investmentTransaction, document,
     vehicle, vehicleService, fuelLog,
     healthRecord, medication, vaccination, appointment,
@@ -946,7 +994,7 @@ export const modules = Object.freeze([
   { id: 'dashboard', label: 'Dashboard', icon: 'grid', entities: [] },
   { id: 'identity', label: 'Identity', icon: 'user', entities: ['person', 'identityDocument', 'employment'] },
   { id: 'family', label: 'Family', icon: 'family', entities: ['relationship', 'importantDate'] },
-  { id: 'finance', label: 'Finance', icon: 'wallet', entities: ['account', 'transaction', 'bankStatement', 'budget', 'recurringPayment', 'loan'] },
+  { id: 'finance', label: 'Finance', icon: 'wallet', entities: ['account', 'transaction', 'bankStatement', 'receipt', 'budget', 'recurringPayment', 'loan'] },
   { id: 'investments', label: 'Investments', icon: 'chart', entities: ['holding', 'investmentTransaction'] },
   { id: 'documents', label: 'Documents', icon: 'file', entities: ['document'] },
   { id: 'vehicles', label: 'Vehicles', icon: 'car', entities: ['vehicle', 'vehicleService', 'fuelLog'] },

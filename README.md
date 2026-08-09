@@ -95,11 +95,36 @@ npm run statement -- statements/*.pdf          # the analysis
 npm run statement -- --csv statements/*.pdf    # every transaction, categorised
 ```
 
+## Shops, subscriptions and receipts
+
+**Finance → Shops** reads the receipts Zomato, Swiggy, Amazon, Flipkart,
+Blinkit, Zepto, Uber, Netflix, your telco and your electricity board already
+email you, and turns them into a per-shop spending ledger, a list of what
+renews on its own and what it costs a *year*, and a match back to the bank rows
+that paid for it.
+
+There is no "connect your Zomato account" button because there is nothing to
+connect to: none of those services publishes a consumer API. The only
+alternative would be for this application to hold the password to every account
+you own and drive their websites as you, which it will not do. Their receipts
+are the seam that actually exists, and one Gmail connection covers all of them
+at once — including shops nobody built an integration for, which you add by
+naming the domain their receipts arrive from.
+
+Gmail has no per-sender permission, so the meaningful limit is the query. It
+names senders and a date and nothing else, and the screen prints it in full
+before it runs. What is stored is the merchant, date, total, order number and a
+Gmail message id — the message body is read on your device and never written
+down.
+
+Needs `apps-script/` redeployed with the `gmail.readonly` scope; see
+`docs/SETUP.md`.
+
 ## Tests
 
 ```
-npm test              # 385 checks, no browser, nothing installed
-npm run test:browser  # 72 checks in a real Chromium
+npm test              # 454 checks, no browser, nothing installed
+npm run test:browser  # 77 checks in a real Chromium
 ```
 
 The suite imports the shipping modules — everything below the view layer is
@@ -111,7 +136,7 @@ conflict resolution, real XLSX and PDF bytes.
 
 | Path | What |
 | --- | --- |
-| `js/data/schema.js` | Thirty-three entities described once. Stores, indexes, forms, validation, encryption, Sheets tabs and the assistant's vocabulary are all derived from it |
+| `js/data/schema.js` | Thirty-four entities described once. Stores, indexes, forms, validation, encryption, Sheets tabs and the assistant's vocabulary are all derived from it |
 | `js/domain/` | The rules — money, portfolios, statements, categorisation, reminders |
 | `js/modules/` | The screens. Fifteen of them are the same file reading the schema |
 | `js/security/` | Keys, field encryption, roles, sessions |

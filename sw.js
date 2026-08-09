@@ -17,7 +17,7 @@
  * invalidate.
  */
 
-const VERSION = 'familyos-v3';
+const VERSION = 'familyos-v4';
 const SHELL_CACHE = `${VERSION}-shell`;
 
 /**
@@ -81,6 +81,8 @@ const SHELL = [
   './js/domain/categorise.js',
   './js/domain/finance.js',
   './js/domain/import.js',
+  './js/domain/inbox.js',
+  './js/domain/merchants.js',
   './js/domain/networth.js',
   './js/domain/portfolio.js',
   './js/domain/reminders.js',
@@ -107,6 +109,7 @@ const SHELL = [
   './js/modules/dashboard.js',
   './js/modules/finance.js',
   './js/modules/investments.js',
+  './js/modules/receipts.js',
   './js/modules/reports.js',
   './js/modules/settings.js',
   './js/modules/statements.js',

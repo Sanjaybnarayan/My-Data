@@ -207,6 +207,40 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-import');
     }
 
+    /* ------------------------------------------------ receipts from mail */
+
+    {
+      const before = consoleErrors.length;
+      await go(page, '#/finance/shops');
+      await page.waitForTimeout(400);
+
+      const body = (await page.locator('.app-content').innerText()).trim();
+      check('the shops screen renders', /Read receipts from Gmail/i.test(body));
+
+      // The claim this screen makes about itself has to survive contact with
+      // the screen. If the query stops being printed, the only meaningful
+      // limit on what gets read stops being visible.
+      check('the query it will run is shown before it runs',
+        /from:zomato\.com/i.test(body) && /-in:trash/.test(body), body.slice(0, 400));
+      check('it says plainly that account linking is not on offer',
+        /do not offer one|will not hold those passwords/i.test(body));
+      check('the shops screen loads without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      // A household shop, added through the real input, has to reach the real
+      // query — that is the whole of "and much more".
+      await page.locator('input[placeholder="receipts.myshop.in"]').fill('thelocalbakery.in');
+      await page.locator('input[placeholder="What to call it"]').fill('The Local Bakery');
+      await page.getByRole('button', { name: 'Add', exact: true }).click();
+      await page.waitForTimeout(200);
+
+      const after = (await page.locator('.app-content').innerText()).trim();
+      check('a shop the household names joins the query',
+        /from:thelocalbakery\.in/.test(after), after.slice(0, 400));
+
+      if (SHOTS) await shot(page, 'finance-shops');
+    }
+
     /* ------------------------------------------------------- documents */
 
     await go(page, '#/documents');
