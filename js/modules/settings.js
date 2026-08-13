@@ -1008,24 +1008,41 @@ function connectForm() {
 
   return h('div', { class: 'stack stack--tight' }, [
     h('p', { class: 'small muted' },
-      'No Google client id or Apps Script URL is configured, so FamilyOS is running '
-      + 'entirely on this device. Everything works; nothing is backed up. '
-      + 'docs/SETUP.md walks through the twenty-minute setup that produces these two.'),
+      'Nothing is configured, so FamilyOS is running entirely on this device. '
+      + 'Everything works; nothing is backed up.'),
+
     h('label', { class: 'small faint' }, 'OAuth client id'),
     clientId,
-    h('label', { class: 'small faint' }, 'Apps Script URL'),
+    h('p', { class: 'small faint' },
+      'Enough on its own for Continue with Google and for reading receipts in Shops. '
+      + 'Both talk to Google straight from this device.'),
+
+    h('label', { class: 'small faint' }, 'Apps Script URL — optional'),
     apiUrl,
+    h('p', { class: 'small faint' },
+      'Only for backing records up to your own Sheet and Drive. Leave it empty and '
+      + 'everything else still works — you can add it later.'),
     h('div', { class: 'row row--end', style: { gap: 'var(--space-2)' } }, [
       button('Connect', {
         variant: 'primary',
         onClick: async () => {
           const id = clientId.value.trim();
           const url = apiUrl.value.trim();
-          if (!id || !url) {
-            toast('Both values are needed before anything can sync.', { kind: 'error' });
+
+          // The client id alone is a complete configuration for two of the
+          // three things Google is used for: Continue with Google, and reading
+          // receipts in Shops. Both go from this device straight to Google and
+          // never touch the Apps Script deployment.
+          //
+          // Requiring both meant a household who wanted their receipts read had
+          // to deploy a backend they would never call — the longest step of the
+          // setup, for a feature that does not use it.
+          if (!id) {
+            toast('The OAuth client id is the one value nothing works without.',
+              { kind: 'error' });
             return;
           }
-          if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) {
+          if (url && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) {
             // A deployment URL that is not the /exec one answers with HTML and
             // every sync fails later with something that does not say why.
             toast('That does not look like a deployed Apps Script URL — it should end in /exec.',
@@ -1034,7 +1051,10 @@ function connectForm() {
           }
           try {
             await saveStoredConfig(app().db, { googleClientId: id, apiUrl: url });
-            toast('Saved. Reload to sign in with Google.', { kind: 'success' });
+            toast(url
+              ? 'Saved. Reload to sign in with Google.'
+              : 'Saved. Reload to sign in — backup stays off until an Apps Script URL is added.',
+            { kind: 'success' });
           } catch (err) {
             toast(userMessage(err), { kind: 'error' });
           }
