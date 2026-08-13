@@ -86,3 +86,59 @@ Masking is available (`mask()`) and is **not yet applied by the UI**. Wiring it
 into list columns, detail views, search results, exports and the assistant is
 the next tranche of Phase 0.5 and is where the classification starts changing
 what a person sees rather than only what a report says.
+
+---
+
+# Masking (second tranche)
+
+## Classification and masking are different questions
+
+The plan said "apply masking in the UI". Doing it exposed an error in that
+plan: 105 fields classify `HIGHLY_SENSITIVE`, and they include `person.name`,
+`healthRecord.kind` and `appointment.status`. **Masking on classification
+alone would have made the application unusable** — nobody can run a family app
+where every person is `XXXX ita`.
+
+Those fields are genuinely sensitive *as data* — a name attached to a diagnosis
+is a medical record. They are simply not maskable *as display*.
+
+So:
+
+- **Classification** answers "how bad is a leak of this dataset".
+- **Masking** answers "should somebody already authorised to open this record
+  have to ask to see this particular value".
+
+Only identifiers and credentials clear the second bar — values whose whole
+purpose is to be copied, and which are therefore read by whoever walks past.
+`maskable()` derives that from an identifier-shaped key plus a text type; a
+`number`-typed field is a count, not an identifier (`doseNumber` is "2 of 3").
+
+**18 fields are masked.** All 18 are also `encrypted: true` — the heuristic and
+the existing flag agree exactly, which is evidence the derivation is sane.
+
+## The bug this found
+
+`identityDocument.subtitle` returned the raw passport number.
+
+A title or subtitle is a **projection**: it reaches the screen through record
+headers, list subtitles, search results and reference pickers, none of which
+pass through the field renderer that does the masking. So the number appeared
+in full on every one of those surfaces while the field itself was carefully
+covered.
+
+**Masking at the field is necessary and not sufficient.** A projection is a
+second path to the screen and has to be checked separately. There is now a
+test that probes every projection in the schema with sentinel values, so a new
+entity is covered the day it is added — and reverting the subtitle fails it by
+name.
+
+## Where masking now applies
+
+| Surface | State |
+| --- | --- |
+| List columns | masked, last four visible |
+| Record detail | masked, with show / hide / copy |
+| Titles and subtitles | tested to contain no maskable field |
+| Search results | via the same projections |
+| Exports (CSV/XLSX/PDF) | **not masked** — an export is a deliberate act, and a redacted spreadsheet is not what somebody asked for |
+| The assistant | **not masked** — not yet reviewed |

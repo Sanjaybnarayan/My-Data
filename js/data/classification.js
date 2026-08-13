@@ -182,6 +182,63 @@ export function census() {
 }
 
 /**
+ * Identifier-shaped keys: a value that *proves or grants* something.
+ *
+ * `Number` and `no` at the end, `id` at the end, and the handful of Indian
+ * identifiers whose names carry no such suffix. Deliberately a shape test on
+ * the key rather than a list of 426 decisions — a new `policyNumber` on a new
+ * entity is caught the day it is added.
+ */
+const IDENTIFIER_KEY =
+  /(number|no|id|code)$|^(uan|pan|ifsc|upiId)$|chassis|engine|fastag|khata|survey|credential|registration/i;
+
+/**
+ * Should this field's value be hidden on screen by default?
+ *
+ * **This is a different question from how sensitive it is, and conflating the
+ * two would have made the application unusable.**
+ *
+ * 105 fields classify `HIGHLY_SENSITIVE`, and they include `person.name`,
+ * `healthRecord.kind` and `appointment.status`. Those are genuinely sensitive
+ * *as data* — a name attached to a diagnosis is a medical record — and
+ * completely unmaskable *as display*: nobody can run a family app where every
+ * person is `XXXX ita` and every appointment is `XXXX led`.
+ *
+ * So classification answers "how bad is a leak of this dataset", and masking
+ * answers the narrower "should somebody already authorised to open this record
+ * have to ask to see this particular value". Only identifiers and credentials
+ * clear that second bar: an account number, a policy number, a passport
+ * number, a password. Names, dates, diagnoses and amounts do not — hiding them
+ * protects nothing from the person reading the screen and destroys the thing
+ * they opened it for.
+ *
+ * A `number`-typed field is a count, not an identifier — `doseNumber` is "2 of
+ * 3" — so the type check is what keeps quantities out.
+ *
+ * @param {object} field
+ * @param {object} [owner]
+ */
+export function maskable(field, owner = null) {
+  if (!field) return true;
+  if (typeof field.mask === 'boolean') return field.mask;
+
+  const level = classify(field, owner);
+  if (level === 'CRITICAL_SECRET') return true;
+  if (!atLeast(level, 'HIGHLY_SENSITIVE')) return false;
+
+  // Text only. A count, a date, an amount or a chosen option is not an
+  // identifier however sensitive the record around it is.
+  if (field.type !== 'text' && field.type !== 'password') return false;
+  return IDENTIFIER_KEY.test(field.key);
+}
+
+/** Whether a named field is masked by default. */
+export function maskableField(entityName, key) {
+  const owner = entities[entityName] ?? null;
+  return maskable(owner?.fieldMap?.[key] ?? null, owner);
+}
+
+/**
  * Mask a value for display at its level.
  *
  * `CRITICAL_SECRET` has no partial form on purpose — showing the last four

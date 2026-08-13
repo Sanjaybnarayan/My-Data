@@ -17,16 +17,32 @@ import { entity, listFields } from '../../data/schema.js';
 import { formatDay } from '../../core/dates.js';
 import { sortBy } from '../../data/repository.js';
 import { config } from '../../core/config.js';
+import { maskable, mask, classify } from '../../data/classification.js';
 
 const ROW_HEIGHT = 49;
 const OVERSCAN = 6;
 
 /** One cell, formatted by the field's declared type. */
-export function cellFor(field, record, { currency = 'INR' } = {}) {
+export function cellFor(field, record, { currency = 'INR', reveal = false } = {}) {
   const value = record[field.key];
 
   if (value === null || value === undefined || value === '') {
     return h('span', { class: 'faint' }, '—');
+  }
+
+  // Identifiers and credentials show their last four characters in a list —
+  // not everything sensitive, only the values that *prove or grant* something.
+  // Those are the ones whose whole purpose is to be copied, so a passport
+  // number on a screen in a café is read by whoever walks past. A name is not
+  // a secret from the person who opened the record, and hiding it would
+  // destroy the list rather than protect anything.
+  //
+  // The full value is on the record itself, behind a deliberate press.
+  if (!reveal && maskable(field)) {
+    return h('span', {
+      class: 'mono',
+      title: 'Hidden — open the record to see it in full',
+    }, mask(value, classify(field)));
   }
 
   switch (field.type) {

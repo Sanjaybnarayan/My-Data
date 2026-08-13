@@ -390,6 +390,55 @@ async function main() {
       if (SHOTS) await shot(page, 'settings-privacy');
     }
 
+    /* ------------------------------------------------ masked identifiers */
+
+    {
+      const before = consoleErrors.length;
+
+      // A passport number is the case the whole classification layer was built
+      // for: sensitive, an identifier, and a list column — so before this it
+      // was printed in full on a screen anyone walking past could read.
+      const docId = await page.evaluate(async () => {
+        const { app } = await import('./js/context.js');
+        const people = await app().db.repo('person').list({ limit: 1 });
+        const doc = await app().db.repo('identityDocument').create({
+          person: people[0]?.id ?? '', kind: 'Passport', number: 'Z1234567',
+          issuedBy: 'RPO Bengaluru', expiresOn: '2032-01-01',
+        });
+        return doc.id;
+      });
+
+      await go(page, '#/identity/identityDocument');
+      await page.waitForTimeout(500);
+      const list = await page.locator('.app-content').innerText();
+
+      check('a document number is not printed in full in a list',
+        !list.includes('Z1234567'), list.slice(0, 200));
+      check('but enough of it shows to tell two documents apart',
+        /4567/.test(list), list.slice(0, 200));
+
+      await go(page, `#/identity/identityDocument/${docId}`);
+      await page.waitForTimeout(500);
+      const detail = await page.locator('.app-content').innerText();
+      check('and it is covered on the record too', !detail.includes('Z1234567'),
+        detail.slice(0, 200));
+
+      // Covered is only half of it — a number nobody can read is a number
+      // nobody can use. The same control that hides it must hand it over.
+      const show = page.getByRole('button', { name: /^Show / });
+      if (await show.count()) {
+        await show.first().click();
+        await page.waitForTimeout(300);
+        check('and one press hands it over',
+          (await page.locator('.app-content').innerText()).includes('Z1234567'));
+      } else {
+        check('and one press hands it over', false, 'no reveal control was rendered');
+      }
+
+      check('masking draws without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
     /* --------------------------------------------------- the transactions */
 
     {

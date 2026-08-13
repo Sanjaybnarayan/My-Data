@@ -10,7 +10,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   LEVELS, MEANING, atLeast, classify, classificationOf, isKnownField,
-  classified, census, mask, assertSound,
+  classified, census, mask, assertSound, maskableField, maskable,
 } from '../js/data/classification.js';
 import { entities } from '../js/data/schema.js';
 
@@ -142,6 +142,52 @@ describe('a field nobody can find', () => {
     assert.not(isKnownField('account', 'balance'));
     assert.ok(isKnownField('account', 'accountNumber'));
     assert.ok(isKnownField('vaultItem', 'password'));
+  });
+});
+
+describe('projections must not leak what fields hide', () => {
+  test('no title or subtitle prints a maskable field', () => {
+    // The bug this exists for. `identityDocument.subtitle` returned the
+    // passport number, so it appeared in full in the record header, in list
+    // subtitles, in search results and in reference pickers — every one of
+    // which renders a string the schema hands it, without ever passing
+    // through the field renderer that masks an identifier.
+    //
+    // Masking at the field is therefore necessary and not sufficient: a
+    // projection is a second path to the screen, and it has to be checked
+    // separately. Probed rather than eyeballed, so a new entity is covered
+    // the day it is added.
+    const leaks = [];
+
+    for (const owner of Object.values(entities)) {
+      const record = {};
+      const sentinels = {};
+
+      for (const f of owner.fields) {
+        if (maskableField(owner.name, f.key)) {
+          sentinels[f.key] = `SENTINEL_${f.key}`;
+          record[f.key] = sentinels[f.key];
+        } else {
+          record[f.key] = 'x';
+        }
+      }
+
+      for (const which of ['title', 'subtitle']) {
+        if (typeof owner[which] !== 'function') continue;
+        let out = '';
+        try {
+          out = String(owner[which](record) ?? '');
+        } catch {
+          // A projection that throws on a synthetic record is not a leak.
+          continue;
+        }
+        for (const [key, sentinel] of Object.entries(sentinels)) {
+          if (out.includes(sentinel)) leaks.push(`${owner.name}.${which} prints ${key}`);
+        }
+      }
+    }
+
+    assert.deep(leaks, [], `\n  ${leaks.join('\n  ')}`);
   });
 });
 
