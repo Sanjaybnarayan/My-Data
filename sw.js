@@ -48,6 +48,7 @@ const SHELL = [
   './js/core/money.js',
 
   './js/data/audit.js',
+  './js/data/classification.js',
   './js/data/database.js',
   './js/data/formats.js',
   './js/data/idb.js',
