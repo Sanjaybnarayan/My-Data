@@ -23,14 +23,22 @@ const RANK = Object.fromEntries(ROLES.map((r, i) => [r, i]));
 /** Entities a guest may read, whatever the schema says. */
 const GUEST_READABLE = new Set(['emergencyContact']);
 
-/** Entities where a child may read and edit rows that are about them. */
-const OWN_RECORD_ENTITIES = new Set([
+/**
+ * Entities where somebody may read and edit rows that are about them.
+ *
+ * Exported because `tools/policy.mjs` generates the backend's copy from these
+ * two tables. Until it did, the server had no own-record rule at all and the
+ * two layers disagreed on fourteen (role, action, entity) combinations — every
+ * one of them an action this file permits and the backend refuses. See
+ * `docs/OWN_RECORDS.md`.
+ */
+export const OWN_RECORD_ENTITIES = new Set([
   'person', 'healthRecord', 'medication', 'vaccination', 'appointment',
   'education', 'certificate', 'task', 'note', 'event',
 ]);
 
 /** Which field on an entity names the person a record is about. */
-const SUBJECT_FIELD = {
+export const SUBJECT_FIELD = {
   person: 'id',
   healthRecord: 'person',
   medication: 'person',

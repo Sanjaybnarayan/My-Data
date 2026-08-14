@@ -497,6 +497,7 @@ function householdCard() {
   let members = [];
   let owner = '';
   let isOwner = false;
+  let people = [];
 
   replace(host, card({}, [
     cardHeader('Household accounts', null, {
@@ -518,7 +519,11 @@ function householdCard() {
     }
 
     try {
-      const result = await transport.members();
+      const [result, household] = await Promise.all([
+        transport.members(),
+        app().db.repo('person').list({ decrypt: false, limit: 500 }),
+      ]);
+      people = household.filter((person) => !person.deletedAt);
       members = result.members ?? [];
       owner = result.owner ?? '';
       isOwner = Boolean(result.isOwner);
@@ -565,13 +570,23 @@ function householdCard() {
         subtitle: 'Owns the backend — admitted by identity, and cannot be removed',
         leading: badge('owner', 'success'),
       }),
-      ...members.map(({ email, role }) => listItem({
+      ...members.map(({ email, role, personId }) => listItem({
         title: email,
         subtitle: `${describeRole(role)} · enforced by the backend, not by this screen`,
         leading: badge(role, role === 'guest' ? '' : 'info'),
-        trailing: isOwner ? button('Remove', {
-          onClick: () => save(members.filter((other) => other.email !== email)),
-        }) : null,
+        trailing: isOwner
+          ? h('div', { class: 'row', style: { gap: 'var(--space-2)' } }, [
+            // Which person this account *is*. The backend uses it to let
+            // somebody reach rows about themselves in entities their role
+            // cannot otherwise touch — a child's own health record, say. Set
+            // here because only the owner may write this list, and that is
+            // exactly what makes it safe to widen access from.
+            personPicker(email, personId ?? ''),
+            button('Remove', {
+              onClick: () => save(members.filter((other) => other.email !== email)),
+            }),
+          ])
+          : null,
       })),
 
       isOwner
@@ -588,6 +603,24 @@ function householdCard() {
         : h('p', { class: 'small muted', style: { marginTop: 'var(--space-3)' } },
           'Only the account that deployed the backend can change this list.'),
     ].filter(Boolean));
+  }
+
+  /** Which person in the household an admitted account belongs to. */
+  function personPicker(email, current) {
+    const select = h('select', {
+      class: 'input input--compact',
+      'aria-label': `Which person ${email} is`,
+      onChange: (event) => save(members.map((member) => (member.email === email
+        ? { ...member, personId: event.target.value }
+        : member))),
+    }, [
+      h('option', { value: '' }, 'Not linked to a person'),
+      ...people.map((person) => h('option', {
+        value: person.id,
+        ...(person.id === current ? { selected: 'selected' } : {}),
+      }, person.name)),
+    ]);
+    return select;
   }
 
   async function save(next) {

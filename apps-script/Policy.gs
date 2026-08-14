@@ -73,12 +73,62 @@ function policyAllows(role, action, entityName) {
   return false;
 }
 
+/**
+ * Which field on a row names the person it is about.
+ *
+ * `person` is absent on purpose, and its absence is the security property.
+ * The server maps a caller's email to a person id through the members list,
+ * which only the owner may change. If somebody could edit their own `person`
+ * row through this rule, they could edit the thing that identifies them, and
+ * the mapping would no longer be owner-controlled. So the browser lets a
+ * person open their own record and the backend does not carry that across.
+ */
+var OWN_RECORD = {
+  "appointment": "person",
+  "certificate": "person",
+  "education": "person",
+  "event": "createdBy",
+  "healthRecord": "person",
+  "medication": "person",
+  "note": "createdBy",
+  "task": "assignee",
+  "vaccination": "person"
+};
+
+/**
+ * May this role touch *this row*, because the row is about them?
+ *
+ * The narrower half of the rule, and it is only ever a widening of
+ * `policyAllows` — never a way to refuse something the blanket policy allowed.
+ * An adult who may read every health record still may; this is what lets a
+ * child reach their own.
+ *
+ * `personId` comes from the members list via `admit()`, never from the
+ * request. A caller naming the person they are would be a caller granting
+ * themselves somebody else's records.
+ */
+function ownRecordAllows(personId, entityName, record) {
+  if (!personId) return false;
+  var field = OWN_RECORD[entityName];
+  if (!field) return false;
+  return Boolean(record) && record[field] === personId;
+}
+
 /** Every entity this role may read, for the pull filter. */
 function readableEntities(role) {
   var out = [];
   for (var name in POLICY) {
     if (!Object.prototype.hasOwnProperty.call(POLICY, name)) continue;
     if (policyAllows(role, 'read', name)) out.push(name);
+  }
+  return out;
+}
+
+/** Entities where a row may be reachable even though the blanket policy is no. */
+function ownRecordEntities() {
+  var out = [];
+  for (var name in OWN_RECORD) {
+    if (Object.prototype.hasOwnProperty.call(OWN_RECORD, name)) out.push(name);
   }
   return out;
 }

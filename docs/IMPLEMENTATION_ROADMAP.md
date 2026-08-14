@@ -76,7 +76,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | --- | --- | --- |
 | 0 | Repository audit | **complete** |
 | 0.5 | Trust, privacy, governance, consent, lineage | **complete** — six tranches, merged in #19 |
-| 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer first, then lint/typecheck, then the server |
+| 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer, typecheck and **row-level server authorization** done (`docs/OWN_RECORDS.md`); lint and the policy-only server still open |
 | 2 | Family, identity, tree, CKYC 2.0 | **tree now reads the person form** (`docs/FAMILY_TREE.md`); **CKYC built as a local record, with no registry** (`docs/KYC.md`) |
 | 3 | Document intelligence, OCR, DOCX templates | extraction exists; OCR and DOCX new |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; Calendar new |

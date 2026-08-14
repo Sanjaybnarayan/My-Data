@@ -153,11 +153,17 @@ function members() {
       // shape is understood in place, and takes the role it always behaved as
       // — every admitted account could read and write everything.
       if (typeof entry === 'string') {
-        out.push({ email: String(entry).toLowerCase(), role: 'spouse' });
+        out.push({ email: String(entry).toLowerCase(), role: 'spouse', personId: '' });
       } else if (entry && entry.email) {
         out.push({
           email: String(entry.email).toLowerCase(),
           role: roleRank(entry.role) >= 0 ? entry.role : 'guest',
+          // Which person in the household this account *is*. Only the owner
+          // can set it, because only the owner can write this list — which is
+          // what makes it safe to widen access from. Absent on every entry
+          // written before this existed, and absent means no own-record
+          // access rather than access to everything.
+          personId: entry.personId ? String(entry.personId) : '',
         });
       }
     }
@@ -226,7 +232,7 @@ function admit(email) {
   var isOwner = Boolean(owner) && email === owner;
 
   if (isOwner) {
-    return { email: email, owner: owner, isOwner: true, role: 'owner' };
+    return { email: email, owner: owner, isOwner: true, role: 'owner', personId: '' };
   }
 
   var entry = memberFor(email, members());
@@ -238,7 +244,14 @@ function admit(email) {
   // The role travels with the identity, from here, and is never taken from
   // the request. A caller telling the backend what role it has would be a
   // caller granting itself one.
-  return { email: email, owner: owner, isOwner: false, role: entry.role };
+  // `personId` travels with the identity for the same reason the role does:
+  // taken from the list the owner controls, never from the request. A caller
+  // naming the person they are would be a caller claiming somebody else's
+  // records.
+  return {
+    email: email, owner: owner, isOwner: false,
+    role: entry.role, personId: entry.personId || '',
+  };
 }
 
 /**
