@@ -111,7 +111,14 @@ describe('the portfolio question', () => {
     assert.not(view.empty);
     assert.length(view.rows, 1);
     assert.equal(view.rows[0].ownerName, 'Asha');
-    assert.equal(view.rows[0].gain, 30_000);
+    // ₹30,000 of growth plus the ₹4,000 dividend already paid out. This used
+    // to be 30,000: the gain read `holding.invested` against `currentValue`
+    // and ignored money that had come back. See `domain/costbasis.js`.
+    assert.equal(view.rows[0].gain, 34_000);
+    assert.equal(view.rows[0].income, 4_000);
+    // Derived from the two transactions rather than lifted off the form.
+    assert.equal(view.rows[0].basis.from, 'transactions');
+    assert.equal(view.rows[0].invested, 100_000);
   });
 
   test('a rate needs two dated flows, and says nothing rather than zero', async () => {

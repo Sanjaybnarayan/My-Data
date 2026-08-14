@@ -174,7 +174,33 @@ async function portfolioView() {
             // than "there are no assets recorded to be a part of".
             ? 'No other assets are recorded, so there is nothing to compare against.'
             : `Investments are ${shareOfAssets}% of assets.`)),
-      ]),
+
+        // The invested figure now comes from the recorded buys and sells
+        // rather than the number typed on each holding form. Where the two
+        // disagree the screen says so: a household that typed one of them is
+        // entitled to know which it is looking at, and a transaction history
+        // that starts halfway through derives a figure that is too *low*.
+        summary.difference
+          ? h('p', { class: 'small muted' },
+            'This is what the recorded buys and sells add up to, including charges. '
+            + `The holding forms say ${format(summary.typedInvested)}`
+            // `difference` is derived minus typed. Positive means the forms
+            // understate; negative means the transaction history is short.
+            + (summary.difference < 0
+              ? ', which is more — usually because the earliest purchases were '
+                + 'never recorded as transactions.'
+              : `, which is ${format(summary.difference)} less.`))
+          : null,
+
+        // How much of the headline this correction never reached. A portfolio
+        // where most holdings have no transactions is one where the invested
+        // figure is still whatever somebody typed.
+        summary.fromForms
+          ? h('p', { class: 'small faint' },
+            `${summary.fromForms} of ${summary.count} holdings have no transactions `
+            + 'recorded, so their figures are still the ones typed on the form.')
+          : null,
+      ].filter(Boolean)),
 
       // Directly under the summary, because it qualifies the gain figure in it.
       accrualCard(accrual),
