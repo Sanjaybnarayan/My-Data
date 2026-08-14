@@ -47,6 +47,49 @@ describe('finance', () => {
     assert.equal(balances[1].balance, rs(4000));
   });
 
+  test('an imported transfer credits the account the money arrived in', () => {
+    // The bug this exists for. An imported transfer is *two* rows — each bank
+    // reports its own side — so the incoming leg carries `direction: 'in'` and
+    // no `toAccount`. Every transfer used to subtract, so a ₹1,00,000 transfer
+    // left the receiving account ₹2,00,000 short, and every household that
+    // imported statements from two of their own accounts had it.
+    //
+    // 864 tests passed with this broken. None of them looked.
+    const accounts = [
+      { id: 'bank', kind: 'savings', openingBalance: rs(500000) },
+      { id: 'demat', kind: 'demat', openingBalance: 0 },
+    ];
+    const rows = [
+      txn({ kind: 'transfer', amount: rs(100000), account: 'bank', direction: 'out' }),
+      txn({ kind: 'transfer', amount: rs(100000), account: 'demat', direction: 'in' }),
+    ];
+
+    const balances = fin.accountBalances(accounts, rows);
+    assert.equal(balances[0].balance, rs(400000), 'the bank paid it out');
+    assert.equal(balances[1].balance, rs(100000), 'and the demat received it');
+  });
+
+  test('a confirmed pairing does not credit the destination twice', () => {
+    // After a pairing is confirmed the outgoing leg carries both a direction
+    // and a `toAccount`, while the incoming leg is still there. Applying the
+    // `toAccount` as well would credit the destination from both rows.
+    const accounts = [
+      { id: 'bank', kind: 'savings', openingBalance: rs(500000) },
+      { id: 'demat', kind: 'demat', openingBalance: 0 },
+    ];
+    const rows = [
+      txn({
+        kind: 'transfer', amount: rs(100000), account: 'bank',
+        direction: 'out', toAccount: 'demat',
+      }),
+      txn({ kind: 'transfer', amount: rs(100000), account: 'demat', direction: 'in' }),
+    ];
+
+    const balances = fin.accountBalances(accounts, rows);
+    assert.equal(balances[0].balance, rs(400000));
+    assert.equal(balances[1].balance, rs(100000), 'once, not twice');
+  });
+
   test('card utilisation is computed from the limit', () => {
     const accounts = [{ id: 'c1', kind: 'credit card', openingBalance: 0, creditLimit: rs(200000) }];
     const [card] = fin.accountBalances(accounts, [txn({ account: 'c1', amount: rs(50000) })]);

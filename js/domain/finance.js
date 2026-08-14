@@ -94,8 +94,33 @@ export function accountBalances(accounts, transactions) {
     } else if (t.kind === 'expense') {
       balances.set(t.account, (balances.get(t.account) ?? 0) - amount);
     } else if (t.kind === 'transfer') {
-      balances.set(t.account, (balances.get(t.account) ?? 0) - amount);
-      if (t.toAccount) balances.set(t.toAccount, (balances.get(t.toAccount) ?? 0) + amount);
+      // A transfer reaches this function in two shapes, and they need opposite
+      // handling.
+      //
+      // **Two rows, from two statements.** Each bank reports its own side, so
+      // each row carries a `direction` and no `toAccount`. The outgoing leg
+      // subtracts from its account and the incoming leg *adds* to its own.
+      //
+      // **One row, entered by hand.** `direction` is hidden from the form, so
+      // there is none; the row names both ends and moves the money itself.
+      //
+      // Until this, every transfer subtracted. An imported credit was taken
+      // *off* the account it arrived in — so a ₹1,00,000 transfer left the
+      // receiving account ₹2,00,000 short, and every household that imported
+      // statements from two of their own accounts had it.
+      //
+      // `direction` wins where it exists. After a pairing is confirmed the
+      // outgoing leg carries both a direction and a `toAccount`, and applying
+      // the `toAccount` as well would credit the destination twice — once from
+      // this row and once from the incoming leg that is still there.
+      if (t.direction === 'in') {
+        balances.set(t.account, (balances.get(t.account) ?? 0) + amount);
+      } else if (t.direction === 'out') {
+        balances.set(t.account, (balances.get(t.account) ?? 0) - amount);
+      } else {
+        balances.set(t.account, (balances.get(t.account) ?? 0) - amount);
+        if (t.toAccount) balances.set(t.toAccount, (balances.get(t.toAccount) ?? 0) + amount);
+      }
     }
   }
 
