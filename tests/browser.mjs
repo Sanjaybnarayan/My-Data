@@ -827,6 +827,35 @@ async function main() {
       check('the settlement note renders without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
+      // A loan with real terms and one EMI against it. `loan.outstanding` is
+      // typed once and nothing updates it, so net worth loses the whole EMI
+      // every month while the debt it repaid stays put — the card says so.
+      await go(page, '#/finance/loan');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.locator('#f-loan-name').fill('Home loan');
+      await page.locator('#f-loan-kind').selectOption('home');
+      await page.locator('#f-loan-principal').fill('5000000');
+      await page.locator('#f-loan-outstanding').fill('5000000');
+      await page.locator('#f-loan-interestRate').fill('8.5');
+      await page.locator('#f-loan-emiAmount').fill('43391');
+      await page.locator('#f-loan-startedOn').fill('2024-01-05');
+      await page.locator('#f-loan-name').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      await addSpend('HDFC Savings', 'EMI', '43391');
+
+      await go(page, '#/finance');
+      await page.waitForTimeout(600);
+      const loanBody = (await page.locator('.app-content').innerText()).trim();
+
+      check('a stale loan balance is reported against the loan',
+        /still says/.test(loanBody), loanBody.slice(0, 800));
+      check('and the lender is named as the authority, not this estimate',
+        /lender.s statement is the figure that counts/.test(loanBody),
+        loanBody.slice(0, 900));
+
       if (SHOTS) await shot(page, 'finance-settlement');
     }
 
