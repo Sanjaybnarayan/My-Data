@@ -34,7 +34,7 @@
 import { h, replace, delegate } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import {
-  card, cardHeader, button, badge, chip, empty, metric, money, pageHeader,
+  card, button, badge, chip, empty, metric, money, pageHeader,
 } from '../ui/components/basics.js';
 import { toast } from '../ui/components/toast.js';
 import { app } from '../context.js';

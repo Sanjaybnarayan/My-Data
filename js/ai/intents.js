@@ -27,6 +27,7 @@ import { portfolioSummary, allocation, holdingGain, xirr, cashFlows } from '../d
 import { allReminders } from '../domain/reminders.js';
 
 /** Phrases that name a time span, longest first so "last month" beats "month". */
+/** @type {[RegExp, string][]} */
 const PERIODS = [
   [/\b(last|previous)\s+month\b/i, 'last-month'],
   [/\b(this|current)\s+month\b/i, 'month'],
@@ -40,6 +41,7 @@ const PERIODS = [
   [/\ball\s+time\b|\bever\b|\btotal\b/i, 'all'],
 ];
 
+/** @param {string} text */
 export function parsePeriod(text, clock = Date.now) {
   for (const [pattern, name] of PERIODS) {
     if (pattern.test(text)) return { ...range(name, clock), name };

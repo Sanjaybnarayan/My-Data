@@ -5,7 +5,7 @@ import {
 import {
   classify, categorise, channelOf, counterpartyOf, counterpartyKey, looksLikePerson,
   resolveAliases, summarise, peopleLedger, recurring, lendingLedger, businessLedger, insights,
-  categoryLabel, categoryKind, CATEGORIES,
+  categoryLabel, CATEGORIES,
 } from '../js/domain/categorise.js';
 
 setSuite('statement');

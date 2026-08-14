@@ -16,6 +16,7 @@ const CATEGORIES = entity('document').fieldMap.category.options;
  * Ordered most specific first: "insurance policy for KA01AB1234" is insurance,
  * not vehicle, because that is how somebody would look for it.
  */
+/** @type {[RegExp, string][]} */
 const RULES = [
   [/aadhaar|\bpan\b|passport|licence|license|voter|birth certificate|marriage/, 'identity'],
   [/insurance|policy|premium|mediclaim/, 'insurance'],

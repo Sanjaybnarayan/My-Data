@@ -35,7 +35,7 @@
  * reason to use it.
  */
 
-import { entities, entity } from './schema.js';
+import { entities } from './schema.js';
 
 /**
  * Least sensitive first. The order *is* the comparison — `atLeast` indexes

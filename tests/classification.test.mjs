@@ -10,7 +10,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   LEVELS, MEANING, atLeast, classify, classificationOf, isKnownField,
-  classified, census, mask, assertSound, maskableField, maskable,
+  classified, census, mask, assertSound, maskableField,
 } from '../js/data/classification.js';
 import { entities } from '../js/data/schema.js';
 

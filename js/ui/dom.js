@@ -32,7 +32,25 @@ const PROPERTIES = new Set(['value', 'checked', 'selected', 'disabled', 'readOnl
  * @param {string} tag
  * @param {object} [props]
  * @param {Node|string|number|Array|null} [children]
- * @returns {HTMLElement|SVGElement}
+ * @returns {any}
+ *
+ * Deliberately `any` on the way out, and this is the one place in the codebase
+ * worth arguing about.
+ *
+ * The honest signature is `HTMLElement | SVGElement`, and it was that. But a
+ * union is not narrowed by the tag string — `h('input')` and `h('path')` have
+ * the same static type — so every `node.value`, `node.click()`, `node.hidden`
+ * and `node.type` in the application was reported against `SVGElement`. Forty
+ * of them, none a real defect, all in code that cannot be wrong: an `input`
+ * created two lines above genuinely does have a `value`.
+ *
+ * The alternatives are worse. Casting at forty call sites adds noise to working
+ * code to satisfy a checker. Overloading `h` per tag means writing out the HTML
+ * element map by hand and keeping it in step with the DOM.
+ *
+ * So the seam is drawn here, once, in the open. What is given up is real: a
+ * misspelt `node.valeu` will not be caught. What is kept is a checker that runs
+ * over the other twenty-five thousand lines instead of drowning in this one.
  */
 export function h(tag, props = {}, children = null) {
   const el = SVG_TAGS.has(tag)

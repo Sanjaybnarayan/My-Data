@@ -45,6 +45,30 @@ jobs:
       - name: Check the single-file build still builds
         run: node tools/bundle.mjs /tmp/familyos.html
 
+  # Types are checked, never compiled: the application ships the JavaScript in
+  # this repository and nothing here touches a byte of it. A separate job so a
+  # failure reads as "types" rather than as "the suite broke", and because it is
+  # the only part of the fast path that needs anything installed.
+  #
+  # It enforces a budget rather than zero. The number lives in
+  # `tools/typecheck-budget.json`, may only go down, and the tool explains why
+  # that is the honest shape for a codebase of 25,000 previously unchecked lines.
+  types:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Check the types
+        run: node tools/typecheck.mjs
+
   # A separate job because it downloads a browser, which is minutes rather than
   # seconds. Keeping it apart means the fast suite still reports quickly and a
   # failure here is attributable to the browser rather than to logic.

@@ -19,12 +19,9 @@ import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
-import {
-  portfolioSummary, allocation, holdingGain, xirr, cashFlows, maturingSoon, dividendIncome,
-} from '../domain/portfolio.js';
-import { netWorth } from '../domain/networth.js';
+import { PortfolioService } from '../services/portfolio.js';
 import { format, formatCompact } from '../core/money.js';
-import { formatDay, startOfFinancialYear, endOfFinancialYear, today } from '../core/dates.js';
+import { formatDay, startOfFinancialYear, today } from '../core/dates.js';
 
 const TABS = [
   { id: 'portfolio', label: 'Portfolio' },
@@ -77,20 +74,15 @@ async function portfolioView() {
   const { db } = app();
   const host = h('div', {});
 
-  async function paint() {
-    const [holdings, transactions, accounts, moneyTxns, properties, vehicles, loans, people] =
-      await Promise.all([
-        db.repo('holding').list({ decrypt: false, limit: 2000 }),
-        db.repo('investmentTransaction').list({ decrypt: false, limit: 20_000 }),
-        db.repo('account').list({ decrypt: false }),
-        db.repo('transaction').list({ decrypt: false, limit: 20_000 }),
-        db.repo('property').list({ decrypt: false }),
-        db.repo('vehicle').list({ decrypt: false }),
-        db.repo('loan').list({ decrypt: false }),
-        db.repo('person').list({ decrypt: false }),
-      ]);
+  const service = new PortfolioService(db);
 
-    if (!holdings.length) {
+  async function paint() {
+    // Which records this answer needs, and how they combine, is the service's
+    // business — and is tested without a browser. What is left here is what a
+    // screen is for: turning an answer into something to look at.
+    const view = await service.overview();
+
+    if (view.empty) {
       replace(host, empty({
         title: 'No investments yet',
         message: 'Add a holding and its transactions to see gain, allocation and XIRR.',
@@ -103,34 +95,10 @@ async function portfolioView() {
       return;
     }
 
-    const summary = portfolioSummary(holdings);
-    const pooled = xirr(holdings
-      .flatMap((holding) => cashFlows(holding, transactions))
-      .sort((a, b) => a.date.localeCompare(b.date)));
-
-    const rows = holdings
-      .filter((holding) => holding.active !== false)
-      .map((holding) => {
-        const gain = holdingGain(holding);
-        const flows = cashFlows(holding, transactions);
-        return {
-          ...holding,
-          ...gain,
-          // Null rather than zero: "no rate could be computed" and "it
-          // returned nothing" are different facts.
-          rate: flows.length >= 2 ? xirr(flows) : null,
-          ownerName: people.find((p) => p.id === holding.owner)?.name ?? '',
-        };
-      })
-      .sort((a, b) => b.value - a.value);
-
+    const {
+      summary, rows, pooled, dividends, maturing, shareOfAssets,
+    } = view;
     const fyFrom = startOfFinancialYear(today());
-    const dividends = dividendIncome(transactions, { from: fyFrom, to: endOfFinancialYear(today()) });
-    const maturing = maturingSoon(holdings, 180);
-
-    const worth = netWorth({
-      accounts, transactions: moneyTxns, holdings, properties, vehicles, loans,
-    });
 
     replace(host, h('div', { class: 'grid grid--wide' }, [
       card({}, [
@@ -152,12 +120,16 @@ async function portfolioView() {
         ]),
         h('p', { class: 'small faint' },
           `${format(summary.invested)} invested across ${summary.count} holdings. `
-          + `Investments are ${worth.assets ? Math.round((summary.value / worth.assets) * 100) : 0}% of assets.`),
+          + (shareOfAssets === null
+            // Was `0% of assets`, which reads as "a negligible part" rather
+            // than "there are no assets recorded to be a part of".
+            ? 'No other assets are recorded, so there is nothing to compare against.'
+            : `Investments are ${shareOfAssets}% of assets.`)),
       ]),
 
       card({}, [
         cardHeader('Asset allocation'),
-        donutChart(allocation(holdings), { label: 'Allocation by asset class', size: 170 }),
+        donutChart(view.allocation, { label: 'Allocation by asset class', size: 170 }),
       ]),
 
       card({}, [

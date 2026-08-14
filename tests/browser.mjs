@@ -208,6 +208,56 @@ async function main() {
       if (SHOTS) await shot(page, module);
     }
 
+    /* ------------------------------------------------ portfolio, via service */
+
+    {
+      // `investments renders something` above passes on the *empty* state, so
+      // it would keep passing if the service returned nothing at all. This
+      // drives a real holding through the form and reads the numbers back.
+      const before = consoleErrors.length;
+
+      await go(page, '#/investments/holding');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+
+      await page.locator('#f-holding-name').fill('Index fund');
+      await page.locator('#f-holding-kind').selectOption('mutual fund');
+      await page.locator('#f-holding-invested').fill('100000');
+      await page.locator('#f-holding-currentValue').fill('130000');
+      await page.locator('#f-holding-name').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      await go(page, '#/investments');
+      await page.waitForTimeout(500);
+      const body = (await page.locator('.app-content').innerText()).trim();
+
+      check('the portfolio shows a holding rather than the empty state',
+        !/No investments yet/.test(body) && /Index fund/.test(body), body.slice(0, 400));
+
+      // Counted before it is read. `innerText()` on a locator that matches
+      // nothing waits thirty seconds and then throws, which aborts every check
+      // after this one — so a service returning nothing would take the suite
+      // down rather than fail a named check. Found by doing exactly that.
+      const row = page.locator('.list-item', { hasText: 'Index fund' }).first();
+      const holdingRow = (await row.count()) ? await row.innerText() : '';
+
+      // The assembly the service now owns: 130,000 against 100,000 invested is
+      // a 30% gain, and the screen renders it from the service's answer rather
+      // than computing it itself.
+      check('and the gain the service computed', /\+30%/.test(holdingRow), holdingRow || '(no row)');
+
+      // A holding with no dated transactions has no rate. `0% XIRR` would read
+      // as "this investment is flat" rather than "nothing here can say".
+      check('and no XIRR, because two dated flows are needed for one',
+        Boolean(holdingRow) && !/XIRR/.test(holdingRow), holdingRow || '(no row)');
+
+      check('the portfolio renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'investments-portfolio');
+    }
+
     /* ------------------------------------------- importing statements */
 
     {

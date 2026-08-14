@@ -2,17 +2,20 @@
   "name": "my-data",
   "version": "1.0.0",
   "private": true,
-  "description": "FamilyOS — an offline-first record keeper for a household, encrypted on the device.",
+  "description": "FamilyOS \u2014 an offline-first record keeper for a household, encrypted on the device.",
   "type": "module",
   "scripts": {
     "start": "node tools/serve.mjs",
     "test": "node tests/run.mjs",
     "test:browser": "node tests/browser.mjs",
     "build": "node tools/bundle.mjs",
-    "statement": "node tools/statement.mjs"
+    "statement": "node tools/statement.mjs",
+    "typecheck": "node tools/typecheck.mjs"
   },
   "//": "The application itself has no dependencies and no build step. Playwright is here only because the browser checks need a browser to drive.",
   "devDependencies": {
-    "playwright": "^1.62.1"
+    "@types/node": "^22.20.1",
+    "playwright": "^1.62.1",
+    "typescript": "^5.9.3"
   }
 }

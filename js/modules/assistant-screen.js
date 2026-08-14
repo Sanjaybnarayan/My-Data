@@ -13,7 +13,7 @@
 import { h, focus } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import {
-  card, cardHeader, button, badge, pageHeader, listItem, empty, money,
+  card, cardHeader, badge, pageHeader, listItem, empty, money,
 } from '../ui/components/basics.js';
 import { donutChart } from '../ui/components/charts.js';
 import { entityTable } from '../ui/components/table.js';

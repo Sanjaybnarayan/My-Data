@@ -77,11 +77,33 @@ Missing from the prompt's navigation: **people** (distinct from family),
 **staff**, **chat**, **safety**, **AI**, **privacy** as a top-level entry.
 
 **The architectural debt here is the missing domain-service layer.** Screens
-call the repository directly, so authorization, provenance and audit are
-applied by whichever screen remembers to. The fix is a service per domain that
-owns those concerns, with screens calling services. This is contained, testable
-work and should precede any new module — every module added before it is another
-caller to migrate.
+call the repository directly, so every module added before the layer exists is
+another caller to migrate.
+
+> ### Correction, made at the start of Phase 1
+>
+> This paragraph originally continued: *"so authorization, provenance and audit
+> are applied by whichever screen remembers to."*
+>
+> **That was wrong.** `data/repository.js` calls `assertCan` on every `get`,
+> `create`, `update`, `remove` and `restore`, applies `rowFilter` to every
+> `list`, and writes the audit entry **in the same transaction as the change**.
+> A screen cannot forget any of it, because a screen never gets the chance.
+> Traced across the whole codebase: outside `data/` and `sync/` there are three
+> direct `adapter` calls, all in Settings, all on system stores with no ACL.
+>
+> The real gap is narrower and different, and it is what the service layer is
+> actually for:
+>
+> - **Assembly has no home.** A screen loads eight entities, feeds them to pure
+>   functions in `domain/`, and builds a view model inline — so the assembly can
+>   only be tested through a browser, and the list of records an answer needs is
+>   re-derived by every screen that wants it.
+> - **Cross-entity operations have no home.** `Repository.referencedBy` throws
+>   `wrong-layer` on purpose. Anything spanning entities — what deleting a
+>   person would break — has nowhere to live but a screen.
+>
+> Neither is an authorization hole. Both are testability and duplication.
 
 ---
 
