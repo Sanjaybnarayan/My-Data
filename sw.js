@@ -50,6 +50,7 @@ const SHELL = [
   './js/data/audit.js',
   './js/data/classification.js',
   './js/data/consent.js',
+  './js/data/unit.js',
   './js/data/lineage.js',
   './js/data/provenance.js',
   './js/data/database.js',

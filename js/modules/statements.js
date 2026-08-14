@@ -32,6 +32,7 @@ import {
 import { summarise, categoryLabel, businessLedger } from '../domain/categorise.js';
 import { today } from '../core/dates.js';
 import { format } from '../core/money.js';
+import { transact } from '../data/unit.js';
 import { userMessage } from '../core/errors.js';
 
 export async function render() {
@@ -185,17 +186,37 @@ export async function render() {
     try {
       for (const plan of writable) {
         const accountId = plan.match.account.id;
-        const statement = await db.repo('bankStatement').create(
-          toStatementRecord(plan, { accountId, importedCount: plan.fresh.length, today: today() }),
-        );
 
-        for (const row of plan.fresh) {
-          await db.repo('transaction').create(
-            toRecord(row, { accountId, statementId: statement.id, personId: plan.personId }),
+        // One unit per file, and the reason is the `importedCount` below. The
+        // statement record states how many rows came out of it; the rows are
+        // written after it. Before this, a failure part way through — a full
+        // disk, a closed tab, one malformed row — left a statement saying
+        // forty transactions were imported sitting next to the twelve that
+        // were, and nothing anywhere knew the two were meant to agree.
+        //
+        // All-or-nothing rather than keeping what was written, because the
+        // import is safe to re-run: rows carry a fingerprint and a second
+        // attempt at the same file is recognised as a duplicate rather than
+        // doubled. Losing 198 good rows in order to retry them is cheaper than
+        // a statement that lies about its own contents.
+        //
+        // Per file rather than per batch, so one enormous transaction cannot
+        // form out of several statements at once.
+        await transact(db, async (unit) => {
+          const statement = await unit.create(
+            'bankStatement',
+            toStatementRecord(plan, { accountId, importedCount: plan.fresh.length, today: today() }),
           );
-          written += 1;
-        }
 
+          for (const row of plan.fresh) {
+            await unit.create(
+              'transaction',
+              toRecord(row, { accountId, statementId: statement.id, personId: plan.personId }),
+            );
+          }
+        });
+
+        written += plan.fresh.length;
         plan.imported = plan.fresh.length;
         plan.fresh = [];
       }

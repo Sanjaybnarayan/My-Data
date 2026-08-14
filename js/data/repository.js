@@ -122,6 +122,22 @@ export class Repository {
   /* ----------------------------------------------------------------- write */
 
   async create(input) {
+    const planned = await this.stageCreate(input);
+    await this.#run(planned);
+    return planned.record;
+  }
+
+  /**
+   * A create, prepared and not written.
+   *
+   * Every check a `create` makes has already happened by the time this returns
+   * — permission, validation, the row-level check on the finished record — so
+   * staging cannot defer a refusal to commit time. That matters for a unit of
+   * work: the whole point is that the second operation failing must not leave
+   * the first one written, and a refusal discovered late is a refusal
+   * discovered after the first write went in.
+   */
+  async stageCreate(input) {
     const actor = this.#actor();
     assertCan(actor, 'write', this.#name);
 
@@ -145,8 +161,7 @@ export class Repository {
     // for themselves is allowed, for a sibling is not.
     assertCan(actor, 'write', this.#name, record);
 
-    await this.#commit({ record, before: null, action: ACTIONS.create });
-    return record;
+    return this.plan({ record, before: null, action: ACTIONS.create });
   }
 
   /**
@@ -155,6 +170,13 @@ export class Repository {
    * not have to round-trip the rest and risk clobbering another device's edit.
    */
   async update(id, patch) {
+    const planned = await this.stageUpdate(id, patch);
+    await this.#run(planned);
+    return planned.record;
+  }
+
+  /** An update, prepared and not written. See `stageCreate`. */
+  async stageUpdate(id, patch) {
     const actor = this.#actor();
     const existing = await this.#ctx.adapter.read(this.#name, id);
     if (!existing) throw new AppError(`no ${this.#name} with id ${id}`, { code: 'not-found' });
@@ -181,8 +203,9 @@ export class Repository {
     };
     assertCan(actor, 'write', this.#name, record);
 
-    await this.#commit({ record, before: current, action: ACTIONS.update, existingRaw: existing });
-    return record;
+    return this.plan({
+      record, before: current, action: ACTIONS.update, existingRaw: existing,
+    });
   }
 
   /**
@@ -191,9 +214,17 @@ export class Repository {
    * month learns about it instead of resurrecting the record on its next push.
    */
   async remove(id) {
+    const planned = await this.stageRemove(id);
+    if (!planned) return false;
+    await this.#run(planned);
+    return true;
+  }
+
+  /** A soft delete, prepared and not written. `null` when there is no such row. */
+  async stageRemove(id) {
     const actor = this.#actor();
     const existing = await this.#ctx.adapter.read(this.#name, id);
-    if (!existing) return false;
+    if (!existing) return null;
     assertCan(actor, 'write', this.#name, existing);
 
     const record = {
@@ -205,8 +236,9 @@ export class Repository {
       origin: this.#ctx.deviceId,
       syncState: 'pending',
     };
-    await this.#commit({ record, before: existing, action: ACTIONS.delete, existingRaw: existing });
-    return true;
+    return this.plan({
+      record, before: existing, action: ACTIONS.delete, existingRaw: existing,
+    });
   }
 
   async restore(id) {
@@ -224,7 +256,9 @@ export class Repository {
       origin: this.#ctx.deviceId,
       syncState: 'pending',
     };
-    await this.#commit({ record, before: existing, action: ACTIONS.restore, existingRaw: existing });
+    await this.#run(await this.plan({
+      record, before: existing, action: ACTIONS.restore, existingRaw: existing,
+    }));
     return true;
   }
 
@@ -251,7 +285,21 @@ export class Repository {
 
   /* ---------------------------------------------------------------- commit */
 
-  async #commit({ record, before, action, existingRaw = null }) {
+  /**
+   * Everything a write needs, prepared but not written.
+   *
+   * Split out of the commit path so that several writes across several entities can
+   * share one transaction — see `data/unit.js`. Nothing here touches the
+   * database: it encrypts, works out what changed, and builds the audit and
+   * outbox rows, leaving a plan somebody else decides when to run.
+   *
+   * The split is exact. A single write is now this followed by `#run`, so it
+   * goes through the same code it always did.
+   *
+   * @returns {Promise<{stores: string[], apply: (t: object) => Promise<void>,
+   *                    emit: () => void, record: object}>}
+   */
+  async plan({ record, before, action, existingRaw = null }) {
     const sealed = await encryptRecord(this.#name, record, this.#ctx.keyring.key);
     const fields = changedFields(before, record);
 
@@ -275,37 +323,48 @@ export class Repository {
       lastError: '',
     };
 
-    await this.#ctx.adapter.tx(
-      [this.#name, 'search', 'audit', 'outbox', 'shadow'], 'readwrite', async (t) => {
-        // The first local edit to a synced record snapshots what the server
-        // last agreed to. That snapshot is the base of the three-way merge if
-        // another device edits the same row before this one is pushed.
-        if (existingRaw && existingRaw.syncState === 'synced') {
-          const shadowId = `${this.#name}:${record.id}`;
-          if (!(await t.get('shadow', shadowId))) {
-            await t.put('shadow', {
-              id: shadowId, store: this.#name, recordId: record.id, record: existingRaw,
-            });
-          }
+    const apply = async (t) => {
+      // The first local edit to a synced record snapshots what the server
+      // last agreed to. That snapshot is the base of the three-way merge if
+      // another device edits the same row before this one is pushed.
+      if (existingRaw && existingRaw.syncState === 'synced') {
+        const shadowId = `${this.#name}:${record.id}`;
+        if (!(await t.get('shadow', shadowId))) {
+          await t.put('shadow', {
+            id: shadowId, store: this.#name, recordId: record.id, record: existingRaw,
+          });
         }
+      }
 
-        await t.put(this.#name, sealed);
-        if (record.deletedAt) {
-          await t.delete('search', indexKey(this.#name, record.id));
-        } else {
-          // The index is built from the *clear* record: `indexEntry` already
-          // excludes encrypted fields, and indexing ciphertext would be
-          // meaningless anyway.
-          await t.put('search', indexEntry(this.#name, record));
-        }
-        await t.put('audit', audit);
-        await t.put('outbox', outbox);
-      },
-    );
+      await t.put(this.#name, sealed);
+      if (record.deletedAt) {
+        await t.delete('search', indexKey(this.#name, record.id));
+      } else {
+        // The index is built from the *clear* record: `indexEntry` already
+        // excludes encrypted fields, and indexing ciphertext would be
+        // meaningless anyway.
+        await t.put('search', indexEntry(this.#name, record));
+      }
+      await t.put('audit', audit);
+      await t.put('outbox', outbox);
+    };
 
-    bus.emit(`${TOPIC.dataChanged}:${this.#def.module}`, {
+    const emit = () => bus.emit(`${TOPIC.dataChanged}:${this.#def.module}`, {
       entity: this.#name, id: record.id, action, fields,
     });
+
+    return {
+      stores: [this.#name, 'search', 'audit', 'outbox', 'shadow'],
+      apply,
+      emit,
+      record,
+    };
+  }
+
+  /** Run one prepared write, on its own, in its own transaction. */
+  async #run(planned) {
+    await this.#ctx.adapter.tx(planned.stores, 'readwrite', planned.apply);
+    planned.emit();
   }
 
   async #writeAudit(entry) {
