@@ -91,4 +91,26 @@ describe('every module', () => {
 
     assert.length(missing, 0, missing.join(' | '));
   });
+
+  test('is precached by the service worker', async () => {
+    // The deploy workflow already checks one direction — that nothing
+    // precached was left unpublished. Nothing checked the other, and the
+    // difference matters: a module missing from `SHELL` is fetched from the
+    // network, so the app works everywhere except offline, on whichever
+    // screen imports it. Nobody finds that on a laptop with wifi.
+    //
+    // Written after adding a module and nearly forgetting the list. It found
+    // `domain/privacy.js` already absent, which meant Settings had been
+    // broken offline since it was added.
+    const sw = await readFile(join(ROOT, 'sw.js'), 'utf8');
+    const listed = new Set([...sw.matchAll(/'\.\/(js\/[^']+)'/g)].map((m) => m[1]));
+
+    assert.ok(listed.size > 40, `only ${listed.size} modules precached`);
+
+    const absent = files
+      .map((file) => relative(ROOT, file))
+      .filter((path) => !listed.has(path));
+
+    assert.length(absent, 0, absent.join(' | '));
+  });
 });

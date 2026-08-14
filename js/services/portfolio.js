@@ -26,6 +26,7 @@ import {
   maturingSoon, dividendIncome,
 } from '../domain/portfolio.js';
 import { netWorth } from '../domain/networth.js';
+import { accrualReport } from '../domain/accrual.js';
 import { startOfFinancialYear, endOfFinancialYear, today } from '../core/dates.js';
 
 export class PortfolioService extends Service {
@@ -97,6 +98,11 @@ export class PortfolioService extends Service {
         to: endOfFinancialYear(asOf),
       }),
       maturing: maturingSoon(holdings, 180),
+      // Deposits whose recorded value has not moved since it was typed. The
+      // gain above reads `currentValue`, so an FD left alone reports a gain of
+      // zero for as long as nobody revisits it — see `domain/accrual.js`.
+      // Reported beside the figure and never written back over it.
+      accrual: accrualReport(holdings, asOf),
       netWorth: worth,
       // A percentage, or null when there is nothing to be a percentage of.
       // Dividing by zero assets produced `0%` before, which reads as "your

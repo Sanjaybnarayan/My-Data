@@ -22,6 +22,7 @@ import { Router } from '../ui/router.js';
 import { PortfolioService } from '../services/portfolio.js';
 import { format, formatCompact } from '../core/money.js';
 import { formatDay, startOfFinancialYear, today } from '../core/dates.js';
+import { describeAccrual } from '../domain/accrual.js';
 
 const TABS = [
   { id: 'portfolio', label: 'Portfolio' },
@@ -70,6 +71,54 @@ export async function render(route) {
   return { node: host, destroy: section.destroy };
 }
 
+/**
+ * Deposits whose recorded value has not moved since somebody typed it.
+ *
+ * The mirror of the loan bug. `holding.currentValue` is a figure entered once;
+ * a fixed deposit earns interest every quarter and nothing here moves it, so
+ * two years into a ₹5,00,000 deposit at 7.1% the gain above reads zero when it
+ * is nearer ₹75,000. Both bugs push net worth the same way — down.
+ *
+ * Nothing is written back. Rates change on renewal, TDS comes off interest at
+ * source, and a premature withdrawal is penalised, so the estimate sits beside
+ * the stored figure and the bank's statement stays the authority.
+ */
+function accrualCard(report) {
+  if (!report?.drifted.length && !report?.unchecked.length) return null;
+
+  return card({ class: 'accrual-card' }, [
+    cardHeader('Deposits worth more than recorded', [], {
+      subtitle: report.understated
+        ? `About ${format(report.understated)} of interest is not being counted`
+        : 'Some deposits could not be checked',
+      iconName: 'bank',
+    }),
+
+    report.drifted.length
+      ? h('div', { class: 'list' }, report.drifted.map((entry) => listItem({
+        title: entry.holding.name,
+        subtitle: describeAccrual(entry, format),
+        value: format(entry.value),
+        leading: badge(entry.matured ? 'matured' : 'estimate', 'warning'),
+        href: Router.href({ module: 'investments', entity: 'holding', id: entry.holding.id }),
+      })))
+      : null,
+
+    report.unchecked.length
+      ? h('div', { class: 'list' }, report.unchecked.map(({ holding, why }) => listItem({
+        title: holding.name,
+        subtitle: why,
+        leading: badge('not checked'),
+        href: Router.href({ module: 'investments', entity: 'holding', id: holding.id }),
+      })))
+      : null,
+
+    h('p', { class: 'small faint' },
+      'These are estimates from the rate recorded here, before TDS and before any '
+      + 'change on renewal. Update the value from the bank’s statement, not from this.'),
+  ].filter(Boolean));
+}
+
 async function portfolioView() {
   const { db } = app();
   const host = h('div', {});
@@ -96,7 +145,7 @@ async function portfolioView() {
     }
 
     const {
-      summary, rows, pooled, dividends, maturing, shareOfAssets,
+      summary, rows, pooled, dividends, maturing, shareOfAssets, accrual,
     } = view;
     const fyFrom = startOfFinancialYear(today());
 
@@ -127,6 +176,9 @@ async function portfolioView() {
             : `Investments are ${shareOfAssets}% of assets.`)),
       ]),
 
+      // Directly under the summary, because it qualifies the gain figure in it.
+      accrualCard(accrual),
+
       card({}, [
         cardHeader('Asset allocation'),
         donutChart(view.allocation, { label: 'Allocation by asset class', size: 170 }),
@@ -144,7 +196,7 @@ async function portfolioView() {
         ),
       ]),
 
-      card({ class: 'card--flush' }, [
+      card({ class: 'card--flush holdings-card' }, [
         h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
           cardHeader('Holdings')),
         h('div', { class: 'list' }, rows.map((row) => listItem({

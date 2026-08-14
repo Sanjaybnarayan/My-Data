@@ -258,6 +258,65 @@ async function main() {
       if (SHOTS) await shot(page, 'investments-portfolio');
     }
 
+    /* ------------------------------------- a deposit whose value never grew */
+
+    {
+      // The loan bug in a mirror: `currentValue` is typed once and nothing
+      // moves it, so a fixed deposit reports a gain of zero for as long as
+      // nobody revisits it. Driven through the form, because the arithmetic
+      // being right in a unit test says nothing about whether a household ever
+      // sees it.
+      const before = consoleErrors.length;
+
+      await go(page, '#/investments/holding');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+
+      await page.locator('#f-holding-name').fill('SBI deposit');
+      await page.locator('#f-holding-kind').selectOption('fixed deposit');
+      await page.locator('#f-holding-invested').fill('500000');
+      await page.locator('#f-holding-currentValue').fill('500000');
+      await page.locator('#f-holding-valuedOn').fill('2020-01-01');
+      await page.locator('#f-holding-interestRate').fill('7.1');
+      await page.locator('#f-holding-name').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      await go(page, '#/investments');
+      await page.waitForTimeout(500);
+
+      const cardEl = page.locator('.accrual-card');
+      const said = (await cardEl.count()) ? await cardEl.innerText() : '';
+
+      check('a deposit left alone is reported as worth more than recorded',
+        said.includes('SBI deposit'), said.slice(0, 300) || '(no card)');
+
+      // The date the figure was last true, and how often the estimate assumed
+      // it compounds. The assumption is the part most likely to be wrong, so
+      // it is on the screen rather than buried.
+      check('and the estimate says what it assumed',
+        said.includes('2020-01-01') && /quarterly/.test(said), said.slice(0, 300));
+
+      // An estimate presenting itself as the answer would have a household
+      // arguing with their bank using a number this application made up.
+      check('and never claims to be the bank’s figure',
+        /bank['’]s figure is the one that counts/.test(said)
+        && /Update the value from the bank/.test(said), said.slice(0, 400));
+
+      // The stored figure is untouched, and the two sit on the same screen.
+      // Writing the estimate back would make the holding record disagree with
+      // the bank for reasons nobody could see.
+      const stored = page.locator('.holdings-card .list-item', { hasText: 'SBI deposit' }).first();
+      const storedRow = (await stored.count()) ? await stored.innerText() : '';
+      check('and the recorded value is left exactly as it was',
+        /5,00,000/.test(storedRow) && /\+?0%/.test(storedRow), storedRow || '(no row)');
+
+      check('the deposit check renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'investments-accrual');
+    }
+
     /* ------------------------------------------- importing statements */
 
     {
