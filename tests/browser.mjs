@@ -390,6 +390,55 @@ async function main() {
       if (SHOTS) await shot(page, 'settings-privacy');
     }
 
+    /* ------------------------------------------------------------ consent */
+
+    {
+      const before = consoleErrors.length;
+      const consent = await page.locator('.card', { hasText: 'What you agreed to' });
+
+      check('Settings says what was agreed to', (await consent.count()) === 1);
+      const text = await consent.innerText();
+
+      // The finding this card exists to fix: keeping a copy of every record in
+      // a spreadsheet is the most consequential thing here, and until this
+      // card there was no point anywhere at which anybody was asked.
+      check('and admits nobody was ever asked about the backup',
+        /never been asked/.test(text), text.slice(0, 600));
+
+      // This copy is unconfigured, so nothing is actually happening yet — and
+      // the card must say that rather than manufacturing an alarm.
+      check('and does not claim a gap when nothing is happening',
+        /Every active purpose has an answer/.test(text), text.slice(0, 300));
+
+      // The one people assume phones home. It is listed precisely because it
+      // does not, and it must not be offered a decision that changes nothing.
+      check('the assistant is listed as having nothing to agree to',
+        /Nothing to agree to/.test(text), text.slice(0, 900));
+
+      check('the host is named, though it never sees a record',
+        /Whoever serves the page/.test(text) || (await consent.locator('details').count()) === 1);
+
+      // Pressing it must write a record, not merely repaint. The proof is that
+      // the row changes from an unanswered one to a dated decision and the
+      // control becomes the way back out.
+      const agree = consent.getByRole('button', { name: 'Agree' }).first();
+      check('an unanswered purpose can be agreed to', (await agree.count()) === 1);
+      await agree.click();
+      await page.waitForTimeout(400);
+
+      const after = await page.locator('.card', { hasText: 'What you agreed to' }).innerText();
+      check('agreeing records a decision that can be withdrawn again',
+        /granted/.test(after)
+        && (await page.locator('.card', { hasText: 'What you agreed to' })
+          .getByRole('button', { name: 'Stop' }).count()) >= 1,
+        after.slice(0, 600));
+
+      check('the consent card loads and records without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'settings-consent');
+    }
+
     /* ------------------------------------------------ masked identifiers */
 
     {

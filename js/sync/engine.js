@@ -33,6 +33,7 @@ import { entities, sheetManifest } from '../data/schema.js';
 import { indexEntry, indexKey } from '../data/search.js';
 import { schemaFingerprint } from '../data/migrations.js';
 import { unsyncedAudit } from '../data/audit.js';
+import { refused } from '../data/consent.js';
 import { config } from '../core/config.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { TransportError } from '../core/errors.js';
@@ -96,6 +97,15 @@ export class SyncEngine {
     if (config().localOnly) {
       this.#setState(SYNC_STATE.idle);
       return { skipped: 'local-only' };
+    }
+    // Somebody said no. Deliberately not "somebody has not said yes": an
+    // absent record means nobody was ever asked, and stopping a household's
+    // backups over a question they were never put would be a data-loss bug
+    // wearing a privacy costume. A withdrawal is a decision, and it is
+    // honoured here immediately.
+    if (await refused(this.#db, 'backup')) {
+      this.#setState(SYNC_STATE.idle);
+      return { skipped: 'consent-withdrawn' };
     }
     if (!this.#transport?.configured) {
       this.#setState(SYNC_STATE.idle);
