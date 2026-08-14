@@ -317,6 +317,73 @@ async function main() {
       if (SHOTS) await shot(page, 'investments-accrual');
     }
 
+    /* ------------------------ a recurring deposit, valued from its instalments */
+
+    {
+      // An RD was refused outright by the first version of the accrual work,
+      // on the false grounds that its schedule was not recorded. It is: each
+      // instalment is an investment transaction. This drives three of them
+      // through the real forms, which is the only way to prove the holding and
+      // its transactions are joined up the way the estimate assumes.
+      const before = consoleErrors.length;
+
+      await go(page, '#/investments/holding');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+
+      await page.locator('#f-holding-name').fill('HDFC recurring');
+      await page.locator('#f-holding-kind').selectOption('recurring deposit');
+      await page.locator('#f-holding-invested').fill('150000');
+      await page.locator('#f-holding-currentValue').fill('150000');
+      await page.locator('#f-holding-valuedOn').fill('2021-01-01');
+      await page.locator('#f-holding-interestRate').fill('6.8');
+      await page.locator('#f-holding-name').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      // Before any instalment exists it must say so rather than go quiet.
+      await go(page, '#/investments');
+      await page.waitForTimeout(500);
+      const bare = page.locator('.accrual-card');
+      const bareText = (await bare.count()) ? await bare.innerText() : '';
+      check('a recurring deposit with no instalments says what is missing',
+        /no instalments are recorded/.test(bareText) && /add them/.test(bareText),
+        bareText.slice(0, 300) || '(no card)');
+
+      for (const date of ['2021-01-05', '2021-02-05', '2021-03-05']) {
+        await go(page, '#/investments/investmentTransaction');
+        await page.waitForTimeout(400);
+        await page.getByRole('button', { name: /Add/ }).first().click();
+        await page.waitForSelector('.modal', { timeout: 5000 });
+        await page.locator('#f-investmentTransaction-holding')
+          .selectOption({ label: 'HDFC recurring' });
+        await page.locator('#f-investmentTransaction-kind').selectOption('contribution');
+        await page.locator('#f-investmentTransaction-date').fill(date);
+        await page.locator('#f-investmentTransaction-amount').fill('50000');
+        await page.locator('#f-investmentTransaction-amount').press('Enter');
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+      }
+
+      await go(page, '#/investments');
+      await page.waitForTimeout(600);
+      const withThem = page.locator('.accrual-card');
+      const said = (await withThem.count()) ? await withThem.innerText() : '';
+
+      check('and once they exist it is valued from them',
+        /3 instalments/.test(said) && /each earning from the day it went in/.test(said),
+        said.slice(0, 400) || '(no card)');
+
+      // The distinction the whole thing rests on. Naming a date the value was
+      // true would be describing a figure nobody typed.
+      check('and dates them from the first instalment, not from the holding',
+        said.includes('2021-01-05') && !said.includes('2021-01-01'), said.slice(0, 400));
+
+      check('the recurring deposit check renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'investments-recurring');
+    }
+
     /* ------------------------------------------- importing statements */
 
     {

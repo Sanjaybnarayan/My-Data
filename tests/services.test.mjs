@@ -175,6 +175,36 @@ describe('the portfolio question', () => {
     assert.equal(view.shareOfAssets, null);
   });
 
+  test('a recurring deposit is valued from the instalments the service loaded', async () => {
+    // The seam this closes: `accrualReport` is right in a unit test whether or
+    // not anybody passes it transactions, and an RD with none comes back
+    // "unchecked" rather than wrong — quiet, plausible, and exactly what the
+    // screen showed before. Dropping `{ transactions }` from the service fails
+    // here and nowhere else.
+    const db = await makeDb();
+    const person = await makePerson(db, { name: 'Asha' });
+    const rd = await db.repo('holding').create({
+      name: 'RD', kind: 'recurring deposit', owner: person.id,
+      // Paise, like everything else here: twelve instalments of ₹5,000.
+      invested: 6_000_000, currentValue: 6_000_000, interestRate: 6.8,
+      valuedOn: '2024-08-05', active: true,
+    });
+
+    for (let i = 0; i < 12; i++) {
+      await db.repo('investmentTransaction').create({
+        holding: rd.id,
+        date: new Date(Date.UTC(2024, 7 + i, 5)).toISOString().slice(0, 10),
+        kind: 'contribution', amount: 500_000,
+      });
+    }
+
+    const view = await new PortfolioService(db).overview({ asOf: '2026-08-14' });
+
+    assert.length(view.accrual.unchecked, 0, 'the instalments reached the report');
+    assert.length(view.accrual.drifted, 1);
+    assert.ok(view.accrual.understated > 0, 'and it is worth more than was recorded');
+  });
+
   test('net worth is computed from the same six entities the constant names', async () => {
     const db = await makeDb();
     await aPortfolio(db);

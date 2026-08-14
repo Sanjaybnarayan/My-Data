@@ -70,10 +70,25 @@ export const DEPOSIT_LIKE = Object.freeze([
   'recurring deposit',
 ]);
 
+/**
+ * A recurring deposit compounds quarterly too, by the same convention — but on
+ * each instalment separately, from the day it went in.
+ *
+ * Kept apart from `COMPOUNDING` on purpose. That table is what `canAccrue`
+ * consults, and an RD must never reach the lump-sum formula: applying it would
+ * treat every instalment as though it had been in since the first one.
+ */
+export const RECURRING_COMPOUNDING = 4;
+
+/** Investment transaction kinds that are money going *into* a deposit. */
+const INSTALMENT_KINDS = new Set(['contribution', 'buy']);
+
 /** Kinds this deliberately refuses, with the reason a person would want. */
 export const REFUSED = Object.freeze({
+  // Refused *as a lump sum*, which is what `canAccrue` answers. Its instalments
+  // are recorded — see `recurringValue`, which values it properly.
   'recurring deposit': 'a recurring deposit grows by instalments, not as a lump sum — '
-    + 'its value needs the payment schedule, which is not recorded here',
+    + 'each one has to be accrued from its own date',
   NPS: 'NPS is market-linked, so its value is a price rather than an accrual',
   stock: 'a share price is not an interest rate',
   'mutual fund': 'a fund’s value is a price, not an accrual',
@@ -161,19 +176,159 @@ export function accruedValue(holding, asOf) {
   };
 }
 
+/* ------------------------------------------------------ recurring deposits */
+
+/**
+ * The instalments recorded against a deposit, oldest first.
+ *
+ * These are ordinary investment transactions — `holding`, `date`, `amount` —
+ * and `domain/portfolio.js` has always read them to build cash flows. They were
+ * there the whole time.
+ */
+export function instalmentsFor(holding, transactions) {
+  return (transactions ?? [])
+    .filter((t) => t.holding === holding?.id && !t.deletedAt)
+    .filter((t) => INSTALMENT_KINDS.has(t.kind) && (t.amount ?? 0) > 0)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+/**
+ * Can this recurring deposit be valued from its instalments?
+ *
+ * ## A correction to what this file said before
+ *
+ * The first version refused every recurring deposit on the grounds that "its
+ * value needs the payment schedule, which is not recorded here". That was
+ * **wrong**. An RD's instalments are investment transactions against the
+ * holding — dated, with amounts — and `cashFlows` was already reading them.
+ * The schedule was recorded; nothing had looked.
+ *
+ * What survives of that refusal is narrower and still real: an RD with no
+ * instalments recorded cannot be valued, and neither can one that somebody has
+ * already been tracking by hand.
+ *
+ * @returns {{ok: boolean, why: string}}
+ */
+export function canAccrueRecurring(holding, transactions) {
+  if (!holding) return { ok: false, why: 'nothing to value' };
+  if (holding.kind !== 'recurring deposit') {
+    return { ok: false, why: 'not a recurring deposit' };
+  }
+  if (!(holding.interestRate > 0)) return { ok: false, why: 'no interest rate is recorded' };
+
+  const paid = (transactions ?? []).filter((t) => t.holding === holding.id && !t.deletedAt);
+  if (!instalmentsFor(holding, transactions).length) {
+    return {
+      ok: false,
+      why: 'no instalments are recorded against this deposit, and a recurring '
+        + 'deposit is its instalments — add them and this can be valued',
+    };
+  }
+
+  // Interest already recorded as a transaction means the household is tracking
+  // it themselves. Accruing on top would report it twice, which is the credit
+  // card double count wearing a different hat.
+  if (paid.some((t) => t.kind === 'interest' || t.kind === 'dividend')) {
+    return {
+      ok: false,
+      why: 'interest is already recorded against this deposit as its own '
+        + 'transaction, so estimating it again would count it twice',
+    };
+  }
+
+  // A withdrawal or a charge means the deposit was broken into or penalised.
+  // Both change the terms in ways this cannot see, and modelling it as
+  // untouched would overstate it.
+  if (paid.some((t) => t.kind === 'withdrawal' || t.kind === 'charge')) {
+    return {
+      ok: false,
+      why: 'a withdrawal or a charge is recorded against this deposit, so its '
+        + 'terms are not the ones it started with — the bank’s figure is the '
+        + 'only reliable one',
+    };
+  }
+
+  return { ok: true, why: '' };
+}
+
+/**
+ * What a recurring deposit is worth, accruing every instalment from its own
+ * date.
+ *
+ * This is the whole difference from a lump sum. On a two-year RD the first
+ * instalment has been earning for two years and the last for a month, so
+ * applying the lump-sum formula to the total would treat every rupee as though
+ * it went in on day one — and overstate it substantially.
+ *
+ * Interest stops at maturity, for the same reason it does on a fixed deposit.
+ */
+export function recurringValue(holding, transactions, asOf) {
+  const check = canAccrueRecurring(holding, transactions);
+  if (!check.ok) return null;
+
+  const instalments = instalmentsFor(holding, transactions);
+  const until = holding.maturesOn && holding.maturesOn < asOf ? holding.maturesOn : asOf;
+  const n = RECURRING_COMPOUNDING;
+  const rate = 1 + (holding.interestRate / 100) / n;
+
+  let base = 0;
+  let value = 0;
+
+  for (const instalment of instalments) {
+    const years = yearsBetween(instalment.date, until);
+    // An instalment dated after the end of the run has not earned anything
+    // yet, and one with an unreadable date cannot be placed. Both are still
+    // money that went in, so both count towards what was paid.
+    base += instalment.amount;
+    value += years !== null && years > 0
+      ? instalment.amount * rate ** (n * years)
+      : instalment.amount;
+  }
+
+  return {
+    holding,
+    base,
+    value: Math.round(value),
+    interest: Math.round(value - base),
+    instalments: instalments.length,
+    // The first instalment, which is what "and not since" means for an RD —
+    // there is no single `valuedOn` that describes a deposit paid into monthly.
+    since: instalments[0].date,
+    compoundedTimesAYear: n,
+    recurring: true,
+    matured: Boolean(holding.maturesOn && holding.maturesOn < asOf),
+  };
+}
+
 /**
  * Every deposit whose recorded value has drifted, and every one that cannot be
  * checked, with the reason.
  *
  * @param {object[]} holdings
  * @param {string} asOf
- * @param {number} tolerance smallest drift worth mentioning, in minor units
+ * @param {{transactions?: object[], tolerance?: number}} [options]
+ *   `transactions` are investment transactions; without them a recurring
+ *   deposit has no instalments to accrue and is listed as unchecked.
+ *   `tolerance` is the smallest drift worth mentioning, in minor units.
  */
-export function accrualReport(holdings, asOf, tolerance = 100_00) {
+export function accrualReport(holdings, asOf, { transactions = [], tolerance = 100_00 } = {}) {
   const drifted = [];
   const unchecked = [];
 
   for (const holding of (holdings ?? []).filter((h) => !h.deletedAt && h.active !== false)) {
+    // A recurring deposit takes the other route entirely — every instalment
+    // accrued from its own date rather than the total from one.
+    if (holding.kind === 'recurring deposit') {
+      const can = canAccrueRecurring(holding, transactions);
+      if (!can.ok) {
+        unchecked.push({ holding, why: can.why });
+        continue;
+      }
+      const rd = recurringValue(holding, transactions, asOf);
+      if (rd && rd.interest > tolerance) drifted.push(rd);
+      continue;
+    }
+
     const check = canAccrue(holding);
     if (!check.ok) {
       // Only worth mentioning for things that plausibly *should* accrue. A
@@ -209,7 +364,6 @@ export function accrualReport(holdings, asOf, tolerance = 100_00) {
 export function describeAccrual(entry, money = (n) => String(n)) {
   if (!entry) return null;
 
-  const since = entry.holding.valuedOn;
   const every = { 1: 'yearly', 2: 'half-yearly', 4: 'quarterly' }[entry.compoundedTimesAYear]
     ?? `${entry.compoundedTimesAYear} times a year`;
 
@@ -218,8 +372,15 @@ export function describeAccrual(entry, money = (n) => String(n)) {
       + 'a withdrawal or a renewal, is not recorded here.'
     : '';
 
-  return `Valued at ${money(entry.base)} on ${since} and not since. At `
-    + `${entry.holding.interestRate}% compounded ${every} that is about `
+  // A recurring deposit has no single date its value was true, so saying
+  // "valued at X on Y" would be a sentence about a figure nobody typed. What
+  // it has instead is instalments, which is the thing to name.
+  const opening = entry.recurring
+    ? `${entry.instalments} instalments totalling ${money(entry.base)}, from `
+      + `${entry.since} onwards, each earning from the day it went in.`
+    : `Valued at ${money(entry.base)} on ${entry.holding.valuedOn} and not since.`;
+
+  return `${opening} At ${entry.holding.interestRate}% compounded ${every} that is about `
     + `${money(entry.value)} now — ${money(entry.interest)} of interest this has not `
     + `been counting.${matured} The bank's figure is the one that counts.`;
 }

@@ -102,7 +102,11 @@ export class PortfolioService extends Service {
       // gain above reads `currentValue`, so an FD left alone reports a gain of
       // zero for as long as nobody revisits it — see `domain/accrual.js`.
       // Reported beside the figure and never written back over it.
-      accrual: accrualReport(holdings, asOf),
+      //
+      // The transactions are what a recurring deposit is valued *from*: each
+      // instalment accrues from its own date. Passing them is not optional
+      // dressing — without them every RD comes back unchecked.
+      accrual: accrualReport(holdings, asOf, { transactions: txns }),
       netWorth: worth,
       // A percentage, or null when there is nothing to be a percentage of.
       // Dividing by zero assets produced `0%` before, which reads as "your
