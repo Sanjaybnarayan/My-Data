@@ -102,13 +102,49 @@ Both in the tests, both caught by them failing:
   paise, so a lakh is 10,000,000 of them.
 - The end-of-term residue mis-sized, which is what turned up the ₹102 above.
 
-## Not done
+## How much of an EMI was actually a cost
 
-- **The EMI split is computed but not applied to spending.** `interestPaid` and
-  `principalPaid` are reported per loan; `summarise` still counts the whole EMI
-  as `spending`. Separating them needs the same care the card bill needed — the
-  principal is not consumption, but a household may still want to see the whole
-  outflow — and it is not started.
+The other half of the same question, and **it is not the same kind of finding
+as the card bill.**
+
+| | Card bill | EMI |
+| --- | --- | --- |
+| The reported figure is | **wrong** — counted twice | **right** — the money did leave |
+| What is missing | that the purchase and the bill are one outflow | that one outflow is two different things |
+| How it renders | a warning | faint, alongside |
+
+An EMI is a cost *and* a transfer into equity:
+
+> ₹43,391 went on loan payments, and ₹8,088 of it repaid the debt rather than
+> being spent — that money is still yours, as a smaller liability. The cost was
+> the interest, ₹35,303.
+
+A household deciding whether they can afford something wants the interest
+figure. One reconciling their bank account wants the whole EMI. Both are true,
+which is why this reports alongside rather than replacing — and a test asserts
+the sentence contains no *wrong*, *incorrect* or *double*.
+
+### The split follows the schedule, not the balance
+
+An early EMI is nearly all interest and a late one nearly all principal, so the
+whole payment history is walked and only the rows landing inside the period are
+counted. A flat share of the outstanding would be wrong at both ends of a loan.
+Mutating it to score every payment as if it were the first fails three tests.
+
+### Three things that cannot be split are counted anyway, and named
+
+A loan with incomplete terms, one whose EMI does not cover its interest, and
+payments running past the end of the schedule. The money left the account in
+every case, so a figure that quietly excluded them would be smaller than the
+truth and impossible to reconcile against a bank statement.
+
+### One more error of my own
+
+The fixture for *the split follows the schedule* generated 119 monthly dates
+that ran **past** the payment under test, so sorting moved it out of last place
+and it was scored against the wrong row. Caught by the test failing.
+
+## Not done
 - **Net worth still reads the stored figure.** Deliberately: the estimate is a
   model, and quietly substituting it would make net worth disagree with the loan
   record for reasons nobody could see.

@@ -14,7 +14,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   monthlyRate, splitPayment, amortise, canProject, paymentsFor,
-  staleness, describeStaleness,
+  staleness, describeStaleness, emiBreakdown, describeEmi,
 } from '../js/domain/amortise.js';
 
 setSuite('amortise');
@@ -182,5 +182,103 @@ describe('when the question cannot be asked', () => {
   test('nothing at all is not an error', () => {
     assert.equal(staleness(null, null), null);
     assert.equal(describeStaleness(null), null);
+  });
+});
+
+describe('how much of an EMI was actually a cost', () => {
+  const dated = (date) => emi({ date });
+  const inAugust = (t) => String(t.date).startsWith('2026-08');
+
+  test('the whole payment left the account, and part of it is still yours', () => {
+    // Unlike the card double count, nothing here is counted twice: the whole
+    // EMI genuinely left. What the spending figure cannot say is that half of
+    // it is a cost and half is cash turned into a smaller debt.
+    const months = ['2026-06-05', '2026-07-05', '2026-08-05'].map(dated);
+    const b = emiBreakdown([HOME], months, inAugust);
+
+    assert.equal(b.total, HOME.emiAmount, 'the whole payment');
+    assert.ok(b.interest > 0 && b.principal > 0);
+    assert.equal(b.interest + b.principal, b.total);
+  });
+
+  test('the split follows the payment’s place in the schedule', () => {
+    // An early EMI is nearly all interest and a late one nearly all principal.
+    // A flat share of the outstanding would be wrong at both ends of a loan.
+    const first = emiBreakdown([HOME], [dated('2026-08-05')], inAugust);
+
+    // 119 monthly payments ending the month before, then the one under test.
+    // The first version generated dates running past August 2026, so sorting
+    // moved the payment being measured out of last place and it was scored
+    // against the wrong row of the schedule.
+    const long = Array.from({ length: 119 }, (_, i) => {
+      const month = new Date(Date.UTC(2016, 8 + i, 5));
+      return dated(month.toISOString().slice(0, 10));
+    }).concat(dated('2026-08-05'));
+    const later = emiBreakdown([HOME], long, inAugust);
+
+    assert.ok(later.principal > first.principal * 2,
+      'the hundred-and-twentieth payment repays far more debt than the first');
+    assert.ok(later.interest < first.interest);
+  });
+
+  test('only the period is counted, but the whole history drives the schedule', () => {
+    const months = ['2026-06-05', '2026-07-05', '2026-08-05'].map(dated);
+    const one = emiBreakdown([HOME], months, inAugust);
+    const alone = emiBreakdown([HOME], [dated('2026-08-05')], inAugust);
+
+    assert.equal(one.total, alone.total, 'one payment either way');
+    assert.ok(one.principal > alone.principal,
+      'but the third payment repays more than the first');
+  });
+
+  test('the sentence does not claim the spending figure is wrong', () => {
+    // Because it is not. It is a correct cash-flow number that conflates a
+    // cost with a transfer into equity.
+    const said = describeEmi(emiBreakdown([HOME], [dated('2026-08-05')], inAugust));
+    assert.includes(said, 'still yours');
+    assert.includes(said, 'The cost was the interest');
+    assert.not(/wrong|incorrect|double/i.test(said), said);
+  });
+});
+
+describe('loans that cannot be split', () => {
+  const dated = (date) => emi({ date });
+  const inAugust = (t) => String(t.date).startsWith('2026-08');
+
+  test('missing terms still count in the total, and are named', () => {
+    // A figure that quietly excluded them would be smaller than the truth and
+    // impossible to reconcile against a bank statement.
+    const vague = { ...HOME, interestRate: 0, name: 'Car loan' };
+    const b = emiBreakdown([vague], [dated('2026-08-05')], inAugust);
+
+    assert.equal(b.total, HOME.emiAmount);
+    assert.equal(b.principal, 0);
+    assert.length(b.unprojected, 1);
+    assert.includes(describeEmi(b), 'Car loan');
+  });
+
+  test('an EMI that does not cover the interest is counted, not split', () => {
+    const underwater = { ...HOME, emiAmount: 1_000_000, name: 'Personal loan' };
+    const b = emiBreakdown([underwater], [emi({ date: '2026-08-05', amount: 1_000_000 })], inAugust);
+
+    assert.equal(b.total, 1_000_000);
+    assert.equal(b.principal, 0);
+    assert.length(b.unprojected, 1);
+  });
+
+  test('more payments than the schedule has rows are counted, not split', () => {
+    // A top-up, or a payee that matches two loans. The money went out either
+    // way, so it belongs in the total.
+    const many = Array.from({ length: 260 }, () => dated('2026-08-05'));
+    const b = emiBreakdown([HOME], many, inAugust);
+
+    assert.equal(b.total, HOME.emiAmount * 260);
+    assert.ok(b.principal > 0, 'the rows that do exist are still split');
+    assert.ok(b.interest + b.principal < b.total, 'and the rest is left unsplit');
+  });
+
+  test('a loan with no payments at all is not mentioned', () => {
+    assert.equal(describeEmi(emiBreakdown([HOME], [], inAugust)), null);
+    assert.equal(describeEmi(emiBreakdown(null, null, inAugust)), null);
   });
 });

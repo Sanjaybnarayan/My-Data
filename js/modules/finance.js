@@ -23,7 +23,7 @@ import { entitiesOfModule } from '../data/schema.js';
 import { TransfersService } from '../services/transfers.js';
 import { CONFIDENCE } from '../domain/events.js';
 import { settlementReport, describeSettlement } from '../domain/settlement.js';
-import { staleness, describeStaleness } from '../domain/amortise.js';
+import { staleness, describeStaleness, emiBreakdown, describeEmi } from '../domain/amortise.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -278,6 +278,14 @@ async function financeOverview() {
       fin.inPeriod(transactions, 'month'), accounts,
     );
 
+    // The other half of the same question. A card bill is counted twice and is
+    // simply wrong; an EMI is counted once and is correct — it just conflates a
+    // cost with money that moved from cash into a smaller debt. The whole
+    // history is passed, because where a payment falls in the schedule decides
+    // the split, and only this month's rows are counted.
+    const thisMonth = new Set(fin.inPeriod(transactions, 'month').map((t) => t.id));
+    const emi = emiBreakdown(loans, transactions, (t) => thisMonth.has(t.id));
+
     const balances = fin.accountBalances(accounts, transactions);
     const compare = fin.comparePeriods(transactions);
     const series = fin.monthlySeries(transactions, 12);
@@ -327,6 +335,13 @@ async function financeOverview() {
           ? h('p', {
             class: settlement.corrected ? 'small money--negative' : 'small faint',
           }, describeSettlement(settlement, compare.current.expense, format))
+          : null,
+
+        // Deliberately `faint` rather than a warning: unlike the card bill,
+        // nothing here is wrong. The figure above is a correct cash-flow
+        // number, and this says which part of it was a cost.
+        emi.total
+          ? h('p', { class: 'small faint' }, describeEmi(emi, format))
           : null,
 
         h('p', { class: 'small faint' },

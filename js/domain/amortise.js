@@ -182,3 +182,134 @@ export function describeStaleness(report, money = (n) => String(n), tolerance = 
     + 'recorded. A prepayment or a rate change would explain it. The lender’s '
     + 'statement is the figure that counts.';
 }
+
+/* ----------------------------------------------------- what an EMI really is */
+
+/**
+ * How much of a period's EMI outflow was a cost, and how much repaid debt.
+ *
+ * ## The distinction, and why the existing number is not wrong
+ *
+ * Unlike the credit-card double count, nothing here is being counted twice.
+ * The whole EMI genuinely left the account, so as a cash-flow figure
+ * `totals().expense` is correct and stays correct.
+ *
+ * What it cannot say is that the two halves of an EMI are different kinds of
+ * thing:
+ *
+ *   - the **interest** is a cost — money the household will never see again
+ *   - the **principal** is still theirs, moved from cash into a smaller debt
+ *
+ * A household deciding whether they can afford something wants the first
+ * number. A household reconciling their bank account wants the second. Both
+ * are true, which is why this reports alongside rather than replacing.
+ *
+ * ## Which payment is which
+ *
+ * The split depends on where in the schedule a payment falls — an early EMI is
+ * nearly all interest, a late one nearly all principal. So the whole payment
+ * history is walked, and only the rows landing inside the period are counted.
+ * Taking a flat share of the outstanding would be wrong at both ends of a loan.
+ *
+ * @param {object[]} loans
+ * @param {object[]} transactions every payment ever recorded, not just the period
+ * @param {(txn: object) => boolean} inPeriod
+ * @returns {{total, interest, principal, byLoan, unprojected}}
+ */
+export function emiBreakdown(loans, transactions, inPeriod) {
+  let total = 0;
+  let interest = 0;
+  let principal = 0;
+  const byLoan = [];
+  const unprojected = [];
+
+  for (const loan of (loans ?? []).filter((l) => !l.deletedAt)) {
+    const payments = paymentsFor(loan, transactions);
+    if (!payments.length) continue;
+
+    // A loan whose terms are missing still has payments, and those payments
+    // still left the account. Counted in the total and named as unsplittable,
+    // rather than dropped — a figure that quietly excluded them would be
+    // smaller than the truth and impossible to reconcile.
+    if (!canProject(loan)) {
+      const spent = payments.filter(inPeriod).reduce((n, t) => n + (t.amount ?? 0), 0);
+      if (spent) {
+        total += spent;
+        unprojected.push({ loan: loan.name, amount: spent });
+      }
+      continue;
+    }
+
+    const run = amortise(loan, payments.length);
+    if (run.negative) {
+      const spent = payments.filter(inPeriod).reduce((n, t) => n + (t.amount ?? 0), 0);
+      if (spent) {
+        total += spent;
+        unprojected.push({ loan: loan.name, amount: spent });
+      }
+      continue;
+    }
+
+    let loanInterest = 0;
+    let loanPrincipal = 0;
+    let loanTotal = 0;
+
+    payments.forEach((payment, index) => {
+      if (!inPeriod(payment)) return;
+      const row = run.rows[index];
+      // More payments recorded than the schedule has rows means the loan ran
+      // past its own term — a top-up, or a mis-matched payee. The money still
+      // went out, so it is counted and not split.
+      if (!row) {
+        loanTotal += payment.amount ?? 0;
+        return;
+      }
+      loanTotal += payment.amount ?? 0;
+      loanInterest += row.interest;
+      loanPrincipal += row.principal;
+    });
+
+    if (!loanTotal) continue;
+
+    total += loanTotal;
+    interest += loanInterest;
+    principal += loanPrincipal;
+    byLoan.push({
+      loan: loan.name,
+      total: loanTotal,
+      interest: loanInterest,
+      principal: loanPrincipal,
+    });
+  }
+
+  return { total, interest, principal, byLoan, unprojected };
+}
+
+/**
+ * The breakdown as a sentence, or null when there is nothing worth saying.
+ *
+ * Deliberately does not say the spending figure is wrong, because it is not.
+ * It says what part of it was a cost.
+ *
+ * @param {(n: number) => string} [money]
+ */
+export function describeEmi(breakdown, money = (n) => String(n)) {
+  if (!breakdown?.total) return null;
+  if (!breakdown.principal) {
+    return breakdown.unprojected.length
+      ? `${money(breakdown.total)} of loan payments cannot be split into interest and `
+        + 'principal — the terms recorded against '
+        + `${breakdown.unprojected.map((u) => u.loan).join(' and ')} are incomplete.`
+      : null;
+  }
+
+  const rest = breakdown.unprojected.length
+    ? ` A further ${money(breakdown.unprojected.reduce((n, u) => n + u.amount, 0))} could `
+      + 'not be split, because those loans have incomplete terms.'
+    : '';
+
+  return `${money(breakdown.total)} of that went on loan payments, and `
+    + `${money(breakdown.principal)} of it repaid the debt rather than being spent — `
+    + `that money is still yours, as a smaller liability. The cost was the interest, `
+    + `${money(breakdown.interest)}.${rest}`;
+}
