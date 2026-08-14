@@ -26,6 +26,7 @@ import { CONFIDENCE } from '../domain/events.js';
 import { settlementReport, describeSettlement } from '../domain/settlement.js';
 import { staleness, describeStaleness, emiBreakdown, describeEmi } from '../domain/amortise.js';
 import { spendByMember, describeSpendByMember, settleable } from '../domain/household.js';
+import { describeCommitments } from '../domain/commitments.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -308,6 +309,9 @@ function memberCard(report) {
  */
 function billSubtitle(bill) {
   const when = `${formatDay(bill.dueOn)} · ${relativeDays(bill.dueOn)}`;
+  // A subscription that does not renew itself stops on that date. Left
+  // unsaid, the row looks identical to a bill that pays itself.
+  if (bill.source === 'subscription') return bill.why ? `${when} · ${bill.why}` : when;
   if (bill.source !== 'card') return when;
   if (!bill.statement) return `${when} · ${bill.why}`;
   return `${when} · from the statement of ${formatDay(bill.statement)}`;
@@ -318,12 +322,17 @@ async function financeOverview() {
   const host = h('div', {});
 
   async function paint() {
-    const [accounts, transactions, budgets, recurring, loans] = await Promise.all([
+    const [accounts, transactions, budgets, recurring, loans,
+      subscriptions, digitalAssets] = await Promise.all([
       db.repo('account').list({ decrypt: false, limit: 500 }),
       db.repo('transaction').list({ decrypt: false, limit: 20_000 }),
       db.repo('budget').list({ decrypt: false }),
       db.repo('recurringPayment').list({ decrypt: false }),
       db.repo('loan').list({ decrypt: false }),
+      // Recorded under Digital, spent out of Finance. A subscription renewing
+      // is money leaving on a date, and neither screen was saying so.
+      db.repo('subscription').list({ decrypt: false }),
+      db.repo('digitalAsset').list({ decrypt: false }),
     ]);
 
     const transfers = await new TransfersService(db).pending();
@@ -357,10 +366,13 @@ async function financeOverview() {
     // were read by nothing, so a card with money owed on it produced no
     // warning at all. Passing the accounts and the rows brings them in.
     const bills = fin.upcomingBills(recurring, loans, {
-      days: 30, accounts, transactions,
+      days: 30, accounts, transactions, subscriptions, digitalAssets,
     });
     const budgetRows = fin.budgetStatus(budgets, transactions);
-    const committed = fin.committedMonthlyOutflow(recurring, loans);
+    // The sentence under this figure named subscriptions; the figure had never
+    // seen one. Both halves are fixed here — the number includes them, and the
+    // sentence now says what is in it.
+    const commitment = fin.committed({ recurring, loans, subscriptions, digitalAssets });
 
     // Running balance across the year, so a downward drift is visible before
     // it becomes a problem.
@@ -413,8 +425,7 @@ async function financeOverview() {
           ? h('p', { class: 'small faint' }, describeEmi(emi, format))
           : null,
 
-        h('p', { class: 'small faint' },
-          `${format(committed)} a month is already committed to bills, EMIs and subscriptions.`),
+        h('p', { class: 'small faint' }, describeCommitments(commitment, format)),
       ].filter(Boolean)),
 
       loansCard(loans, transactions),

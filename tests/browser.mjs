@@ -1162,6 +1162,72 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-card-bill');
     }
 
+    /* ------------------- what the household is committed to every month */
+
+    {
+      // Two subscriptions through the real form on the Digital screen: one
+      // that renews itself and one that does not. The Finance screen's
+      // committed figure claimed to cover subscriptions and had never seen
+      // one, and neither renewal appeared among the bills.
+      const before = consoleErrors.length;
+
+      const said = async () => (await page.locator('.app-content').innerText()).trim();
+      const financeBody = async () => { await go(page, '#/finance'); await page.waitForTimeout(700); return said(); };
+
+      const beforeText = await financeBody();
+      const beforeFigure = /([\d,]+\.\d\d) a month is already committed/.exec(beforeText)?.[1];
+      check('the committed figure is on the screen to begin with',
+        Boolean(beforeFigure), beforeText.slice(0, 400));
+
+      const addSubscription = async (name, amount, renewsIn, autoRenew) => {
+        await go(page, '#/digital/subscription');
+        await page.waitForTimeout(400);
+        await page.getByRole('button', { name: /Add/ }).first().click();
+        await page.waitForSelector('.modal', { timeout: 5000 });
+        await page.locator('#f-subscription-name').fill(name);
+        await page.locator('#f-subscription-amount').fill(amount);
+        await page.locator('#f-subscription-renewsOn').fill(
+          new Date(Date.now() + (renewsIn * 86_400_000)).toISOString().slice(0, 10),
+        );
+        // Defaulted on by the schema, so it only needs touching to turn off.
+        if (!autoRenew) await page.locator('#f-subscription-autoRenew').uncheck();
+        await page.locator('#f-subscription-name').press('Enter');
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+      };
+
+      await addSubscription('Netflix', '649', 4, true);
+      await addSubscription('Adobe CC', '4230', 9, false);
+
+      const afterText = await financeBody();
+      const afterFigure = /([\d,]+\.\d\d) a month is already committed/.exec(afterText)?.[1];
+
+      const toNumber = (s) => Number(String(s).replace(/,/g, ''));
+      check('a subscription raises the committed figure by its amount',
+        toNumber(afterFigure) - toNumber(beforeFigure) === 649,
+        `${beforeFigure} → ${afterFigure}`);
+
+      check('and the sentence says how much of it is subscriptions',
+        /is subscriptions that renew themselves/.test(afterText), afterText.slice(0, 700));
+
+      // The one that does not renew is not committed money — it lapses. That
+      // is the whole content of `autoRenew`, which nothing had ever read.
+      check('one that does not renew itself is counted separately, not silently',
+        /do not renew themselves/.test(afterText) && /4,230\.00/.test(afterText),
+        afterText.slice(0, 900));
+
+      const due = afterText.slice(afterText.indexOf('Due in the next 30 days'));
+      check('a renewal appears among the bills, with its amount',
+        /Netflix/.test(due) && /649\.00/.test(due), due.slice(0, 500));
+      check('and the one that lapses says so rather than looking like a bill',
+        /lapses unless renewed|stops on this date unless somebody renews it/.test(due),
+        due.slice(0, 600));
+
+      check('the commitment figure renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-commitments');
+    }
+
     /* ------------------------------------------------------- documents */
 
     await go(page, '#/documents');

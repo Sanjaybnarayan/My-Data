@@ -12,6 +12,7 @@
 
 import { sum, changePercent } from '../core/money.js';
 import { cardBills } from './cards.js';
+import { subscriptionBills, commitmentSummary } from './commitments.js';
 import {
   today, range, withinRange, startOfMonth, addMonths, endOfMonth, addDays,
   daysUntil, formatDay,
@@ -185,16 +186,45 @@ function perMonth(budget) {
 }
 
 /**
- * Bills due in the next `days`. Recurring payments carry their own next-due
- * date; EMIs come from loans, which do not, and card bills come from the
- * account's statement and due days and the rows sitting on the card.
+ * One shape for every bill, whatever it came from.
  *
- * Cards are opt-in on the call rather than always on, because working one out
- * needs the whole transaction history and several callers of this function
- * have only the recurring payments to hand.
+ * Four sources feed this list and each knows different things — a card knows
+ * its statement date, a subscription knows whether it renews itself, a
+ * recurring payment knows neither. Filling the gaps with nulls rather than
+ * leaving the keys off means a caller can read `bill.account` on any row
+ * without checking which kind it is first, which is how the four branches got
+ * read wrongly the first time.
+ *
+ * @returns {{id, source, entity, recordId, name, kind, amount, dueOn, days,
+ *            overdue, autoDebit, account, statement, cancelUrl, why}}
+ */
+const asBill = (bill) => ({
+  entity: null,
+  recordId: null,
+  account: null,
+  statement: null,
+  cancelUrl: null,
+  why: null,
+  days: null,
+  ...bill,
+});
+
+/**
+ * Bills due in the next `days`.
+ *
+ * Four sources. Recurring payments carry their own next-due date; EMIs come
+ * from loans, which do not; card bills come from the account's statement and
+ * due days and the rows sitting on the card; subscription renewals come from
+ * the Digital screens, where a date was already being shown with no money
+ * attached to it.
+ *
+ * The last two are opt-in on the call rather than always on, because working a
+ * card bill out needs the whole transaction history and several callers of
+ * this function have only the recurring payments to hand.
  */
 export function upcomingBills(recurring, loans, {
   days = 30, from = today(), accounts = null, transactions = null,
+  subscriptions = null, digitalAssets = null,
 } = {}) {
   const horizon = addDays(from, days);
   const out = [];
@@ -202,16 +232,18 @@ export function upcomingBills(recurring, loans, {
   for (const r of recurring) {
     if (r.deletedAt || r.active === false) continue;
     if (!r.nextDueOn || r.nextDueOn > horizon) continue;
-    out.push({
+    out.push(asBill({
       id: r.id,
       source: 'recurringPayment',
+      entity: 'recurringPayment',
+      recordId: r.id,
       name: r.name,
       kind: r.kind,
       amount: r.amount ?? 0,
       dueOn: r.nextDueOn,
       overdue: r.nextDueOn < from,
       autoDebit: Boolean(r.autoDebit),
-    });
+    }));
   }
 
   for (const loan of loans) {
@@ -219,16 +251,18 @@ export function upcomingBills(recurring, loans, {
     if (loan.endsOn && loan.endsOn < from) continue;
     const due = nextEmiDate(loan.emiDay, from);
     if (due > horizon) continue;
-    out.push({
+    out.push(asBill({
       id: loan.id,
       source: 'loan',
+      entity: 'loan',
+      recordId: loan.id,
       name: `${loan.name} EMI`,
       kind: 'EMI',
       amount: loan.emiAmount,
       dueOn: due,
       overdue: false,
       autoDebit: true,
-    });
+    }));
   }
 
   // A card bill is the most expensive thing on this list to miss — interest
@@ -237,13 +271,16 @@ export function upcomingBills(recurring, loans, {
   // saying *when* without claiming to know *how much*; `why` says so, and
   // callers must not print a figure in its place.
   for (const bill of cardBills(accounts, transactions, { from, days })) {
-    out.push({
+    out.push(asBill({
       id: bill.id,
       source: 'card',
+      entity: 'account',
+      recordId: bill.account,
       name: `${bill.name} bill`,
       kind: 'credit card',
       amount: bill.amount,
       dueOn: bill.dueOn,
+      days: bill.days,
       overdue: bill.overdue,
       // Nothing pays a card automatically unless the household set that up on
       // the bank's side, which is not recorded here. Claiming otherwise is the
@@ -252,7 +289,14 @@ export function upcomingBills(recurring, loans, {
       account: bill.account,
       statement: bill.statement,
       why: bill.why,
-    });
+    }));
+  }
+
+  // A renewal is a bill: a known amount leaving on a known date. Subscriptions
+  // already produced a date reminder with no money attached, which is the half
+  // of the fact that costs nothing to know.
+  for (const bill of subscriptionBills(subscriptions, digitalAssets, { from, days })) {
+    out.push(asBill(bill));
   }
 
   return out.sort((a, b) => a.dueOn.localeCompare(b.dueOn));
@@ -317,7 +361,14 @@ export function advanceRecurring(recurring, from = today()) {
   return next;
 }
 
-/** Money out of the door each month that recurs — the household's floor. */
+/**
+ * Bills and EMIs out of the door each month.
+ *
+ * This is **not** the whole floor — subscriptions and digital assets are not
+ * in it, and for a while the screen above it claimed they were. Use
+ * `committed()` for the figure a household should be shown; this stays as the
+ * bills-and-EMIs half it has always been.
+ */
 export function committedMonthlyOutflow(recurring, loans) {
   const perMonthAmount = (r) => {
     const amount = r.amount ?? 0;
@@ -339,4 +390,23 @@ export function committedMonthlyOutflow(recurring, loans) {
     .map((l) => l.emiAmount));
 
   return recurringTotal + emiTotal;
+}
+
+/**
+ * The household's actual monthly floor, and what is uncertain about it.
+ *
+ * Bills and EMIs, plus subscriptions that renew themselves — with what only
+ * lapses, and what may be recorded twice, reported alongside rather than
+ * folded in. See `domain/commitments.js`.
+ */
+export function committed({
+  recurring = [], loans = [], subscriptions = [], digitalAssets = [],
+} = {}) {
+  return commitmentSummary({
+    recurring,
+    loans,
+    subscriptions,
+    digitalAssets,
+    base: committedMonthlyOutflow(recurring, loans),
+  });
 }

@@ -50,22 +50,31 @@ recorded here"; the second measured it and found 24 dated instalments sitting in
 the database, already being read by `domain/portfolio.js`. **A refusal is a
 claim about the codebase, and it goes stale like any other.**
 
-**This application collects more than it reads.** Six fields were filled in on
+**This application collects more than it reads.** Nine fields were filled in on
 a form and read by nothing downstream — `transaction.category`,
 `person.relationship`, `transaction.person`, `importantDate.remindDaysBefore`,
-`account.statementDay` and `account.dueDay` — and all six are now wired up.
-Each looked like a missing feature and was a wiring gap: the data present,
-structured and ignored.
+`account.statementDay`, `account.dueDay`, `subscription.autoRenew`,
+`subscription.cancelUrl` and `digitalAsset.annualCost` — and all nine are now
+wired up. Each looked like a missing feature and was a wiring gap: the data
+present, structured and ignored.
 
-Three of them were found by accident while measuring something else. The others
-were **audited for**: `tools/field-coverage.mjs` holds the set of fields nothing
-reads by name, and the suite fails in *both* directions — when the set grows,
-and when a field on it starts being read. The second half is what reported
-*"account.dueDay, account.statementDay are read now"* during the card tranche.
-90 of 369 remain unread and most of them should be — a nominee needs no
-derivation — so the inventory is names only, and adding to it is a deliberate
-act. See `docs/FIELD_COVERAGE.md`, `docs/ENTERED_CATEGORIES.md`,
-`docs/FAMILY_TREE.md`, `docs/HOUSEHOLD_LEDGER.md` and `docs/CARD_BILLS.md`.
+**The last three were worse than a gap.** The Finance screen printed *"₹79,590
+a month is already committed to bills, EMIs and subscriptions"* over a figure
+that had never seen a subscription, and five renewals inside the next thirty
+days appeared nowhere among the upcoming bills. Every other wrong number found
+here has been silent; that one made a claim about its own contents. See
+`docs/COMMITMENTS.md`.
+
+Three of the nine were found by accident while measuring something else. The
+others were **audited for**: `tools/field-coverage.mjs` holds the set of fields
+nothing reads by name, and the suite fails in *both* directions — when the set
+grows, and when a field on it starts being read. The second half is what
+reported *"account.dueDay, account.statementDay are read now"* during the card
+tranche, and the same again for the three subscription fields. 87 of 369 remain
+unread and most of them should be — a nominee needs no derivation — so the
+inventory is names only, and adding to it is a deliberate act. See
+`docs/FIELD_COVERAGE.md`, `docs/ENTERED_CATEGORIES.md`, `docs/FAMILY_TREE.md`,
+`docs/HOUSEHOLD_LEDGER.md`, `docs/CARD_BILLS.md` and `docs/COMMITMENTS.md`.
 
 **The form/importer seam has produced three separate bugs**, in Phase 5's
 transfer directions, Phase 5's balances, and Phase 6's entered categories. Each
@@ -84,7 +93,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 3 | Document intelligence, OCR, DOCX templates | extraction exists; OCR and DOCX new |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; Calendar new |
 | 5 | Financial foundation, transfer matching, economic events | **all ten prompt tests pass**, locked in `tests/prompt.test.mjs` — see below. `EconomicEvent` still wanted for movements with more than two legs |
-| 6 | Cards, loans, EMI, FD/RD, family ledger | loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); **who-paid done, who-owes-whom refused for a stated reason** (`docs/HOUSEHOLD_LEDGER.md`); **card bills now due-dated from the statement, not the current balance** (`docs/CARD_BILLS.md`) |
+| 6 | Cards, loans, EMI, FD/RD, family ledger | loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); **who-paid done, who-owes-whom refused for a stated reason** (`docs/HOUSEHOLD_LEDGER.md`); **card bills now due-dated from the statement, not the current balance** (`docs/CARD_BILLS.md`); **subscriptions are in the committed figure that had always named them** (`docs/COMMITMENTS.md`) |
 | 7 | Investments, brokers, MCP | investments exist; brokers architecture-only |
 | 8–23 | Insights … internationalisation | not started |
 
