@@ -142,6 +142,79 @@ const identityDocument = {
   ],
 };
 
+/**
+ * What one institution holds as this person's KYC, as the household knows it.
+ *
+ * ## This is not a CKYCRR integration and must never become one by accident
+ *
+ * Nothing here contacts the Central KYC Records Registry, and no field on this
+ * record comes from it. Every value is typed in by the household from
+ * something they were shown — a statement, a portal page, an account-opening
+ * form, a letter. `source` records which, because "my bank told me on the
+ * phone" and "printed on my statement" are different kinds of evidence, and
+ * the household is the only one who can say which this was.
+ *
+ * So this is a **filing record**, in exactly the sense the rest of this module
+ * files identity documents. It is worth having for a reason that needs no
+ * connectivity at all: a household's address changes once and their eight
+ * institutions find out at eight different times, or never. Recording what
+ * each one holds is the only way to see that — and `domain/kyc.js` reports
+ * where the copies disagree, without ever deciding which is right.
+ *
+ * ## Versions and conflicts are not entities
+ *
+ * The prompt's model names `IndividualCKYC`, `KYCVersion` and `KYCConflict`.
+ * Only the first is a record here. A *version* is what you get by recording
+ * the same institution again on a later date — the history is the rows. A
+ * *conflict* is derived at read time from those rows, like classification,
+ * provenance and accrual before it, so correcting one record fixes every
+ * comparison it takes part in rather than leaving stored findings behind.
+ */
+const kycRecord = {
+  name: 'kycRecord', module: 'identity', sheet: 'KYCRecords', version: 1,
+  labels: { one: 'KYC record', many: 'KYC records' }, icon: 'badge',
+  acl: secret,
+  sort: '-recordedOn',
+  indexes: [['byPerson', 'person'], ['byInstitution', 'institution']],
+  title: (r) => r.institution,
+  // Not the KIN and not the held PAN. A projection reaches record headers,
+  // list subtitles, search results and reference pickers, none of which pass
+  // through the field renderer that masks an identifier — the same trap that
+  // once printed a passport number in full on every one of those surfaces.
+  subtitle: (r) => r.recordedOn,
+  fields: [
+    ref('person', 'person', { required: true, list: true }),
+    text('institution', {
+      required: true, list: true, search: true, label: 'Institution',
+    }),
+    day('recordedOn', {
+      required: true, list: true, default: 'today', label: 'As known on',
+    }),
+    pick('source', ['account statement', 'their portal', 'account opening form',
+      'a letter from them', 'told verbally', 'other'],
+    { required: true, label: 'Where this came from', default: 'their portal' }),
+
+    // `kin` and `pan` are bare on purpose: `data/classification.js` decides
+    // masking from the shape of the key, and a prefixed `heldPan` would slip
+    // straight past it. The `held` prefix is used only where the field is not
+    // an identifier and the prefix is what carries the meaning.
+    text('kin', {
+      label: 'CKYC identifier (KIN)', encrypted: true, group: 'As they hold it',
+    }),
+    text('pan', { label: 'PAN', encrypted: true, group: 'As they hold it' }),
+    text('heldName', { label: 'Name', search: true, group: 'As they hold it' }),
+    { key: 'heldAddress', type: 'textarea', label: 'Address', group: 'As they hold it' },
+    day('heldBirthday', { label: 'Date of birth', group: 'As they hold it' }),
+    { key: 'heldMobile', type: 'phone', label: 'Mobile', group: 'As they hold it' },
+    { key: 'heldEmail', type: 'email', label: 'Email', group: 'As they hold it' },
+
+    pick('status', ['active', 'update pending', 'rejected', 'not known'],
+      { list: true, default: 'not known', label: 'Status they show' }),
+    attach(),
+    note(),
+  ],
+};
+
 const employment = {
   name: 'employment', module: 'identity', sheet: 'Employment', version: 1,
   labels: { one: 'Employment', many: 'Employment history' }, icon: 'briefcase',
@@ -992,7 +1065,7 @@ const emergencyContact = {
 /* ---------------------------------------------------------------- registry */
 
 export const entities = Object.freeze(Object.fromEntries(
-  [person, relationship, identityDocument, employment, importantDate,
+  [person, relationship, identityDocument, kycRecord, employment, importantDate,
     account, transaction, bankStatement, receipt, budget, recurringPayment, loan,
     holding, investmentTransaction, document,
     vehicle, vehicleService, fuelLog,
@@ -1006,7 +1079,7 @@ export const entities = Object.freeze(Object.fromEntries(
 /** Modules, in navigation order. */
 export const modules = Object.freeze([
   { id: 'dashboard', label: 'Dashboard', icon: 'grid', entities: [] },
-  { id: 'identity', label: 'Identity', icon: 'user', entities: ['person', 'identityDocument', 'employment'] },
+  { id: 'identity', label: 'Identity', icon: 'user', entities: ['person', 'identityDocument', 'kycRecord', 'employment'] },
   { id: 'family', label: 'Family', icon: 'family', entities: ['relationship', 'importantDate'] },
   { id: 'finance', label: 'Finance', icon: 'wallet', entities: ['account', 'transaction', 'bankStatement', 'receipt', 'budget', 'recurringPayment', 'loan'] },
   { id: 'investments', label: 'Investments', icon: 'chart', entities: ['holding', 'investmentTransaction'] },

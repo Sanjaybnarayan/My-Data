@@ -178,6 +178,13 @@ not be claimed. A connector with no authorised access reports
 repository currently contains **zero** fabricated integrations, and that
 property is worth more than any of them would be.
 
+The `kycRecord` entity added in Phase 2 does **not** move the CKYCRR row and is
+not a connector in any state, not even a stub. It is a record the household
+types in themselves from a statement, a portal or a letter, with a `source`
+field naming which — and the Identity screen states on the page that nothing
+was fetched from the registry and nothing is verified, with a browser check
+that fails if that sentence is removed. See `docs/KYC.md`.
+
 ---
 
 ## What must not regress
