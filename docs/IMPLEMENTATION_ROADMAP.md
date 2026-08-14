@@ -80,31 +80,39 @@ is untested against the other. See `docs/BALANCES.md` and
 | 2 | Family, identity, tree, CKYC 2.0 | **tree now reads the person form** (`docs/FAMILY_TREE.md`); **CKYC built as a local record, with no registry** (`docs/KYC.md`) |
 | 3 | Document intelligence, OCR, DOCX templates | extraction exists; OCR and DOCX new |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; Calendar new |
-| 5 | Financial foundation, transfer matching, economic events | **largest real gap** — see below |
+| 5 | Financial foundation, transfer matching, economic events | **all ten prompt tests pass**, locked in `tests/prompt.test.mjs` — see below. `EconomicEvent` still wanted for movements with more than two legs |
 | 6 | Cards, loans, EMI, FD/RD, family ledger | cards, loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); **who-paid done, who-owes-whom refused for a stated reason** (`docs/HOUSEHOLD_LEDGER.md`) |
 | 7 | Investments, brokers, MCP | investments exist; brokers architecture-only |
 | 8–23 | Insights … internationalisation | not started |
 
-## Phase 5 is the one to look at first after the gate
+## The prompt's ten financial tests
 
-The prompt's financial tests 1–10 are the sharpest specification in the whole
-document, and this repository passes some of them already:
+The sharpest specification in the whole document — and the table that used to
+sit here was **prose, and had gone stale**. It was written before Phases 5 and
+6 touched any of it, and by the time anybody re-ran the ten, three of its rows
+were wrong: two claimed failure and one claimed "partial" for behaviour that had
+been working for several tranches.
 
-| Test | Today |
+They now live in `tests/prompt.test.mjs`, where a row that stops being true
+fails the suite on the next commit rather than on the next audit. **All ten
+pass.** What each one rests on:
+
+| Test | Rests on |
 | --- | --- |
-| 1 — HDFC debit + ICICI credit → one internal transfer | **fails** — categorised as two transfers, not one event |
-| 2 — same amount a day apart → potential match | **fails** — no matching engine |
-| 3 — ₹50,000 vs ₹49,950 → no automatic match | **passes vacuously** — nothing matches anything |
-| 4 — bank → credit card = settlement | **partial** — categorised, not evented |
-| 5 — card → merchant = expense | **passes** |
-| 6 — bank → broker = funding | **partial** |
-| 7 — broker → stock = investment | **partial** |
-| 8 — bank → FD = asset allocation | **partial** |
-| 9 — statement imported twice → duplicate | **passes** — fingerprint |
-| 10 — attachment imported twice → duplicate | **passes** — receipt key per mailbox |
+| 1 — HDFC debit + ICICI credit → one internal transfer | `domain/events.js` pairing, offered as *probable* with a confirm control |
+| 2 — same amount a day apart → potential match | the same, within a three-day window |
+| 3 — ₹50,000 vs ₹49,950 → no automatic match | near amounts are *possible* at most, and `linkFor` refuses to confirm one |
+| 4 — bank → credit card = settlement | `domain/settlement.js`, which names the double count rather than silently correcting it |
+| 5 — card → merchant = expense | the categoriser |
+| 6 — bank → broker = funding | `accountBalances`, checked in all three transfer shapes — see `docs/BALANCES.md` |
+| 7 — broker → stock = investment | `investment-out` is `internal`, not spending |
+| 8 — bank → FD = asset allocation | the same |
+| 9 — statement imported twice → duplicate | the fingerprint, which keeps the whole narration |
+| 10 — attachment imported twice → duplicate | the receipt key, which includes the mailbox |
 
-Tests 1, 2 and 4 need `EconomicEvent` and a matching engine with explicit
-confidence that never forces an uncertain match. That is the work.
+**No `EconomicEvent` entity was needed for any of them.** The earlier table
+assumed one; nothing in tests 1–10 turned out to require it. One is still wanted
+for movements with more than two legs, which none of these are.
 
 ## What is deliberately not scheduled
 
