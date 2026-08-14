@@ -892,6 +892,51 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-insights');
     }
 
+    /* -------------------------- a category chosen on the form is honoured */
+    // Placed with the ledger checks and before the `.ledger-row` positional
+    // ones below, for the same reason they warn about.
+    {
+      // This bug lives entirely on the form/importer seam, so a fixture cannot
+      // show it: the whole point is what the *form* produces — a category
+      // picked from a dropdown and no narration at all.
+      const before = consoleErrors.length;
+
+      await go(page, '#/finance/transaction/new');
+      await page.waitForTimeout(600);
+      await page.waitForSelector('.modal', { timeout: 5000 });
+
+      await page.locator('#f-transaction-date').fill('2026-07-05');
+      await page.locator('#f-transaction-kind').selectOption('expense');
+      await page.locator('#f-transaction-amount').fill('12000');
+      await page.locator('#f-transaction-category').selectOption('groceries');
+      await page.locator('#f-transaction-payee').fill('Big Bazaar');
+      // Required. Leaving it out keeps the modal open with no thrown error,
+      // which is how the schema announces a missing field.
+      await page.locator('#f-transaction-account').selectOption({ index: 1 });
+      await page.locator('#f-transaction-payee').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      await go(page, '#/finance/people');
+      await page.waitForTimeout(500);
+      const people = (await page.locator('.app-content').innerText()).trim();
+
+      // `looksLikePerson` reads any two capitalised words as a name, so before
+      // this the supermarket sat in the people ledger as somebody the
+      // household exchanges money with.
+      check('a supermarket does not appear in the people ledger',
+        !/Big Bazaar/i.test(people), people.slice(0, 400));
+
+      await go(page, '#/finance/insights');
+      await page.waitForTimeout(500);
+      const said = (await page.locator('.app-content').innerText()).trim();
+
+      check('and nothing says a shop has taken money that has not come back',
+        !/people have taken more/i.test(said), said.slice(0, 500));
+
+      check('the entered-category checks load without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
     /* ------------------------------------ paying a card is not spending */
     // Placed after the ledger checks on purpose: those index `.ledger-row`
     // by position, so rows created earlier shift them. Found by breaking four
