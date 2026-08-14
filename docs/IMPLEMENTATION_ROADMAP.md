@@ -44,6 +44,12 @@ next one will probably look the same, so **measure before building** stays the
 rule: every tranche in Phases 5 and 6 began by printing what the application
 actually reports.
 
+The rule applies to this document's own refusals too. Phase 6's first tranche
+declined to value recurring deposits because "the payment schedule is not
+recorded here"; the second measured it and found 24 dated instalments sitting in
+the database, already being read by `domain/portfolio.js`. **A refusal is a
+claim about the codebase, and it goes stale like any other.**
+
 | Phase | Prompt scope | Position here |
 | --- | --- | --- |
 | 0 | Repository audit | **complete** |
@@ -53,7 +59,7 @@ actually reports.
 | 3 | Document intelligence, OCR, DOCX templates | extraction exists; OCR and DOCX new |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; Calendar new |
 | 5 | Financial foundation, transfer matching, economic events | **largest real gap** — see below |
-| 6 | Cards, loans, EMI, FD/RD, family ledger | cards, loans and EMI done in Phase 5; **FD accrual done** (`docs/ACCRUAL.md`); RD and family ledger open |
+| 6 | Cards, loans, EMI, FD/RD, family ledger | cards, loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); family ledger open |
 | 7 | Investments, brokers, MCP | investments exist; brokers architecture-only |
 | 8–23 | Insights … internationalisation | not started |
 
