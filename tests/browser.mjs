@@ -54,6 +54,41 @@ function todayLabel() {
   return `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
 }
 
+/**
+ * A real, if minimal, PDF with a text layer.
+ *
+ * The other document checks upload a few bytes beginning `%PDF-`, which is
+ * enough to exercise capture and filing and produces no text at all — so
+ * nothing that reads a document was ever driven end to end. This is
+ * uncompressed and hand-assembled so it stays readable: five objects, a
+ * content stream of `Tj` runs, and a valid xref.
+ */
+function tinyPdf(lines) {
+  const content = `BT /F1 12 Tf 50 750 Td 14 TL\n${
+    lines.map((l) => `(${l.replace(/[()\\]/g, '')}) Tj T*`).join('\n')}\nET\n`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] '
+      + '/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${content.length} >>\nstream\n${content}endstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [];
+  objects.forEach((body, i) => {
+    offsets.push(pdf.length);
+    pdf += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+    + offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')
+    + `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, 'latin1');
+}
+
 function check(name, condition, detail = '') {
   checks.push({ name, ok: Boolean(condition) });
   if (!condition) failures.push(`${name}${detail ? ` \u2014 ${detail}` : ''}`);
@@ -1279,6 +1314,105 @@ async function main() {
       filedText.includes('Everyone'), filedText.slice(0, 200));
     check('a document assigned to a person leaves the household folder',
       !/Household \(\d+\)/.test(filedText), filedText.slice(0, 200));
+
+    /* ------------------- the identifier a scan finds and used to discard */
+
+    {
+      // A PAN card with a real text layer, through the real capture path. The
+      // number is read, kept out of the searchable field, and — until this
+      // tranche — thrown away, while `identityDocument.number` stayed empty.
+      const before = consoleErrors.length;
+      const PAN = 'ABCDE1234F';
+
+      await go(page, '#/documents');
+      await page.waitForTimeout(400);
+      await page.locator('input[type=file]:not([capture])').setInputFiles({
+        name: 'PAN card.pdf',
+        mimeType: 'application/pdf',
+        buffer: tinyPdf([
+          'INCOME TAX DEPARTMENT   GOVT. OF INDIA',
+          'Permanent Account Number Card',
+          PAN,
+          'Name  A CITIZEN',
+        ]),
+      });
+      await page.waitForSelector('.modal', { timeout: 8000 });
+      await page.locator('#f-document-title').fill('PAN card');
+      // Filed under a person: an identity number has to belong to somebody,
+      // and a household document is refused for exactly that reason.
+      await page.locator('#f-document-person').selectOption({ index: 1 });
+      await page.locator('#f-document-title').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 8000 });
+      await page.waitForTimeout(600);
+
+      await page.getByRole('button', { name: /PAN card/ }).first().click()
+        .catch(() => page.locator('text=PAN card').first().click());
+      await page.waitForTimeout(900);
+
+      const detail = (await page.locator('.app-content').innerText()).trim();
+
+      check('a document offers the identity number it found',
+        /is on this document and is not recorded anywhere/.test(detail),
+        detail.slice(0, 700));
+      check('and shows it by its last four rather than in full',
+        detail.includes('••••234F'), detail.slice(0, 700));
+      // The point of the redaction, checked where it matters: on the screen.
+      check('the full number is nowhere on the screen',
+        !detail.includes(PAN), detail.slice(0, 700));
+
+      await page.getByRole('button', { name: 'Record it' }).first().click();
+      await page.waitForTimeout(900);
+
+      const after = (await page.locator('.app-content').innerText()).trim();
+      check('recording it says so and stops offering',
+        /already recorded/.test(after) && !/is not recorded anywhere/.test(after),
+        after.slice(0, 700));
+
+      await go(page, '#/identity/identityDocument');
+      await page.waitForTimeout(600);
+      const identity = (await page.locator('.app-content').innerText()).trim();
+
+      check('the identity record exists after the offer was taken',
+        /PAN/.test(identity), identity.slice(0, 400));
+      // `number` is encrypted and every projection of this entity is
+      // deliberately not the number — the list must not print it either.
+      check('and the list does not print the number it just stored',
+        !identity.includes(PAN), identity.slice(0, 400));
+
+      check('reading a document raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'documents-identifier');
+    }
+
+    /* ---------------------- a document whose text has not been read */
+
+    {
+      // The screen said "on device only", which is about Drive, and never
+      // said anything about the text — so a photographed bill produced no due
+      // date and nothing explained why.
+      await go(page, '#/documents');
+      await page.waitForTimeout(400);
+      await page.locator('input[type=file]:not([capture])').setInputFiles({
+        name: 'gas bill.jpg',
+        mimeType: 'image/jpeg',
+        buffer: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]),
+      });
+      await page.waitForSelector('.modal', { timeout: 8000 });
+      await page.locator('#f-document-title').fill('Gas bill photo');
+      await page.locator('#f-document-title').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 8000 });
+      await page.waitForTimeout(600);
+
+      await page.getByRole('button', { name: /Gas bill photo/ }).first().click()
+        .catch(() => page.locator('text=Gas bill photo').first().click());
+      await page.waitForTimeout(800);
+
+      const detail = (await page.locator('.app-content').innerText()).trim();
+      check('a photograph says why nothing was filled in from it',
+        /photographs are read when they reach Drive/i.test(detail),
+        detail.slice(0, 600));
+    }
 
     /* ------------------------------------------------------------- family */
 

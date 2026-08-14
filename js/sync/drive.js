@@ -178,6 +178,39 @@ export class DocumentStore {
   }
 
   /**
+   * The identifiers in a document, re-read from the stored file on demand.
+   *
+   * **Nothing here is ever stored.** `extract.js` finds a PAN or an Aadhaar,
+   * strips it out of the searchable text and hands it back — and until this
+   * existed, every caller dropped it, so a photographed PAN card had its
+   * number read correctly, kept out of the index correctly, and then thrown
+   * away, while `identityDocument.number` stayed empty.
+   *
+   * Re-reading on demand rather than keeping the values is the whole point: a
+   * second copy of an unrecorded identifier, sitting somewhere to be surfaced
+   * later, is the thing the redaction exists to prevent. The encrypted file is
+   * already on the device; reading it again costs a parse and stores nothing.
+   *
+   * @returns {Promise<{identifiers: Array, readable: boolean}>}
+   *   `readable` is false when nothing on this device can get text out of the
+   *   file — a photograph, which only Drive's OCR can read. That is not the
+   *   same as a document with no identifiers in it, and callers must not
+   *   report it as one.
+   */
+  async identifiersIn(documentId) {
+    const document = await this.#db.repo('document').get(documentId);
+    if (!document) return { identifiers: [], readable: false };
+    if (!canReadText(document.mimeType)) return { identifiers: [], readable: false };
+
+    const blob = await this.read(documentId);
+    if (!blob) return { identifiers: [], readable: false };
+
+    const read = await this.#readText(new Uint8Array(await blob.arrayBuffer()), document.mimeType);
+    return read ? { identifiers: read.identifiers, readable: true }
+      : { identifiers: [], readable: false };
+  }
+
+  /**
    * Delete a document: the record, the encrypted copy on this device, and the
    * file in Drive.
    *

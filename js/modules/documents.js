@@ -33,6 +33,7 @@ import {
   CATEGORIES, HOUSEHOLD_FOLDER, guessCategory, categoryForEntity, matches,
   iconForMime, formatSize, personFolderName,
 } from '../domain/filing.js';
+import { identifierOffers, identityRecordFor, textState } from '../domain/identifiers.js';
 import { formatDay, daysUntil } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
 import { can } from '../security/rbac.js';
@@ -321,6 +322,8 @@ function title(value) {
   return String(value ?? '').charAt(0).toUpperCase() + String(value ?? '').slice(1);
 }
 
+const capitalise = title;
+
 /**
  * Whose record this is, from whichever field the entity uses to say so.
  * Returns undefined for household things — a property deed has an owner in
@@ -367,7 +370,83 @@ async function documentDetail(id) {
   if (!record) return base;
 
   const preview = h('div', { class: 'stack' });
-  const host = h('div', { class: 'stack' }, [base.node, preview]);
+  const reading = h('div', { class: 'stack' });
+  const host = h('div', { class: 'stack' }, [base.node, reading, preview]);
+
+  /**
+   * What was read off this document, and what it is worth doing about.
+   *
+   * Two things the screen never said. Whether the text was read at all — it
+   * said "on device only", which is about Drive, and nothing about the text,
+   * so a photographed bill produced no due date and no explanation. And the
+   * identifier: extraction found the PAN, kept it out of the searchable field
+   * and then dropped it, leaving the encrypted place it belongs empty.
+   */
+  async function paintReading() {
+    const state = textState(record);
+
+    // Read on demand from the encrypted file rather than kept anywhere. A
+    // second copy of an unrecorded identifier is exactly what the redaction
+    // exists to prevent.
+    const { identifiers, readable } = await store.identifiersIn(id).catch(
+      () => ({ identifiers: [], readable: false }),
+    );
+
+    const existing = await db.repo('identityDocument').list({ limit: 500 }).catch(() => []);
+    const offers = identifierOffers(identifiers, record, existing);
+
+    if (state.read && !offers.length) { replace(reading, null); return; }
+
+    replace(reading, card({ class: 'card--quiet' }, [
+      cardHeader('What was read from this file'),
+
+      state.read
+        ? null
+        : h('p', { class: 'small muted' }, `${capitalise(state.why)}.`),
+
+      // `readable` false means nothing on this device can get text out of the
+      // file — not that the file has no identifiers in it. Reporting the two
+      // the same way would be a claim this cannot support.
+      state.read && !readable
+        ? h('p', { class: 'small faint' },
+          'The text was read elsewhere, so this device cannot check it again '
+          + 'for identity numbers.')
+        : null,
+
+      ...offers.map((offer) => offerRow(offer)),
+    ].filter(Boolean)));
+  }
+
+  function offerRow(offer) {
+    const line = (text, tone) => h('p', { class: `small ${tone}` }, text);
+
+    if (offer.state === 'recorded') {
+      return line(`The ${offer.kind} on this document is already recorded — ${offer.masked}.`, 'faint');
+    }
+    if (offer.state !== 'offer') {
+      return line(`${offer.kind} ${offer.masked}: ${offer.why}.`, 'muted');
+    }
+
+    return h('div', { class: 'row row--between', style: { gap: 'var(--space-3)' } }, [
+      h('span', { class: 'small' },
+        `A ${offer.kind} — ${offer.masked} — is on this document and is not recorded anywhere.`),
+      button('Record it', {
+        variant: 'subtle',
+        onClick: async () => {
+          try {
+            // Written through the repository, which is what encrypts `number`
+            // and checks the permission. Nothing about the value passes
+            // through a searchable field on the way.
+            await db.repo('identityDocument').create(identityRecordFor(offer, record));
+            toast(`${offer.kind} recorded, encrypted`, { kind: 'success' });
+            await paintReading();
+          } catch (err) {
+            toast(userMessage(err), { kind: 'error' });
+          }
+        },
+      }),
+    ]);
+  }
 
   async function open() {
     // Re-read: the heading names the folder, and an edit that reassigns the
@@ -451,9 +530,10 @@ async function documentDetail(id) {
 
   let revoke = () => {};
   await open();
+  await paintReading();
 
   const off = bus.on(`${TOPIC.dataChanged}:documents`, (payload) => {
-    if (payload.id === id) open();
+    if (payload.id === id) open().then(paintReading);
   });
 
   return {
