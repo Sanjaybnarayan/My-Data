@@ -495,6 +495,48 @@ async function main() {
       check('reading a CSV raises no console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
+      // A payment app's export: not one account's statement, but every
+      // account the app is linked to, and every row a movement the bank
+      // recorded too. Both facts have to reach the screen.
+      await page.locator('#app input[type=file][accept*="csv"]').setInputFiles({
+        name: 'PhonePe_Statement.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from([
+          'Transaction Statement for 8861975785',
+          'Duration,"01 Apr, 2026 - 15 Aug, 2026"',
+          '',
+          'Date,Time,Transaction Details,Transaction ID,UTR,Transaction Type,'
+            + 'Credit/debit instrument,Amount',
+          '"Aug 15, 2026","01:10 am","Paid to ZOMATO LIMITED","T2608150110",'
+            + '"618037311994","DEBIT","Paid by XXXXXXXX8177","69"',
+          '"Aug 14, 2026","09:11 pm","Received from ROOPESH K","T2608142111",'
+            + '"659278215400","CREDIT","Credited to XXXXXXXXXX84","680"',
+          '"Aug 05, 2026","10:00 am","Loan Installment","T2608051000",'
+            + '"111111111111","DEBIT","Paid by XXXXXXXX8963","4500"',
+        ].join('\n')),
+      });
+      await page.waitForTimeout(900);
+
+      const app = (await page.locator('.app-content').innerText()).trim();
+
+      // Every row of a month-first-dated file used to be skipped for having
+      // no readable date, so the file imported as nothing at all.
+      check('a payment app export is read rather than coming back empty',
+        /PhonePe_Statement\.csv/.test(app) && !/may not be a statement/.test(app),
+        app.slice(0, 500));
+
+      check('and the screen says it is a payment app, not an account',
+        /payment app.s record, not an account/i.test(app), app.slice(0, 900));
+      check('and names how many of the household’s accounts it spans',
+        /3 accounts/.test(app), app.slice(0, 900));
+      // The dangerous case: import this first, the bank statements later, and
+      // every payment arrives a second time.
+      check('and warns that the same payments will arrive from the other side',
+        /arrive again from the other side/i.test(app), app.slice(0, 900));
+
+      check('reading a payment app export raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
       if (SHOTS) await shot(page, 'finance-import');
     }
 

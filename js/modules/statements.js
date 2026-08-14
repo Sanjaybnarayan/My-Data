@@ -27,6 +27,9 @@ import { app } from '../context.js';
 import { extract } from '../data/pdf-read.js';
 import { parseTable, looksLikeCard } from '../domain/tabular.js';
 import {
+  isPaymentApp, byInstrument, alreadyOnRecord, referencesIn, describeImport,
+} from '../domain/paymentapp.js';
+import {
   planStatement, reviewBatch, toRecord, toStatementRecord, accountFromStatement,
 } from '../domain/import.js';
 import { summarise, categoryLabel, businessLedger } from '../domain/categorise.js';
@@ -83,13 +86,13 @@ export async function render() {
 
     const { db } = app();
     const accounts = await db.repo('account').list({ limit: 500 });
-    const existingKeys = await importedKeys(db);
+    const { keys: existingKeys, references } = await importedKeys(db);
     const next = [];
 
     for (const file of files) {
       try {
         const plan = isTable(file)
-          ? await loadTable(file, { accounts, existingKeys, businesses })
+          ? await loadTable(file, { accounts, existingKeys, references, businesses })
           : await loadPdf(file, { accounts, existingKeys, businesses });
 
         if (plan.error) {
@@ -154,6 +157,28 @@ export async function render() {
     const plan = planStatement([], { file: file.name, parsed, ...options });
     plan.card = card;
     plan.rows = null;
+
+    // A payment app's export is not one account's statement: it spans every
+    // bank account the app is linked to, and every row of it is a movement the
+    // bank also recorded. Both facts change what this screen must say.
+    if (isPaymentApp(parsed)) {
+      const { seen } = alreadyOnRecord(parsed.transactions, options.references ?? new Set());
+      const onRecord = new Set(seen.map((row) => row.utr));
+
+      plan.paymentApp = {
+        accounts: byInstrument(parsed.transactions),
+        seen: seen.length,
+        fresh: parsed.transactions.length - seen.length,
+      };
+
+      // Moved out of `fresh` rather than dropped: the row is real, it is
+      // simply already counted, and a household comparing the two files should
+      // see it named as a duplicate rather than silently missing.
+      plan.duplicates = [...plan.duplicates,
+        ...plan.fresh.filter((row) => row.utr && onRecord.has(row.utr))];
+      plan.fresh = plan.fresh.filter((row) => !(row.utr && onRecord.has(row.utr)));
+    }
+
     return plan;
   }
 
@@ -242,7 +267,7 @@ export async function render() {
     // Every file in the batch waiting on the same account now matches, so all
     // of them are redone rather than only the one that was clicked.
     const accounts = await db.repo('account').list({ limit: 500 });
-    const existingKeys = await importedKeys(db);
+    const { keys: existingKeys } = await importedKeys(db);
     plans = plans.map((other) => (other.rows && !other.match?.account
       ? Object.assign(
         planStatement(other.rows, { file: other.file, accounts, existingKeys, businesses }),
@@ -267,7 +292,7 @@ export async function render() {
 
     const { db } = app();
     const accounts = await db.repo('account').list({ limit: 500 });
-    const existingKeys = await importedKeys(db);
+    const { keys: existingKeys } = await importedKeys(db);
 
     plans = plans.map((plan) => (plan.rows && !plan.imported
       ? Object.assign(
@@ -385,8 +410,17 @@ export async function render() {
           }),
         ]),
 
+      // A payment app's export is not one account's statement, and the account
+      // match above is exactly the thing that needs qualifying: there is no
+      // single account for this file to belong to.
+      plan.paymentApp
+        ? h('p', { class: 'small muted', style: { marginTop: 'var(--space-3)' } },
+          describeImport(plan.paymentApp, format))
+        : null,
+
       h('div', { class: 'chip-row', style: { marginTop: 'var(--space-3)' } }, [
         chip(`${plan.transactions.length} rows`),
+        plan.paymentApp ? chip(`${plan.paymentApp.accounts.length} accounts`) : null,
         chip(plan.duplicates.length ? `${plan.duplicates.length} already here` : 'none duplicated'),
         chip(plan.check.balanced ? 'arithmetic closes' : `off by ${format(plan.check.difference)}`),
         plan.problems.length ? chip(`${plan.problems.length} unreadable`) : null,
@@ -517,7 +551,16 @@ function instructions() {
  */
 async function importedKeys(db) {
   const rows = await db.repo('transaction').list({ decrypt: false, limit: Infinity });
-  return new Set(rows.map((row) => row.importKey).filter(Boolean));
+  return {
+    keys: new Set(rows.map((row) => row.importKey).filter(Boolean)),
+    // Every bank reference already on record. A payment app's row and a bank's
+    // row are the same movement written down twice, and the fingerprint cannot
+    // see it: the narrations differ completely, so both would import and the
+    // household's spending would double. The UTR is the one thing both records
+    // carry — the bank writes it into its narration — and is the only exact
+    // link between them. See `domain/paymentapp.js`.
+    references: referencesIn(rows),
+  };
 }
 
 /**
