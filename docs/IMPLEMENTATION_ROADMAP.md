@@ -50,6 +50,14 @@ recorded here"; the second measured it and found 24 dated instalments sitting in
 the database, already being read by `domain/portfolio.js`. **A refusal is a
 claim about the codebase, and it goes stale like any other.**
 
+**The form/importer seam has now produced three separate bugs**, in Phase 5's
+transfer directions, Phase 5's balances, and Phase 6's entered categories. Each
+time, the whole suite passed because every fixture was built the way the
+importer writes records. A record created by a form and a record created by an
+importer are different shapes, and any behaviour tested against only one of them
+is untested against the other. See `docs/BALANCES.md` and
+`docs/ENTERED_CATEGORIES.md`.
+
 | Phase | Prompt scope | Position here |
 | --- | --- | --- |
 | 0 | Repository audit | **complete** |
@@ -59,7 +67,7 @@ claim about the codebase, and it goes stale like any other.**
 | 3 | Document intelligence, OCR, DOCX templates | extraction exists; OCR and DOCX new |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; Calendar new |
 | 5 | Financial foundation, transfer matching, economic events | **largest real gap** — see below |
-| 6 | Cards, loans, EMI, FD/RD, family ledger | cards, loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); family ledger open |
+| 6 | Cards, loans, EMI, FD/RD, family ledger | cards, loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); family ledger **measured and still open** — `transaction.person` is recorded on every row and read by nothing (`docs/ENTERED_CATEGORIES.md`) |
 | 7 | Investments, brokers, MCP | investments exist; brokers architecture-only |
 | 8–23 | Insights … internationalisation | not started |
 
