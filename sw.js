@@ -57,6 +57,7 @@ const SHELL = [
   './js/data/migrations.js',
   './js/data/pdf-read.js',
   './js/data/repository.js',
+  './js/data/retention.js',
   './js/data/schema.js',
   './js/data/search.js',
   './js/data/storage.js',

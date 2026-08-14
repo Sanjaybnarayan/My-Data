@@ -183,9 +183,31 @@ Strong relative to the prompt's asks:
 - **Scopes declared once** and checked against the setup document by a test.
 
 Gaps against the prompt: no consent records, no purpose limitation, no
-retention policies, no data-lineage or provenance model, no processor
-registry, no deletion propagation, no grievance mechanism. Deletion is a soft
-delete (`deletedAt`) with no propagation to Sheets, Drive, or the search index.
+retention policies, no processor registry, no grievance mechanism.
+
+> ### Correction, made during Phase 0.5
+>
+> This section originally read: *"no deletion propagation … Deletion is a soft
+> delete with no propagation to Sheets, Drive, or the search index."*
+>
+> **That was wrong on all three counts.** I asserted it without tracing the
+> code, and tracing it while planning the retention work showed the opposite:
+>
+> - The **search index** is cleared on delete — `repository.js` drops the entry
+>   in the same transaction, for a local delete and a remote one alike.
+> - **Sheets** is told — `sync/engine.js` sends `op: 'delete'`.
+> - **Drive** is handled — deleting a document trashes the Drive file and
+>   removes the local encrypted blob. Documents is always its own screen, so
+>   the generic delete path cannot bypass it.
+>
+> The real gap is narrower and different: **nothing is ever actually erased.**
+> There is no hard delete anywhere in the codebase. A soft-deleted row keeps
+> every value it held, in IndexedDB and in the backup Sheet, indefinitely.
+>
+> Data lineage and provenance, also listed as missing here, were built in
+> Phase 0.5 — see `DATA_PROVENANCE.md` and `DATA_LINEAGE.md`. Retention
+> policies and a hard delete were built in the same phase — see
+> `DATA_RETENTION.md`, which also records what erasing cannot reach.
 
 ## 8. Financial-data risks
 
