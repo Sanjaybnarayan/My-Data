@@ -330,7 +330,7 @@ describe('signing in with Google unlocks the same data', () => {
   });
 
   test('enrolling twice is refused, because it would orphan every record', async () => {
-    const drive = fakeDrive();
+    fakeDrive();
     const keyring = new Keyring(meta(), 1000);
     const rawKey = DriveEscrow.mintRawKey();
     await keyring.enrolRawKey(rawKey, 'google');

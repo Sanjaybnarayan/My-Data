@@ -61,6 +61,19 @@ export class SyncEngine {
   lastError = null;
 
   /**
+   * The document store, attached from outside so uploads drain on the same
+   * schedule as records.
+   *
+   * Declared here because it was not: `app.js` did `sync.documents = store` and
+   * `#run` read `this.documents`, so a field that is part of this class's
+   * contract existed only as two references in two files. The type checker
+   * found it — nothing was broken, but nothing said where it came from either.
+   *
+   * @type {{flush: (options?: {limit?: number}) => Promise<{uploaded?: number}>}|null}
+   */
+  documents = null;
+
+  /**
    * @param {{db: import('../data/database.js').Database, transport: object,
    *          batchSize?: number, clock?: () => number, random?: () => number}} options
    */

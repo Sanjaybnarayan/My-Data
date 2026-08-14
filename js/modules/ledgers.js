@@ -21,7 +21,7 @@
 
 import { h, replace } from '../ui/dom.js';
 import {
-  card, cardHeader, button, badge, chip, empty, listItem, metric, money, divider,
+  card, cardHeader, button, badge, empty, listItem, metric, money, divider,
 } from '../ui/components/basics.js';
 import { toast } from '../ui/components/toast.js';
 import { app } from '../context.js';
@@ -30,8 +30,6 @@ import {
   CATEGORIES, categoryLabel, peopleLedger, lendingLedger, insights, summarise,
 } from '../domain/categorise.js';
 import { format } from '../core/money.js';
-import { formatDay } from '../core/dates.js';
-import { userMessage } from '../core/errors.js';
 
 /** Where corrections are kept. Shared with the statement importer. */
 const OVERRIDES = 'finance.overrides';

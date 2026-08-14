@@ -1,0 +1,43 @@
+{
+  "//": [
+    "FamilyOS is written in JavaScript and ships as native ES modules with no",
+    "build step. TypeScript is here as a *checker*, never as a compiler:",
+    "`noEmit` is on, nothing is transpiled, and not one byte of what a browser",
+    "receives passes through this. Types are expressed in the JSDoc the code",
+    "already carries.",
+    "",
+    "`dom` and `webworker` cannot both be in `lib` — they declare `self`,",
+    "`onmessage` and a dozen other globals with different types, which produces",
+    "400 errors inside TypeScript's own libraries before it has looked at any of",
+    "ours. `sw.js` is the only worker and is excluded for that reason.",
+    "",
+    "`strict` and `noImplicitAny` are off deliberately. Turning them on produces",
+    "thousands of 'implicitly any' complaints that are true of every untyped",
+    "parameter and tell nobody anything. `noUnusedLocals` and",
+    "`noFallthroughCasesInSwitch` are different in kind — each finding is a",
+    "mistake rather than a missing declaration, and the first run of them found",
+    "ten pieces of dead code."
+  ],
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
+
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "dom", "dom.iterable"],
+
+    "strict": false,
+    "noImplicitAny": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": false,
+    "forceConsistentCasingInFileNames": true,
+
+    "skipLibCheck": true
+  },
+  "include": ["js/**/*.js", "tools/**/*.mjs", "tests/**/*.mjs"],
+  "exclude": ["node_modules", "dist", "sw.js", "apps-script"]
+}

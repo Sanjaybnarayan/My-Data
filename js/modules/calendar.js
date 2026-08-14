@@ -14,7 +14,7 @@
 import { h, replace } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import {
-  card, cardHeader, button, badge, pageHeader, empty, listItem, chip,
+  card, cardHeader, button, badge, pageHeader, empty, listItem,
 } from '../ui/components/basics.js';
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';

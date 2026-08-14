@@ -11,6 +11,30 @@ import { icon } from '../icons.js';
 import { format, formatCompact } from '../../core/money.js';
 import { formatDay, relativeDays, daysUntil } from '../../core/dates.js';
 
+/**
+ * Anything these components will accept where content goes.
+ *
+ * Written down because the type checker infers a destructured parameter's shape
+ * from whichever properties happen to carry a default — so `{ variant, type =
+ * 'button' }` was read as "an object with an optional `type`, and nothing
+ * else", and **every caller passing `variant` was reported as an error.** Four
+ * hundred of the five hundred findings on the first run were that, across nine
+ * components: not a fault in the calls, a gap in what the components said about
+ * themselves.
+ *
+ * @typedef {string|number|Node|null|undefined|Child[]} Child
+ */
+
+/**
+ * A DOM handler.
+ *
+ * `Event` rather than a narrower type, and `any` for the argument, because the
+ * same option carries click handlers and key handlers — typing it as `Event`
+ * alone reported every `event.key` in the application as an error.
+ *
+ * @typedef {(event: any) => unknown} Handler
+ */
+
 export function card(props = {}, children) {
   const { variant, ...rest } = props;
   return h('div', {
@@ -19,6 +43,11 @@ export function card(props = {}, children) {
   }, children);
 }
 
+/**
+ * @param {Child} title
+ * @param {Child} [actions]
+ * @param {{subtitle?: Child, iconName?: string}} [options]
+ */
 export function cardHeader(title, actions = null, { subtitle, iconName } = {}) {
   return h('div', { class: 'card-header' }, [
     iconName ? icon(iconName, { size: 18, class: 'faint' }) : null,
@@ -30,6 +59,12 @@ export function cardHeader(title, actions = null, { subtitle, iconName } = {}) {
   ]);
 }
 
+/**
+ * @param {Child} label
+ * @param {{variant?: string, iconName?: string, onClick?: Handler,
+ *          type?: string, class?: string, disabled?: boolean,
+ *          [attr: string]: unknown}} [options]
+ */
 export function button(label, { variant, iconName, onClick, type = 'button', ...rest } = {}) {
   return h('button', {
     type,
@@ -42,6 +77,11 @@ export function button(label, { variant, iconName, onClick, type = 'button', ...
   ]);
 }
 
+/**
+ * @param {string} name
+ * @param {{label?: string, onClick?: Handler, variant?: string,
+ *          class?: string, [attr: string]: unknown}} [options]
+ */
 export function iconButton(name, { label, onClick, variant, ...rest } = {}) {
   return h('button', {
     type: 'button',
@@ -58,6 +98,10 @@ export function badge(label, tone = '') {
   return h('span', { class: ['badge', tone && `badge--${tone}`] }, label);
 }
 
+/**
+ * @param {Child} label
+ * @param {{pressed?: boolean, onClick?: Handler, iconName?: string}} [options]
+ */
 export function chip(label, { pressed = false, onClick, iconName } = {}) {
   return h('button', {
     type: 'button',
@@ -67,7 +111,12 @@ export function chip(label, { pressed = false, onClick, iconName } = {}) {
   }, [iconName ? icon(iconName, { size: 16 }) : null, label]);
 }
 
-/** Initials, because a photo is optional and a blank circle says nothing. */
+/**
+ * Initials, because a photo is optional and a blank circle says nothing.
+ *
+ * @param {string} name
+ * @param {{size?: string, photo?: string}} [options]
+ */
 export function avatar(name, { size = '', photo } = {}) {
   if (photo) {
     return h('img', {
@@ -92,6 +141,9 @@ export function avatar(name, { size = '', photo } = {}) {
 /**
  * A headline number. `delta` is a signed percentage; its colour follows
  * `goodWhen`, because a fall in expenses is good and a fall in income is not.
+ *
+ * @param {{label?: Child, value?: Child, delta?: number|null, hint?: Child,
+ *          iconName?: string, goodWhen?: 'up'|'down', compact?: boolean}} [options]
  */
 export function metric({
   label, value, delta = null, hint, iconName, goodWhen = 'up', compact = false,
@@ -113,7 +165,12 @@ export function metric({
   ]);
 }
 
-/** An amount, coloured only when the sign carries meaning. */
+/**
+ * An amount, coloured only when the sign carries meaning.
+ *
+ * @param {number} minor
+ * @param {{currency?: string, signed?: boolean, compact?: boolean}} [options]
+ */
 export function money(minor, { currency = 'INR', signed = false, compact = false } = {}) {
   const value = minor ?? 0;
   return h('span', {
@@ -121,6 +178,9 @@ export function money(minor, { currency = 'INR', signed = false, compact = false
   }, compact ? formatCompact(value, currency) : format(value, currency, { sign: signed }));
 }
 
+/**
+ * @param {{title?: Child, message?: Child, iconName?: string, action?: Child}} [options]
+ */
 export function empty({ title, message, iconName = 'info', action } = {}) {
   return h('div', { class: 'empty' }, [
     icon(iconName, { size: 42 }),
@@ -130,6 +190,9 @@ export function empty({ title, message, iconName = 'info', action } = {}) {
   ]);
 }
 
+/**
+ * @param {{height?: number|string, width?: number|string, radius?: number|string}} [options]
+ */
 export function skeleton({ height = 16, width = '100%', radius } = {}) {
   return h('div', {
     class: 'skeleton',
@@ -143,7 +206,13 @@ export function skeletonList(rows = 5) {
     Array.from({ length: rows }, (_, i) => skeleton({ height: 44, width: i % 3 ? '100%' : '80%' })));
 }
 
-/** A bar with a threshold: over budget turns amber, then red. */
+/**
+ * A bar with a threshold: over budget turns amber, then red.
+ *
+ * @param {number} value
+ * @param {number} max
+ * @param {{warnAt?: number, label?: Child}} [options]
+ */
 export function progress(value, max, { warnAt = 0.8, label } = {}) {
   const ratio = max > 0 ? value / max : 0;
   const tone = ratio >= 1 ? 'danger' : ratio >= warnAt ? 'warning' : '';
@@ -166,6 +235,11 @@ export function progress(value, max, { warnAt = 0.8, label } = {}) {
   ]);
 }
 
+/**
+ * @param {{title?: Child, subtitle?: Child, value?: Child, leading?: Child,
+ *          trailing?: Child, href?: string, onClick?: Handler,
+ *          tone?: string}} [options]
+ */
 export function listItem({ title, subtitle, value, leading, trailing, href, onClick, tone } = {}) {
   const children = [
     leading,
@@ -185,6 +259,10 @@ export function listItem({ title, subtitle, value, leading, trailing, href, onCl
  * A due date with the urgency already worked out — the same rule everywhere,
  * so "expiring soon" means one thing across sixteen modules.
  */
+/**
+ * @param {string} day
+ * @param {{leadDays?: number}} [options]
+ */
 export function dueBadge(day, { leadDays = 30 } = {}) {
   if (!day) return null;
   const days = daysUntil(day);
@@ -199,6 +277,10 @@ export function dueBadge(day, { leadDays = 30 } = {}) {
   return badge(label, tone);
 }
 
+/**
+ * @param {string} day
+ * @param {{relative?: boolean}} [options]
+ */
 export function dateText(day, { relative = false } = {}) {
   if (!day) return h('span', { class: 'faint' }, '—');
   return h('span', { title: formatDay(day) }, relative ? relativeDays(day) : formatDay(day));
@@ -235,6 +317,10 @@ export function divider() {
   return h('hr', { class: 'divider' });
 }
 
+/**
+ * @param {Child} title
+ * @param {{subtitle?: Child, actions?: Child}} [options]
+ */
 export function pageHeader(title, { subtitle, actions } = {}) {
   return h('header', { class: 'page-header' }, [
     h('div', { class: 'spacer' }, [

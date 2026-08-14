@@ -30,7 +30,11 @@
  * review step as a PDF.
  */
 
-/** Header words, per field. First match wins, so put the specific ones first. */
+/**
+ * Header words, per field. First match wins, so put the specific ones first.
+ *
+ * @type {[string, RegExp][]}
+ */
 const HEADERS = [
   ['date', /^(?:transaction |txn |value |posting |post )?date\b|^date of transaction/i],
   ['valueDate', /^value date/i],
