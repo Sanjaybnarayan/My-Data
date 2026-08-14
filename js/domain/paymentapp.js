@@ -203,10 +203,13 @@ export function referencesIn(transactions = []) {
 /**
  * What a payment-app import is about to do, as a sentence.
  *
- * @param {{accounts?: Array<object>, seen?: number, fresh?: number}} summary
+ * @param {{accounts?: Array<object>, seen?: number, fresh?: number,
+ *          linked?: number, unresolvedTransfers?: number}} summary
  * @param {(n: number) => string} [money]
  */
-export function describeImport({ accounts = [], seen = 0, fresh = 0 }, money = (n) => String(n)) {
+export function describeImport({
+  accounts = [], seen = 0, fresh = 0, linked = 0, unresolvedTransfers = 0,
+}, money = (n) => String(n)) {
   if (!accounts.length) return null;
 
   const spans = accounts.length === 1
@@ -219,6 +222,20 @@ export function describeImport({ accounts = [], seen = 0, fresh = 0 }, money = (
     `This is a payment app's record, not an account's: ${fresh + seen} payments `
     + `across ${spans}, ${money(moved)} out.`,
   ];
+
+  if (linked || unresolvedTransfers) {
+    const said = [];
+    if (linked) {
+      said.push(`${linked} ${linked === 1 ? 'is a transfer' : 'are transfers'} between `
+        + 'the household’s own accounts, joined to the account each went to and '
+        + 'counted as movement rather than spending');
+    }
+    if (unresolvedTransfers) {
+      said.push(`${unresolvedTransfers} more say they went to another account the app `
+        + 'masks too heavily to name, so they stay counted as money out');
+    }
+    parts.push(` ${said.join(', and ')}.`);
+  }
 
   if (seen) {
     parts.push(` ${seen} of them are already imported from a bank statement — `
@@ -334,4 +351,92 @@ export function describeSplit(groups = []) {
   }
 
   return parts.join('').trim();
+}
+
+/* ------------------------------------------------ both ends of a movement */
+
+/** A masked account number, as opposed to somebody's name. */
+const MASK = /^[X*x•]{2,}\d{2,}$/;
+
+/**
+ * Where a self-transfer went, when the row says so.
+ *
+ * `Transfer to XXXXXXXXXX84`, paid by `XXXX005391`, is the app stating both
+ * ends of one movement outright. That is stronger evidence than anything
+ * `domain/events.js` can offer: it pairs two bank legs by amount and date and
+ * calls the result *probable*, because a bank statement names only its own
+ * side. Here the record names both, so no window and no tolerance apply.
+ *
+ * A destination that is **not a mask** is not an account. `Withdrawn from
+ * Bandhan ELSS Tax saver Fund` is a redemption from a mutual fund, and calling
+ * it an internal transfer would move money to an account that does not exist
+ * and take a real investment sale out of the picture.
+ *
+ * @returns {string|null} the masked destination, or null
+ */
+export function transferTarget(details) {
+  const match = /^\s*transfer to\s+(.+?)\s*$/i.exec(String(details ?? ''));
+  if (!match) return null;
+  const target = match[1].trim();
+  return MASK.test(target) ? target : null;
+}
+
+/**
+ * Self-transfers whose destination is an account on record.
+ *
+ * Sets `toAccount` on the outgoing leg, which is the shape
+ * `domain/finance.js` already reads and `linkFor` already writes — an internal
+ * transfer, not spending. Both ends of the movement stay exactly as recorded.
+ *
+ * The destination is matched by the same rule as the source and refuses on the
+ * same three grounds: a mask of fewer than four digits, more than one account
+ * ending that way, or none. **A transfer to an account this cannot name is
+ * left as it is** — it stays a payment out, which overstates spending, and
+ * that is the safe direction: inventing a destination would move money into an
+ * account the household never touched.
+ *
+ * @returns {{rows: object[], linked: number, unresolved: number}}
+ */
+export function resolveTransfers(rows = [], accounts = []) {
+  const live = (accounts ?? []).filter((account) => !account.deletedAt);
+  let linked = 0;
+  let unresolved = 0;
+
+  const out = rows.map((row) => {
+    const target = transferTarget(row.description ?? row.raw);
+    if (!target) return row;
+
+    const tail = target.replace(/\D/g, '');
+    if (tail.length < 4) { unresolved += 1; return row; }
+
+    const hits = live.filter((account) => {
+      const ours = String(account.accountNumber ?? '').replace(/\D/g, '');
+      return ours.length >= 4 && ours.endsWith(tail);
+    });
+
+    if (hits.length !== 1) { unresolved += 1; return row; }
+
+    // Money cannot move from an account to itself. A row saying so is a
+    // misread mask, not a movement, and setting `toAccount` to the source
+    // would credit and debit the same balance.
+    const destination = hits[0];
+    if (row.account && row.account === destination.id) { unresolved += 1; return row; }
+
+    linked += 1;
+    return {
+      ...row,
+      kind: 'transfer',
+      toAccount: destination.id,
+      // Money moved between the household's own accounts is not spending, and
+      // the categoriser has no way to know that from `Transfer to XXXX8177`.
+      category: 'own account',
+    };
+  });
+
+  // Counted from the rows themselves rather than tallied alongside them. A
+  // separate counter can say a transfer was joined while the row it describes
+  // carries no destination — the sentence right and the data wrong — and a
+  // mutation that stopped setting `toAccount` proved exactly that, surviving
+  // every browser check because only the sentence was ever read.
+  return { rows: out, linked: out.filter((row) => row.toAccount).length, unresolved };
 }

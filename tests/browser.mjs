@@ -516,6 +516,8 @@ async function main() {
             + '"659278215400","CREDIT","Credited to XXXXXXXXXX84","680"',
           '"Aug 05, 2026","10:00 am","Loan Installment","T2608051000",'
             + '"111111111111","DEBIT","Paid by XXXXXXXX8963","4500"',
+          '"Aug 03, 2026","10:00 am","Transfer to XXXXXXXX8177","T2608031000",'
+            + '"333333333333","DEBIT","Paid by XXXXXXXXXX84","2000"',
         ].join('\n')),
       });
       await page.waitForTimeout(900);
@@ -546,6 +548,13 @@ async function main() {
         /cannot be imported/.test(app), app.slice(0, 1200));
       check('a mask too short to identify an account says so',
         /not enough to tell/.test(app), app.slice(0, 1200));
+
+      // A `Transfer to XXXXXXXX8177` row names both ends of one movement, so
+      // it is money moving between the household's own accounts rather than
+      // spending. `domain/events.js` can only call such a pair *probable*,
+      // because a bank statement names one side; this record names both.
+      check('a self-transfer naming both ends is counted as movement, not spending',
+        /transfers? between the household.s own accounts/.test(app), app.slice(0, 1400));
 
       check('reading a payment app export raises no console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));

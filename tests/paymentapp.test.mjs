@@ -15,7 +15,7 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   readInstrument, kindOf, counterpartyOf, isPaymentApp, byInstrument,
   alreadyOnRecord, referencesIn, describeImport,
-  matchInstruments, splitByAccount, describeSplit,
+  matchInstruments, splitByAccount, describeSplit, transferTarget, resolveTransfers,
 } from '../js/domain/paymentapp.js';
 import { parseTable, readDate } from '../js/domain/tabular.js';
 
@@ -312,5 +312,109 @@ describe('one file, several accounts', () => {
 
   test('nothing to split says nothing', () => {
     assert.equal(describeSplit([]), null);
+  });
+});
+
+describe('a self-transfer names both of its ends', () => {
+  const ACCOUNTS = [
+    { id: 'a1', name: 'Kotak Savings', accountNumber: '5612488963', deletedAt: null },
+    { id: 'a3', name: 'HDFC Savings', accountNumber: '50100128177', deletedAt: null },
+  ];
+
+  test('the destination is read off the row', () => {
+    // `Transfer to XXXXXXXX8177`, paid by something else, is the app stating
+    // both ends of one movement. `domain/events.js` pairs two bank legs by
+    // amount and date and calls that *probable*, because a bank statement
+    // names only its own side. This record names both.
+    assert.equal(transferTarget('Transfer to XXXXXXXX8177'), 'XXXXXXXX8177');
+    assert.equal(transferTarget('Paid to ZOMATO LIMITED'), null);
+  });
+
+  test('a destination that is a name is not an account', () => {
+    // A redemption from a mutual fund. Calling it an internal transfer would
+    // move money into an account that does not exist and take a real
+    // investment sale out of the picture.
+    assert.equal(transferTarget('Withdrawn from Bandhan ELSS Tax saver Fund'), null);
+    assert.equal(transferTarget('Transfer to ROOPESH K'), null);
+  });
+
+  test('a resolved transfer becomes movement, not spending', () => {
+    const rows = [{
+      description: 'Transfer to XXXXXXXX8177', direction: 'out',
+      amount: 56_000_00, account: 'a1', kind: 'expense',
+    }];
+
+    const { rows: out, linked, unresolved } = resolveTransfers(rows, ACCOUNTS);
+
+    assert.equal(linked, 1);
+    assert.equal(unresolved, 0);
+    // The shape `domain/finance.js` already reads and `linkFor` already
+    // writes — the outgoing leg carrying where it went.
+    assert.equal(out[0].toAccount, 'a3');
+    assert.equal(out[0].kind, 'transfer');
+    assert.equal(out[0].category, 'own account');
+  });
+
+  test('a destination the app masks too heavily is left as money out', () => {
+    // `XXXXXXXXXX84` leaves two digits. There IS an account ending 84 here on
+    // purpose — otherwise the refusal would pass for want of a candidate
+    // rather than because two digits is too few, and dropping the length
+    // guard would change nothing. Found by mutation.
+    const withEightyFour = [...ACCOUNTS,
+      { id: 'a2', name: 'ICICI Savings', accountNumber: '008401532684', deletedAt: null }];
+    const rows = [{ description: 'Transfer to XXXXXXXXXX84', direction: 'out', amount: 56_000_00, account: 'a1' }];
+    const { rows: out, linked, unresolved } = resolveTransfers(rows, withEightyFour);
+
+    assert.equal(linked, 0);
+    assert.equal(unresolved, 1);
+    assert.equal(out[0].toAccount, undefined);
+  });
+
+  test('two accounts ending the same way leave it unresolved', () => {
+    const ambiguous = [
+      { id: 'x1', name: 'One', accountNumber: '11118177', deletedAt: null },
+      { id: 'x2', name: 'Two', accountNumber: '99998177', deletedAt: null },
+    ];
+    const rows = [{ description: 'Transfer to XXXXXXXX8177', direction: 'out', amount: 100, account: 'a1' }];
+    const { rows: out, linked, unresolved } = resolveTransfers(rows, ambiguous);
+
+    assert.equal(linked, 0);
+    assert.equal(unresolved, 1);
+    assert.equal(out[0].toAccount, undefined);
+  });
+
+  test('an account cannot transfer to itself', () => {
+    // A row saying so is a misread mask, not a movement, and setting
+    // `toAccount` to the source would credit and debit one balance.
+    const rows = [{ description: 'Transfer to XXXXXXXX8177', direction: 'out', amount: 100, account: 'a3' }];
+    const { linked, unresolved } = resolveTransfers(rows, ACCOUNTS);
+
+    assert.equal(linked, 0);
+    assert.equal(unresolved, 1);
+  });
+
+  test('no account on record means it stays a payment', () => {
+    const rows = [{ description: 'Transfer to XXXXXXXX8177', direction: 'out', amount: 100, account: 'a1' }];
+    assert.equal(resolveTransfers(rows, []).linked, 0);
+  });
+
+  test('an ordinary payment is untouched', () => {
+    const rows = [{ description: 'Paid to ZOMATO LIMITED', direction: 'out', amount: 30_00, account: 'a1' }];
+    const { rows: out, linked } = resolveTransfers(rows, ACCOUNTS);
+
+    assert.equal(linked, 0);
+    assert.equal(out[0].toAccount, undefined);
+    assert.equal(out[0], rows[0], 'the row is returned as it came in');
+  });
+
+  test('the sentence says what was joined and what was not', () => {
+    const said = describeImport({
+      accounts: byInstrument(parseTable(STATEMENT).transactions),
+      seen: 0, fresh: 7, linked: 12, unresolvedTransfers: 23,
+    }, (n) => String(n));
+
+    assert.includes(said, '12 are transfers between the household’s own accounts');
+    assert.includes(said, 'counted as movement rather than spending');
+    assert.includes(said, '23 more say they went to another account the app masks too heavily');
   });
 });

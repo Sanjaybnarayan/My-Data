@@ -28,7 +28,7 @@ import { extract } from '../data/pdf-read.js';
 import { parseTable, looksLikeCard } from '../domain/tabular.js';
 import {
   isPaymentApp, byInstrument, alreadyOnRecord, referencesIn, describeImport,
-  matchInstruments, splitByAccount, describeSplit,
+  matchInstruments, splitByAccount, describeSplit, resolveTransfers,
 } from '../domain/paymentapp.js';
 import {
   planStatement, reviewBatch, toRecord, toStatementRecord, accountFromStatement,
@@ -188,13 +188,33 @@ export async function render() {
       // computed once against a file that has no single account, every row
       // would carry the same empty account id and a re-import would not
       // recognise itself.
-      plan.groups = splitByAccount(plan.fresh, matched).map((group) => ({
-        ...group,
-        rows: group.rows.map((row) => ({
-          ...row,
-          importKey: group.account ? fingerprint(group.account.id, row) : '',
-        })),
-      }));
+      let linked = 0;
+      let unresolvedTransfers = 0;
+
+      plan.groups = splitByAccount(plan.fresh, matched).map((group) => {
+        // A `Transfer to XXXX8177` row names both ends of one movement, so it
+        // is an internal transfer rather than spending — but only once the
+        // destination resolves to an account on record. Done per group,
+        // because the source account is what a self-transfer to itself has to
+        // be checked against.
+        const stamped = group.rows.map((row) => ({
+          ...row, account: group.account?.id ?? null,
+        }));
+        const resolved = resolveTransfers(stamped, options.accounts);
+        linked += resolved.linked;
+        unresolvedTransfers += resolved.unresolved;
+
+        return {
+          ...group,
+          rows: resolved.rows.map((row) => ({
+            ...row,
+            importKey: group.account ? fingerprint(group.account.id, row) : '',
+          })),
+        };
+      });
+
+      plan.paymentApp.linked = linked;
+      plan.paymentApp.unresolvedTransfers = unresolvedTransfers;
 
       // Rows whose instrument matches no account are not importable. Kept and
       // counted rather than dropped, so the screen can say why.

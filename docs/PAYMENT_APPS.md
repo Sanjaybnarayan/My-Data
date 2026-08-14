@@ -113,8 +113,8 @@ rather than silently missing.
 
 ## Verification
 
-- 1,192 unit tests, 33 in `tests/paymentapp.test.mjs`.
-- **17 mutations, all caught** — including *credited-to reads as money out*, *a
+- 1,201 unit tests, 42 in `tests/paymentapp.test.mjs`.
+- **24 mutations, all caught** — including *credited-to reads as money out*, *a
   self-transfer is ordinary spending*, *a missing UTR counts as a duplicate*,
   *duplicates are never detected*, *the instrument is a deposit column again*,
   *a two-digit tail is matched anyway*, *an ambiguous tail picks the first*, and
@@ -122,7 +122,7 @@ rather than silently missing.
 - One survived at first: *the tail is matched anywhere, not at the end*. No
   fixture had an account whose number **contains** the digits without ending in
   them, so the rule was untested. `50100081779999` is now one of them.
-- 228 browser checks; the new ones fail when month-first dates are refused, and
+- 229 browser checks; the new ones fail when month-first dates are refused, and
   when a mask too short to identify an account is matched anyway.
 - Typecheck **194, down from 198**: documenting `parsed` and `references` on
   `planStatement`'s options cleared four pre-existing findings in
@@ -169,8 +169,50 @@ has no single account, every row would carry the same empty id — and a
 re-import of the same file would not recognise itself. Each group's rows are
 re-fingerprinted against the account they were filed to.
 
+## A self-transfer names both of its ends
+
+`Transfer to XXXXXXXX8177`, paid by `XXXXXXXX8963`, is the app stating **both
+ends of one movement outright**. That is stronger evidence than anything
+`domain/events.js` can offer: it pairs two bank legs by amount and date and
+calls the result *probable*, because a bank statement names only its own side.
+Here the record names both, so no window and no tolerance apply.
+
+A resolved transfer gets `toAccount` on its outgoing leg — the shape
+`domain/finance.js` already reads and `linkFor` already writes — plus
+`kind: 'transfer'` and the `own account` category, because money moving between
+the household's own accounts is not spending and the categoriser cannot know
+that from `Transfer to XXXX8177`.
+
+The destination is matched by the same rule as the source, and refuses on the
+same grounds. **A transfer this cannot name is left as money out.** That
+overstates spending, which is the safe direction: inventing a destination would
+move money into an account the household never touched. An account cannot
+transfer to itself either — a row saying so is a misread mask, and setting
+`toAccount` to the source would credit and debit one balance.
+
+A destination that is **not a mask is not an account**. `Withdrawn from Bandhan
+ELSS Tax saver Fund` is a redemption from a mutual fund; calling it an internal
+transfer would invent an account and take a real investment sale out of the
+picture.
+
+On the real file, against the three accounts the bank statements identify:
+
+> 4 are transfers between the household's own accounts, joined to the account
+> each went to and counted as movement rather than spending, and 31 more say
+> they went to another account the app masks too heavily to name, so they stay
+> counted as money out.
+
+### A counter that could disagree with its own data
+
+`linked` was first tallied alongside the loop that sets `toAccount`. A mutation
+that stopped setting the field **survived every browser check** — the sentence
+still said a transfer had been joined while the row carried no destination. The
+count is now taken from the rows themselves (`out.filter((row) => row.toAccount)`),
+so the sentence cannot be right about data that is wrong. The same mutation now
+fails the browser suite.
+
 ## Still not done
 
-- **A self-transfer is labelled, not paired.** `domain/events.js` pairs the two
-  legs of an internal transfer; a payment app names one leg and the bank names
-  the other, and the two are not yet joined.
+- **The other leg is not sought.** When the destination account's own statement
+  is imported, its incoming row is a second record of the same movement.
+  `referencesIn` would find it by UTR, but nothing yet joins the two.
