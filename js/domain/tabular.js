@@ -39,12 +39,23 @@ const HEADERS = [
   ['date', /^(?:transaction |txn |value |posting |post )?date\b|^date of transaction/i],
   ['valueDate', /^value date/i],
   ['description', /^(?:transaction |txn )?(?:description|narration|particulars|details|remarks|merchant)/i],
-  ['reference', /^(?:chq|cheque|ref(?:erence)?|utr|transaction id|txn id)\b/i],
+  // The bank's own reference for the movement. A payment app prints it beside
+  // its own id, and it is the one that appears inside the bank's narration —
+  // which makes it the only exact link between the two records of one payment.
+  ['utr', /^(?:utr|rrn|bank reference)\b/i],
+  ['reference', /^(?:chq|cheque|ref(?:erence)?|transaction id|txn id)\b/i],
   // Before the single-direction columns, and deliberately: a "Debit/Credit"
   // heading begins with the word "debit", so a withdrawal pattern checked
   // first would claim it and the direction would be read out of a column
   // holding the letters DR and CR.
-  ['type', /^(?:type|transaction type|(?:dr|debit)\s*[/|]\s*(?:cr|credit)|(?:cr|credit)\s*[/|]\s*(?:dr|debit)|indicator)\b/i],
+  ['type', /^(?:type|transaction type|(?:dr|debit)\s*[/|]\s*(?:cr|credit)|(?:cr|credit)\s*[/|]\s*(?:dr|debit)|indicator)\b(?!\s*instrument)/i],
+  // Which of the household's accounts the money actually moved on. A payment
+  // app is not an account — it is a way of moving money on several — so this
+  // column varies row by row where a bank statement has one account for the
+  // whole file. Before the withdrawal and deposit patterns, because PhonePe
+  // heads it `Credit/debit instrument`, whose first word made it a *deposit
+  // amount* column holding the text "Paid by XXXXXXXX8177".
+  ['instrument', /^(?:(?:cr|credit|dr|debit)\s*[/|]\s*(?:dr|debit|cr|credit)\s*)?instrument\b|^(?:paid by|from account|source account)\b/i],
   ['withdrawal', /^(?:withdrawal|debit|dr|paid out|money out|purchase|spends?)\b|\(dr\.?\)/i],
   ['deposit', /^(?:deposit|credit|cr|paid in|money in|payment|receipts?)\b|\(cr\.?\)/i],
   ['amount', /^(?:amount|transaction amount|amt)\b/i],
@@ -215,6 +226,16 @@ export function readDate(cell) {
     if (month) return pad(century(named[3]), month, named[1]);
   }
 
+  // `Aug 15, 2026` — the month first. PhonePe writes dates this way, and
+  // without it every row of a 1,047-row statement was skipped for having no
+  // readable date. Unambiguous whichever way round, because the month is a
+  // word; checked before the all-numeric form, which it cannot match anyway.
+  const monthFirst = /\b([A-Za-z]{3,})\s+(\d{1,2}),?\s+(\d{2,4})\b/.exec(text);
+  if (monthFirst) {
+    const month = MONTHS.indexOf(monthFirst[1].slice(0, 3).toLowerCase()) + 1;
+    if (month) return pad(century(monthFirst[3]), month, monthFirst[2]);
+  }
+
   const dmy = /\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b/.exec(text);
   if (dmy) return pad(century(dmy[3]), dmy[2], dmy[1]);
 
@@ -274,6 +295,12 @@ export function parseTable(text, options = {}) {
       description,
       raw: description,
       reference: String(cell('reference')).trim(),
+      // The bank's reference, where the file prints one, and which of the
+      // household's accounts the money moved on. Both are null on an ordinary
+      // bank export — a bank statement is one account's, and states no
+      // reference the other side would recognise.
+      utr: String(cell('utr')).trim() || null,
+      instrument: String(cell('instrument')).trim() || null,
       amount: read.amount,
       direction: read.direction,
       balance: readAmount(cell('balance')),

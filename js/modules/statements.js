@@ -27,7 +27,12 @@ import { app } from '../context.js';
 import { extract } from '../data/pdf-read.js';
 import { parseTable, looksLikeCard } from '../domain/tabular.js';
 import {
+  isPaymentApp, byInstrument, alreadyOnRecord, referencesIn, describeImport,
+  matchInstruments, splitByAccount, describeSplit, resolveTransfers,
+} from '../domain/paymentapp.js';
+import {
   planStatement, reviewBatch, toRecord, toStatementRecord, accountFromStatement,
+  fingerprint,
 } from '../domain/import.js';
 import { summarise, categoryLabel, businessLedger } from '../domain/categorise.js';
 import { today } from '../core/dates.js';
@@ -83,13 +88,13 @@ export async function render() {
 
     const { db } = app();
     const accounts = await db.repo('account').list({ limit: 500 });
-    const existingKeys = await importedKeys(db);
+    const { keys: existingKeys, references } = await importedKeys(db);
     const next = [];
 
     for (const file of files) {
       try {
         const plan = isTable(file)
-          ? await loadTable(file, { accounts, existingKeys, businesses })
+          ? await loadTable(file, { accounts, existingKeys, references, businesses })
           : await loadPdf(file, { accounts, existingKeys, businesses });
 
         if (plan.error) {
@@ -154,13 +159,81 @@ export async function render() {
     const plan = planStatement([], { file: file.name, parsed, ...options });
     plan.card = card;
     plan.rows = null;
+
+    // A payment app's export is not one account's statement: it spans every
+    // bank account the app is linked to, and every row of it is a movement the
+    // bank also recorded. Both facts change what this screen must say.
+    if (isPaymentApp(parsed)) {
+      const matched = matchInstruments(byInstrument(parsed.transactions), options.accounts);
+      plan.paymentApp = { accounts: byInstrument(parsed.transactions), matched };
+
+      // The split comes before the duplicate check, because a duplicate here
+      // is a *leg* — one reference, on one account, in one direction — and
+      // until a row is filed to an account there is nothing to compare it as.
+      //
+      // One file, several accounts, written as several statements. The
+      // fingerprint is rebuilt per group because it is keyed on the account:
+      // computed once against a file that has no single account, every row
+      // would carry the same empty account id and a re-import would not
+      // recognise itself.
+      let linked = 0;
+      let unresolvedTransfers = 0;
+
+      plan.groups = splitByAccount(plan.fresh, matched).map((group) => {
+        // A `Transfer to XXXX8177` row names both ends of one movement, so it
+        // is an internal transfer rather than spending — but only once the
+        // destination resolves to an account on record. Done per group,
+        // because the source account is what a self-transfer to itself has to
+        // be checked against.
+        const stamped = group.rows.map((row) => ({
+          ...row, account: group.account?.id ?? null,
+        }));
+        const resolved = resolveTransfers(stamped, options.accounts);
+        linked += resolved.linked;
+        unresolvedTransfers += resolved.unresolved;
+
+        return {
+          ...group,
+          rows: resolved.rows.map((row) => ({
+            ...row,
+            importKey: group.account ? fingerprint(group.account.id, row) : '',
+          })),
+        };
+      });
+
+      plan.paymentApp.linked = linked;
+      plan.paymentApp.unresolvedTransfers = unresolvedTransfers;
+
+      // Rows whose instrument matches no account are not importable. Kept and
+      // counted rather than dropped, so the screen can say why.
+      plan.unfiled = plan.groups.filter((group) => !group.account)
+        .reduce((total, group) => total + group.rows.length, 0);
+
+      const filed = plan.groups.filter((group) => group.account)
+        .flatMap((group) => group.rows);
+
+      // Now that every row knows its account, the legs already on record can
+      // be recognised. Moved out of `fresh` rather than dropped: the row is
+      // real, it is simply already counted, and somebody comparing the two
+      // files should see it named rather than silently missing.
+      const { seen, fresh } = alreadyOnRecord(filed, options.references ?? new Set());
+      plan.duplicates = [...plan.duplicates, ...seen];
+      plan.fresh = fresh;
+      plan.paymentApp.seen = seen.length;
+      plan.paymentApp.fresh = parsed.transactions.length - seen.length;
+    }
+
     return plan;
   }
 
   /* --------------------------------------------------------------- writing */
 
   async function importAll() {
-    const writable = plans.filter((plan) => plan.match?.account && plan.fresh?.length);
+    // A payment-app file belongs to no single account, so it is writable when
+    // any of its groups matched one — `plan.match.account` is meaningless here
+    // and asking for it would refuse every such file.
+    const writable = plans.filter((plan) => plan.fresh?.length
+      && (plan.groups ? plan.groups.some((group) => group.account) : plan.match?.account));
     if (!writable.length) return;
 
     const total = writable.reduce((sum, plan) => sum + plan.fresh.length, 0);
@@ -185,7 +258,17 @@ export async function render() {
 
     try {
       for (const plan of writable) {
-        const accountId = plan.match.account.id;
+        // One file, several accounts, several statement records. A
+        // `bankStatement` states an account, a row count and an imported
+        // count; one record covering four accounts would have to be wrong
+        // about all three. See `docs/PAYMENT_APPS.md`.
+        const parts = plan.groups
+          ? plan.groups.filter((group) => group.account && group.rows.length)
+            .map((group) => ({ accountId: group.account.id, rows: group.rows }))
+          : [{ accountId: plan.match.account.id, rows: plan.fresh }];
+
+        for (const part of parts) {
+          const { accountId, rows } = part;
 
         // One unit per file, and the reason is the `importedCount` below. The
         // statement record states how many rows came out of it; the rows are
@@ -202,22 +285,24 @@ export async function render() {
         //
         // Per file rather than per batch, so one enormous transaction cannot
         // form out of several statements at once.
-        await transact(db, async (unit) => {
-          const statement = await unit.create(
-            'bankStatement',
-            toStatementRecord(plan, { accountId, importedCount: plan.fresh.length, today: today() }),
-          );
-
-          for (const row of plan.fresh) {
-            await unit.create(
-              'transaction',
-              toRecord(row, { accountId, statementId: statement.id, personId: plan.personId }),
+          await transact(db, async (unit) => {
+            const statement = await unit.create(
+              'bankStatement',
+              toStatementRecord(plan, { accountId, importedCount: rows.length, today: today() }),
             );
-          }
-        });
 
-        written += plan.fresh.length;
-        plan.imported = plan.fresh.length;
+            for (const row of rows) {
+              await unit.create(
+                'transaction',
+                toRecord(row, { accountId, statementId: statement.id, personId: plan.personId }),
+              );
+            }
+          });
+
+          written += rows.length;
+        }
+
+        plan.imported = parts.reduce((total, part) => total + part.rows.length, 0);
         plan.fresh = [];
       }
 
@@ -242,7 +327,7 @@ export async function render() {
     // Every file in the batch waiting on the same account now matches, so all
     // of them are redone rather than only the one that was clicked.
     const accounts = await db.repo('account').list({ limit: 500 });
-    const existingKeys = await importedKeys(db);
+    const { keys: existingKeys } = await importedKeys(db);
     plans = plans.map((other) => (other.rows && !other.match?.account
       ? Object.assign(
         planStatement(other.rows, { file: other.file, accounts, existingKeys, businesses }),
@@ -267,7 +352,7 @@ export async function render() {
 
     const { db } = app();
     const accounts = await db.repo('account').list({ limit: 500 });
-    const existingKeys = await importedKeys(db);
+    const { keys: existingKeys } = await importedKeys(db);
 
     plans = plans.map((plan) => (plan.rows && !plan.imported
       ? Object.assign(
@@ -385,8 +470,25 @@ export async function render() {
           }),
         ]),
 
+      // A payment app's export is not one account's statement, and the account
+      // match above is exactly the thing that needs qualifying: there is no
+      // single account for this file to belong to.
+      plan.paymentApp
+        ? h('p', { class: 'small muted', style: { marginTop: 'var(--space-3)' } },
+          describeImport(plan.paymentApp, format))
+        : null,
+
+      // Which account each group of rows will be filed against, and which
+      // groups will not be filed at all. A payment put on the wrong account is
+      // invisible afterwards and wrong in two places, so an instrument that
+      // matches nothing is named rather than guessed at.
+      plan.groups
+        ? h('p', { class: `small ${plan.unfiled ? 'warn' : 'faint'}` }, describeSplit(plan.groups))
+        : null,
+
       h('div', { class: 'chip-row', style: { marginTop: 'var(--space-3)' } }, [
         chip(`${plan.transactions.length} rows`),
+        plan.paymentApp ? chip(`${plan.paymentApp.accounts.length} accounts`) : null,
         chip(plan.duplicates.length ? `${plan.duplicates.length} already here` : 'none duplicated'),
         chip(plan.check.balanced ? 'arithmetic closes' : `off by ${format(plan.check.difference)}`),
         plan.problems.length ? chip(`${plan.problems.length} unreadable`) : null,
@@ -517,7 +619,16 @@ function instructions() {
  */
 async function importedKeys(db) {
   const rows = await db.repo('transaction').list({ decrypt: false, limit: Infinity });
-  return new Set(rows.map((row) => row.importKey).filter(Boolean));
+  return {
+    keys: new Set(rows.map((row) => row.importKey).filter(Boolean)),
+    // Every bank reference already on record. A payment app's row and a bank's
+    // row are the same movement written down twice, and the fingerprint cannot
+    // see it: the narrations differ completely, so both would import and the
+    // household's spending would double. The UTR is the one thing both records
+    // carry — the bank writes it into its narration — and is the only exact
+    // link between them. See `domain/paymentapp.js`.
+    references: referencesIn(rows),
+  };
 }
 
 /**

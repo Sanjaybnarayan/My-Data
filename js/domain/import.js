@@ -262,6 +262,7 @@ export function toRecord(row, { accountId, statementId = '', personId = '' }) {
  *
  * @param {object[]} rows positioned rows from the PDF reader
  * @param {{file?: string, accounts?: object[], existingKeys?: Set<string>,
+ *          parsed?: object, references?: Set<string>,
  *          account?: object, holder?: string, businesses?: string[],
  *          overrides?: object, personId?: string}} options
  */

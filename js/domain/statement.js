@@ -35,19 +35,66 @@ const MONTHS = {
   jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
 };
 
-/** `01 Apr 2025` → `2025-04-01`. */
+/**
+ * A date out of a statement cell, as `YYYY-MM-DD`.
+ *
+ * Three shapes, because three banks print three:
+ *
+ *     01 Apr 2025      Kotak
+ *     16.07.2026       ICICI
+ *     18-06-2026       Axis
+ *
+ * Only the first was accepted, and the parser needs a date in the second cell
+ * to know a row begins a transaction — so an ICICI statement with 3,242 rows
+ * of perfectly readable text produced **zero** transactions.
+ *
+ * The numeric forms are **day-first**, which is what Indian banks print.
+ * Reading `07.08.2026` as the seventh of August where the bank meant the
+ * eighth of July would move a transaction by a month for eleven days in every
+ * twelve, silently — the same rule, and the same reasoning, as
+ * `domain/extract.js`. A spelled-out month is unambiguous and wins wherever it
+ * appears.
+ */
 export function parseDate(text) {
-  const match = /^(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{2,4})$/.exec(String(text ?? '').trim());
-  if (!match) return null;
-  const month = MONTHS[match[2].toLowerCase()];
-  if (!month) return null;
-  const year = match[3].length === 2 ? `20${match[3]}` : match[3];
-  return `${year}-${month}-${match[1].padStart(2, '0')}`;
+  const value = String(text ?? '').trim();
+
+  const named = /^(\d{1,2})[\s\-/.]+([A-Za-z]{3})[a-z]*[\s\-/.,]+(\d{2,4})$/.exec(value);
+  if (named) {
+    const month = MONTHS[named[2].toLowerCase()];
+    if (month) return iso(named[3], month, named[1]);
+  }
+
+  // Year-first before day-first, and both anchored, so `2026-01-15` is not
+  // read off its own tail as 2015.
+  const yearFirst = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(value);
+  if (yearFirst) return iso(yearFirst[1], yearFirst[2], yearFirst[3]);
+
+  const dayFirst = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/.exec(value);
+  if (dayFirst) return iso(dayFirst[3], dayFirst[2], dayFirst[1]);
+
+  return null;
 }
+
+function iso(year, month, day) {
+  const y = String(year).length === 2 ? `20${year}` : String(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (!(m >= 1 && m <= 12) || !(d >= 1 && d <= 31)) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/**
+ * A row stating the balance carried into the statement.
+ *
+ * `Opening Balance` (Kotak, Axis) and `B/F` (ICICI), which is the same fact
+ * under a shorter name. Anchored to the start so a narration mentioning either
+ * is not mistaken for one.
+ */
+const OPENING_ROW = /^\s*(?:\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\s+)?(?:opening\s+balance|B\/F)\b/i;
 
 const AMOUNT = /^-?\(?\d[\d,]*\.\d{2}\)?(?:\s*(?:Dr|Cr)\.?)?$/i;
 const SERIAL = /^\d{1,5}$/;
-const DATE_CELL = /^\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4}$/;
+const DATE_CELL = /^(?:\d{1,2}[\s\-/.]+[A-Za-z]{3,9}[\s\-/.,]+\d{2,4}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2})$/;
 
 /** Every number that looks like an amount, in order, as minor units. */
 function amountsIn(text) {
@@ -122,14 +169,19 @@ export function parseStatement(input, options = {}) {
   let opening = options.openingBalance ?? summary.opening ?? null;
 
   for (const row of rows) {
-    const started = startOfTransaction(row);
-    if (started) {
-      groups.push({ ...started, row, continuations: [] });
+    // Before `startOfTransaction`, because ICICI prints the brought-forward
+    // balance as a dated row — `01-04-2025  B/F  50,087.53` — which is the
+    // shape of a transaction and is not one. Tested first, it became a
+    // transaction with no readable amount and was reported as a problem on
+    // every statement that opens with one.
+    if (OPENING_ROW.test(row.text)) {
+      if (opening === null) opening = amountsIn(row.text).at(-1) ?? null;
       continue;
     }
 
-    if (opening === null && /opening\s+balance/i.test(row.text)) {
-      opening = amountsIn(row.text).at(-1) ?? null;
+    const started = startOfTransaction(row);
+    if (started) {
+      groups.push({ ...started, row, continuations: [] });
       continue;
     }
 
@@ -147,20 +199,53 @@ export function parseStatement(input, options = {}) {
   return assemble(groups, { opening, closing: summary.closing, columns, account });
 }
 
-/** `{serial, date}` when this row begins a transaction, else null. */
+/**
+ * `{serial, date}` when this row begins a transaction, else null.
+ *
+ * Two layouts, because banks print both:
+ *
+ *     ["1", "16.07.2026", "3900.00", "5141.53"]     serial then date
+ *     ["18-06-2026", "UPI/P2A/...", "101.00", ...]  date first, no serial
+ *
+ * Only the first was recognised, so an Axis statement — which has no serial
+ * column at all — produced nothing. The serial is a convenience for reporting
+ * a problem row back to a person; it is not what identifies a transaction, and
+ * requiring one excluded every bank that does not print it.
+ *
+ * The date is what identifies the row, and it has to be in the **first or
+ * second** cell. Anywhere further in and the match would start catching dates
+ * that appear inside a narration.
+ */
 function startOfTransaction(row) {
   if (row.cells) {
     const [first, second] = row.cells;
-    if (!first || !second) return null;
+    if (!first) return null;
+
+    // Date first, no serial.
+    if (DATE_CELL.test(first.text)) {
+      const date = parseDate(first.text);
+      return date ? { serial: null, date } : null;
+    }
+
+    if (!second) return null;
     if (!SERIAL.test(first.text) || !DATE_CELL.test(second.text)) return null;
     const date = parseDate(second.text);
     return date ? { serial: Number(first.text), date } : null;
   }
 
-  const match = /^(\d{1,5})\s+(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s+(.*)$/.exec(row.text.trim());
-  if (!match) return null;
-  const date = parseDate(match[2]);
-  return date ? { serial: Number(match[1]), date } : null;
+  const text = row.text.trim();
+  const DATE = String.raw`\d{1,2}\s+[A-Za-z]{3}\s+\d{4}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}`;
+
+  const serialled = new RegExp(`^(\\d{1,5})\\s+(${DATE})\\s+(.*)$`).exec(text);
+  if (serialled) {
+    const date = parseDate(serialled[2]);
+    if (date) return { serial: Number(serialled[1]), date };
+  }
+
+  const bare = new RegExp(`^(${DATE})\\s+(.*)$`).exec(text);
+  if (!bare) return null;
+  const date = parseDate(bare[1]);
+  return date ? { serial: null, date } : null;
 }
 
 const FURNITURE = [
@@ -200,6 +285,8 @@ function assemble(groups, { opening, closing, columns, account }) {
   const transactions = [];
   const problems = [];
   let running = opening;
+  // The last balance the bank itself printed, so a statement that never states
+  // an opening balance can still be checked row against row.
 
   for (const group of groups) {
     const read = columns ? readByColumn(group, columns) : readByBalance(group, running);
@@ -254,6 +341,12 @@ function assemble(groups, { opening, closing, columns, account }) {
     });
   }
 
+  // A statement that never states an opening balance was never checked at all:
+  // the branch above needs a running figure to compare against, so ICICI's 595
+  // transactions came back with zero problems whatever the rows said. That is
+  // the most confident an importer can be while being wrong.
+  if (opening === null) problems.push(...blockProblems(transactions));
+
   return {
     transactions,
     openingBalance: opening,
@@ -271,16 +364,41 @@ function assemble(groups, { opening, closing, columns, account }) {
 function readByColumn(group, columns) {
   const cells = [group.row, ...group.continuations].flatMap((row) => row.cells ?? []);
 
+  const amounts = cells
+    .map((cell) => ({ x: cell.x, value: cellAmount(cell.text) }))
+    .filter((cell) => cell.value !== null)
+    .sort((a, b) => a.x - b.x);
+
   let withdrawal = null;
   let deposit = null;
   let balance = null;
+  let rest = amounts;
 
-  for (const cell of cells) {
-    const value = cellAmount(cell.text);
-    if (value === null) continue;
-    if (cell.x >= columns.balance) balance ??= value;
-    else if (cell.x >= columns.deposit) deposit ??= value;
-    else if (cell.x >= columns.withdrawal) withdrawal ??= value;
+  // A column boundary is the *left* edge of its heading, and amounts are
+  // **right-aligned** — so a figure wider than its heading starts to the left
+  // of it and lands in the column before. Measured on a real ICICI statement:
+  // a balance of `100236.53` began 1.1pt left of the `Balance` heading, so 48
+  // rows came back with no balance at all, and on a row with no deposit that
+  // balance would have been read *as* the deposit — an inward amount invented
+  // out of a running total.
+  //
+  // The rightmost amount on the row is the balance. That holds for all three
+  // layouts here, because every one of them prints Withdrawal, Deposit and
+  // Balance in that order with nothing numeric after it — Axis's trailing
+  // branch code has no decimals, so it is not amount-shaped.
+  //
+  // Only where there is more than one amount: a lone figure is the
+  // transaction, not a balance, and treating it as one would leave the row
+  // with no amount at all.
+  if (amounts.length >= 2 && amounts.at(-1).x >= columns.deposit) {
+    balance = amounts.at(-1).value;
+    rest = amounts.slice(0, -1);
+  }
+
+  for (const cell of rest) {
+    if (cell.x >= columns.balance) balance ??= cell.value;
+    else if (cell.x >= columns.deposit) deposit ??= cell.value;
+    else if (cell.x >= columns.withdrawal) withdrawal ??= cell.value;
   }
 
   if (withdrawal === null && deposit === null) return null;
@@ -313,6 +431,77 @@ function readByBalance(group, running) {
 }
 
 /** The row and its continuations as one string. */
+/**
+ * The arithmetic check for a statement that never states an opening balance.
+ *
+ * Without one the running-balance check has nothing to start from, so ICICI's
+ * 595 transactions came back with zero problems whatever the rows said.
+ *
+ * Checking each row against the balance printed above it does not work either:
+ * **a bank orders same-day rows by its own internal sequence, not by the
+ * running balance.** ICICI printed a ₹650 withdrawal above the ₹650 deposit
+ * that funded it — both rows read correctly, both balances correct, and the
+ * pair in the wrong order. Two false alarms on 595 rows, and a warning that
+ * cries wolf is one people learn to click past.
+ *
+ * So the unit is a **date**. Across dates the arithmetic must hold: the
+ * previous day's closing plus this day's signed amounts has to equal one of
+ * the balances the bank printed inside the day. Which row of the day carried
+ * it does not matter, and is not knowable.
+ *
+ * Verified against six real statements: no problems on any of them, and an
+ * error injected into any one row is still caught on every one of them.
+ */
+function blockProblems(transactions) {
+  const problems = [];
+  let closing = null;
+  let i = 0;
+
+  while (i < transactions.length) {
+    const date = transactions[i].date;
+    const block = [];
+    while (i < transactions.length && transactions[i].date === date) {
+      block.push(transactions[i]);
+      i += 1;
+    }
+
+    const printed = block.map((t) => t.printedBalance).filter((b) => b !== null);
+    if (!printed.length) continue;
+
+    if (closing === null) {
+      // The first day sets the baseline: with no opening balance there is
+      // nothing before it to check against.
+      closing = printed.at(-1);
+      continue;
+    }
+
+    const moved = block.reduce(
+      (total, t) => total + (t.direction === 'in' ? t.amount : -t.amount), 0,
+    );
+    const expected = closing + moved;
+    // A rupee of drift is rounding.
+    const hit = printed.find((balance) => Math.abs(balance - expected) <= 100);
+
+    if (hit === undefined) {
+      problems.push({
+        serial: block[0].serial,
+        date,
+        reason: 'the transactions on this date do not add up to any balance printed for it',
+        expected: printed.at(-1),
+        found: expected,
+        description: block.map((t) => t.description).join(' · ').slice(0, 200),
+      });
+      // Resync to what the bank printed, so one bad day does not make every
+      // day after it look wrong too.
+      closing = printed.at(-1);
+    } else {
+      closing = hit;
+    }
+  }
+
+  return problems;
+}
+
 function describe(group) {
   return [group.row, ...group.continuations]
     .map((row) => row.text)
@@ -321,10 +510,25 @@ function describe(group) {
     .trim();
 }
 
-/** The narration with the figures, serial, date and reference taken out. */
+/**
+ * The narration with the figures, serial, date and reference taken out.
+ *
+ * The order matters, and getting it wrong is not cosmetic. A dotted date is
+ * shaped exactly like an amount — `16.07.2026` contains `16.07` — so stripping
+ * figures first ate half the date and left `.2026` glued to the front of every
+ * ICICI narration. The date has to go first, and by every shape the parser
+ * accepts rather than only Kotak's.
+ *
+ * The narration is what the categoriser reads and what the duplicate
+ * fingerprint is built from, so rubbish here is rubbish in both.
+ */
+const LEADING_DATE = String.raw`\d{1,2}[\s\-/.]+[A-Za-z]{3,9}[\s\-/.,]+\d{2,4}`
+  + String.raw`|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}`;
+
 function narration(description, reference) {
   return description
-    .replace(/^\d{1,5}\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{2,4}\s+/, '')
+    // An optional serial, then the date, in either layout.
+    .replace(new RegExp(`^(?:\\d{1,5}\\s+)?(?:${LEADING_DATE})\\s*`), '')
     .replace(/\d[\d,]*\.\d{2}/g, ' ')
     .replace(reference ? new RegExp(reference.replace(/-/g, '\\-'), 'g') : /$^/, ' ')
     .replace(/\s+/g, ' ')
@@ -339,7 +543,11 @@ export function readAccount(lines) {
   const find = (pattern) => pattern.exec(joined)?.[1]?.trim() ?? '';
 
   return {
-    number: find(/Account No\.?\s*([0-9Xx*]+)/),
+    // `Account No. 5612488963` (Kotak), `Account No: 926010022005391` (Axis),
+    // `Saving Account no. 008401532684 in INR` (ICICI). The number is what
+    // `domain/import.js` matches an existing account on, so a statement whose
+    // number is never found gets matched on the bank name alone.
+    number: find(/Account\s*(?:No|Number)\.?\s*[:\-]?\s*([0-9Xx*]{6,20})\b/i),
     // The name is not labelled — it is simply the line under the account
     // number, which is how every bank lays out a statement head.
     holder: find(/Account No\.?\s*[0-9Xx*]+\s*\n\s*([A-Za-z][A-Za-z .]{2,48}?)\s*$/m)
@@ -347,12 +555,66 @@ export function readAccount(lines) {
     ifsc: find(/IFSC Code\s*([A-Z]{4}0[A-Z0-9]{6})/),
     type: find(/Account Type\s*([A-Za-z ]+?)\s*(?:CRN|$)/m),
     period: find(/(\d{2} [A-Za-z]{3} \d{4}\s*-\s*\d{2} [A-Za-z]{3} \d{4})/),
-    bank: /KKBK|Kotak/i.test(joined) ? 'Kotak Mahindra Bank'
-      : /HDFC/.test(joined) ? 'HDFC Bank'
-        : /ICIC/.test(joined) ? 'ICICI Bank'
-          : /SBIN/.test(joined) ? 'State Bank of India'
-            : '',
+    bank: bankOf(joined, lines),
   };
+}
+
+/** IFSC prefixes, which name the bank that issued the account. */
+const IFSC_BANKS = {
+  KKBK: 'Kotak Mahindra Bank',
+  HDFC: 'HDFC Bank',
+  ICIC: 'ICICI Bank',
+  SBIN: 'State Bank of India',
+  UTIB: 'Axis Bank',
+  PUNB: 'Punjab National Bank',
+  IDFB: 'IDFC First Bank',
+  YESB: 'Yes Bank',
+  INDB: 'IndusInd Bank',
+  BARB: 'Bank of Baroda',
+  CNRB: 'Canara Bank',
+  UBIN: 'Union Bank of India',
+};
+
+/**
+ * Whose statement this is.
+ *
+ * **Not** any bank named anywhere in the header. A statement's transaction
+ * narrations are full of *other people's* banks — an ICICI statement whose
+ * first rows say `MMT/IMPS/.../KKBKTransfer` was reported as Kotak, and an
+ * Axis one likewise, because the scan covered forty lines and Kotak was tested
+ * first. Getting this wrong sends the import at the wrong account.
+ *
+ * So: the account's own IFSC decides it, because that is the one identifier on
+ * the page that belongs to the account rather than to somebody it paid. Only
+ * where there is no IFSC does a name count, and then only from the letterhead.
+ */
+function bankOf(joined, lines) {
+  // A *labelled* IFSC is the account's own. A bare one anywhere in the header
+  // may well be a counterparty's, lifted out of a narration — which is how an
+  // ICICI statement came back as Kotak on the strength of one `KKBK0008067`
+  // inside somebody else's transfer reference.
+  const labelled = /IFSC(?:\s*Code)?\s*[:\-]?\s*([A-Z]{4})0[A-Z0-9]{6}\b/i.exec(joined)?.[1];
+  if (labelled && IFSC_BANKS[labelled.toUpperCase()]) return IFSC_BANKS[labelled.toUpperCase()];
+
+  // The first few lines are the letterhead. Beyond that is the table, where a
+  // bank's name is somebody else's.
+  const head = lines.slice(0, 8).join('\n');
+  /** @type {Array<[RegExp, string]>} */
+  const named = [
+    [/\bKotak\b/i, 'Kotak Mahindra Bank'],
+    [/\bHDFC\b/i, 'HDFC Bank'],
+    [/\bICICI\b/i, 'ICICI Bank'],
+    [/\bAxis\b/i, 'Axis Bank'],
+    [/\bState Bank of India\b/i, 'State Bank of India'],
+  ];
+  for (const [pattern, name] of named) {
+    if (pattern.test(head)) return name;
+  }
+
+  // Last resort: a bare IFSC. Better than nothing, and only reached when the
+  // page never labelled one and never named a bank at its head.
+  const bare = /\b([A-Z]{4})0[A-Z0-9]{6}\b/.exec(joined)?.[1];
+  return (bare && IFSC_BANKS[bare]) || '';
 }
 
 /**

@@ -107,6 +107,7 @@ const SHELL = [
   './js/domain/mailboxes.js',
   './js/domain/merchants.js',
   './js/domain/networth.js',
+  './js/domain/paymentapp.js',
   './js/domain/portfolio.js',
   './js/domain/privacy.js',
   './js/domain/reminders.js',

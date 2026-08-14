@@ -200,6 +200,9 @@ async function main() {
 
     await page.locator('#f-account-name').fill('HDFC Savings');
     await page.locator('#f-account-institution').fill('HDFC Bank');
+    // A real number, because the payment-app import matches an instrument by
+    // the digits its mask leaves — `XXXXXXXX8177` has to find this account.
+    await page.locator('#f-account-accountNumber').fill('50100128177');
     await page.locator('#f-account-openingBalance').fill('25000');
     check('the form offers an enabled submit button',
       await page.locator('.modal button[type="submit"]').isEnabled());
@@ -493,6 +496,67 @@ async function main() {
       check('a CSV says it was read from a table, not by column',
         /read from a table/i.test(csv), csv.slice(0, 600));
       check('reading a CSV raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      // A payment app's export: not one account's statement, but every
+      // account the app is linked to, and every row a movement the bank
+      // recorded too. Both facts have to reach the screen.
+      await page.locator('#app input[type=file][accept*="csv"]').setInputFiles({
+        name: 'PhonePe_Statement.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from([
+          'Transaction Statement for 8861975785',
+          'Duration,"01 Apr, 2026 - 15 Aug, 2026"',
+          '',
+          'Date,Time,Transaction Details,Transaction ID,UTR,Transaction Type,'
+            + 'Credit/debit instrument,Amount',
+          '"Aug 15, 2026","01:10 am","Paid to ZOMATO LIMITED","T2608150110",'
+            + '"618037311994","DEBIT","Paid by XXXXXXXX8177","69"',
+          '"Aug 14, 2026","09:11 pm","Received from ROOPESH K","T2608142111",'
+            + '"659278215400","CREDIT","Credited to XXXXXXXXXX84","680"',
+          '"Aug 05, 2026","10:00 am","Loan Installment","T2608051000",'
+            + '"111111111111","DEBIT","Paid by XXXXXXXX8963","4500"',
+          '"Aug 03, 2026","10:00 am","Transfer to XXXXXXXX8177","T2608031000",'
+            + '"333333333333","DEBIT","Paid by XXXXXXXXXX84","2000"',
+        ].join('\n')),
+      });
+      await page.waitForTimeout(900);
+
+      const app = (await page.locator('.app-content').innerText()).trim();
+
+      // Every row of a month-first-dated file used to be skipped for having
+      // no readable date, so the file imported as nothing at all.
+      check('a payment app export is read rather than coming back empty',
+        /PhonePe_Statement\.csv/.test(app) && !/may not be a statement/.test(app),
+        app.slice(0, 500));
+
+      check('and the screen says it is a payment app, not an account',
+        /payment app.s record, not an account/i.test(app), app.slice(0, 900));
+      check('and names how many of the household’s accounts it spans',
+        /3 accounts/.test(app), app.slice(0, 900));
+      // The dangerous case: import this first, the bank statements later, and
+      // every payment arrives a second time.
+      check('and warns that the same payments will arrive from the other side',
+        /arrive again from the other side/i.test(app), app.slice(0, 900));
+
+      // The split. An HDFC Savings account was created earlier in this run
+      // ending 8177, so that group files; the others do not, and the screen
+      // has to say which and why rather than filing them against a guess.
+      check('rows are filed against the account they actually moved on',
+        /to HDFC Savings/.test(app), app.slice(0, 1200));
+      check('and an instrument matching no account is refused, with a reason',
+        /cannot be imported/.test(app), app.slice(0, 1200));
+      check('a mask too short to identify an account says so',
+        /not enough to tell/.test(app), app.slice(0, 1200));
+
+      // A `Transfer to XXXXXXXX8177` row names both ends of one movement, so
+      // it is money moving between the household's own accounts rather than
+      // spending. `domain/events.js` can only call such a pair *probable*,
+      // because a bank statement names one side; this record names both.
+      check('a self-transfer naming both ends is counted as movement, not spending',
+        /transfers? between the household.s own accounts/.test(app), app.slice(0, 1400));
+
+      check('reading a payment app export raises no console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
       if (SHOTS) await shot(page, 'finance-import');

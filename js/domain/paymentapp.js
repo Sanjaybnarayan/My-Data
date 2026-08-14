@@ -1,0 +1,462 @@
+/**
+ * A payment-app statement, which is not an account statement.
+ *
+ * ## What this file is for
+ *
+ * A PhonePe, GPay or Paytm export lists what somebody *did* — the merchant,
+ * the biller, the loan instalment — across **every bank account the app is
+ * linked to**. A bank statement lists what happened on **one** account, and
+ * names the counterparty in whatever the payment rail wrote into the
+ * narration.
+ *
+ * They are two records of the same movements, and this is the crux:
+ *
+ * > **A payment-app row is not a new economic event.** It is a bank row seen
+ * > from the other side.
+ *
+ * Import both without linking them and the household's spending doubles.
+ * `domain/settlement.js` names the same hazard for a card bill paid from a
+ * bank account; this is that hazard again, across a thousand rows at once.
+ *
+ * ## Measured
+ *
+ * One real PhonePe export, April to August:
+ *
+ *     rows                       : 1,047
+ *     distinct UTRs              : 1,046
+ *     accounts it spans          : 4
+ *       Paid by XXXXXXXX8177     :   693      Credited to XXXXXXXXXX84 : 16
+ *       Paid by XXXXXXXXXX84     :   268      Credited to XXXXXXXX8963 :  8
+ *       Paid by XXXXXXXX8963     :    55      Credited to XXXXXXXX8177 :  5
+ *       Paid by XXXX005391       :     1
+ *
+ * Every one of those four is an account whose own bank statement the household
+ * also has. Where both records cover the same payment, **the UTR appears
+ * verbatim inside the bank's narration**:
+ *
+ *     PhonePe : Paid to ZOMATO LIMITED   ₹30   UTR 876987316943
+ *     bank    : UPI/ZOMATO LIM/zomato-order@p/Zomato Pay/YES BANK L/876987316943
+ *
+ * That is an exact identity, not a resemblance — no amount tolerance, no date
+ * window, no name matching. It is the one link this file will assert.
+ */
+
+/** `Paid by XXXXXXXX8177` / `Credited to XXXXXXXXXX84`. */
+const INSTRUMENT = /^\s*(paid by|credited to|debited from|refunded to)\s+(.+?)\s*$/i;
+
+/**
+ * Which account a row moved on, and which way.
+ *
+ * @returns {{masked: string, digits: string, direction: 'in'|'out'}|null}
+ */
+export function readInstrument(cell) {
+  const match = INSTRUMENT.exec(String(cell ?? ''));
+  if (!match) return null;
+
+  const masked = match[2].trim();
+  return {
+    masked,
+    // The visible tail, which is all a mask leaves. `XXXXXXXX8177` gives
+    // `8177`, and that is what an account on record has to end with.
+    digits: masked.replace(/\D/g, ''),
+    direction: /^paid by|^debited from$/i.test(match[1]) ? 'out' : 'in',
+  };
+}
+
+/**
+ * What kind of thing a payment app says this was.
+ *
+ * The app knows things the bank never writes down — that a debit was a loan
+ * instalment rather than a transfer, that a recharge was a phone and not a
+ * FASTag. Ordered, and matched against the start of the detail line, because
+ * that is where every one of these labels sits.
+ */
+/** @type {Array<[string, RegExp]>} */
+const KINDS = [
+  ['loan-repayment', /^loan (?:installment|instalment|repayment|emi)/i],
+  ['insurance', /^insurance\b/i],
+  ['electricity', /^electricity bill/i],
+  ['water', /^water bill/i],
+  ['gas', /^(?:cylinder booking|gas bill|lpg)/i],
+  ['recharge', /^(?:mobile recharged|recharge|dth)/i],
+  ['fastag', /^fastag/i],
+  ['self-transfer', /^(?:transfer to|withdrawn from)/i],
+  ['received', /^(?:received from|refund from|cashback)/i],
+  ['bill', /^(?:payment to|bill payment)/i],
+  ['paid', /^paid to/i],
+];
+
+/** @returns {string} one of the kinds above, or `other`. */
+export function kindOf(details) {
+  const text = String(details ?? '').trim();
+  return KINDS.find(([, pattern]) => pattern.test(text))?.[0] ?? 'other';
+}
+
+/**
+ * Who or what was on the other end, with the app's own verb removed.
+ *
+ * `Paid to ZOMATO LIMITED` is a payment to Zomato; the words *paid to* are the
+ * app's, not the merchant's, and leaving them in the narration puts them in
+ * front of every categorisation rule and every payee name.
+ */
+export function counterpartyOf(details) {
+  return String(details ?? '')
+    .replace(/^\s*(?:paid to|received from|transfer to|payment to|withdrawn from|refund from)\s+/i, '')
+    .replace(/^\s*(?:mobile recharged|electricity bill|water bill|fastag recharge|cylinder booking|loan installment|loan instalment|insurance)\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * A payment-app export, as opposed to a bank's.
+ *
+ * Recognised by the columns it carries rather than by a brand name: a file
+ * that says which instrument each row moved on, row by row, is describing
+ * several accounts and cannot be treated as one account's statement.
+ */
+export function isPaymentApp(parsed) {
+  const rows = parsed?.transactions ?? [];
+  return rows.length > 0 && rows.some((row) => readInstrument(row.instrument));
+}
+
+/**
+ * The accounts a statement spans, and how much moved on each.
+ *
+ * The importer matches a statement to **one** account. A payment-app export
+ * has no single account to match, and forcing one would file every payment the
+ * household made from any of their banks against whichever account happened to
+ * score highest.
+ *
+ * @returns {Array<{masked, digits, rows, out, in: number}>} busiest first
+ */
+export function byInstrument(transactions = []) {
+  const found = new Map();
+
+  for (const row of transactions) {
+    const instrument = readInstrument(row.instrument);
+    if (!instrument) continue;
+
+    const entry = found.get(instrument.digits) ?? {
+      masked: instrument.masked, digits: instrument.digits, rows: 0, out: 0, in: 0,
+    };
+    entry.rows += 1;
+    entry[row.direction === 'in' ? 'in' : 'out'] += row.amount ?? 0;
+    // The longest mask wins as the label: `XXXXXXXX8963` says more than `8963`,
+    // and the same account is written both ways in one file.
+    if (instrument.masked.length > entry.masked.length) entry.masked = instrument.masked;
+    found.set(instrument.digits, entry);
+  }
+
+  return [...found.values()].sort((a, b) => b.rows - a.rows);
+}
+
+/**
+ * One leg of one movement, on one account.
+ *
+ * **Not the UTR alone.** A transfer between two of the household's own
+ * accounts puts the *same* reference on both legs, and each bank records its
+ * own side: measured across these statements, **128 references appear with
+ * both directions**. Matching on the reference by itself pairs a row with
+ * whichever leg happened to be imported first, and suppresses a real one — an
+ * outgoing payment silently deleted because the money arriving somewhere else
+ * carried the same number.
+ *
+ * The account and the direction are what make it a leg rather than a movement.
+ */
+export function legKey(utr, accountId, direction) {
+  return `${String(utr ?? '').trim()}|${accountId ?? ''}|${direction ?? ''}`;
+}
+
+/**
+ * Rows that are the same leg as one already imported from a bank.
+ *
+ * Matched on the reference, the account and the direction together — an
+ * identity the two records share exactly, so no tolerance is applied and
+ * nothing is inferred from an amount or a name being close.
+ *
+ * @param {Array<object>} transactions payment-app rows, each carrying the
+ *   account it moved on
+ * @param {Set<string>} legs keys already on record, from `referencesIn`
+ * @returns {{seen: object[], fresh: object[]}}
+ */
+export function alreadyOnRecord(transactions = [], legs = new Set()) {
+  const seen = [];
+  const fresh = [];
+
+  for (const row of transactions) {
+    const utr = String(row.utr ?? '').trim();
+    // No reference is not evidence of anything, and neither is a row that
+    // could not be filed to an account: both are reported fresh, because
+    // refusing them would lose a real payment on the strength of a gap.
+    if (utr && row.account && legs.has?.(legKey(utr, row.account, row.direction))) {
+      seen.push(row);
+    } else {
+      fresh.push(row);
+    }
+  }
+
+  return { seen, fresh };
+}
+
+/**
+ * Every bank reference a set of already-imported transactions mentions.
+ *
+ * Built from the narration, because that is where the rail writes it: the bank
+ * has no column for it. Twelve digits is the UPI/IMPS reference length, and
+ * anchoring on word boundaries keeps it from matching the middle of a longer
+ * account number.
+ */
+export function referencesIn(transactions = []) {
+  const found = new Set();
+
+  for (const row of transactions) {
+    const text = `${row.raw ?? ''} ${row.description ?? ''} ${row.reference ?? ''}`;
+    const refs = new Set(text.match(/\b\d{12}\b/g) ?? []);
+    if (row.utr) refs.add(String(row.utr));
+
+    for (const utr of refs) found.add(legKey(utr, row.account, row.direction));
+  }
+
+  return found;
+}
+
+/**
+ * What a payment-app import is about to do, as a sentence.
+ *
+ * @param {{accounts?: Array<object>, seen?: number, fresh?: number,
+ *          linked?: number, unresolvedTransfers?: number}} summary
+ * @param {(n: number) => string} [money]
+ */
+export function describeImport({
+  accounts = [], seen = 0, fresh = 0, linked = 0, unresolvedTransfers = 0,
+}, money = (n) => String(n)) {
+  if (!accounts.length) return null;
+
+  const spans = accounts.length === 1
+    ? `one account (${accounts[0].masked})`
+    : `${accounts.length} accounts — ${accounts.map((a) => a.masked).join(', ')}`;
+
+  const moved = accounts.reduce((total, a) => total + a.out, 0);
+
+  const parts = [
+    `This is a payment app's record, not an account's: ${fresh + seen} payments `
+    + `across ${spans}, ${money(moved)} out.`,
+  ];
+
+  if (linked || unresolvedTransfers) {
+    const said = [];
+    if (linked) {
+      said.push(`${linked} ${linked === 1 ? 'is a transfer' : 'are transfers'} between `
+        + 'the household’s own accounts, joined to the account each went to and '
+        + 'counted as movement rather than spending');
+    }
+    if (unresolvedTransfers) {
+      said.push(`${unresolvedTransfers} more say they went to another account the app `
+        + 'masks too heavily to name, so they stay counted as money out');
+    }
+    parts.push(` ${said.join(', and ')}.`);
+  }
+
+  if (seen) {
+    parts.push(` ${seen} of them are already imported from a bank statement — `
+      + 'the same movements, seen from the other side — and are marked as '
+      + 'duplicates rather than counted twice.');
+  } else {
+    parts.push(' None of them matches a transaction already imported. If the '
+      + 'bank statements for these accounts are imported later, the same '
+      + 'payments will arrive again from the other side.');
+  }
+
+  return parts.join('');
+}
+
+/* ------------------------------------------------- one file, many accounts */
+
+/**
+ * Which account on record each instrument is.
+ *
+ * A mask leaves only a tail — `XXXXXXXX8177` says the account ends 8177 and
+ * nothing else — so the test is that the recorded number ends with those
+ * digits. `domain/import.js` scores a whole header; there is nothing here to
+ * score, because a payment app prints no IFSC, no holder and no bank.
+ *
+ * **Four digits is the floor.** `XXXX...84` leaves two, and two digits match
+ * one account in every hundred by chance; filing a household's spending
+ * against an account picked that way is worse than not filing it. Where the
+ * tail is too short to be sure, it is left unmatched rather than guessed.
+ *
+ * More than one account ending in the same digits is also unmatched: the file
+ * cannot say which, and neither can this.
+ *
+ * @returns {Array<{digits, masked, rows, out, in, account: object|null, why: string|null}>}
+ */
+export function matchInstruments(instruments = [], accounts = []) {
+  const live = (accounts ?? []).filter((a) => !a.deletedAt);
+
+  return (instruments ?? []).map((instrument) => {
+    const tail = instrument.digits ?? '';
+
+    if (tail.length < 4) {
+      return {
+        ...instrument,
+        account: null,
+        why: `the app masks this one down to “${instrument.masked}”, and `
+          + `${tail.length || 'no'} digit${tail.length === 1 ? '' : 's'} is not enough to tell `
+          + 'which account it is',
+      };
+    }
+
+    const hits = live.filter((account) => {
+      const ours = String(account.accountNumber ?? '').replace(/\D/g, '');
+      return ours.length >= 4 && ours.endsWith(tail);
+    });
+
+    if (hits.length === 1) return { ...instrument, account: hits[0], why: null };
+
+    return {
+      ...instrument,
+      account: null,
+      why: hits.length
+        ? `${hits.length} accounts on record end in ${tail}, and the file does not say which`
+        : `no account on record ends in ${tail}`,
+    };
+  });
+}
+
+/**
+ * The rows of a payment-app file, split by the account they moved on.
+ *
+ * One file, several accounts, and the split is not cosmetic: a transaction's
+ * account decides which balance it changes and whose spending it is. A group
+ * with no matching account keeps its rows and carries the reason — **they are
+ * not filed against a guess**, because a payment put on the wrong account is
+ * invisible afterwards and wrong in two places at once.
+ *
+ * @param {Array<object>} transactions
+ * @param {Array<object>} matched from `matchInstruments`
+ * @returns {Array<{digits, masked, account, why, rows: object[]}>}
+ */
+export function splitByAccount(transactions = [], matched = []) {
+  const groups = new Map(matched.map((entry) => [entry.digits, { ...entry, rows: [] }]));
+
+  for (const row of transactions) {
+    const instrument = readInstrument(row.instrument);
+    if (!instrument) continue;
+    groups.get(instrument.digits)?.rows.push(row);
+  }
+
+  return [...groups.values()];
+}
+
+/**
+ * What the split is about to do, as a sentence.
+ *
+ * @param {Array<object>} groups from `splitByAccount`
+ */
+export function describeSplit(groups = []) {
+  const known = groups.filter((group) => group.account);
+  const unknown = groups.filter((group) => !group.account);
+
+  if (!groups.length) return null;
+
+  const parts = [];
+
+  if (known.length) {
+    parts.push(`${known.map((g) => `${g.rows.length} to ${g.account.name}`).join(', ')}.`);
+  }
+
+  for (const group of unknown) {
+    parts.push(` ${group.rows.length} rows moved on ${group.masked} and cannot be `
+      + `imported: ${group.why}.`);
+  }
+
+  return parts.join('').trim();
+}
+
+/* ------------------------------------------------ both ends of a movement */
+
+/** A masked account number, as opposed to somebody's name. */
+const MASK = /^[X*x•]{2,}\d{2,}$/;
+
+/**
+ * Where a self-transfer went, when the row says so.
+ *
+ * `Transfer to XXXXXXXXXX84`, paid by `XXXX005391`, is the app stating both
+ * ends of one movement outright. That is stronger evidence than anything
+ * `domain/events.js` can offer: it pairs two bank legs by amount and date and
+ * calls the result *probable*, because a bank statement names only its own
+ * side. Here the record names both, so no window and no tolerance apply.
+ *
+ * A destination that is **not a mask** is not an account. `Withdrawn from
+ * Bandhan ELSS Tax saver Fund` is a redemption from a mutual fund, and calling
+ * it an internal transfer would move money to an account that does not exist
+ * and take a real investment sale out of the picture.
+ *
+ * @returns {string|null} the masked destination, or null
+ */
+export function transferTarget(details) {
+  const match = /^\s*transfer to\s+(.+?)\s*$/i.exec(String(details ?? ''));
+  if (!match) return null;
+  const target = match[1].trim();
+  return MASK.test(target) ? target : null;
+}
+
+/**
+ * Self-transfers whose destination is an account on record.
+ *
+ * Sets `toAccount` on the outgoing leg, which is the shape
+ * `domain/finance.js` already reads and `linkFor` already writes — an internal
+ * transfer, not spending. Both ends of the movement stay exactly as recorded.
+ *
+ * The destination is matched by the same rule as the source and refuses on the
+ * same three grounds: a mask of fewer than four digits, more than one account
+ * ending that way, or none. **A transfer to an account this cannot name is
+ * left as it is** — it stays a payment out, which overstates spending, and
+ * that is the safe direction: inventing a destination would move money into an
+ * account the household never touched.
+ *
+ * @returns {{rows: object[], linked: number, unresolved: number}}
+ */
+export function resolveTransfers(rows = [], accounts = []) {
+  const live = (accounts ?? []).filter((account) => !account.deletedAt);
+  let linked = 0;
+  let unresolved = 0;
+
+  const out = rows.map((row) => {
+    const target = transferTarget(row.description ?? row.raw);
+    if (!target) return row;
+
+    const tail = target.replace(/\D/g, '');
+    if (tail.length < 4) { unresolved += 1; return row; }
+
+    const hits = live.filter((account) => {
+      const ours = String(account.accountNumber ?? '').replace(/\D/g, '');
+      return ours.length >= 4 && ours.endsWith(tail);
+    });
+
+    if (hits.length !== 1) { unresolved += 1; return row; }
+
+    // Money cannot move from an account to itself. A row saying so is a
+    // misread mask, not a movement, and setting `toAccount` to the source
+    // would credit and debit the same balance.
+    const destination = hits[0];
+    if (row.account && row.account === destination.id) { unresolved += 1; return row; }
+
+    linked += 1;
+    return {
+      ...row,
+      kind: 'transfer',
+      toAccount: destination.id,
+      // Money moved between the household's own accounts is not spending, and
+      // the categoriser has no way to know that from `Transfer to XXXX8177`.
+      category: 'own account',
+    };
+  });
+
+  // Counted from the rows themselves rather than tallied alongside them. A
+  // separate counter can say a transfer was joined while the row it describes
+  // carries no destination — the sentence right and the data wrong — and a
+  // mutation that stopped setting `toAccount` proved exactly that, surviving
+  // every browser check because only the sentence was ever read.
+  return { rows: out, linked: out.filter((row) => row.toAccount).length, unresolved };
+}
