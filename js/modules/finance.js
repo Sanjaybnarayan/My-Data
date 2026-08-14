@@ -23,6 +23,7 @@ import { entitiesOfModule } from '../data/schema.js';
 import { TransfersService } from '../services/transfers.js';
 import { CONFIDENCE } from '../domain/events.js';
 import { settlementReport, describeSettlement } from '../domain/settlement.js';
+import { staleness, describeStaleness } from '../domain/amortise.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -210,6 +211,50 @@ function transfersCard(db, transfers, repaint) {
   ].filter(Boolean));
 }
 
+/**
+ * Loans, and whether the figure recorded against them still holds.
+ *
+ * `loan.outstanding` is typed once and nothing updates it. Net worth reads it
+ * as the liability, so every EMI takes its full amount off net worth while the
+ * debt it repaid stays exactly where it was — and after five years of paying,
+ * the application still shows the debt as it was on the day it was entered.
+ *
+ * The estimate is never written back. A model built from a rate and an EMI
+ * cannot know about a reprice, a prepayment or a moratorium, and a household
+ * arguing with their bank using a number this application made up would be
+ * worse off than one with a stale figure they know is stale.
+ */
+function loansCard(loans, transactions) {
+  const live = (loans ?? []).filter((loan) => !loan.deletedAt);
+  if (!live.length) return null;
+
+  const rows = live.map((loan) => ({
+    loan,
+    note: describeStaleness(staleness(loan, transactions), format),
+  }));
+
+  return card({}, [
+    cardHeader('Loans', [], {
+      subtitle: `${format(live.reduce((n, l) => n + (l.outstanding ?? 0), 0))} recorded as outstanding`,
+      iconName: 'bank',
+    }),
+
+    h('div', { class: 'list' }, rows.map(({ loan, note }) => listItem({
+      title: loan.name,
+      subtitle: note ?? `${loan.interestRate ?? '—'}% · EMI ${format(loan.emiAmount ?? 0)}`,
+      value: format(loan.outstanding ?? 0),
+      leading: badge(loan.kind ?? 'loan', note ? 'warning' : ''),
+    }))),
+
+    rows.some((r) => r.note)
+      ? h('p', { class: 'small faint' },
+        'Estimates come from the rate and EMI recorded here, so they cannot know '
+        + 'about a rate change, a prepayment or a payment holiday. Update the figure '
+        + 'from the lender’s statement, not from this.')
+      : null,
+  ].filter(Boolean));
+}
+
 async function financeOverview() {
   const { db } = app();
   const host = h('div', {});
@@ -287,6 +332,8 @@ async function financeOverview() {
         h('p', { class: 'small faint' },
           `${format(committed)} a month is already committed to bills, EMIs and subscriptions.`),
       ].filter(Boolean)),
+
+      loansCard(loans, transactions),
 
       card({}, [
         cardHeader('Cash & accounts'),
