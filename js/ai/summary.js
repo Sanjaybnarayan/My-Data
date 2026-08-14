@@ -33,8 +33,16 @@ export function summarise(data) {
 
   const dueSoon = data.bills.filter((b) => b.overdue || b.dueOn <= addDaysSafe(7));
   if (dueSoon.length) {
-    const total = dueSoon.reduce((t, b) => t + b.amount, 0);
-    parts.push(`${formatCompact(total)} of bills is due in the next week.`);
+    // A card with no statement day is due on a known date for an unknown
+    // amount. Counting it as zero would make the sentence read as though the
+    // week were cheaper than it is, so the bill is named instead of added.
+    const { total, unknown } = fin.billsTotal(dueSoon);
+    const gap = unknown
+      ? ` ${unknown === 1 ? 'One more card bill falls' : `${unknown} more card bills fall`} `
+        + 'due with no statement day recorded, so the amount is not known here.'
+      : '';
+    if (total > 0) parts.push(`${formatCompact(total)} of bills is due in the next week.${gap}`);
+    else if (gap) parts.push(gap.trim());
   }
 
   const { current, previous, expenseChange } = data.compare;

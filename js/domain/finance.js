@@ -11,6 +11,7 @@
  */
 
 import { sum, changePercent } from '../core/money.js';
+import { cardBills } from './cards.js';
 import {
   today, range, withinRange, startOfMonth, addMonths, endOfMonth, addDays,
   daysUntil, formatDay,
@@ -185,9 +186,16 @@ function perMonth(budget) {
 
 /**
  * Bills due in the next `days`. Recurring payments carry their own next-due
- * date; EMIs come from loans, which do not.
+ * date; EMIs come from loans, which do not, and card bills come from the
+ * account's statement and due days and the rows sitting on the card.
+ *
+ * Cards are opt-in on the call rather than always on, because working one out
+ * needs the whole transaction history and several callers of this function
+ * have only the recurring payments to hand.
  */
-export function upcomingBills(recurring, loans, { days = 30, from = today() } = {}) {
+export function upcomingBills(recurring, loans, {
+  days = 30, from = today(), accounts = null, transactions = null,
+} = {}) {
   const horizon = addDays(from, days);
   const out = [];
 
@@ -223,7 +231,52 @@ export function upcomingBills(recurring, loans, { days = 30, from = today() } = 
     });
   }
 
+  // A card bill is the most expensive thing on this list to miss — interest
+  // near forty per cent a year, backdated to the purchase date so the
+  // interest-free period goes too. `amount` may be null, which is the card
+  // saying *when* without claiming to know *how much*; `why` says so, and
+  // callers must not print a figure in its place.
+  for (const bill of cardBills(accounts, transactions, { from, days })) {
+    out.push({
+      id: bill.id,
+      source: 'card',
+      name: `${bill.name} bill`,
+      kind: 'credit card',
+      amount: bill.amount,
+      dueOn: bill.dueOn,
+      overdue: bill.overdue,
+      // Nothing pays a card automatically unless the household set that up on
+      // the bank's side, which is not recorded here. Claiming otherwise is the
+      // one wrong answer that would stop somebody looking.
+      autoDebit: false,
+      account: bill.account,
+      statement: bill.statement,
+      why: bill.why,
+    });
+  }
+
   return out.sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+}
+
+/**
+ * What a list of bills adds up to, and how many of them would not say.
+ *
+ * A card with no statement day reports a due date and a null amount. Adding
+ * that to a total gives the right sum of the wrong list: `null` coerces to
+ * zero, so the figure comes out smaller than the truth with nothing on screen
+ * to say a bill was left out of it. Callers get the count and are expected to
+ * print it.
+ *
+ * @returns {{total: number, unknown: number}}
+ */
+export function billsTotal(bills) {
+  let total = 0;
+  let unknown = 0;
+  for (const bill of bills) {
+    if (bill.amount === null || bill.amount === undefined) unknown += 1;
+    else total += bill.amount;
+  }
+  return { total, unknown };
 }
 
 /** The next occurrence of a day-of-month, clamped to short months. */
