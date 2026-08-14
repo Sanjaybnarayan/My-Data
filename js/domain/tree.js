@@ -58,20 +58,196 @@ export function normaliseEdges(relationships) {
   return [...seen.values()];
 }
 
+/* --------------------------- what the person form already knows */
+
+/**
+ * `person.relationship`, as an edge to or from whoever is `self`.
+ *
+ * ## The gap this closes
+ *
+ * The person form carries a `relationship` dropdown — self, spouse, son,
+ * daughter, father, mother, and the rest — right beside the name. Filling it in
+ * is the obvious thing to do, and nothing on that screen suggests there is
+ * anywhere else to record a family.
+ *
+ * The tree read none of it. Measured on six people, every one of them tagged:
+ *
+ *     what they filled in        what the tree showed
+ *       Sanjay    self             generations : 1
+ *       Asha      spouse           edges drawn : 0
+ *       Ravi      son              unplaced    : all six
+ *       Meera     daughter
+ *       Krishnan  father         the same family via the Relationships
+ *       Lakshmi   mother         entity gave three correct generations
+ *
+ * So a household that filled in its family got a flat list of strangers, and
+ * the fix needed no new data — only reading what was already recorded.
+ *
+ * ## Implied, never stored
+ *
+ * These edges are derived at read time, like classification, provenance and
+ * accrual before them. Writing them into the `relationship` entity would give
+ * a household two copies of one fact to keep in step, and correcting the
+ * dropdown afterwards would leave the copy behind.
+ *
+ * @param {'parent'|'grandparent'|'spouse'|'sibling'} kind
+ * @param {boolean} fromSelf true when the edge runs self → them
+ */
+const IMPLIED = {
+  spouse: { kind: 'spouse', fromSelf: true },
+  son: { kind: 'parent', fromSelf: true },
+  daughter: { kind: 'parent', fromSelf: true },
+  father: { kind: 'parent', fromSelf: false },
+  mother: { kind: 'parent', fromSelf: false },
+  brother: { kind: 'sibling', fromSelf: true },
+  sister: { kind: 'sibling', fromSelf: true },
+  grandfather: { kind: 'grandparent', fromSelf: false },
+  grandmother: { kind: 'grandparent', fromSelf: false },
+  grandson: { kind: 'grandparent', fromSelf: true },
+  granddaughter: { kind: 'grandparent', fromSelf: true },
+};
+
+/** In-laws hang off the spouse, not off self. */
+const IN_LAW = new Set(['father-in-law', 'mother-in-law']);
+
+/**
+ * Edges implied by the `relationship` field on each person record.
+ *
+ * @returns {{edges: object[], why: string}} `why` is empty when it worked, and
+ *   otherwise says what stopped it — never a silent nothing.
+ */
+export function impliedEdges(people) {
+  const alive = (people ?? []).filter((p) => !p.deletedAt);
+  const selves = alive.filter((p) => p.relationship === 'self');
+
+  if (!selves.length) {
+    return {
+      edges: [],
+      why: 'nobody is marked as “self”, so there is no one for “son” or '
+        + '“mother” to be relative to',
+    };
+  }
+  // Two people cannot both be the centre of one family. Picking one would
+  // silently rearrange everybody else around a guess.
+  if (selves.length > 1) {
+    return {
+      edges: [],
+      why: `${selves.map((p) => p.name).join(' and ')} are both marked as “self”, `
+        + 'so it is not clear whose family these relationships describe',
+    };
+  }
+
+  const self = selves[0];
+  const edges = [];
+  let spouseless = 0;
+
+  // An in-law is a parent of the spouse, so the spouse has to be found first.
+  const spouse = alive.find((p) => p.relationship === 'spouse');
+
+  // `self` needs no skip of its own: it is absent from both tables below, so
+  // it falls through the same way `other` does. A guard for it survived
+  // mutation testing precisely because it could never fire.
+  for (const person of alive) {
+    if (IN_LAW.has(person.relationship)) {
+      if (!spouse) { spouseless += 1; continue; }
+      edges.push({
+        id: `implied:${person.id}`, type: 'parent of',
+        fromPerson: person.id, toPerson: spouse.id, implied: true,
+      });
+      continue;
+    }
+
+    const rule = IMPLIED[person.relationship];
+    if (!rule) continue;
+
+    const [from, to] = rule.fromSelf ? [self.id, person.id] : [person.id, self.id];
+    edges.push({
+      id: `implied:${person.id}`,
+      type: rule.kind === 'parent' ? 'parent of'
+        : rule.kind === 'grandparent' ? 'grandparent of'
+        : rule.kind === 'spouse' ? 'spouse of' : 'sibling of',
+      fromPerson: from,
+      toPerson: to,
+      implied: true,
+    });
+  }
+
+  return {
+    edges,
+    why: spouseless
+      ? `${spouseless} in-law${spouseless === 1 ? '' : 's'} could not be placed, `
+        + 'because no spouse is recorded for them to be a parent of'
+      : '',
+  };
+}
+
+/**
+ * Where the dropdown and the recorded edges disagree.
+ *
+ * Two ways to record one fact means two ways to record it differently, and the
+ * codebase's rule is that an uncertain match is never forced. So neither side
+ * wins: both are reported, named, and left for a person to settle.
+ *
+ * @returns {Array<{person: object, said: string, recorded: string}>}
+ */
+export function relationshipConflicts(people, relationships) {
+  const alive = (people ?? []).filter((p) => !p.deletedAt);
+  const self = alive.find((p) => p.relationship === 'self');
+  if (!self) return [];
+
+  const stored = normaliseEdges(relationships ?? []);
+  const byId = new Map(alive.map((p) => [p.id, p]));
+  const conflicts = [];
+
+  for (const implied of normaliseEdges(impliedEdges(alive).edges)) {
+    const other = implied.from === self.id ? implied.to : implied.from;
+    if (!byId.has(other)) continue;
+
+    // Only edges between the same pair can disagree. A pair with no stored
+    // edge at all is not a conflict — it is the gap this fills.
+    const between = stored.filter((edge) => (edge.from === implied.from && edge.to === implied.to)
+      || (edge.from === implied.to && edge.to === implied.from));
+    if (!between.length) continue;
+
+    const agrees = between.some((edge) => edge.kind === implied.kind
+      && edge.from === implied.from && edge.to === implied.to);
+    if (agrees) continue;
+
+    const recorded = between[0];
+    conflicts.push({
+      person: byId.get(other),
+      said: byId.get(other).relationship,
+      recorded: recorded.from === self.id
+        ? `${recorded.kind} of them` : `their ${recorded.kind}`,
+    });
+  }
+
+  return conflicts;
+}
+
 /**
  * Assign every person a generation number, where 0 is the root's generation,
  * negative is older and positive is younger.
  *
  * @param {object[]} people
  * @param {object[]} relationships
- * @param {{rootId?: string}} [options]
+ * @param {{rootId?: string, implied?: boolean}} [options]
+ *   `implied` reads the `relationship` field on each person as an edge too.
+ *   On by default: leaving it off is what produced a flat tree for every
+ *   household that filled the form in and never opened Relationships.
  * @returns {{generations: Array<{level: number, people: object[]}>,
- *            edges: object[], levelOf: Map<string, number>, unplaced: object[]}}
+ *            edges: object[], levelOf: Map<string, number>, unplaced: object[],
+ *            impliedCount: number, why: string}}
  */
-export function buildTree(people, relationships, { rootId } = {}) {
+export function buildTree(people, relationships, { rootId, implied = true } = {}) {
   const alive = people.filter((p) => !p.deletedAt);
   const byId = new Map(alive.map((p) => [p.id, p]));
-  const edges = normaliseEdges(relationships).filter(
+
+  // Stored edges first, so `normaliseEdges` keeps the recorded one where an
+  // implied edge would collapse onto it. A relationship somebody entered
+  // deliberately should be the one that carries its own id.
+  const derived = implied ? impliedEdges(alive) : { edges: [], why: '' };
+  const edges = normaliseEdges([...(relationships ?? []), ...derived.edges]).filter(
     (e) => byId.has(e.from) && byId.has(e.to),
   );
 
@@ -90,7 +266,12 @@ export function buildTree(people, relationships, { rootId } = {}) {
     : (alive.find((p) => p.relationship === 'self') ?? alive[0])?.id;
 
   const levelOf = new Map();
-  if (!root) return { generations: [], edges, levelOf, unplaced: [] };
+  if (!root) {
+    return {
+      generations: [], edges, levelOf, unplaced: [],
+      impliedCount: derived.edges.length, why: derived.why,
+    };
+  }
 
   // Breadth-first over every component, not just the root's: a family with an
   // in-law branch nobody has linked yet still has to appear.
@@ -136,6 +317,11 @@ export function buildTree(people, relationships, { rootId } = {}) {
     edges,
     levelOf,
     unplaced: alive.filter((p) => !links.get(p.id)?.length),
+    // How much of the tree came from the person form rather than from the
+    // Relationships entity. Worth surfacing: a household seeing their family
+    // appear should be able to tell it was inferred from what they typed.
+    impliedCount: derived.edges.length,
+    why: derived.why,
   };
 }
 

@@ -1102,6 +1102,56 @@ async function main() {
     check('the tree counts one person as a person',
       !/\b1 people\b/.test(familyText), familyText.slice(0, 160));
 
+    /* --------------- a family entered the way the person form invites */
+
+    {
+      // The person form has a `relationship` dropdown beside the name, and
+      // nothing on that screen suggests a separate Relationships entity
+      // exists. Filling it in used to produce a flat tree of strangers.
+      // Driven through the real form, because the whole bug was that one
+      // screen collected what another never read.
+      const before = consoleErrors.length;
+
+      // No `self` is added here: first run already creates one, named "You".
+      // Adding a second correctly trips the two-selves refusal — which is how
+      // this check first failed, and worth recording as the reason it does not
+      // create one.
+      for (const [name, relationship] of [
+        ['Ravi Iyer', 'son'], ['Krishnan Iyer', 'father'],
+      ]) {
+        await go(page, '#/identity/person');
+        await page.waitForTimeout(400);
+        await page.getByRole('button', { name: /Add/ }).first().click();
+        await page.waitForSelector('.modal', { timeout: 5000 });
+        await page.locator('#f-person-name').fill(name);
+        await page.locator('#f-person-relationship').selectOption(relationship);
+        await page.locator('#f-person-name').press('Enter');
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+      }
+
+      await go(page, '#/family');
+      await page.waitForTimeout(600);
+      const tree = (await page.locator('.app-content').innerText()).trim();
+
+      // Whether they are placed at all is the question. Before this, both sat
+      // under "Not connected to anyone".
+      const stranded = page.locator('.card', { hasText: 'Not connected to anyone' });
+      const strandedText = (await stranded.count()) ? await stranded.innerText() : '';
+
+      check('a person given a relationship on their own record is placed in the tree',
+        !/Ravi Iyer/.test(strandedText) && !/Krishnan Iyer/.test(strandedText),
+        strandedText.slice(0, 300) || '(nobody stranded)');
+
+      check('and the tree shows more than one generation because of it',
+        (await page.locator('.app-content').innerText()).match(/generation|parents|children/i)
+          !== null, tree.slice(0, 300));
+
+      check('the family tree renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'family-tree');
+    }
+
     /* ----------------------------------------------------------- calendar */
 
     await go(page, '#/calendar');

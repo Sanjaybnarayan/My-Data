@@ -50,6 +50,13 @@ recorded here"; the second measured it and found 24 dated instalments sitting in
 the database, already being read by `domain/portfolio.js`. **A refusal is a
 claim about the codebase, and it goes stale like any other.**
 
+**This application collects more than it reads.** Three fields so far are
+filled in on a form and read by nothing downstream: `transaction.category`
+(fixed), `person.relationship` (fixed), and `transaction.person` (still open).
+Each looked like a missing feature and was a wiring gap — the data present,
+structured and ignored. Worth auditing for directly rather than waiting to trip
+over the fourth. See `docs/ENTERED_CATEGORIES.md` and `docs/FAMILY_TREE.md`.
+
 **The form/importer seam has now produced three separate bugs**, in Phase 5's
 transfer directions, Phase 5's balances, and Phase 6's entered categories. Each
 time, the whole suite passed because every fixture was built the way the
@@ -63,7 +70,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 0 | Repository audit | **complete** |
 | 0.5 | Trust, privacy, governance, consent, lineage | **complete** — six tranches, merged in #19 |
 | 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer first, then lint/typecheck, then the server |
-| 2 | Family, identity, tree, CKYC 2.0 | family/identity partly exist; CKYC entirely new |
+| 2 | Family, identity, tree, CKYC 2.0 | **tree now reads the person form** (`docs/FAMILY_TREE.md`); identity partly exists; CKYC entirely new and must stay architecture-only |
 | 3 | Document intelligence, OCR, DOCX templates | extraction exists; OCR and DOCX new |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; Calendar new |
 | 5 | Financial foundation, transfer matching, economic events | **largest real gap** — see below |
