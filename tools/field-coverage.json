@@ -1,10 +1,8 @@
 {
   "//": "Schema fields that nothing reads by name. Stored so that a NEW one has to be a deliberate act rather than an oversight — see tools/field-coverage.mjs. Most entries are reference data and perfectly fine; this is not a list of bugs.",
   "fields": [
-    "account.dueDay",
     "account.nominee",
     "account.openedOn",
-    "account.statementDay",
     "account.upiId",
     "certificate.credentialUrl",
     "certificate.issuedBy",

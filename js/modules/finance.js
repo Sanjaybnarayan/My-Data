@@ -298,6 +298,21 @@ function memberCard(report) {
   ].filter(Boolean));
 }
 
+/**
+ * The line under a due bill.
+ *
+ * A card bill names the statement it came from, because the figure is what was
+ * outstanding when that statement cut and not what is on the card today —
+ * anything spent since belongs to the next cycle, and a household paying the
+ * current balance hands the bank an interest-free loan on the difference.
+ */
+function billSubtitle(bill) {
+  const when = `${formatDay(bill.dueOn)} · ${relativeDays(bill.dueOn)}`;
+  if (bill.source !== 'card') return when;
+  if (!bill.statement) return `${when} · ${bill.why}`;
+  return `${when} · from the statement of ${formatDay(bill.statement)}`;
+}
+
 async function financeOverview() {
   const { db } = app();
   const host = h('div', {});
@@ -338,7 +353,12 @@ async function financeOverview() {
     const compare = fin.comparePeriods(transactions);
     const series = fin.monthlySeries(transactions, 12);
     const categories = fin.byCategory(fin.inPeriod(transactions, 'month'));
-    const bills = fin.upcomingBills(recurring, loans, { days: 30 });
+    // `account.statementDay` and `account.dueDay` are on the account form and
+    // were read by nothing, so a card with money owed on it produced no
+    // warning at all. Passing the accounts and the rows brings them in.
+    const bills = fin.upcomingBills(recurring, loans, {
+      days: 30, accounts, transactions,
+    });
     const budgetRows = fin.budgetStatus(budgets, transactions);
     const committed = fin.committedMonthlyOutflow(recurring, loans);
 
@@ -462,10 +482,14 @@ async function financeOverview() {
         bills.length
           ? h('div', { class: 'list' }, bills.map((bill) => listItem({
             title: bill.name,
-            subtitle: `${formatDay(bill.dueOn)} · ${relativeDays(bill.dueOn)}`,
-            value: format(bill.amount),
+            subtitle: billSubtitle(bill),
+            // A card with no statement day knows the date and not the figure.
+            // An em dash says that; a number here would be one this
+            // application invented, on the bill where being wrong is dearest.
+            value: bill.amount === null ? '—' : format(bill.amount),
             trailing: bill.overdue ? badge('overdue', 'danger')
-              : bill.autoDebit ? badge('auto') : null,
+              : bill.source === 'card' ? badge('statement')
+                : bill.autoDebit ? badge('auto') : null,
           })))
           : empty({ title: 'Nothing due', iconName: 'check' }),
       ]),

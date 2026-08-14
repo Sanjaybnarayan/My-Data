@@ -1110,6 +1110,58 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-settlement');
     }
 
+    /* ------------------------------------ when the card bill falls due */
+
+    {
+      // The card above was created without its billing days, which is exactly
+      // the state a household is in when nothing warns them. Filling them in
+      // through the same form should make the bill appear — and the check is
+      // written positively (the amount is *there*) rather than as "the empty
+      // state is gone", because an empty state can disappear for reasons that
+      // have nothing to do with the fix.
+      const before = consoleErrors.length;
+
+      // The purchase above is dated today, so the statement has to cut today
+      // or later for it to be on this bill. Cutting today and falling due ten
+      // days later puts the bill inside the thirty-day window whatever the
+      // date happens to be when this runs.
+      const now = new Date();
+      const statementDay = now.getUTCDate();
+      const dueDate = new Date(now.getTime() + (10 * 86_400_000));
+      const dueDay = dueDate.getUTCDate();
+
+      await go(page, '#/finance/account');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /HDFC Card/ }).first().click()
+        .catch(() => page.locator('text=HDFC Card').first().click());
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: 'Edit' }).first().click();
+      await page.waitForSelector('.modal', { timeout: 8000 });
+      await page.locator('#f-account-statementDay').fill(String(statementDay));
+      await page.locator('#f-account-dueDay').fill(String(dueDay));
+      await page.locator('#f-account-name').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 8000 });
+
+      await go(page, '#/finance');
+      await page.waitForTimeout(700);
+      const cardBody = (await page.locator('.app-content').innerText()).trim();
+
+      // ₹3,000 was spent on the card and nothing was transferred to it, so
+      // that is the statement balance and the bill.
+      const due = cardBody.slice(cardBody.indexOf('Due in the next 30 days'));
+      check('a card with billing days recorded produces a bill',
+        /HDFC Card bill/.test(due), due.slice(0, 500));
+      check('and the bill carries the statement balance, not an empty row',
+        /3,000/.test(due), due.slice(0, 500));
+      check('and names the statement it came from',
+        /from the statement of/.test(due), due.slice(0, 500));
+
+      check('the card bill renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-card-bill');
+    }
+
     /* ------------------------------------------------------- documents */
 
     await go(page, '#/documents');

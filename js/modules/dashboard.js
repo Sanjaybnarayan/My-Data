@@ -100,13 +100,35 @@ async function loadAll(db) {
     }),
     compare: fin.comparePeriods(byEntity.transaction),
     reminders: allReminders(byEntity, { horizonDays: 45 }),
-    bills: fin.upcomingBills(byEntity.recurringPayment, byEntity.loan, { days: 30 }),
+    bills: fin.upcomingBills(byEntity.recurringPayment, byEntity.loan, {
+      days: 30, accounts: byEntity.account, transactions: byEntity.transaction,
+    }),
     activity: await recentActivity(db.adapter, { limit: 8 }),
     people: Object.fromEntries(byEntity.person.map((p) => [p.id, p.name])),
   };
 }
 
 /* ---------------------------------------------------------------- widgets */
+
+/** Which record sits behind a bill, so tapping one opens something. */
+const BILL_ENTITY = { loan: 'loan', card: 'account', recurringPayment: 'recurringPayment' };
+
+/**
+ * The total under a bill list, saying so when a bill was left out of it.
+ *
+ * A card with no statement day has a date and no amount. Adding it in as zero
+ * would print a total that is quietly short with nothing on screen to explain
+ * why, which is worse than the missing figure itself.
+ */
+function billsFooter({ total, unknown }) {
+  return h('div', { class: 'card-footer', style: { padding: 'var(--space-3) var(--space-5)' } }, [
+    h('span', { class: 'small muted' }, unknown
+      ? `Total due · ${unknown} without an amount`
+      : 'Total due'),
+    h('span', { class: 'spacer' }),
+    money(total),
+  ]);
+}
 
 const WIDGETS = {
   summary: (data) => card({}, [
@@ -202,21 +224,21 @@ const WIDGETS = {
       ? h('div', { class: 'list' }, data.bills.slice(0, 8).map((bill) => listItem({
         title: bill.name,
         subtitle: `${formatDay(bill.dueOn)}${bill.autoDebit ? ' · auto-debit' : ''}`,
-        value: format(bill.amount),
+        // A card with no statement day knows the date and not the figure, and
+        // an invented number here would be on the dearest bill in the list.
+        value: bill.amount === null ? '—' : format(bill.amount),
         trailing: bill.overdue ? badge('overdue', 'danger') : null,
         href: Router.href({
           module: 'finance',
-          entity: bill.source === 'loan' ? 'loan' : 'recurringPayment',
-          id: bill.id,
+          entity: BILL_ENTITY[bill.source] ?? 'recurringPayment',
+          // A card bill is derived, not stored, so its own id opens nothing.
+          // The account it sits on is the record behind it.
+          id: bill.source === 'card' ? bill.account : bill.id,
         }),
       })))
       : empty({ title: 'No bills due', iconName: 'check' }),
     data.bills.length
-      ? h('div', { class: 'card-footer', style: { padding: 'var(--space-3) var(--space-5)' } }, [
-        h('span', { class: 'small muted' }, 'Total due'),
-        h('span', { class: 'spacer' }),
-        money(data.bills.reduce((t, b) => t + b.amount, 0)),
-      ])
+      ? billsFooter(fin.billsTotal(data.bills))
       : null,
   ]),
 

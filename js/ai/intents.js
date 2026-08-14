@@ -19,7 +19,7 @@
  *   ctx.clock              the clock to resolve "today" against
  */
 
-import { format, formatCompact, sum } from '../core/money.js';
+import { format, formatCompact } from '../core/money.js';
 import { range, formatDay, today, daysUntil, relativeDays } from '../core/dates.js';
 import * as fin from '../domain/finance.js';
 import { netWorth } from '../domain/networth.js';
@@ -194,17 +194,31 @@ export const intents = [
       const bills = fin.upcomingBills(
         await ctx.load('recurringPayment'),
         await ctx.load('loan'),
-        { days: 30, from: today(ctx.clock) },
+        {
+          days: 30,
+          from: today(ctx.clock),
+          // "What is due?" is exactly the question where leaving out the card
+          // bill matters most.
+          accounts: await ctx.load('account'),
+          transactions: await ctx.load('transaction'),
+        },
       );
       if (!bills.length) return { text: 'No bills are due in the next 30 days.' };
 
-      const total = sum(bills.map((b) => b.amount));
+      // A card with no statement day is due on a date it knows for an amount
+      // it does not. `sum` would fold that in as zero, so the answer would
+      // name a figure smaller than the truth without saying it had.
+      const { total, unknown } = fin.billsTotal(bills);
+      const gap = unknown
+        ? ` ${unknown} of them ${unknown === 1 ? 'is a card bill' : 'are card bills'} with no `
+          + 'statement day recorded, so the amount is not in that total.'
+        : '';
       const overdue = bills.filter((b) => b.overdue);
       const note = overdue.length ? ` ${overdue.length} of them ${overdue.length === 1 ? 'is' : 'are'} already overdue.` : '';
 
       return {
         text: `${bills.length} bill${bills.length === 1 ? '' : 's'} totalling ${money(total)} `
-          + `due in the next 30 days, starting with ${bills[0].name} on ${formatDay(bills[0].dueOn)}.${note}`,
+          + `due in the next 30 days, starting with ${bills[0].name} on ${formatDay(bills[0].dueOn)}.${note}${gap}`,
         bills,
       };
     },
