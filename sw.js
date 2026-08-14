@@ -89,6 +89,7 @@ const SHELL = [
   './js/domain/extract.js',
   './js/domain/filing.js',
   './js/domain/categorise.js',
+  './js/domain/events.js',
   './js/domain/finance.js',
   './js/domain/import.js',
   './js/domain/imports.js',
@@ -118,6 +119,7 @@ const SHELL = [
   './js/services/service.js',
   './js/services/portfolio.js',
   './js/services/records.js',
+  './js/services/transfers.js',
 
   './js/modules/assistant-screen.js',
   './js/modules/calendar.js',

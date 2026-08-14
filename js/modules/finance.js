@@ -20,6 +20,10 @@ import * as fin from '../domain/finance.js';
 import { format, formatCompact } from '../core/money.js';
 import { formatDay, relativeDays } from '../core/dates.js';
 import { entitiesOfModule } from '../data/schema.js';
+import { TransfersService } from '../services/transfers.js';
+import { CONFIDENCE } from '../domain/events.js';
+import { toast } from '../ui/components/toast.js';
+import { userMessage } from '../core/errors.js';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -136,6 +140,75 @@ export async function render(route) {
 
 /* --------------------------------------------------------------- overview */
 
+/**
+ * The two ends of one movement, offered for joining up.
+ *
+ * Hidden entirely when there is nothing to join, because a card that is empty
+ * most months teaches somebody to stop looking at it.
+ *
+ * The two confidences are rendered differently on purpose. A probable pairing
+ * gets a button; a possible one gets a sentence saying why nobody can tell,
+ * and no button at all. Offering a confirm control for an uncertain pairing
+ * would move the deciding from the person to the click.
+ */
+function transfersCard(db, transfers, repaint) {
+  const { proposals, total, unmatched } = transfers;
+  if (!proposals.length && !unmatched.length) return null;
+
+  const probable = proposals.filter((p) => p.confidence === CONFIDENCE.PROBABLE);
+  const questions = proposals.filter((p) => p.confidence === CONFIDENCE.POSSIBLE);
+
+  async function confirm(proposal) {
+    try {
+      await new TransfersService(db).confirm(proposal);
+      toast('Recorded as one movement — both statement rows are kept', { kind: 'success' });
+      await repaint();
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    }
+  }
+
+  const line = (p) => listItem({
+    title: `${p.fromName} → ${p.toName}`,
+    subtitle: `${formatDay(p.out.date)} · ${p.why}`,
+    value: format(p.amount),
+    leading: badge(p.confidence, p.confidence === CONFIDENCE.PROBABLE ? 'info' : 'warning'),
+    trailing: p.confidence === CONFIDENCE.PROBABLE
+      ? button('One movement', { variant: 'subtle', onClick: () => confirm(p) })
+      : null,
+  });
+
+  return card({}, [
+    cardHeader('Money you moved between your own accounts', [], {
+      subtitle: total.movements
+        ? `${format(total.moved)} across ${total.movements} ${total.movements === 1 ? 'movement' : 'movements'}`
+        : 'Nothing confirmed yet',
+      iconName: 'refresh',
+    }),
+
+    // The sentence the per-account figures cannot say. Each of them carries
+    // the full amount — right for one account, and twice for one movement.
+    h('p', { class: 'small muted' },
+      'A transfer between your own accounts appears twice, once on each statement. '
+      + 'These are the pairs that look like one movement. Confirming keeps both rows.'),
+
+    probable.length ? h('div', { class: 'list' }, probable.map(line)) : null,
+
+    questions.length
+      ? h('details', { class: 'small' }, [
+        h('summary', {}, `${questions.length} that nobody can decide from the figures`),
+        h('div', { class: 'list' }, questions.map(line)),
+      ])
+      : null,
+
+    unmatched.length
+      ? h('p', { class: 'small faint' },
+        `${unmatched.length} transfer ${unmatched.length === 1 ? 'row has' : 'rows have'} no `
+        + 'partner at all — usually the other account\u2019s statement has not been imported.')
+      : null,
+  ].filter(Boolean));
+}
+
 async function financeOverview() {
   const { db } = app();
   const host = h('div', {});
@@ -148,6 +221,8 @@ async function financeOverview() {
       db.repo('recurringPayment').list({ decrypt: false }),
       db.repo('loan').list({ decrypt: false }),
     ]);
+
+    const transfers = await new TransfersService(db).pending();
 
     const balances = fin.accountBalances(accounts, transactions);
     const compare = fin.comparePeriods(transactions);
@@ -166,6 +241,8 @@ async function financeOverview() {
     });
 
     replace(host, h('div', { class: 'grid grid--wide' }, [
+      transfersCard(db, transfers, paint),
+
       card({}, [
         cardHeader('This month'),
         h('div', { class: 'row', style: { gap: 'var(--space-6)' } }, [
