@@ -38,11 +38,11 @@ multiply the cost of skipping them:
 **A pattern worth naming, after two phases of finding it.** Every wrong number
 so far has had the same shape: a figure with a date attached that nothing ever
 re-reads. `loan.outstanding` never falls, `holding.currentValue` never rises,
-and both understate net worth. The roadmap called each of them *"partial"*, and
-each turned out to be a live wrong number rather than a missing feature. The
-next one will probably look the same, so **measure before building** stays the
-rule: every tranche in Phases 5 and 6 began by printing what the application
-actually reports.
+`holding.invested` never grows — and all three understate what they are for.
+The roadmap called each of them *"partial"*, and each turned out to be a live
+wrong number rather than a missing feature. The next one will probably look the
+same, so **measure before building** stays the rule: every tranche since Phase 5
+has begun by printing what the application actually reports.
 
 The rule applies to this document's own refusals too. Phase 6's first tranche
 declined to value recurring deposits because "the payment schedule is not
@@ -77,7 +77,7 @@ others were **audited for**: `tools/field-coverage.mjs` holds the set of fields
 nothing reads by name, and the suite fails in *both* directions — when the set
 grows, and when a field on it starts being read. The second half is what
 reported *"account.dueDay, account.statementDay are read now"* during the card
-tranche, and the same again for the three subscription fields. 87 of 369 remain
+tranche, and the same again for the three subscription fields. 86 of 369 remain
 unread and most of them should be — a nominee needs no derivation — so the
 inventory is names only, and adding to it is a deliberate act. See
 `docs/FIELD_COVERAGE.md`, `docs/ENTERED_CATEGORIES.md`, `docs/FAMILY_TREE.md`,
@@ -101,7 +101,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; **a calendar screen already existed and drew 3 of 9 dated things** — its 400-day horizon was silently capped by each field's reminder lead, and money due never reached a square at all (`docs/CALENDAR.md`). **Google Calendar sync is genuinely absent** and is the real remaining work |
 | 5 | Financial foundation, transfer matching, economic events | **all ten prompt tests pass**, locked in `tests/prompt.test.mjs` — see below. `EconomicEvent` still wanted for movements with more than two legs |
 | 6 | Cards, loans, EMI, FD/RD, family ledger | loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); **who-paid done, who-owes-whom refused for a stated reason** (`docs/HOUSEHOLD_LEDGER.md`); **card bills now due-dated from the statement, not the current balance** (`docs/CARD_BILLS.md`); **subscriptions are in the committed figure that had always named them** (`docs/COMMITMENTS.md`) |
-| 7 | Investments, brokers, MCP | investments exist; brokers architecture-only |
+| 7 | Investments, brokers, MCP | investments exist and XIRR is right; **`holding.invested` never moved, so a fund fed a SIP reported 162% gain where its own transactions said 24.61%** (`docs/COST_BASIS.md`). Brokers still architecture-only; MCP not started |
 | 8–23 | Insights … internationalisation | not started |
 
 ## The prompt's ten financial tests

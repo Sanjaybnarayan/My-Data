@@ -1414,6 +1414,78 @@ async function main() {
         detail.slice(0, 600));
     }
 
+    /* ----------------------------- what a holding actually cost */
+
+    {
+      // `holding.invested` is typed on the form and nothing re-read it, so a
+      // fund fed a monthly SIP kept reporting the opening figure. Driven
+      // through the real forms, because the arithmetic being right in a unit
+      // test says nothing about whether a household ever sees it.
+      const before = consoleErrors.length;
+
+      await go(page, '#/investments/holding');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.locator('#f-holding-name').fill('Flexi cap fund');
+      await page.locator('#f-holding-kind').selectOption('mutual fund');
+      await page.locator('#f-holding-invested').fill('50000');
+      await page.locator('#f-holding-currentValue').fill('131000');
+      await page.locator('#f-holding-valuedOn').fill('2026-08-01');
+      await page.locator('#f-holding-name').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      const buy = async (date, amount, units, charges) => {
+        await go(page, '#/investments/investmentTransaction');
+        await page.waitForTimeout(350);
+        await page.getByRole('button', { name: /Add/ }).first().click();
+        await page.waitForSelector('.modal', { timeout: 5000 });
+        await page.locator('#f-investmentTransaction-holding')
+          .selectOption({ label: 'Flexi cap fund' });
+        await page.locator('#f-investmentTransaction-kind').selectOption('buy');
+        await page.locator('#f-investmentTransaction-date').fill(date);
+        await page.locator('#f-investmentTransaction-amount').fill(amount);
+        await page.locator('#f-investmentTransaction-units').fill(units);
+        if (charges) await page.locator('#f-investmentTransaction-charges').fill(charges);
+        await page.locator('#f-investmentTransaction-amount').press('Enter');
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+      };
+
+      // The opening purchase, then three SIP instalments with brokerage on
+      // them. ₹50,000 + ₹15,000 + ₹36 of charges = ₹65,036.
+      await buy('2025-08-14', '50000', '100', '');
+      await buy('2025-09-14', '5000', '10', '12');
+      await buy('2025-10-14', '5000', '10', '12');
+      await buy('2025-11-14', '5000', '10', '12');
+
+      await go(page, '#/investments');
+      await page.waitForTimeout(700);
+      const body = (await page.locator('.app-content').innerText()).trim();
+
+      // The summary is portfolio-wide, so what this holding contributes is the
+      // ₹15,000 of SIP plus ₹36 of brokerage that the forms never saw.
+      check('the invested figure follows the recorded purchases',
+        /₹15,036\.00 less/.test(body), body.slice(0, 900));
+      check('and the screen says the form disagrees, rather than changing quietly',
+        /The holding forms say/.test(body), body.slice(0, 900));
+      check('and charges are named as being inside it',
+        /including charges/.test(body), body.slice(0, 900));
+      check('and says how much of the portfolio this never reached',
+        /holdings have no transactions recorded/.test(body), body.slice(0, 900));
+
+      const row = page.locator('.holdings-card .list-item', { hasText: 'Flexi cap fund' }).first();
+      const rowText = (await row.count()) ? await row.innerText() : '';
+      // ₹1,31,000 against ₹65,036 is +101.43%. Against the ₹50,000 on the form
+      // it read +162%.
+      check('the gain on the row is against what was really put in',
+        /\+101\.43%/.test(rowText), rowText || '(no row)');
+
+      check('the portfolio renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'investments-costbasis');
+    }
+
     /* --------------------------------- what the calendar actually draws */
 
     {

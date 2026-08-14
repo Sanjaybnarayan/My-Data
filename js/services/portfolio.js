@@ -22,9 +22,10 @@
 
 import { Service, NET_WORTH_LOAD } from './service.js';
 import {
-  portfolioSummary, allocation, holdingGain, xirr, cashFlows,
+  portfolioSummary, allocation, holdingValue, xirr, cashFlows,
   maturingSoon, dividendIncome,
 } from '../domain/portfolio.js';
+import { costBasis, gainOn } from '../domain/costbasis.js';
 import { netWorth } from '../domain/networth.js';
 import { accrualReport } from '../domain/accrual.js';
 import { startOfFinancialYear, endOfFinancialYear, today } from '../core/dates.js';
@@ -49,7 +50,9 @@ export class PortfolioService extends Service {
     // that decision out of the rendering.
     if (!holdings.length) return { empty: true, holdings: [], rows: [] };
 
-    const summary = portfolioSummary(holdings);
+    // The stored view, kept so the screen can say what the forms add up to
+    // beside what the transactions do.
+    const asTyped = portfolioSummary(holdings);
 
     /**
      * The closing value a rate should be worked out from.
@@ -79,9 +82,27 @@ export class PortfolioService extends Service {
       .map((holding) => {
         const closing = closingValue(holding);
         const flows = cashFlows(holding, txns, { asOf, value: closing });
+
+        // What the holding actually cost, from the transactions rather than
+        // the figure typed on the form. A fund fed a monthly SIP reported a
+        // 162% gain against the 24.61% its own transactions implied — while
+        // the rate beside it, worked out from those very transactions, said
+        // 34%. Two numbers about one holding, disagreeing on one screen.
+        const basis = costBasis(holding, txns);
+
         return {
           ...holding,
-          ...holdingGain(holding),
+          // The **stored** value, deliberately, not the accrual estimate. The
+          // estimate is right for the rate — a stale closing figure makes XIRR
+          // meaningless rather than slightly wrong — but putting it in the
+          // value column would substitute an estimate for the household's own
+          // recorded figure without saying so, which is what the accrual card
+          // beside this row exists to avoid. Only the *invested* side is
+          // corrected here. (Written the other way first; the browser check
+          // "the recorded value is left exactly as it was" caught it.)
+          ...gainOn(basis, holdingValue(holding)),
+          basis,
+          unitsHeld: basis.units,
           // Whether the rate beside this row came from a figure somebody typed
           // or from an estimate of what it has grown to since. The screen says
           // which; a rate presented identically either way would be the
@@ -102,6 +123,30 @@ export class PortfolioService extends Service {
         };
       })
       .sort((a, b) => b.value - a.value);
+
+    // The headline, from the same cost basis the rows use. Built here rather
+    // than by `portfolioSummary`, which reads `holding.invested` — the figure
+    // that had never moved.
+    const summary = rows.reduce((acc, row) => ({
+      count: acc.count + 1,
+      invested: acc.invested + row.invested,
+      value: acc.value + row.value,
+      realised: acc.realised + row.realised,
+      income: acc.income + row.income,
+      // How much of the headline rests on figures nobody has recorded
+      // transactions for. A portfolio where most of it does is one where this
+      // correction has not reached most of the money.
+      fromForms: acc.fromForms + (row.basis.from === 'stored' ? 1 : 0),
+    }), { count: 0, invested: 0, value: 0, realised: 0, income: 0, fromForms: 0 });
+
+    summary.gain = (summary.value + summary.realised + summary.income) - summary.invested;
+    summary.gainPercent = summary.invested
+      ? Math.round((summary.gain / summary.invested) * 10_000) / 100
+      : null;
+    // What the forms say, so the screen can name the disagreement rather than
+    // quietly showing a different number than it did yesterday.
+    summary.typedInvested = asTyped.invested;
+    summary.difference = summary.invested - asTyped.invested;
 
     const pooled = xirr(holdings
       .flatMap((holding) => cashFlows(holding, txns, { asOf, value: closingValue(holding) }))
