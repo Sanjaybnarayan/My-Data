@@ -40,6 +40,20 @@ async function go(page, hash) {
   await page.waitForTimeout(450);
 }
 
+/**
+ * Today, formatted the way `core/dates.js` formats a day.
+ *
+ * Kept in step with `formatDay` by hand, which is a small duplication and the
+ * right one: importing the application's formatter to check the application's
+ * output would make the assertion agree with itself no matter what either did.
+ */
+function todayLabel() {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const now = new Date();
+  return `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+}
+
 function check(name, condition, detail = '') {
   checks.push({ name, ok: Boolean(condition) });
   if (!condition) failures.push(`${name}${detail ? ` \u2014 ${detail}` : ''}`);
@@ -440,8 +454,13 @@ async function main() {
       // it once, and carries that day's own totals.
       check('rows are grouped under a day heading',
         (await page.locator('.ledger-day').count()) > 0);
+      // Against today, not against a date typed into the test. These rows are
+      // created through the form with no date, so they carry today's — and the
+      // assertion used to name the day it was written on, which meant it
+      // passed for one day and failed on every day after it.
       check('the heading carries the day and not just a rule',
-        /9 Aug 2026/.test(await page.locator('.ledger-day').first().innerText()));
+        (await page.locator('.ledger-day').first().innerText()).includes(todayLabel()),
+        `expected ${todayLabel()}`);
       check('the date is not then repeated on every row beneath it',
         !/2026/.test(await page.locator('.ledger-row').first().locator('.col--date').innerText()));
 
