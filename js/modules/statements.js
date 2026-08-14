@@ -28,9 +28,11 @@ import { extract } from '../data/pdf-read.js';
 import { parseTable, looksLikeCard } from '../domain/tabular.js';
 import {
   isPaymentApp, byInstrument, alreadyOnRecord, referencesIn, describeImport,
+  matchInstruments, splitByAccount, describeSplit,
 } from '../domain/paymentapp.js';
 import {
   planStatement, reviewBatch, toRecord, toStatementRecord, accountFromStatement,
+  fingerprint,
 } from '../domain/import.js';
 import { summarise, categoryLabel, businessLedger } from '../domain/categorise.js';
 import { today } from '../core/dates.js';
@@ -165,8 +167,11 @@ export async function render() {
       const { seen } = alreadyOnRecord(parsed.transactions, options.references ?? new Set());
       const onRecord = new Set(seen.map((row) => row.utr));
 
+      const matched = matchInstruments(byInstrument(parsed.transactions), options.accounts);
+
       plan.paymentApp = {
         accounts: byInstrument(parsed.transactions),
+        matched,
         seen: seen.length,
         fresh: parsed.transactions.length - seen.length,
       };
@@ -177,6 +182,26 @@ export async function render() {
       plan.duplicates = [...plan.duplicates,
         ...plan.fresh.filter((row) => row.utr && onRecord.has(row.utr))];
       plan.fresh = plan.fresh.filter((row) => !(row.utr && onRecord.has(row.utr)));
+
+      // One file, several accounts, written as several statements. The
+      // fingerprint is rebuilt per group because it is keyed on the account:
+      // computed once against a file that has no single account, every row
+      // would carry the same empty account id and a re-import would not
+      // recognise itself.
+      plan.groups = splitByAccount(plan.fresh, matched).map((group) => ({
+        ...group,
+        rows: group.rows.map((row) => ({
+          ...row,
+          importKey: group.account ? fingerprint(group.account.id, row) : '',
+        })),
+      }));
+
+      // Rows whose instrument matches no account are not importable. Kept and
+      // counted rather than dropped, so the screen can say why.
+      plan.unfiled = plan.groups.filter((group) => !group.account)
+        .reduce((total, group) => total + group.rows.length, 0);
+      plan.fresh = plan.groups.filter((group) => group.account)
+        .flatMap((group) => group.rows);
     }
 
     return plan;
@@ -185,7 +210,11 @@ export async function render() {
   /* --------------------------------------------------------------- writing */
 
   async function importAll() {
-    const writable = plans.filter((plan) => plan.match?.account && plan.fresh?.length);
+    // A payment-app file belongs to no single account, so it is writable when
+    // any of its groups matched one — `plan.match.account` is meaningless here
+    // and asking for it would refuse every such file.
+    const writable = plans.filter((plan) => plan.fresh?.length
+      && (plan.groups ? plan.groups.some((group) => group.account) : plan.match?.account));
     if (!writable.length) return;
 
     const total = writable.reduce((sum, plan) => sum + plan.fresh.length, 0);
@@ -210,7 +239,17 @@ export async function render() {
 
     try {
       for (const plan of writable) {
-        const accountId = plan.match.account.id;
+        // One file, several accounts, several statement records. A
+        // `bankStatement` states an account, a row count and an imported
+        // count; one record covering four accounts would have to be wrong
+        // about all three. See `docs/PAYMENT_APPS.md`.
+        const parts = plan.groups
+          ? plan.groups.filter((group) => group.account && group.rows.length)
+            .map((group) => ({ accountId: group.account.id, rows: group.rows }))
+          : [{ accountId: plan.match.account.id, rows: plan.fresh }];
+
+        for (const part of parts) {
+          const { accountId, rows } = part;
 
         // One unit per file, and the reason is the `importedCount` below. The
         // statement record states how many rows came out of it; the rows are
@@ -227,22 +266,24 @@ export async function render() {
         //
         // Per file rather than per batch, so one enormous transaction cannot
         // form out of several statements at once.
-        await transact(db, async (unit) => {
-          const statement = await unit.create(
-            'bankStatement',
-            toStatementRecord(plan, { accountId, importedCount: plan.fresh.length, today: today() }),
-          );
-
-          for (const row of plan.fresh) {
-            await unit.create(
-              'transaction',
-              toRecord(row, { accountId, statementId: statement.id, personId: plan.personId }),
+          await transact(db, async (unit) => {
+            const statement = await unit.create(
+              'bankStatement',
+              toStatementRecord(plan, { accountId, importedCount: rows.length, today: today() }),
             );
-          }
-        });
 
-        written += plan.fresh.length;
-        plan.imported = plan.fresh.length;
+            for (const row of rows) {
+              await unit.create(
+                'transaction',
+                toRecord(row, { accountId, statementId: statement.id, personId: plan.personId }),
+              );
+            }
+          });
+
+          written += rows.length;
+        }
+
+        plan.imported = parts.reduce((total, part) => total + part.rows.length, 0);
         plan.fresh = [];
       }
 
@@ -416,6 +457,14 @@ export async function render() {
       plan.paymentApp
         ? h('p', { class: 'small muted', style: { marginTop: 'var(--space-3)' } },
           describeImport(plan.paymentApp, format))
+        : null,
+
+      // Which account each group of rows will be filed against, and which
+      // groups will not be filed at all. A payment put on the wrong account is
+      // invisible afterwards and wrong in two places, so an instrument that
+      // matches nothing is named rather than guessed at.
+      plan.groups
+        ? h('p', { class: `small ${plan.unfiled ? 'warn' : 'faint'}` }, describeSplit(plan.groups))
         : null,
 
       h('div', { class: 'chip-row', style: { marginTop: 'var(--space-3)' } }, [

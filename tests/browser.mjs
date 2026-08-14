@@ -200,6 +200,9 @@ async function main() {
 
     await page.locator('#f-account-name').fill('HDFC Savings');
     await page.locator('#f-account-institution').fill('HDFC Bank');
+    // A real number, because the payment-app import matches an instrument by
+    // the digits its mask leaves — `XXXXXXXX8177` has to find this account.
+    await page.locator('#f-account-accountNumber').fill('50100128177');
     await page.locator('#f-account-openingBalance').fill('25000');
     check('the form offers an enabled submit button',
       await page.locator('.modal button[type="submit"]').isEnabled());
@@ -533,6 +536,16 @@ async function main() {
       // every payment arrives a second time.
       check('and warns that the same payments will arrive from the other side',
         /arrive again from the other side/i.test(app), app.slice(0, 900));
+
+      // The split. An HDFC Savings account was created earlier in this run
+      // ending 8177, so that group files; the others do not, and the screen
+      // has to say which and why rather than filing them against a guess.
+      check('rows are filed against the account they actually moved on',
+        /to HDFC Savings/.test(app), app.slice(0, 1200));
+      check('and an instrument matching no account is refused, with a reason',
+        /cannot be imported/.test(app), app.slice(0, 1200));
+      check('a mask too short to identify an account says so',
+        /not enough to tell/.test(app), app.slice(0, 1200));
 
       check('reading a payment app export raises no console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));

@@ -15,6 +15,7 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   readInstrument, kindOf, counterpartyOf, isPaymentApp, byInstrument,
   alreadyOnRecord, referencesIn, describeImport,
+  matchInstruments, splitByAccount, describeSplit,
 } from '../js/domain/paymentapp.js';
 import { parseTable, readDate } from '../js/domain/tabular.js';
 
@@ -213,5 +214,103 @@ describe('what the screen is told', () => {
 
   test('nothing at all says nothing', () => {
     assert.equal(describeImport({ accounts: [] }), null);
+  });
+});
+
+describe('one file, several accounts', () => {
+  const ACCOUNTS = [
+    { id: 'a1', name: 'Kotak Savings', accountNumber: '5612488963', deletedAt: null },
+    { id: 'a2', name: 'ICICI Savings', accountNumber: '008401532684', deletedAt: null },
+    { id: 'a3', name: 'HDFC Savings', accountNumber: '50100128177', deletedAt: null },
+  ];
+
+  const spans = () => byInstrument(parseTable(STATEMENT).transactions);
+
+  test('an instrument is matched by the digits its mask leaves', () => {
+    // `XXXXXXXX8177` says the account ends 8177 and nothing else. A payment
+    // app prints no IFSC, no holder and no bank, so there is nothing to score.
+    const matched = matchInstruments(spans(), ACCOUNTS);
+    const byDigits = Object.fromEntries(matched.map((m) => [m.digits, m.account?.id ?? null]));
+
+    assert.equal(byDigits['8177'], 'a3');
+    assert.equal(byDigits['8963'], 'a1');
+  });
+
+  test('a mask leaving fewer than four digits is refused, not guessed', () => {
+    // `XXXXXXXXXX84` leaves two. Two digits match one account in a hundred by
+    // chance, and filing a household's spending that way is worse than not
+    // filing it.
+    const short = matchInstruments(spans(), ACCOUNTS).find((m) => m.digits === '84');
+
+    assert.equal(short.account, null);
+    assert.includes(short.why, 'not enough to tell');
+  });
+
+  test('two accounts ending the same way are refused too', () => {
+    const ambiguous = [
+      { id: 'a1', name: 'One', accountNumber: '11118177', deletedAt: null },
+      { id: 'a2', name: 'Two', accountNumber: '99998177', deletedAt: null },
+    ];
+    const matched = matchInstruments(spans(), ambiguous).find((m) => m.digits === '8177');
+
+    assert.equal(matched.account, null);
+    assert.includes(matched.why, '2 accounts on record end in 8177');
+  });
+
+  test('the digits have to be the end of the number, not merely inside it', () => {
+    // `50100081779999` contains 8177 and does not end with it, so it is a
+    // different account. Matching anywhere would file this household's
+    // spending onto whichever account happened to contain the digits.
+    const middle = [{ id: 'a9', name: 'Not this one', accountNumber: '50100081779999', deletedAt: null }];
+    const matched = matchInstruments(spans(), middle).find((m) => m.digits === '8177');
+
+    assert.equal(matched.account, null);
+    assert.includes(matched.why, 'no account on record ends in 8177');
+  });
+
+  test('an account nobody has on record says exactly that', () => {
+    const matched = matchInstruments(spans(), []).find((m) => m.digits === '8177');
+    assert.equal(matched.account, null);
+    assert.includes(matched.why, 'no account on record ends in 8177');
+  });
+
+  test('a deleted account does not match', () => {
+    const gone = [{ id: 'a1', name: 'Gone', accountNumber: '50100128177', deletedAt: '2026-01-01T00:00:00.000Z' }];
+    assert.equal(matchInstruments(spans(), gone).find((m) => m.digits === '8177').account, null);
+  });
+
+  test('the rows are split by the account they moved on', () => {
+    const parsed = parseTable(STATEMENT);
+    const groups = splitByAccount(parsed.transactions, matchInstruments(spans(), ACCOUNTS));
+
+    const filed = groups.filter((g) => g.account);
+    const unfiled = groups.filter((g) => !g.account);
+
+    // 8177 and 8963 match; 84 is too short and 005391 is on no record.
+    assert.length(filed, 2);
+    assert.length(unfiled, 2);
+    assert.equal(filed.reduce((n, g) => n + g.rows.length, 0), 4);
+  });
+
+  test('every row lands in exactly one group', () => {
+    const parsed = parseTable(STATEMENT);
+    const groups = splitByAccount(parsed.transactions, matchInstruments(spans(), ACCOUNTS));
+    const total = groups.reduce((n, g) => n + g.rows.length, 0);
+
+    assert.equal(total, parsed.transactions.length);
+  });
+
+  test('the sentence names where the rows go and what will not be filed', () => {
+    const parsed = parseTable(STATEMENT);
+    const groups = splitByAccount(parsed.transactions, matchInstruments(spans(), ACCOUNTS));
+    const said = describeSplit(groups);
+
+    assert.includes(said, 'HDFC Savings');
+    assert.includes(said, 'cannot be imported');
+    assert.includes(said, 'not enough to tell');
+  });
+
+  test('nothing to split says nothing', () => {
+    assert.equal(describeSplit([]), null);
   });
 });

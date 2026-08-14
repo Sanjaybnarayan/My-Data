@@ -113,24 +113,64 @@ rather than silently missing.
 
 ## Verification
 
-- 1,182 unit tests, 23 in `tests/paymentapp.test.mjs`.
-- **11 mutations, all caught** — including *credited-to reads as money out*, *a
+- 1,192 unit tests, 33 in `tests/paymentapp.test.mjs`.
+- **17 mutations, all caught** — including *credited-to reads as money out*, *a
   self-transfer is ordinary spending*, *a missing UTR counts as a duplicate*,
-  *duplicates are never detected*, and *the instrument is a deposit column
-  again*.
-- 225 browser checks; four of the five new ones fail when month-first dates are
-  refused again.
+  *duplicates are never detected*, *the instrument is a deposit column again*,
+  *a two-digit tail is matched anyway*, *an ambiguous tail picks the first*, and
+  *unfiled groups are silently dropped*.
+- One survived at first: *the tail is matched anywhere, not at the end*. No
+  fixture had an account whose number **contains** the digits without ending in
+  them, so the rule was untested. `50100081779999` is now one of them.
+- 228 browser checks; the new ones fail when month-first dates are refused, and
+  when a mask too short to identify an account is matched anyway.
 - Typecheck **194, down from 198**: documenting `parsed` and `references` on
   `planStatement`'s options cleared four pre-existing findings in
   `tests/tabular.test.mjs`.
 
+## One file, several statement records
+
+**The decision:** a `bankStatement` record per *(file, account)*.
+
+That record states an account, a row count and an imported count. One record
+covering four accounts would have to be wrong about all three, and the question
+a household asks — *"what has been imported for this account?"* — is answered
+per account. The file name repeats across the records, which is true: one file
+produced them all.
+
+### Matching an instrument to an account
+
+A mask leaves only a tail. `XXXXXXXX8177` says the account ends 8177 and
+nothing else — a payment app prints no IFSC, no holder and no bank, so
+`scoreAccount`'s evidence simply is not there. The test is that the recorded
+number **ends with** those digits; containing them somewhere in the middle is a
+different account.
+
+Three refusals, and each one files nothing rather than guessing:
+
+| | |
+| --- | --- |
+| **Fewer than four digits** | `XXXXXXXXXX84` leaves two. Two digits match one account in a hundred by chance. |
+| **More than one account ends the same way** | The file cannot say which, and neither can this. |
+| **No account on record ends that way** | Nothing to file against. |
+
+A payment filed against the wrong account is invisible afterwards and wrong in
+two places at once — it inflates one balance and deflates another. So those
+rows are kept, counted, and named on screen:
+
+> 3 to HDFC Savings, 1 to Kotak Savings. 2 rows moved on XXXXXXXXXX84 and
+> cannot be imported: the app masks this one down to "XXXXXXXXXX84", and 2
+> digits is not enough to tell which account it is.
+
+### The fingerprint is rebuilt per group
+
+`fingerprint()` is keyed on the account id. Computed once against a file that
+has no single account, every row would carry the same empty id — and a
+re-import of the same file would not recognise itself. Each group's rows are
+re-fingerprinted against the account they were filed to.
+
 ## Still not done
 
-- **No account is matched per instrument.** The screen names the four accounts
-  and refuses to pretend the file belongs to one of them, but does not yet offer
-  to file each group against its own account. That is the next piece of work,
-  and it needs a decision about what a statement record means when one file
-  covers several accounts.
 - **A self-transfer is labelled, not paired.** `domain/events.js` pairs the two
   legs of an internal transfer; a payment app names one leg and the bank names
   the other, and the two are not yet joined.

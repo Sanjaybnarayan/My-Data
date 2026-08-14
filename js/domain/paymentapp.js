@@ -232,3 +232,106 @@ export function describeImport({ accounts = [], seen = 0, fresh = 0 }, money = (
 
   return parts.join('');
 }
+
+/* ------------------------------------------------- one file, many accounts */
+
+/**
+ * Which account on record each instrument is.
+ *
+ * A mask leaves only a tail — `XXXXXXXX8177` says the account ends 8177 and
+ * nothing else — so the test is that the recorded number ends with those
+ * digits. `domain/import.js` scores a whole header; there is nothing here to
+ * score, because a payment app prints no IFSC, no holder and no bank.
+ *
+ * **Four digits is the floor.** `XXXX...84` leaves two, and two digits match
+ * one account in every hundred by chance; filing a household's spending
+ * against an account picked that way is worse than not filing it. Where the
+ * tail is too short to be sure, it is left unmatched rather than guessed.
+ *
+ * More than one account ending in the same digits is also unmatched: the file
+ * cannot say which, and neither can this.
+ *
+ * @returns {Array<{digits, masked, rows, out, in, account: object|null, why: string|null}>}
+ */
+export function matchInstruments(instruments = [], accounts = []) {
+  const live = (accounts ?? []).filter((a) => !a.deletedAt);
+
+  return (instruments ?? []).map((instrument) => {
+    const tail = instrument.digits ?? '';
+
+    if (tail.length < 4) {
+      return {
+        ...instrument,
+        account: null,
+        why: `the app masks this one down to “${instrument.masked}”, and `
+          + `${tail.length || 'no'} digit${tail.length === 1 ? '' : 's'} is not enough to tell `
+          + 'which account it is',
+      };
+    }
+
+    const hits = live.filter((account) => {
+      const ours = String(account.accountNumber ?? '').replace(/\D/g, '');
+      return ours.length >= 4 && ours.endsWith(tail);
+    });
+
+    if (hits.length === 1) return { ...instrument, account: hits[0], why: null };
+
+    return {
+      ...instrument,
+      account: null,
+      why: hits.length
+        ? `${hits.length} accounts on record end in ${tail}, and the file does not say which`
+        : `no account on record ends in ${tail}`,
+    };
+  });
+}
+
+/**
+ * The rows of a payment-app file, split by the account they moved on.
+ *
+ * One file, several accounts, and the split is not cosmetic: a transaction's
+ * account decides which balance it changes and whose spending it is. A group
+ * with no matching account keeps its rows and carries the reason — **they are
+ * not filed against a guess**, because a payment put on the wrong account is
+ * invisible afterwards and wrong in two places at once.
+ *
+ * @param {Array<object>} transactions
+ * @param {Array<object>} matched from `matchInstruments`
+ * @returns {Array<{digits, masked, account, why, rows: object[]}>}
+ */
+export function splitByAccount(transactions = [], matched = []) {
+  const groups = new Map(matched.map((entry) => [entry.digits, { ...entry, rows: [] }]));
+
+  for (const row of transactions) {
+    const instrument = readInstrument(row.instrument);
+    if (!instrument) continue;
+    groups.get(instrument.digits)?.rows.push(row);
+  }
+
+  return [...groups.values()];
+}
+
+/**
+ * What the split is about to do, as a sentence.
+ *
+ * @param {Array<object>} groups from `splitByAccount`
+ */
+export function describeSplit(groups = []) {
+  const known = groups.filter((group) => group.account);
+  const unknown = groups.filter((group) => !group.account);
+
+  if (!groups.length) return null;
+
+  const parts = [];
+
+  if (known.length) {
+    parts.push(`${known.map((g) => `${g.rows.length} to ${g.account.name}`).join(', ')}.`);
+  }
+
+  for (const group of unknown) {
+    parts.push(` ${group.rows.length} rows moved on ${group.masked} and cannot be `
+      + `imported: ${group.why}.`);
+  }
+
+  return parts.join('').trim();
+}
