@@ -88,7 +88,7 @@ export function loadAppsScript(files, globals, exports) {
  */
 export function backend({
   owner = 'owner@example.com', tokens = {}, properties = {},
-  driveFiles = {}, files = ['Code.gs', 'Drive.gs'],
+  driveFiles = {}, files = ['Policy.gs', 'Code.gs', 'Drive.gs'],
 } = {}) {
   const props = propertyStore(properties);
   const cache = cacheStore();
@@ -146,8 +146,9 @@ export function backend({
   };
 
   const api = loadAppsScript(files, globals, [
-    'doPost', 'doGet', 'verifyToken', 'admit', 'members', 'isMember',
+    'doPost', 'doGet', 'verifyToken', 'admit', 'members', 'memberFor',
     'manageMembers', 'dispatch', 'fail',
+    'policyAllows', 'readableEntities', 'roleRank',
   ]);
 
   /** Call the backend the way the browser does: one POST, one JSON reply. */

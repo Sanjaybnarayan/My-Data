@@ -45,6 +45,12 @@ jobs:
       - name: Check the single-file build still builds
         run: node tools/bundle.mjs /tmp/familyos.html
 
+      # The backend's copy of the access rules is generated from the schema.
+      # Two tables describing one set of rules will disagree, and this is where
+      # that gets caught rather than in a household's workbook.
+      - name: Check the backend's access rules match the schema
+        run: node tools/policy.mjs --check
+
   # Types are checked, never compiled: the application ships the JavaScript in
   # this repository and nothing here touches a byte of it. A separate job so a
   # failure reads as "types" rather than as "the suite broke", and because it is

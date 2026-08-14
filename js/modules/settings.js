@@ -477,6 +477,20 @@ function permissionsCard() {
  * key that opens them is wrapped by a PIN, a fingerprint or a recovery phrase
  * on each person's own device and never goes near Google.
  */
+/**
+ * What a role means, in the words a household would use.
+ *
+ * Derived from the schema rather than written out, so a role that gains an
+ * entity gains it here too — and a role that loses one stops claiming it.
+ */
+function describeRole(role) {
+  const readable = Object.keys(entities).filter((n) => entities[n].acl.read.includes(role));
+  const writable = Object.keys(entities).filter((n) => entities[n].acl.write.includes(role));
+  if (!readable.length) return 'May sync, but is sent nothing';
+  if (!writable.length) return `Can see ${readable.length} of ${Object.keys(entities).length} kinds of record, and change none`;
+  return `Can see ${readable.length} and change ${writable.length} of ${Object.keys(entities).length} kinds of record`;
+}
+
 function householdCard() {
   const host = h('div', {});
   const body = h('div', {}, h('p', { class: 'muted' }, 'Checking…'));
@@ -530,11 +544,19 @@ function householdCard() {
       onKeyDown: (event) => { if (event.key === 'Enter') add(); },
     });
 
+    // The role is chosen when somebody is admitted, and it is the whole of
+    // what they may reach. `guest` first, and as the default, because a
+    // household adding an account in a hurry should be adding the narrowest
+    // one — widening later is a deliberate act, narrowing after a leak is not
+    // a remedy.
+    const roleField = h('select', { class: 'input', 'aria-label': 'What they may see' },
+      ['guest', 'child', 'adult', 'spouse'].map((role) => h('option', { value: role }, role)));
+
     const add = () => {
       const value = field.value.trim().toLowerCase();
-      if (!value.includes('@') || members.includes(value)) return;
+      if (!value.includes('@') || members.some((m) => m.email === value)) return;
       field.value = '';
-      void save([...members, value]);
+      void save([...members, { email: value, role: roleField.value }]);
     };
 
     replace(body, [
@@ -543,19 +565,19 @@ function householdCard() {
         subtitle: 'Owns the backend — admitted by identity, and cannot be removed',
         leading: badge('owner', 'success'),
       }),
-      ...members.map((email) => listItem({
+      ...members.map(({ email, role }) => listItem({
         title: email,
-        subtitle: 'May sync with this backup',
-        leading: badge('member', 'info'),
+        subtitle: `${describeRole(role)} · enforced by the backend, not by this screen`,
+        leading: badge(role, role === 'guest' ? '' : 'info'),
         trailing: isOwner ? button('Remove', {
-          onClick: () => save(members.filter((other) => other !== email)),
+          onClick: () => save(members.filter((other) => other.email !== email)),
         }) : null,
       })),
 
       isOwner
         ? h('div', {}, [
           h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-3)' } }, [
-            field, button('Admit', { onClick: add }),
+            field, roleField, button('Admit', { onClick: add }),
           ]),
           h('p', { class: 'small muted', style: { marginTop: 'var(--space-2)' } },
             'They also need to be a test user on your OAuth consent screen, and they '

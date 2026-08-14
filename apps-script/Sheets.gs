@@ -109,6 +109,32 @@ function sheetPush(changes, book, context) {
   var rejected = [];
   var conflicts = [];
 
+  // The check that makes the browser's rules more than a courtesy.
+  //
+  // `security/rbac.js` refuses the same writes on the device, and anybody who
+  // opens devtools can make it stop. This runs on Google's servers under the
+  // household's own authorisation, so a caller who has edited their role, or
+  // written their own client, still cannot put a row in a sheet their account
+  // may not write.
+  //
+  // Refused per row rather than for the batch: one change a child may not make
+  // should not throw away the fourteen they may. The client is told which and
+  // why through `rejected`, the same channel a validation failure uses.
+  var permitted = [];
+  var role = (context && context.role) || 'guest';
+  for (var c = 0; c < changes.length; c++) {
+    if (policyAllows(role, 'write', changes[c].store)) {
+      permitted.push(changes[c]);
+    } else {
+      rejected.push({
+        recordId: changes[c].recordId,
+        reason: 'a ' + role + ' may not write ' + changes[c].store,
+      });
+    }
+  }
+  if (!permitted.length) return { applied: applied, rejected: rejected, conflicts: conflicts };
+  changes = permitted;
+
   // Grouped by sheet so each tab is read once, not once per row.
   var bySheet = {};
   for (var i = 0; i < changes.length; i++) {
@@ -195,12 +221,13 @@ function buildIndex(sheet) {
  * watermark, and rows are returned in that order so a partial batch still
  * advances it correctly.
  */
-function sheetPull(cursors, limit, book) {
+function sheetPull(cursors, limit, book, context) {
   var sheets = book.getSheets();
   var records = {};
   var nextCursors = {};
   var more = false;
   var budget = limit;
+  var role = (context && context.role) || 'guest';
 
   for (var i = 0; i < sheets.length; i++) {
     var sheet = sheets[i];
@@ -209,6 +236,15 @@ function sheetPull(cursors, limit, book) {
 
     var entityName = entityForSheet(name);
     if (!entityName) continue;
+
+    // Not sent at all, rather than sent and hidden by the client. A row that
+    // reached the device would be in IndexedDB, in the search index and in an
+    // export, whatever a screen chose to draw.
+    //
+    // The cursor is deliberately left alone for a skipped entity: advancing it
+    // would mean that promoting somebody later showed them only what changed
+    // after the promotion, with the history silently missing.
+    if (!policyAllows(role, 'read', entityName)) continue;
 
     var since = cursors[entityName] || '';
     var lastRow = sheet.getLastRow();
