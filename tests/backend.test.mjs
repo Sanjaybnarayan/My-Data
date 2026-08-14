@@ -119,8 +119,29 @@ describe('managing the list', () => {
     const result = api.manageMembers({ emails: [SPOUSE] },
       { email: OWNER, owner: OWNER, isOwner: true });
 
-    assert.deep(result.members, [SPOUSE]);
-    assert.deep(JSON.parse(api.props.getProperty('members')), [SPOUSE]);
+    assert.deep(result.members, [{ email: SPOUSE, role: 'guest' }]);
+    assert.deep(JSON.parse(api.props.getProperty('members')),
+      [{ email: SPOUSE, role: 'guest' }]);
+  });
+
+  test('an unnamed role is guest, never the most privileged one', () => {
+    // A typo in a role should narrow what somebody may do, not widen it.
+    const api = start();
+    const result = api.manageMembers(
+      { emails: [{ email: SPOUSE, role: 'archduke' }, { email: STRANGER, role: 'owner' }] },
+      { email: OWNER, owner: OWNER, isOwner: true },
+    );
+    assert.deep(result.members.map((m) => m.role), ['guest', 'guest']);
+  });
+
+  test('a role the owner gave is the role that is stored', () => {
+    const api = start();
+    const result = api.manageMembers(
+      { emails: [{ email: SPOUSE, role: 'spouse' }, { email: STRANGER, role: 'child' }] },
+      { email: OWNER, owner: OWNER, isOwner: true },
+    );
+    assert.deep(result.members,
+      [{ email: SPOUSE, role: 'spouse' }, { email: STRANGER, role: 'child' }]);
   });
 
   test('a member cannot admit anybody, because that would make them an owner', () => {
@@ -133,6 +154,8 @@ describe('managing the list', () => {
 
     assert.equal(error?.status, 403);
     assert.deep(JSON.parse(api.props.getProperty('members')), [SPOUSE], 'the list was changed anyway');
+    assert.deep(api.members(), [{ email: SPOUSE, role: 'spouse' }],
+      'and a deployment written before roles existed still reads');
   });
 
   test('the owner cannot be written into the list', () => {
@@ -143,7 +166,7 @@ describe('managing the list', () => {
     const result = api.manageMembers({ emails: [OWNER, SPOUSE] },
       { email: OWNER, owner: OWNER, isOwner: true });
 
-    assert.deep(result.members, [SPOUSE]);
+    assert.deep(result.members.map((m) => m.email), [SPOUSE]);
   });
 
   test('rubbish, duplicates and empties are dropped rather than stored', () => {
@@ -152,7 +175,7 @@ describe('managing the list', () => {
       { emails: [SPOUSE, SPOUSE, '', 'not-an-address', '  SPOUSE@EXAMPLE.COM '] },
       { email: OWNER, owner: OWNER, isOwner: true },
     );
-    assert.deep(result.members, [SPOUSE]);
+    assert.deep(result.members.map((m) => m.email), [SPOUSE]);
   });
 
   test('the list has a ceiling, so one call cannot store a mailing list', () => {
@@ -168,7 +191,7 @@ describe('managing the list', () => {
     const api = start({ members: JSON.stringify([SPOUSE]) });
     const result = api.manageMembers({}, { email: SPOUSE, owner: OWNER, isOwner: false });
 
-    assert.deep(result.members, [SPOUSE]);
+    assert.deep(result.members, [{ email: SPOUSE, role: 'spouse' }]);
     assert.equal(result.owner, OWNER);
     assert.not(result.isOwner);
   });

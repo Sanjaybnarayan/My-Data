@@ -1,0 +1,113 @@
+/**
+ * Generate the backend's copy of the access rules from the schema.
+ *
+ * ## Why generate rather than send
+ *
+ * The rules live in `js/data/schema.js`, which the Apps Script backend cannot
+ * import — different runtime, different file, no bundler between them. There
+ * were three ways to get them across and two are wrong:
+ *
+ *   - **Send them with the request.** The browser would be telling the server
+ *     what the browser is allowed to do. That is not authorization, it is a
+ *     suggestion with extra steps.
+ *   - **Write them out by hand.** Two tables describing one set of rules, which
+ *     will disagree, and the disagreement will be discovered by somebody
+ *     reading a screen that is wrong rather than by a test.
+ *   - **Generate one from the other, and fail the build when they differ.**
+ *
+ * `tests/backend.test.mjs` regenerates this file in memory and compares. A
+ * schema change that nobody carried across breaks the suite rather than
+ * quietly widening what a child may read.
+ *
+ *   node tools/policy.mjs           write apps-script/Policy.gs
+ *   node tools/policy.mjs --check   exit 1 if the file is out of date
+ */
+
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { entities, ROLES } from '../js/data/schema.js';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+export const POLICY_FILE = join(ROOT, 'apps-script', 'Policy.gs');
+
+/** The file as it should be, given the schema as it is now. */
+export function generate() {
+  const rows = Object.keys(entities).sort().map((name) => {
+    const { acl } = entities[name];
+    return `  ${JSON.stringify(name)}: { read: ${JSON.stringify(acl.read)}, `
+      + `write: ${JSON.stringify(acl.write)} }`;
+  });
+
+  return `/**
+ * Who may read and write each entity.
+ *
+ * GENERATED FROM js/data/schema.js BY tools/policy.mjs — DO NOT EDIT.
+ * Run \`node tools/policy.mjs\` after changing an entity's \`acl\`, and
+ * \`tests/backend.test.mjs\` will tell you if you forgot.
+ *
+ * This is the authoritative copy. The browser has its own in \`security/rbac.js\`
+ * and that one is advisory: it hides controls somebody may not use, which is a
+ * courtesy, and it can be edited in devtools by anybody who cares to. This file
+ * decides what actually reaches the workbook.
+ */
+
+var ROLES = ${JSON.stringify(ROLES)};
+
+var POLICY = {
+${rows.join(',\n')}
+};
+
+/** Roles, most privileged first. A rank of -1 is not a role at all. */
+function roleRank(role) {
+  for (var i = 0; i < ROLES.length; i++) if (ROLES[i] === role) return i;
+  return -1;
+}
+
+/**
+ * May this role touch this entity?
+ *
+ * An entity with no entry is refused rather than allowed. A store the schema
+ * has never heard of is either a typo or somebody probing, and both are better
+ * answered with no.
+ */
+function policyAllows(role, action, entityName) {
+  if (roleRank(role) < 0) return false;
+  var entry = POLICY[entityName];
+  if (!entry) return false;
+  var allowed = action === 'read' ? entry.read : entry.write;
+  for (var i = 0; i < allowed.length; i++) if (allowed[i] === role) return true;
+  return false;
+}
+
+/** Every entity this role may read, for the pull filter. */
+function readableEntities(role) {
+  var out = [];
+  for (var name in POLICY) {
+    if (!Object.prototype.hasOwnProperty.call(POLICY, name)) continue;
+    if (policyAllows(role, 'read', name)) out.push(name);
+  }
+  return out;
+}
+`;
+}
+
+const current = () => {
+  try { return readFileSync(POLICY_FILE, 'utf8'); } catch { return ''; }
+};
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const wanted = generate();
+
+  if (process.argv.includes('--check')) {
+    if (current() === wanted) {
+      console.log('apps-script/Policy.gs is up to date');
+    } else {
+      console.error('apps-script/Policy.gs is out of date — run `node tools/policy.mjs`');
+      process.exit(1);
+    }
+  } else {
+    writeFileSync(POLICY_FILE, wanted);
+    console.log(`wrote apps-script/Policy.gs — ${Object.keys(entities).length} entities`);
+  }
+}

@@ -95,7 +95,7 @@ function dispatch(action, payload, context) {
     case 'bootstrap': return withLock(function () { return bootstrap(payload, context); });
     case 'schema':    return withLock(function () { return schemaEnsure(payload.manifest, workbook()); });
     case 'push':      return withLock(function () { return sheetPush(payload.changes, workbook(), context); });
-    case 'pull':      return sheetPull(payload.cursors || {}, payload.limit || 500, workbook());
+    case 'pull':      return sheetPull(payload.cursors || {}, payload.limit || 500, workbook(), context);
     case 'audit':     return withLock(function () { return auditAppend(payload.entries, workbook(), context); });
     case 'upload':    return driveUpload(payload, context);
     case 'download':  return driveDownload(payload.fileId);
@@ -113,7 +113,7 @@ function dispatch(action, payload, context) {
       return gmailSearch(payload, context);
     case 'members':   return manageMembers(payload, context);
     case 'verify':    return { counts: sheetCounts(workbook()) };
-    case 'ping':      return { ok: true, user: context.email, at: new Date().toISOString() };
+    case 'ping':      return { ok: true, user: context.email, role: context.role, at: new Date().toISOString() };
     default:
       throw fail('unknown action: ' + action, 400);
   }
@@ -143,17 +143,36 @@ function members() {
   if (!raw) return [];
   try {
     var list = JSON.parse(raw);
-    return Array.isArray(list) ? list : [];
+    if (!Array.isArray(list)) return [];
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var entry = list[i];
+      // Read forward from the old shape. Deployments written before roles
+      // existed hold a plain array of addresses, and rewriting them on read
+      // would need a write the caller may not be allowed to make. So the old
+      // shape is understood in place, and takes the role it always behaved as
+      // — every admitted account could read and write everything.
+      if (typeof entry === 'string') {
+        out.push({ email: String(entry).toLowerCase(), role: 'spouse' });
+      } else if (entry && entry.email) {
+        out.push({
+          email: String(entry.email).toLowerCase(),
+          role: roleRank(entry.role) >= 0 ? entry.role : 'guest',
+        });
+      }
+    }
+    return out;
   } catch (err) {
     return [];
   }
 }
 
-function isMember(email, list) {
+/** The member entry for an address, or null. */
+function memberFor(email, list) {
   for (var i = 0; i < list.length; i++) {
-    if (String(list[i]).toLowerCase() === email) return true;
+    if (list[i].email === email) return list[i];
   }
-  return false;
+  return null;
 }
 
 /**
@@ -206,12 +225,20 @@ function admit(email) {
   var owner = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
   var isOwner = Boolean(owner) && email === owner;
 
-  if (!isOwner && !isMember(email, members())) {
+  if (isOwner) {
+    return { email: email, owner: owner, isOwner: true, role: 'owner' };
+  }
+
+  var entry = memberFor(email, members());
+  if (!entry) {
     throw fail('this Google account has not been added to this household — '
       + 'the owner can add it in Settings', 403);
   }
 
-  return { email: email, owner: owner, isOwner: isOwner };
+  // The role travels with the identity, from here, and is never taken from
+  // the request. A caller telling the backend what role it has would be a
+  // caller granting itself one.
+  return { email: email, owner: owner, isOwner: false, role: entry.role };
 }
 
 /**
@@ -231,13 +258,22 @@ function manageMembers(payload, context) {
     }
 
     var clean = [];
+    var seen = {};
     for (var i = 0; i < payload.emails.length && i < 50; i++) {
-      var email = String(payload.emails[i] || '').trim().toLowerCase();
+      var given = payload.emails[i];
+      var email = String((given && given.email) || given || '').trim().toLowerCase();
+      // An unnamed or unknown role is `guest`, never the most privileged one.
+      // A typo in a role should narrow what somebody may do, not widen it.
+      var role = given && given.role;
+      if (roleRank(role) < 0 || role === 'owner') role = 'guest';
+
       // The owner is admitted by identity, never by list. Storing it would
-      // invite somebody to remove it and lock the household out.
-      if (email && email.indexOf('@') > 0 && email !== context.owner
-        && clean.indexOf(email) === -1) {
-        clean.push(email);
+      // invite somebody to remove it and lock the household out — and it would
+      // also be the one entry through which the owner's own role could be
+      // downgraded by editing a list.
+      if (email && email.indexOf('@') > 0 && email !== context.owner && !seen[email]) {
+        seen[email] = true;
+        clean.push({ email: email, role: role });
       }
     }
 
@@ -246,7 +282,8 @@ function manageMembers(payload, context) {
     return { owner: context.owner, members: clean };
   }
 
-  return { owner: context.owner, members: members(), isOwner: context.isOwner };
+  return { owner: context.owner, members: members(), isOwner: context.isOwner,
+    role: context.role };
 }
 
 /** A token bucket in the per-user cache. Cheap, and enough to stop a loop. */
