@@ -99,11 +99,13 @@ household that shares the file has bypassed this entirely.
 Entity-level enforcement is what shipped. A child is refused the vault; a child
 who may read tasks is sent every task, not only their own.
 
-**The two layers do not agree, and the browser is the looser one.**
-`rbac.js` has `GUEST_READABLE` and `OWN_RECORD_ENTITIES` rules with no server
-counterpart. Where they differ, the server is authoritative for anything
-crossing the wire and the browser is authoritative for what a screen draws.
-Reconciling them is real work and is not done.
+~~**The two layers do not agree, and the browser is the looser one.**~~
+**Mostly done — see `docs/OWN_RECORDS.md`.** The own-record half is reconciled:
+the server now has the rule, generated from `rbac.js` by `tools/policy.mjs`, and
+an owner-controlled `personId` on each member entry to enforce it with. Two
+divergences remain deliberately — `guest` reading `emergencyContact`, which is a
+decision about widening what leaves the workbook, and `person`, which must not
+be reconciled because it is the mapping that identifies the caller.
 
 **Encryption is unaffected.** Sensitive fields were already ciphertext in the
 workbook and stay so. This decides who may *reach* rows, not who can read the

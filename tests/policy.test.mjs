@@ -17,6 +17,7 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import { loadAppsScript, propertyStore, cacheStore } from './appsscript.mjs';
 import { generate, POLICY_FILE } from '../tools/policy.mjs';
 import { entities } from '../js/data/schema.js';
+import { OWN_RECORD_ENTITIES, SUBJECT_FIELD } from '../js/security/rbac.js';
 
 setSuite('policy');
 
@@ -30,6 +31,7 @@ setSuite('policy');
  * mutation-testing duly reported that deleting the entire pull enforcement
  * broke nothing. It was not the enforcement that was missing; it was the map.
  */
+/** @param {Record<string, string>} [sheetMap] */
 function sheets(sheetMap = { vaultItem: 'Vault', note: 'Notes', task: 'Tasks', account: 'Accounts' }) {
   const props = propertyStore({ sheetMap: JSON.stringify(sheetMap) });
   return loadAppsScript(
@@ -42,7 +44,8 @@ function sheets(sheetMap = { vaultItem: 'Vault', note: 'Notes', task: 'Tasks', a
       Session: { getEffectiveUser: () => ({ getEmail: () => 'owner@example.com' }) },
       console: { log() {}, warn() {}, error() {} },
     },
-    ['policyAllows', 'readableEntities', 'roleRank', 'sheetPush', 'sheetPull'],
+    ['policyAllows', 'readableEntities', 'roleRank', 'sheetPush', 'sheetPull',
+      'ownRecordAllows', 'ownRecordEntities'],
   );
 }
 
@@ -101,19 +104,27 @@ describe('the rules themselves', () => {
  * A row rather than an empty tab, because `lastRow < 2` short-circuits the pull
  * loop — an empty sheet would let a test pass with the policy check deleted.
  */
-function fakeBook(names) {
+function fakeBook(names, { headers, rows } = /** @type {{headers?: string[], rows?: any[][]}} */ ({})) {
   const touched = [];
-  const HEADERS = ['_id', '_rev', '_updatedAt', '_deletedAt'];
-  const ROW = ['r1', 1, '2026-08-01T00:00:00.000Z', ''];
+  const HEADERS = headers ?? ['_id', '_rev', '_updatedAt', '_deletedAt'];
+  const ROWS = rows ?? [['r1', 1, '2026-08-01T00:00:00.000Z', '']];
 
   const sheet = (name) => ({
     getName: () => name,
-    getLastRow: () => { touched.push(name); return 2; },
+    getLastRow: () => { touched.push(name); return ROWS.length + 1; },
     getLastColumn: () => HEADERS.length,
     getRange: (row) => {
       touched.push(name);
-      return { getValues: () => (row === 1 ? [HEADERS] : [ROW]) };
+      return {
+        getValues: () => (row === 1 ? [HEADERS] : ROWS),
+        // Writable, because an allowed push now reaches the sheet. The first
+        // version of these fixtures had no `setValues` and the own-record test
+        // failed on it — which was the fix working, not breaking.
+        setValues: () => {},
+        setValue: () => {},
+      };
     },
+    appendRow: () => {},
   });
 
   return {
@@ -122,6 +133,130 @@ function fakeBook(names) {
     getSheetByName: (name) => (names.includes(name) ? sheet(name) : null),
   };
 }
+
+/* --------------------------------------------------- a row about the caller */
+
+/**
+ * The gap `docs/SERVER_AUTHORIZATION.md` recorded as unfinished: the browser
+ * let a child open and edit their own health record, and the server had no
+ * own-record rule at all. Fourteen (role, action, entity) combinations
+ * disagreed, every one of them an action the device offers and the backend
+ * refuses — so the record parked in the outbox and appeared under Settings as
+ * stuck. Not silent, but a guaranteed dead end.
+ */
+describe('a row that is about the caller', () => {
+  const HEALTH = ['_id', '_rev', '_updatedAt', '_deletedAt', 'person'];
+  const mine = ['h1', 1, '2026-08-01T00:00:00.000Z', '', 'p-me'];
+  const theirs = ['h2', 1, '2026-08-02T00:00:00.000Z', '', 'p-sibling'];
+
+  const withHealth = (rows) => fakeBook(['Health'], { headers: HEALTH, rows });
+  const map = { healthRecord: 'Health', vaultItem: 'Vault' };
+
+  test('a child may push their own health record, which their role alone may not', () => {
+    const api = sheets(map);
+    const result = api.sheetPush(
+      [{ store: 'healthRecord', op: 'put', recordId: 'h1', rev: 1, payload: { person: 'p-me' } }],
+      withHealth([mine]),
+      { role: 'child', personId: 'p-me' },
+    );
+
+    assert.length(result.rejected, 0, result.rejected[0]?.reason ?? '');
+    assert.length(result.applied, 1);
+  });
+
+  test('and a sibling’s is still refused', () => {
+    // Paired with the one above on purpose. Asserting only the allow would
+    // pass against a rule that permitted everything.
+    const api = sheets(map);
+    const result = api.sheetPush(
+      [{ store: 'healthRecord', op: 'put', recordId: 'h2', rev: 1, payload: { person: 'p-sibling' } }],
+      withHealth([theirs]),
+      { role: 'child', personId: 'p-me' },
+    );
+
+    assert.length(result.applied, 0);
+    assert.length(result.rejected, 1);
+  });
+
+  test('an account bound to no person gets nothing extra', () => {
+    // Every member entry written before this existed has no `personId`, and
+    // absent has to mean "no own-record access" rather than "all of it".
+    const api = sheets(map);
+    const result = api.sheetPush(
+      [{ store: 'healthRecord', op: 'put', recordId: 'h1', rev: 1, payload: { person: 'p-me' } }],
+      withHealth([mine]),
+      { role: 'child', personId: '' },
+    );
+
+    assert.length(result.applied, 0);
+    assert.length(result.rejected, 1);
+  });
+
+  test('a child is pulled their own rows and not a sibling’s', () => {
+    const api = sheets(map);
+    const result = api.sheetPull({}, 100, withHealth([mine, theirs]),
+      { role: 'child', personId: 'p-me' });
+
+    assert.length(result.records.healthRecord ?? [], 1);
+    assert.equal(result.records.healthRecord[0].id, 'h1');
+  });
+
+  test('and with no person bound, the entity is skipped as before', () => {
+    const api = sheets(map);
+    const result = api.sheetPull({}, 100, withHealth([mine, theirs]),
+      { role: 'child', personId: '' });
+
+    assert.not(result.records.healthRecord);
+  });
+
+  test('a sheet with no subject column sends nothing rather than everything', () => {
+    // A workbook older than the rule. Guessing which column names the person
+    // is the one mistake worth avoiding here.
+    const api = sheets(map);
+    const older = fakeBook(['Health'], {
+      headers: ['_id', '_rev', '_updatedAt', '_deletedAt'],
+      rows: [['h1', 1, '2026-08-01T00:00:00.000Z', '']],
+    });
+
+    assert.not(api.sheetPull({}, 100, older, { role: 'child', personId: 'p-me' })
+      .records.healthRecord);
+  });
+
+  test('it only ever widens — an owner still reads everything', () => {
+    const api = sheets(map);
+    const result = api.sheetPull({}, 100, withHealth([mine, theirs]),
+      { role: 'owner', personId: 'p-owner' });
+
+    assert.length(result.records.healthRecord ?? [], 2,
+      'the blanket rule is not narrowed by the own-record one');
+  });
+
+  test('the person record is deliberately not reachable this way', () => {
+    // The security property. The server maps an email to a person id through
+    // the members list, which only the owner may change. If somebody could
+    // edit their own `person` row through this rule they could edit the thing
+    // that identifies them, and the mapping would stop being owner-controlled.
+    const api = sheets(map);
+
+    assert.not(api.ownRecordEntities().includes('person'));
+    assert.not(api.ownRecordAllows('p-me', 'person', { id: 'p-me' }));
+  });
+
+  test('and the vault is not reachable this way either', () => {
+    assert.not(sheets(map).ownRecordEntities().includes('vaultItem'));
+  });
+
+  test('the server’s table matches the browser’s, minus person', () => {
+    // Generated from `js/security/rbac.js` by `tools/policy.mjs`, with the
+    // drift check in this file's neighbour failing if the copy goes stale.
+    const api = sheets(map);
+    const expected = [...OWN_RECORD_ENTITIES]
+      .filter((name) => name !== 'person' && SUBJECT_FIELD[name])
+      .sort();
+
+    assert.deep(api.ownRecordEntities().sort(), expected);
+  });
+});
 
 describe('pushing', () => {
   const change = (store) => ({ store, op: 'put', recordId: `${store}_1`, rev: 1, payload: {} });

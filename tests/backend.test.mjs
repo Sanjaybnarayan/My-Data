@@ -47,6 +47,22 @@ describe('who may reach the backup', () => {
     assert.includes(error.message, 'has not been added to this household');
   });
 
+  test('the person an account is is taken from the list, never the request', () => {
+    // The identity binding the whole own-record rule rests on. Only the owner
+    // can write this list, which is what makes it safe to widen access from —
+    // a caller naming the person they are would be a caller claiming somebody
+    // else's records.
+    const bound = start({
+      members: JSON.stringify([{ email: SPOUSE, role: 'spouse', personId: 'p-asha' }]),
+    });
+    assert.equal(bound.verifyToken('spouse-token').personId, 'p-asha');
+
+    // And an entry written before this existed carries none, which means no
+    // own-record access rather than access to everything.
+    const older = start({ members: JSON.stringify([{ email: SPOUSE, role: 'spouse' }]) });
+    assert.equal(older.verifyToken('spouse-token').personId, '');
+  });
+
   test('an admitted account is let in, and is not an owner', () => {
     // This is the whole bug the list exists to fix: the documented way to add
     // a family member was to sign in with their own Google account, and every
@@ -154,7 +170,10 @@ describe('managing the list', () => {
 
     assert.equal(error?.status, 403);
     assert.deep(JSON.parse(api.props.getProperty('members')), [SPOUSE], 'the list was changed anyway');
-    assert.deep(api.members(), [{ email: SPOUSE, role: 'spouse' }],
+    // A deployment written before roles existed still reads, and one written
+    // before `personId` existed reads as having none — which means no
+    // own-record access rather than access to everything.
+    assert.deep(api.members(), [{ email: SPOUSE, role: 'spouse', personId: '' }],
       'and a deployment written before roles existed still reads');
   });
 
@@ -191,7 +210,7 @@ describe('managing the list', () => {
     const api = start({ members: JSON.stringify([SPOUSE]) });
     const result = api.manageMembers({}, { email: SPOUSE, owner: OWNER, isOwner: false });
 
-    assert.deep(result.members, [{ email: SPOUSE, role: 'spouse' }]);
+    assert.deep(result.members, [{ email: SPOUSE, role: 'spouse', personId: '' }]);
     assert.equal(result.owner, OWNER);
     assert.not(result.isOwner);
   });

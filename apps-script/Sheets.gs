@@ -122,8 +122,14 @@ function sheetPush(changes, book, context) {
   // why through `rejected`, the same channel a validation failure uses.
   var permitted = [];
   var role = (context && context.role) || 'guest';
+  var personId = (context && context.personId) || '';
   for (var c = 0; c < changes.length; c++) {
-    if (policyAllows(role, 'write', changes[c].store)) {
+    // The blanket rule first, then the narrower one. A row about the caller is
+    // reachable even where their role is not on the entity's list — which is
+    // what lets a child keep their own health record and have it backed up.
+    // Only ever a widening: nothing here can refuse what the policy allowed.
+    if (policyAllows(role, 'write', changes[c].store)
+      || ownRecordAllows(personId, changes[c].store, changes[c].payload)) {
       permitted.push(changes[c]);
     } else {
       rejected.push({
@@ -228,6 +234,7 @@ function sheetPull(cursors, limit, book, context) {
   var more = false;
   var budget = limit;
   var role = (context && context.role) || 'guest';
+  var personId = (context && context.personId) || '';
 
   for (var i = 0; i < sheets.length; i++) {
     var sheet = sheets[i];
@@ -244,7 +251,13 @@ function sheetPull(cursors, limit, book, context) {
     // The cursor is deliberately left alone for a skipped entity: advancing it
     // would mean that promoting somebody later showed them only what changed
     // after the promotion, with the history silently missing.
-    if (!policyAllows(role, 'read', entityName)) continue;
+    // The blanket rule, then the narrower one. Where the role may not read the
+    // entity at all, rows *about the caller* are still sent — filtered per row
+    // below rather than skipped wholesale, which is what lets a child's own
+    // health record reach their own device and no one else's.
+    var blanket = policyAllows(role, 'read', entityName);
+    var ownField = blanket ? '' : OWN_RECORD[entityName];
+    if (!blanket && !(ownField && personId)) continue;
 
     var since = cursors[entityName] || '';
     var lastRow = sheet.getLastRow();
@@ -254,10 +267,25 @@ function sheetPull(cursors, limit, book, context) {
     var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
     var updatedAtColumn = headers.indexOf('_updatedAt');
 
+    var subjectColumn = ownField ? headers.indexOf(ownField) : -1;
+    // An own-record entity whose subject column is missing from the sheet
+    // sends nothing rather than everything. A header this cannot find is a
+    // workbook older than the rule, and guessing would be the one mistake
+    // worth avoiding here.
+    //
+    // Belt and braces, and worth naming as such: mutation-testing showed
+    // removing this changes no outcome today, because the per-row comparison
+    // below reads `values[r][-1]` as undefined and matches nobody. That is an
+    // accident of a loose comparison rather than a rule, and it would stop
+    // holding the moment somebody made the comparison lenient. The rule stays
+    // stated where it can be read.
+    if (ownField && subjectColumn < 0) continue;
+
     var changed = [];
     for (var r = 0; r < values.length; r++) {
       var updatedAt = isoOf(values[r][updatedAtColumn]);
       if (!updatedAt || updatedAt <= since) continue;
+      if (ownField && String(values[r][subjectColumn]) !== personId) continue;
       changed.push({ updatedAt: updatedAt, row: values[r] });
     }
 
