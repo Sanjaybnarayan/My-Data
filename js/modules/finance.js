@@ -22,6 +22,7 @@ import { formatDay, relativeDays } from '../core/dates.js';
 import { entitiesOfModule } from '../data/schema.js';
 import { TransfersService } from '../services/transfers.js';
 import { CONFIDENCE } from '../domain/events.js';
+import { settlementReport, describeSettlement } from '../domain/settlement.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -224,6 +225,14 @@ async function financeOverview() {
 
     const transfers = await new TransfersService(db).pending();
 
+    // Paying a credit card is not spending — the spending happened when the
+    // card was used. Both rows are counted as expenses today, so a household
+    // that imports the card statement *and* the bank statement sees every
+    // rupee that went through the card twice.
+    const settlement = settlementReport(
+      fin.inPeriod(transactions, 'month'), accounts,
+    );
+
     const balances = fin.accountBalances(accounts, transactions);
     const compare = fin.comparePeriods(transactions);
     const series = fin.monthlySeries(transactions, 12);
@@ -265,9 +274,19 @@ async function financeOverview() {
             compact: true,
           }),
         ]),
+        // Said next to the number it is about, and it never changes the number
+        // itself. A total that quietly shrank because a second file was
+        // imported would be worse than the double count, because nobody would
+        // know why.
+        settlement.settlements.length
+          ? h('p', {
+            class: settlement.corrected ? 'small money--negative' : 'small faint',
+          }, describeSettlement(settlement, compare.current.expense, format))
+          : null,
+
         h('p', { class: 'small faint' },
           `${format(committed)} a month is already committed to bills, EMIs and subscriptions.`),
-      ]),
+      ].filter(Boolean)),
 
       card({}, [
         cardHeader('Cash & accounts'),

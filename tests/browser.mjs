@@ -766,6 +766,70 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-insights');
     }
 
+    /* ------------------------------------ paying a card is not spending */
+    // Placed after the ledger checks on purpose: those index `.ledger-row`
+    // by position, so rows created earlier shift them. Found by breaking four
+    // of them.
+
+    {
+      // Reachable through the form, unlike the transfer pairing: a card
+      // account, a purchase on it, and a bill paid from the bank are three
+      // ordinary records with no hidden fields involved.
+      const before = consoleErrors.length;
+
+      await go(page, '#/finance/account');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.locator('#f-account-name').fill('HDFC Card');
+      await page.locator('#f-account-kind').selectOption('credit card');
+      // Required once the kind is a card: "A credit card needs a limit for
+      // utilisation to mean anything." A cross-field rule, so the modal simply
+      // stays open without it — which is how this was found.
+      await page.locator('#f-account-creditLimit').fill('100000');
+      await page.locator('#f-account-name').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      const addSpend = async (accountLabel, category, amount) => {
+        await go(page, '#/finance/transaction');
+        await page.waitForTimeout(400);
+        await page.getByRole('button', { name: /Add/ }).first().click();
+        await page.waitForSelector('.modal', { timeout: 5000 });
+        // The date is required and the form does not default it, so an
+        // unfilled one is a silent validation failure that just leaves the
+        // modal open. Today, so the row lands in the period Finance totals.
+        await page.locator('#f-transaction-date').fill(
+          new Date().toISOString().slice(0, 10),
+        );
+        await page.locator('#f-transaction-kind').selectOption('expense');
+        await page.locator('#f-transaction-amount').fill(amount);
+        await page.locator('#f-transaction-account').selectOption({ label: accountLabel });
+        await page.locator('#f-transaction-category').selectOption(category);
+        await page.locator('#f-transaction-payee').fill(category);
+        await page.locator('#f-transaction-amount').press('Enter');
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+      };
+
+      await addSpend('HDFC Card', 'groceries', '3000');       // spent on the card
+      await addSpend('HDFC Savings', 'credit card', '5000');  // the bill for it
+
+      await go(page, '#/finance');
+      await page.waitForTimeout(600);
+      const body = (await page.locator('.app-content').innerText()).trim();
+
+      // The whole point: the bill is counted on top of the purchase it paid
+      // for, and the screen has to say so next to the number it is about.
+      check('the screen says a card bill is counted twice',
+        /counts that money twice/.test(body), body.slice(0, 700));
+      check('and gives the figure without it, not only the corrected one',
+        /Spending without them is/.test(body), body.slice(0, 700));
+
+      check('the settlement note renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-settlement');
+    }
+
     /* ------------------------------------------------------- documents */
 
     await go(page, '#/documents');
