@@ -28,6 +28,7 @@ import { userMessage } from '../core/errors.js';
 import { can } from '../security/rbac.js';
 import { isEncrypted } from '../security/crypto.js';
 import { maskable, mask, classify } from '../data/classification.js';
+import { RecordsService } from '../services/records.js';
 import { formatInstant } from '../core/dates.js';
 
 /**
@@ -228,14 +229,18 @@ export async function recordDetail(entityName, id, options = {}) {
   async function remove() {
     // A spreadsheet has no foreign keys, so the check that would be a database
     // constraint elsewhere happens here, before the user commits to it.
-    const references = await db.referencedBy(id);
+    //
+    // The service makes the distinction this dialog could not: a dangling
+    // *optional* reference is untidy, a dangling *required* one leaves the
+    // referring record unable to pass its own validation. Deleting an account
+    // and deleting a person are different acts, and used to produce the same
+    // sentence.
+    const records = new RecordsService(db);
+    const impact = await records.impactOfDeleting(entityName, id);
     const ok = await confirm({
       title: `Delete this ${def.labels.one.toLowerCase()}?`,
-      message: references.length
-        ? `${references.length} other ${references.length === 1 ? 'record refers' : 'records refer'} `
-          + 'to this one and will be left pointing at nothing. It can be restored from '
-          + 'Settings → Deleted items.'
-        : 'It can be restored from Settings → Deleted items.',
+      message: `${impact.total ? `${records.describeImpact(impact)} ` : ''}`
+        + 'It can be restored from Settings → Deleted items.',
       confirmLabel: 'Delete',
       danger: true,
     });

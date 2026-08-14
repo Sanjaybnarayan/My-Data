@@ -3,12 +3,22 @@
 Sequenced against the master prompt's phases, adjusted for what this
 repository already has. **Nothing past Phase 0 is authorised to start.**
 
-## Gate — before Phase 0.5
+## Gate — answered
 
-`PROJECT_AUDIT.md` §0 must be answered: does FamilyOS stay serverless, gain a
-server, or go hybrid? Phases 0.5 and 1 are different work under each, and
-rules 46/47 (server-side authorization is authoritative) cannot be satisfied
-at all under the first.
+**Hybrid, with a policy-only server.** The server holds identity, roles, device
+registry and policy, and answers authorization questions. It **never holds
+household records** — those stay on the device and in the household's own
+Google account.
+
+That second sentence is the whole of the decision. It preserves the claim the
+application already makes and can already defend — *nobody else has a copy, not
+the people who wrote this and not whoever hosts it* — while making rules 46/47
+(server-side authorization is authoritative) satisfiable, which they were not
+under a purely serverless design.
+
+What it costs: the server cannot answer questions that need to read records, so
+search, reporting and cross-device queries stay client-side. That is a real
+constraint and it is accepted deliberately.
 
 ## Re-ordering proposed
 
@@ -17,15 +27,19 @@ multiply the cost of skipping them:
 
 1. **A domain-service layer belongs in Phase 1, not implied later.** Screens
    currently call the repository directly, so every module added before the
-   service layer exists is another caller to migrate.
+   service layer exists is another caller to migrate. What that layer is *for*
+   was mis-stated in the Phase 0 audit and corrected at the start of Phase 1 —
+   it is not an authorization hole (the repository already gates every read and
+   write); it is that assembly can only be tested through a browser and
+   cross-entity operations have nowhere to live.
 2. **Lint and typecheck belong in Phase 1.** 25,000 untyped lines with no
    linter. `tests/modules.test.mjs` catches syntax errors only.
 
 | Phase | Prompt scope | Position here |
 | --- | --- | --- |
 | 0 | Repository audit | **complete** |
-| 0.5 | Trust, privacy, governance, consent, lineage | blocked on the gate |
-| 1 | Database, API, auth, RBAC/ABAC | blocked on the gate; add service layer, lint, typecheck |
+| 0.5 | Trust, privacy, governance, consent, lineage | **complete** — six tranches, merged in #19 |
+| 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer first, then lint/typecheck, then the server |
 | 2 | Family, identity, tree, CKYC 2.0 | family/identity partly exist; CKYC entirely new |
 | 3 | Document intelligence, OCR, DOCX templates | extraction exists; OCR and DOCX new |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; Calendar new |

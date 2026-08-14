@@ -114,6 +114,10 @@ const SHELL = [
   './js/ui/components/table.js',
   './js/ui/components/toast.js',
 
+  './js/services/service.js',
+  './js/services/portfolio.js',
+  './js/services/records.js',
+
   './js/modules/assistant-screen.js',
   './js/modules/calendar.js',
   './js/modules/crud.js',

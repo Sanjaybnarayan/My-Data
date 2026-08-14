@@ -91,9 +91,14 @@ deliberately not started.
 
 ## Technical debt
 
-- Screens call the repository directly; no domain-service layer, so
-  authorization, provenance and audit are applied by whichever screen
-  remembers to
+- Screens call the repository directly; no domain-service layer, so assembly
+  is only testable through a browser and cross-entity operations have nowhere
+  to live
+  - **Corrected in Phase 1.** This originally read "*so authorization,
+    provenance and audit are applied by whichever screen remembers to*", which
+    was wrong: the repository calls `assertCan` on every read and write and
+    writes the audit entry in the same transaction. See the correction in
+    `FAMILY_OS_MASTER_ARCHITECTURE.md`.
 - `sync/` assumes one backend shape; Layer 5 needs a connector interface
 - Google Calendar is the one named Google connector not implemented
 
