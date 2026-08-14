@@ -243,6 +243,30 @@ describe('portfolio', () => {
     assert.equal(flows[2].amount, rs(15000), 'the current value closes the series');
   });
 
+  test('a closing value passed in wins over the stored one', () => {
+    // The closing flow decides an XIRR almost single-handedly, so a caller with
+    // better grounds for it — the accrual estimate, for a deposit whose value
+    // was typed once and never revisited — has to be able to say so.
+    const holding = { id: 'h1', invested: rs(10000), currentValue: rs(10000) };
+    const flows = pf.cashFlows(holding, [
+      { holding: 'h1', kind: 'buy', amount: rs(10000), date: '2024-01-01' },
+    ], { asOf: '2025-01-01', value: rs(11500) });
+
+    assert.equal(flows.at(-1).amount, rs(11500));
+  });
+
+  test('and a closing value of zero is an answer, not an absence', () => {
+    // `??` rather than `||`, and the difference is the whole point: a caller
+    // that has worked out the holding is worth nothing has said something, and
+    // falling back to the stored figure would silently overrule them.
+    const holding = { id: 'h1', invested: rs(10000), currentValue: rs(10000) };
+    const flows = pf.cashFlows(holding, [
+      { holding: 'h1', kind: 'buy', amount: rs(10000), date: '2024-01-01' },
+    ], { asOf: '2025-01-01', value: 0 });
+
+    assert.length(flows, 1, 'nothing closes a series worth nothing');
+  });
+
   test('a maturity inside the window is flagged, outside it is not', () => {
     const holdings = [
       { id: '1', name: 'FD', maturesOn: '2099-01-01' },

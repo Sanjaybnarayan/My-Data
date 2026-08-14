@@ -241,12 +241,13 @@ and nowhere else.
 - **Net worth still reads the stored figure**, exactly as with the loan and FD
   estimates, and for the same reason: quietly substituting a model would make
   net worth disagree with the holding record for reasons nobody could see.
-- **XIRR still reports 0%** on a stale deposit. It is computed from
-  `holdingValue`, which is the stored figure, and substituting the estimate
-  would make the portfolio's headline rate a model output without saying so.
-  The card carries the correction instead, and the fix is the one it already
-  asks for: update the value from the bank. Worth revisiting — a rate stated
-  wrongly is louder than a gain omitted.
+- ~~**XIRR still reports 0%** on a stale deposit.~~ **Fixed**, and the reasoning
+  above was wrong — see `docs/HOUSEHOLD_LEDGER.md`. "Report alongside, never
+  replace" is right for net worth, which reads a *stored* figure. XIRR is
+  already derived, so the choice was never stored-versus-model but which input
+  the model is given, and a value known to be stale produces a worse derived
+  number for no gain in honesty. The rate now comes from the accrual estimate
+  where accrual applies, and the row is marked `est.`.
 - **TDS is not modelled.** The estimate is gross interest, and says so.
 - **A monthly instalment is assumed to be all there is.** An RD whose
   instalments were never imported still cannot be valued, and this reports that

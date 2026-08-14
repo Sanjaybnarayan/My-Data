@@ -10,6 +10,7 @@
 import { h, replace } from '../ui/dom.js';
 import {
   card, cardHeader, metric, money, badge, button, pageHeader, progress, listItem, chip, empty,
+  avatar,
 } from '../ui/components/basics.js';
 import { barChart, donutChart, lineChart, seriesColour } from '../ui/components/charts.js';
 import { listSection, recordDetail } from './crud.js';
@@ -24,6 +25,7 @@ import { TransfersService } from '../services/transfers.js';
 import { CONFIDENCE } from '../domain/events.js';
 import { settlementReport, describeSettlement } from '../domain/settlement.js';
 import { staleness, describeStaleness, emiBreakdown, describeEmi } from '../domain/amortise.js';
+import { spendByMember, describeSpendByMember, settleable } from '../domain/household.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -255,6 +257,47 @@ function loansCard(loans, transactions) {
   ].filter(Boolean));
 }
 
+/**
+ * Who in the household paid for things this month.
+ *
+ * Hidden entirely when nothing carries a person, because a card reading "no
+ * data" every month teaches somebody to stop looking at it.
+ *
+ * The coverage line is not a caveat bolted on. `transaction.person` is optional
+ * and no importer sets it, so the percentages are shares of what is *tagged*;
+ * a household reading them as shares of their spending would be wrong by
+ * whatever fraction nobody filled in — and wronger the more they import.
+ */
+function memberCard(report) {
+  if (!report?.members.length) return null;
+
+  return card({}, [
+    cardHeader('Who paid, this month', [], {
+      subtitle: report.complete
+        ? 'Every payment has somebody recorded against it'
+        : `${report.coverage}% of this month’s spending has somebody recorded against it`,
+      iconName: 'user',
+    }),
+
+    h('div', { class: 'list' }, report.members.map((member) => listItem({
+      leading: avatar(member.person.name),
+      title: member.person.name,
+      subtitle: `${member.count} ${member.count === 1 ? 'payment' : 'payments'}`
+        + (member.topCategory ? ` · mostly ${member.topCategory}` : ''),
+      value: format(member.spent),
+      trailing: badge(`${member.shareOfTagged}%`),
+    }))),
+
+    h('p', { class: 'small faint' }, describeSpendByMember(report, format)),
+
+    // Said plainly rather than left as an absence. Somebody looking at a
+    // per-person breakdown is one step from asking who owes whom, and the
+    // honest answer is that this application does not record what it would
+    // need to know.
+    h('p', { class: 'small faint' }, settleable().why),
+  ].filter(Boolean));
+}
+
 async function financeOverview() {
   const { db } = app();
   const host = h('div', {});
@@ -286,6 +329,11 @@ async function financeOverview() {
     const thisMonth = new Set(fin.inPeriod(transactions, 'month').map((t) => t.id));
     const emi = emiBreakdown(loans, transactions, (t) => thisMonth.has(t.id));
 
+    // `transaction.person` — the form calls it "Spent by" — has been recorded
+    // on every transaction since the schema was written, and read by nothing.
+    const people = await db.repo('person').list({ decrypt: false, limit: 500 });
+    const byMember = spendByMember(people, transactions, (t) => thisMonth.has(t.id));
+
     const balances = fin.accountBalances(accounts, transactions);
     const compare = fin.comparePeriods(transactions);
     const series = fin.monthlySeries(transactions, 12);
@@ -304,6 +352,7 @@ async function financeOverview() {
 
     replace(host, h('div', { class: 'grid grid--wide' }, [
       transfersCard(db, transfers, paint),
+      memberCard(byMember),
 
       card({}, [
         cardHeader('This month'),

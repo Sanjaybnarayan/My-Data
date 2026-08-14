@@ -50,12 +50,14 @@ recorded here"; the second measured it and found 24 dated instalments sitting in
 the database, already being read by `domain/portfolio.js`. **A refusal is a
 claim about the codebase, and it goes stale like any other.**
 
-**This application collects more than it reads.** Three fields so far are
-filled in on a form and read by nothing downstream: `transaction.category`
-(fixed), `person.relationship` (fixed), and `transaction.person` (still open).
-Each looked like a missing feature and was a wiring gap — the data present,
-structured and ignored. Worth auditing for directly rather than waiting to trip
-over the fourth. See `docs/ENTERED_CATEGORIES.md` and `docs/FAMILY_TREE.md`.
+**This application collects more than it reads.** Three fields were filled in on
+a form and read by nothing downstream — `transaction.category`,
+`person.relationship` and `transaction.person` — and all three are now wired up.
+Each looked like a missing feature and was a wiring gap: the data present,
+structured and ignored. **The audit for a fourth has not been done**, and is
+worth doing directly rather than tripping over it. See
+`docs/ENTERED_CATEGORIES.md`, `docs/FAMILY_TREE.md` and
+`docs/HOUSEHOLD_LEDGER.md`.
 
 **The form/importer seam has now produced three separate bugs**, in Phase 5's
 transfer directions, Phase 5's balances, and Phase 6's entered categories. Each

@@ -208,7 +208,13 @@ async function portfolioView() {
               ? badge(`${row.gainPercent > 0 ? '+' : ''}${row.gainPercent}%`,
                 row.gainPercent >= 0 ? 'positive' : 'danger')
               : null,
-            row.rate !== null ? badge(`${row.rate}% XIRR`) : null,
+            // "est." is not decoration. A rate worked out from an accrual
+            // estimate and one worked out from a figure somebody typed are
+            // different claims, and rendering them identically would be the
+            // silent substitution the service is careful not to make.
+            row.rate !== null
+              ? badge(`${row.rate}% XIRR${row.rateEstimated ? ' est.' : ''}`)
+              : null,
           ]),
           href: Router.href({ module: 'investments', entity: 'holding', id: row.id }),
         }))),
