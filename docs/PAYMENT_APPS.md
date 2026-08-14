@@ -62,8 +62,29 @@ of the 1,047 rows matched; the rest are payments from accounts or months the
 bank PDFs do not cover.
 
 `fingerprint()` cannot see this: the narrations differ completely, so both
-records import as separate transactions. So the UTR is collected from every
-narration already on record and used as a second, exact key.
+records import as separate transactions. So the reference is collected from
+every narration already on record and used as a second, exact key.
+
+### The reference alone is not the identity
+
+**A transfer between two of the household's own accounts puts the same
+reference on both legs**, and each bank records its own side. Measured across
+these statements: **128 references appear with both directions.**
+
+```
+  509123045459   Kotak  in   ₹8,000        ICICI  out  ₹8,000
+  024990352165   Kotak  out  ₹250          ICICI  in   ₹250
+```
+
+Keyed on the reference by itself, a payment-app row is matched against
+whichever leg happened to be imported first — so an outgoing payment is
+silently deleted because money *arriving somewhere else* carried the same
+number. A real row, gone, with nothing on screen to say so.
+
+The identity is the **leg**: one reference, on one account, in one direction.
+That is also why the split by account runs *before* the duplicate check — until
+a row is filed to an account there is nothing to compare it as. A row that
+could not be filed is never a duplicate, because a gap is not evidence.
 
 **A row with no UTR is imported, not assumed to be a duplicate.** A missing
 field is not evidence, and refusing it would lose a real payment.
@@ -113,8 +134,8 @@ rather than silently missing.
 
 ## Verification
 
-- 1,201 unit tests, 42 in `tests/paymentapp.test.mjs`.
-- **24 mutations, all caught** — including *credited-to reads as money out*, *a
+- 1,205 unit tests, 46 in `tests/paymentapp.test.mjs`.
+- **28 mutations, all caught** — including *credited-to reads as money out*, *a
   self-transfer is ordinary spending*, *a missing UTR counts as a duplicate*,
   *duplicates are never detected*, *the instrument is a deposit column again*,
   *a two-digit tail is matched anyway*, *an ambiguous tail picks the first*, and
@@ -213,6 +234,9 @@ fails the browser suite.
 
 ## Still not done
 
-- **The other leg is not sought.** When the destination account's own statement
-  is imported, its incoming row is a second record of the same movement.
-  `referencesIn` would find it by UTR, but nothing yet joins the two.
+- **Balances are safe by construction, not by check.** A payment-app row
+  carries a `direction`, and `accountBalances` lets direction win over
+  `toAccount` — so the destination is credited once, by its own incoming row,
+  and never twice. That is the existing rule and this relies on it; nothing
+  asserts it for payment-app rows specifically.
+- **`.xls` and `.xlsx` remain rejected**, as `docs/STATEMENT_FORMATS.md` says.

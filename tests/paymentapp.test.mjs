@@ -14,7 +14,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   readInstrument, kindOf, counterpartyOf, isPaymentApp, byInstrument,
-  alreadyOnRecord, referencesIn, describeImport,
+  alreadyOnRecord, referencesIn, describeImport, legKey,
   matchInstruments, splitByAccount, describeSplit, transferTarget, resolveTransfers,
 } from '../js/domain/paymentapp.js';
 import { parseTable, readDate } from '../js/domain/tabular.js';
@@ -150,35 +150,99 @@ describe('the same movement, seen from the other side', () => {
   // The link is exact: the UTR the app prints appears verbatim inside the
   // bank's own narration. No amount tolerance, no date window, no name match.
   const bank = [
-    { date: '2026-08-13', amount: 30_00, direction: 'out', raw: 'UPI/ZOMATO LIM/zomato-order@p/Zomato Pay/YES BANK L/876987316943' },
-    { date: '2026-08-14', amount: 56_000_00, direction: 'out', raw: 'UPI/SANJAY B N/8861975785-3@a/Payment fr/AXIS BA/131295827881' },
+    { date: '2026-08-13', amount: 30_00, direction: 'out', account: 'hdfc', raw: 'UPI/ZOMATO LIM/zomato-order@p/Zomato Pay/YES BANK L/876987316943' },
+    { date: '2026-08-14', amount: 56_000_00, direction: 'out', account: 'axis', raw: 'UPI/SANJAY B N/8861975785-3@a/Payment fr/AXIS BA/131295827881' },
   ];
 
+  /** The payment-app rows, filed to the accounts they moved on. */
+  const filed = () => parseTable(STATEMENT).transactions.map((row) => ({
+    ...row,
+    account: { '8177': 'hdfc', '005391': 'axis', '84': 'icici', '8963': 'kotak' }[
+      readInstrument(row.instrument)?.digits ?? ''],
+  }));
+
   test('a reference the bank wrote into its narration is found', () => {
-    const refs = referencesIn(bank);
-    assert.ok(refs.has('876987316943'));
-    assert.ok(refs.has('131295827881'));
+    const legs = referencesIn(bank);
+    assert.ok(legs.has(legKey('876987316943', 'hdfc', 'out')));
+    assert.ok(legs.has(legKey('131295827881', 'axis', 'out')));
   });
 
   test('rows already imported from a bank are not counted twice', () => {
-    const { seen, fresh } = alreadyOnRecord(parseTable(STATEMENT).transactions, referencesIn(bank));
+    const { seen, fresh } = alreadyOnRecord(filed(), referencesIn(bank));
 
     assert.length(seen, 2);
     assert.length(fresh, 5);
     assert.ok(seen.every((row) => ['876987316943', '131295827881'].includes(row.utr)));
   });
 
+  test('the other leg of the same movement is not a duplicate of this one', () => {
+    // The bug this identity exists to prevent. A transfer between two of the
+    // household's own accounts puts the same reference on both legs, and each
+    // bank records its own side — 128 references do exactly that across these
+    // statements. Keyed on the reference alone, the outgoing row would be
+    // suppressed because the money *arriving* somewhere else shares its
+    // number, and a real payment would silently vanish.
+    const otherLeg = [{
+      date: '2026-08-14', amount: 56_000_00, direction: 'in', account: 'icici',
+      raw: 'UPI/SANJAY B N/Payment/131295827881',
+    }];
+
+    const { seen, fresh } = alreadyOnRecord(filed(), referencesIn(otherLeg));
+    assert.length(seen, 0);
+    assert.length(fresh, 7);
+  });
+
+  test('the same reference and account, opposite direction, is not one either', () => {
+    // A refund reverses a payment and can carry its reference back. Same
+    // account, same number, opposite way — a leg of its own, not this one.
+    // Without the direction in the key the account alone decides it, and a
+    // real row is suppressed. Found by mutation.
+    const refunded = [{
+      date: '2026-08-13', amount: 30_00, direction: 'in', account: 'hdfc',
+      raw: 'UPI/ZOMATO REFUND/876987316943',
+    }];
+
+    const { seen } = alreadyOnRecord(filed(), referencesIn(refunded));
+    assert.length(seen, 0);
+  });
+
+  test('and the same reference on a different account is not one either', () => {
+    const elsewhere = [{
+      date: '2026-08-13', amount: 30_00, direction: 'out', account: 'kotak',
+      raw: 'UPI/ZOMATO/876987316943',
+    }];
+    assert.length(alreadyOnRecord(filed(), referencesIn(elsewhere)).seen, 0);
+  });
+
+  test('a row that could not be filed to an account is never a duplicate', () => {
+    // Without an account there is no leg to compare, and refusing it would
+    // lose a real payment on the strength of a gap.
+    //
+    // The record on file deliberately has no account either, so its key is
+    // the same shape — otherwise the accounts simply differ and the guard is
+    // doing nothing. Found by mutation.
+    const accountless = [{
+      date: '2026-08-13', amount: 30_00, direction: 'out', account: null,
+      raw: 'UPI/ZOMATO/876987316943',
+    }];
+    const unfiled = parseTable(STATEMENT).transactions.map((row) => ({ ...row, account: null }));
+
+    assert.length(alreadyOnRecord(unfiled, referencesIn(accountless)).seen, 0);
+    assert.length(alreadyOnRecord(unfiled, referencesIn(bank)).seen, 0);
+  });
+
   test('a row with no UTR is imported rather than assumed to be a duplicate', () => {
     // A missing field is not evidence. Refusing it would lose a real payment.
     const { seen, fresh } = alreadyOnRecord(
-      [{ utr: null, amount: 100 }, { utr: '', amount: 200 }], referencesIn(bank),
+      [{ utr: null, amount: 100, account: 'hdfc' }, { utr: '', amount: 200, account: 'hdfc' }],
+      referencesIn(bank),
     );
     assert.length(seen, 0);
     assert.length(fresh, 2);
   });
 
   test('nothing on record means everything is new', () => {
-    const { seen, fresh } = alreadyOnRecord(parseTable(STATEMENT).transactions, new Set());
+    const { seen, fresh } = alreadyOnRecord(filed(), new Set());
     assert.length(seen, 0);
     assert.length(fresh, 7);
   });
@@ -186,8 +250,8 @@ describe('the same movement, seen from the other side', () => {
   test('and an amount that merely matches is not a duplicate', () => {
     // ₹30 to Zomato twice in a week is two payments. Only the reference says
     // they are one, and this must never fall back to amount-and-date.
-    const other = [{ date: '2026-08-13', amount: 30_00, direction: 'out', raw: 'UPI/ZOMATO/999999999999' }];
-    const { seen } = alreadyOnRecord(parseTable(STATEMENT).transactions, referencesIn(other));
+    const other = [{ date: '2026-08-13', amount: 30_00, direction: 'out', account: 'hdfc', raw: 'UPI/ZOMATO/999999999999' }];
+    const { seen } = alreadyOnRecord(filed(), referencesIn(other));
     assert.length(seen, 0);
   });
 });

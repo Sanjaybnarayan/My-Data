@@ -164,25 +164,13 @@ export async function render() {
     // bank account the app is linked to, and every row of it is a movement the
     // bank also recorded. Both facts change what this screen must say.
     if (isPaymentApp(parsed)) {
-      const { seen } = alreadyOnRecord(parsed.transactions, options.references ?? new Set());
-      const onRecord = new Set(seen.map((row) => row.utr));
-
       const matched = matchInstruments(byInstrument(parsed.transactions), options.accounts);
+      plan.paymentApp = { accounts: byInstrument(parsed.transactions), matched };
 
-      plan.paymentApp = {
-        accounts: byInstrument(parsed.transactions),
-        matched,
-        seen: seen.length,
-        fresh: parsed.transactions.length - seen.length,
-      };
-
-      // Moved out of `fresh` rather than dropped: the row is real, it is
-      // simply already counted, and a household comparing the two files should
-      // see it named as a duplicate rather than silently missing.
-      plan.duplicates = [...plan.duplicates,
-        ...plan.fresh.filter((row) => row.utr && onRecord.has(row.utr))];
-      plan.fresh = plan.fresh.filter((row) => !(row.utr && onRecord.has(row.utr)));
-
+      // The split comes before the duplicate check, because a duplicate here
+      // is a *leg* — one reference, on one account, in one direction — and
+      // until a row is filed to an account there is nothing to compare it as.
+      //
       // One file, several accounts, written as several statements. The
       // fingerprint is rebuilt per group because it is keyed on the account:
       // computed once against a file that has no single account, every row
@@ -220,8 +208,19 @@ export async function render() {
       // counted rather than dropped, so the screen can say why.
       plan.unfiled = plan.groups.filter((group) => !group.account)
         .reduce((total, group) => total + group.rows.length, 0);
-      plan.fresh = plan.groups.filter((group) => group.account)
+
+      const filed = plan.groups.filter((group) => group.account)
         .flatMap((group) => group.rows);
+
+      // Now that every row knows its account, the legs already on record can
+      // be recognised. Moved out of `fresh` rather than dropped: the row is
+      // real, it is simply already counted, and somebody comparing the two
+      // files should see it named rather than silently missing.
+      const { seen, fresh } = alreadyOnRecord(filed, options.references ?? new Set());
+      plan.duplicates = [...plan.duplicates, ...seen];
+      plan.fresh = fresh;
+      plan.paymentApp.seen = seen.length;
+      plan.paymentApp.fresh = parsed.transactions.length - seen.length;
     }
 
     return plan;

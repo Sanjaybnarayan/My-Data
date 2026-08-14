@@ -151,30 +151,48 @@ export function byInstrument(transactions = []) {
 }
 
 /**
- * Rows that are the same movement as one already imported from a bank.
+ * One leg of one movement, on one account.
  *
- * Matched on the UTR alone, and only where the bank's own narration contains
- * it. That is an identity the two records share, so no tolerance is applied
- * and nothing is inferred from an amount or a name being close.
+ * **Not the UTR alone.** A transfer between two of the household's own
+ * accounts puts the *same* reference on both legs, and each bank records its
+ * own side: measured across these statements, **128 references appear with
+ * both directions**. Matching on the reference by itself pairs a row with
+ * whichever leg happened to be imported first, and suppresses a real one — an
+ * outgoing payment silently deleted because the money arriving somewhere else
+ * carried the same number.
  *
- * @param {Array<object>} transactions payment-app rows
- * @param {Set<string>|Map<string, any>} bankReferences UTRs already on record
+ * The account and the direction are what make it a leg rather than a movement.
+ */
+export function legKey(utr, accountId, direction) {
+  return `${String(utr ?? '').trim()}|${accountId ?? ''}|${direction ?? ''}`;
+}
+
+/**
+ * Rows that are the same leg as one already imported from a bank.
+ *
+ * Matched on the reference, the account and the direction together — an
+ * identity the two records share exactly, so no tolerance is applied and
+ * nothing is inferred from an amount or a name being close.
+ *
+ * @param {Array<object>} transactions payment-app rows, each carrying the
+ *   account it moved on
+ * @param {Set<string>} legs keys already on record, from `referencesIn`
  * @returns {{seen: object[], fresh: object[]}}
  */
-export function alreadyOnRecord(transactions = [], bankReferences = new Set()) {
-  const has = (utr) => (bankReferences instanceof Map
-    ? bankReferences.has(utr) : bankReferences.has?.(utr));
-
+export function alreadyOnRecord(transactions = [], legs = new Set()) {
   const seen = [];
   const fresh = [];
 
   for (const row of transactions) {
     const utr = String(row.utr ?? '').trim();
-    // No UTR is not evidence of anything. A row the bank never referenced is
-    // reported as fresh, because refusing to import it would lose a real
-    // payment on the strength of a missing field.
-    if (utr && has(utr)) seen.push(row);
-    else fresh.push(row);
+    // No reference is not evidence of anything, and neither is a row that
+    // could not be filed to an account: both are reported fresh, because
+    // refusing them would lose a real payment on the strength of a gap.
+    if (utr && row.account && legs.has?.(legKey(utr, row.account, row.direction))) {
+      seen.push(row);
+    } else {
+      fresh.push(row);
+    }
   }
 
   return { seen, fresh };
@@ -193,8 +211,10 @@ export function referencesIn(transactions = []) {
 
   for (const row of transactions) {
     const text = `${row.raw ?? ''} ${row.description ?? ''} ${row.reference ?? ''}`;
-    for (const match of text.match(/\b\d{12}\b/g) ?? []) found.add(match);
-    if (row.utr) found.add(String(row.utr));
+    const refs = new Set(text.match(/\b\d{12}\b/g) ?? []);
+    if (row.utr) refs.add(String(row.utr));
+
+    for (const utr of refs) found.add(legKey(utr, row.account, row.direction));
   }
 
   return found;
