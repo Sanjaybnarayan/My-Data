@@ -50,6 +50,11 @@ recorded here"; the second measured it and found 24 dated instalments sitting in
 the database, already being read by `domain/portfolio.js`. **A refusal is a
 claim about the codebase, and it goes stale like any other.**
 
+Phase 3 made the point a third time. This table said *"OCR new"*; OCR had been
+implemented in `apps-script/Drive.gs` for some time, through Drive's own
+converter. **Every phase should begin by re-reading this row rather than
+trusting it.**
+
 **This application collects more than it reads.** Nine fields were filled in on
 a form and read by nothing downstream — `transaction.category`,
 `person.relationship`, `transaction.person`, `importantDate.remindDaysBefore`,
@@ -90,7 +95,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 0.5 | Trust, privacy, governance, consent, lineage | **complete** — six tranches, merged in #19 |
 | 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer, typecheck and **row-level server authorization** done (`docs/OWN_RECORDS.md`); lint and the policy-only server still open |
 | 2 | Family, identity, tree, CKYC 2.0 | **tree now reads the person form** (`docs/FAMILY_TREE.md`); **CKYC built as a local record, with no registry** (`docs/KYC.md`) |
-| 3 | Document intelligence, OCR, DOCX templates | extraction exists; OCR and DOCX new |
+| 3 | Document intelligence, OCR, DOCX templates | **OCR already existed** (Drive's own, `apps-script/Drive.gs`) — that line was stale; extraction measured at **89% with zero wrong fields**; **the identifier a scan finds now reaches the encrypted field instead of being dropped** (`docs/DOCUMENT_INTELLIGENCE.md`). A receipt reader and DOCX remain |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; Calendar new |
 | 5 | Financial foundation, transfer matching, economic events | **all ten prompt tests pass**, locked in `tests/prompt.test.mjs` — see below. `EconomicEvent` still wanted for movements with more than two legs |
 | 6 | Cards, loans, EMI, FD/RD, family ledger | loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); **who-paid done, who-owes-whom refused for a stated reason** (`docs/HOUSEHOLD_LEDGER.md`); **card bills now due-dated from the statement, not the current balance** (`docs/CARD_BILLS.md`); **subscriptions are in the committed figure that had always named them** (`docs/COMMITMENTS.md`) |
