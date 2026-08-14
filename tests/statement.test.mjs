@@ -630,6 +630,10 @@ describe('a statement that never states an opening balance', () => {
   // check against the printed balance never ran. The importer reported zero
   // problems on 595 transactions whatever the rows said — the most confident
   // an importer can be while being wrong.
+  //
+  // The unit of the check is a **date**, not a row: a bank orders same-day
+  // rows by its own sequence, not by the running balance, and ICICI printed a
+  // withdrawal above the deposit that funded it.
   const rows = (balances) => [
     cells([40, 'S No.'], [90, 'Transaction Date'], [300, 'Transaction Remarks'],
       [430, 'Withdrawal Amount (INR)'], [530, 'Deposit Amount (INR)'], [620, 'Balance (INR)']),
@@ -646,8 +650,7 @@ describe('a statement that never states an opening balance', () => {
     assert.equal(parsed.openingBalance, null);
     assert.length(parsed.transactions, 3);
     assert.length(parsed.problems, 1);
-    assert.includes(parsed.problems[0].reason, 'does not follow from the balance printed above it');
-    assert.equal(parsed.problems[0].serial, 3);
+    assert.includes(parsed.problems[0].reason, 'do not add up to any balance printed for it');
   });
 
   test('and a statement whose rows do follow reports nothing', () => {
@@ -689,5 +692,79 @@ describe('the balance carried into the statement', () => {
       cells([39, '1'], [73, '01 Apr 2025'], [119, 'UPI/X/Payment'], [391, '500.00'], [525, '9,500.00']),
     ];
     assert.equal(parseStatement(rows).openingBalance, 10_000_00);
+  });
+});
+
+describe('a bank that prints same-day rows out of order', () => {
+  // Straight from a real ICICI statement: a ₹650 withdrawal printed *above*
+  // the ₹650 deposit that funded it. Both rows read correctly, both balances
+  // correct, the pair in the wrong order. Checking row against row put two
+  // false alarms on a statement of 595 — and a warning that cries wolf is one
+  // people learn to click past.
+  const rows = (...spec) => [
+    cells([40, 'S No.'], [90, 'Transaction Date'], [300, 'Transaction Remarks'],
+      [430, 'Withdrawal Amount (INR)'], [530, 'Deposit Amount (INR)'], [620, 'Balance (INR)']),
+    ...spec.map(([serial, date, out, into, balance]) => cells(
+      [40, String(serial)], [90, date], [300, 'UPI/SOMEONE/Payment'],
+      ...(out ? [[430, out]] : []), ...(into ? [[530, into]] : []), [620, balance],
+    )),
+  ];
+
+  test('the day is the unit, so the order inside it does not matter', () => {
+    const parsed = parseStatement(rows(
+      [1, '26.02.2026', '173.39', null, '0.01'],
+      [2, '03.03.2026', '650.00', null, '0.01'],
+      [3, '03.03.2026', null, '650.00', '650.01'],
+    ));
+
+    assert.length(parsed.transactions, 3);
+    assert.length(parsed.problems, 0);
+  });
+
+  test('and a day whose amounts reach no printed balance is still caught', () => {
+    const parsed = parseStatement(rows(
+      [1, '26.02.2026', '173.39', null, '0.01'],
+      [2, '03.03.2026', '650.00', null, '0.01'],
+      [3, '03.03.2026', null, '999.00', '650.01'],
+    ));
+
+    assert.length(parsed.problems, 1);
+    assert.includes(parsed.problems[0].reason, 'do not add up to any balance printed for it');
+    assert.equal(parsed.problems[0].date, '2026-03-03');
+  });
+
+  test('a wide balance that overflows left of its heading is still a balance', () => {
+    // Amounts are right-aligned, so a figure wider than its heading starts to
+    // the left of it. A balance of `100236.53` began 1.1pt left of the
+    // `Balance` heading on a real statement: 48 rows came back with no balance
+    // at all, and on a row with no deposit that balance would have been read
+    // *as* the deposit — an inward amount invented out of a running total.
+    const overflow = [
+      cells([40, 'S No.'], [90, 'Transaction Date'], [300, 'Transaction Remarks'],
+        [430, 'Withdrawal Amount (INR)'], [530, 'Deposit Amount (INR)'], [620, 'Balance (INR)']),
+      // The balance sits at 610 — left of its own heading at 620, and inside
+      // the deposit column's range.
+      cells([40, '1'], [90, '03.04.2025'], [300, 'INF/INFT/Self'], [545, '45000.00'], [610, '100236.53']),
+    ];
+
+    const [txn] = parseStatement(overflow).transactions;
+    assert.equal(txn.direction, 'in');
+    assert.equal(txn.amount, 45_000_00);
+    assert.equal(txn.printedBalance, 1_00_236_53);
+  });
+
+  test('a row with a single amount keeps it as the amount, not a balance', () => {
+    // The rightmost-is-the-balance rule must not eat a lone figure, or the row
+    // comes back with no amount at all.
+    const one = [
+      cells([40, 'S No.'], [90, 'Transaction Date'], [300, 'Transaction Remarks'],
+        [430, 'Withdrawal Amount (INR)'], [530, 'Deposit Amount (INR)'], [620, 'Balance (INR)']),
+      cells([40, '1'], [90, '03.04.2025'], [300, 'Fee'], [440, '650.00']),
+    ];
+
+    const [txn] = parseStatement(one).transactions;
+    assert.equal(txn.amount, 650_00);
+    assert.equal(txn.direction, 'out');
+    assert.equal(txn.printedBalance, null);
   });
 });

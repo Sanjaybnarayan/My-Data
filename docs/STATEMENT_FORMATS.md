@@ -96,19 +96,65 @@ So on a statement that never states an opening balance, **nothing was
 verified** — 595 transactions, zero problems reported, whatever the rows
 actually said. That is the most confident an importer can be while being wrong.
 
-Consecutive printed balances are enough on their own: whatever the account held
-before, each row's balance must follow from the one above it. With that check
-the same file reports **13 problems** — rows that do not chain, now visible
-instead of silently imported. They are still imported, flagged: a row the
-household can see and correct beats one silently missing.
+With a check added, the same file reported **13 problems**. Chasing those 13
+found one real bug and one false-alarm class.
+
+### The real bug: a balance wider than its heading
+
+Column boundaries are the **left edge** of each heading, and amounts are
+**right-aligned** — so a figure wider than its heading starts to the left of it
+and lands in the column before. A balance of `100236.53` began **1.1pt** left
+of the `Balance` heading:
+
+```
+[[484,"45000.00"],[531,"100236.53"]]     Balance heading at x=532.14
+```
+
+48 rows came back with no balance at all, and on a row with no deposit that
+balance would have been read **as the deposit** — an inward amount invented out
+of a running total.
+
+The fix is not a wider boundary. Midpoint boundaries were measured and are
+*worse*: Kotak's headings are wide, and the midpoint pulls narration into the
+withdrawal column (0 → 91 breaks). What holds across all three layouts is that
+**the balance is the rightmost amount on the row** — every one of them prints
+Withdrawal, Deposit, Balance in that order with nothing amount-shaped after it.
+Only where there is more than one amount: a lone figure is the transaction, and
+treating it as a balance would leave the row with no amount at all.
+
+Measured: ICICI 13 breaks → 2, rows with no balance 48 → 0, **Kotak unchanged**.
+
+### The false alarm: a bank's own row order
+
+The remaining two were not errors. ICICI printed a ₹650 withdrawal **above** the
+₹650 deposit that funded it:
+
+```
+585  03.03.2026  withdrawal 650.00  → 0.01      printed first
+586  03.03.2026  deposit    650.00  → 650.01    logically first
+```
+
+Both rows read correctly, both balances correct, the pair in the bank's own
+sequence rather than balance order. Checking row against row flags that, and a
+warning that cries wolf is one people learn to click past.
+
+So **the unit of the check is a date, not a row.** Across dates the arithmetic
+must hold: the previous day's closing plus this day's signed amounts must equal
+one of the balances printed inside the day. Which row of the day carried it does
+not matter, and is not knowable.
+
+Verified against all six readable statements: **no problems on any of them**, and
+an error injected into any single row is still caught on every one of them.
 
 ## Verification
 
-- 1,155 unit tests, including retyped ICICI and Axis layouts. The real files
+- 1,159 unit tests, including retyped ICICI and Axis layouts. The real files
   are somebody's bank statements and do not belong in a repository.
-- **9 mutations, all caught** — including *numeric dates read month-first*, *a
-  serial is required again*, *a bare IFSC beats a labelled one*, *consecutive
-  balances unchecked*, and *an indirect contents array is not followed*.
+- **15 mutations, all caught** — including *numeric dates read month-first*, *a
+  serial is required again*, *a bare IFSC beats a labelled one*, *an indirect
+  contents array is not followed*, *the rightmost amount is not the balance*,
+  *a lone amount is eaten as a balance*, *only the last balance of a day
+  counts*, and *the day's amounts are summed unsigned*.
 - The last one survived at first because the mutation run filtered to
   `statement`-named test files and the new PDF test is `pdfread.test.mjs`.
 - Typecheck held at budget (198) rather than raised: TypeScript widened a tuple
@@ -123,7 +169,8 @@ household can see and correct beats one silently missing.
   `DecompressionStream` is already used by the PDF reader); BIFF is a much
   larger piece of work. Both banks also offer CSV, which the importer already
   handles well and prefers — see `loadTable` in `modules/statements.js`.
-- **13 rows in one ICICI statement do not chain**, and are now reported rather
-  than hidden. Their column layout needs looking at against the file; this
-  tranche made the problem visible rather than fixing it.
-- One Axis row is flagged for the same reason.
+- **Two rows in the four-row Axis statement are flagged.** Axis prints zero as
+  `.00` without a leading digit, which is not amount-shaped, and that file's
+  text extraction splits a balance oddly. Both are reported rather than guessed
+  — the right outcome for genuinely ambiguous rows, and not worth over-fitting
+  a parser to one small file.

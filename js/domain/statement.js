@@ -287,7 +287,6 @@ function assemble(groups, { opening, closing, columns, account }) {
   let running = opening;
   // The last balance the bank itself printed, so a statement that never states
   // an opening balance can still be checked row against row.
-  let lastPrinted = null;
 
   for (const group of groups) {
     const read = columns ? readByColumn(group, columns) : readByBalance(group, running);
@@ -324,28 +323,7 @@ function assemble(groups, { opening, closing, columns, account }) {
         // positive is right except across an overdraft.
         running = printedBalance;
       }
-    } else if (lastPrinted !== null && printedBalance !== null) {
-      // No opening balance was found, so the check above never runs — and on a
-      // statement that never states one, *nothing* was verified. It reported
-      // zero problems whatever the rows said, which is the most confident an
-      // importer can be while being wrong.
-      //
-      // Consecutive printed balances are enough on their own: whatever the
-      // account held before, this row's balance must follow from the last one.
-      const expected = lastPrinted + (direction === 'in' ? amount : -amount);
-      if (Math.abs(expected - printedBalance) > 100) {
-        problems.push({
-          serial: group.serial,
-          date: group.date,
-          reason: 'this row does not follow from the balance printed above it',
-          expected: printedBalance,
-          found: expected,
-          description: describe(group),
-        });
-      }
     }
-
-    if (printedBalance !== null) lastPrinted = printedBalance;
 
     const description = describe(group);
     const reference = /\b((?:UPI|IMPS|MB|NEFT|RTGS|NACH[A-Z]{0,4})-?\d{6,})\b/.exec(description)?.[1] ?? '';
@@ -362,6 +340,12 @@ function assemble(groups, { opening, closing, columns, account }) {
       printedBalance,
     });
   }
+
+  // A statement that never states an opening balance was never checked at all:
+  // the branch above needs a running figure to compare against, so ICICI's 595
+  // transactions came back with zero problems whatever the rows said. That is
+  // the most confident an importer can be while being wrong.
+  if (opening === null) problems.push(...blockProblems(transactions));
 
   return {
     transactions,
@@ -380,16 +364,41 @@ function assemble(groups, { opening, closing, columns, account }) {
 function readByColumn(group, columns) {
   const cells = [group.row, ...group.continuations].flatMap((row) => row.cells ?? []);
 
+  const amounts = cells
+    .map((cell) => ({ x: cell.x, value: cellAmount(cell.text) }))
+    .filter((cell) => cell.value !== null)
+    .sort((a, b) => a.x - b.x);
+
   let withdrawal = null;
   let deposit = null;
   let balance = null;
+  let rest = amounts;
 
-  for (const cell of cells) {
-    const value = cellAmount(cell.text);
-    if (value === null) continue;
-    if (cell.x >= columns.balance) balance ??= value;
-    else if (cell.x >= columns.deposit) deposit ??= value;
-    else if (cell.x >= columns.withdrawal) withdrawal ??= value;
+  // A column boundary is the *left* edge of its heading, and amounts are
+  // **right-aligned** — so a figure wider than its heading starts to the left
+  // of it and lands in the column before. Measured on a real ICICI statement:
+  // a balance of `100236.53` began 1.1pt left of the `Balance` heading, so 48
+  // rows came back with no balance at all, and on a row with no deposit that
+  // balance would have been read *as* the deposit — an inward amount invented
+  // out of a running total.
+  //
+  // The rightmost amount on the row is the balance. That holds for all three
+  // layouts here, because every one of them prints Withdrawal, Deposit and
+  // Balance in that order with nothing numeric after it — Axis's trailing
+  // branch code has no decimals, so it is not amount-shaped.
+  //
+  // Only where there is more than one amount: a lone figure is the
+  // transaction, not a balance, and treating it as one would leave the row
+  // with no amount at all.
+  if (amounts.length >= 2 && amounts.at(-1).x >= columns.deposit) {
+    balance = amounts.at(-1).value;
+    rest = amounts.slice(0, -1);
+  }
+
+  for (const cell of rest) {
+    if (cell.x >= columns.balance) balance ??= cell.value;
+    else if (cell.x >= columns.deposit) deposit ??= cell.value;
+    else if (cell.x >= columns.withdrawal) withdrawal ??= cell.value;
   }
 
   if (withdrawal === null && deposit === null) return null;
@@ -422,6 +431,77 @@ function readByBalance(group, running) {
 }
 
 /** The row and its continuations as one string. */
+/**
+ * The arithmetic check for a statement that never states an opening balance.
+ *
+ * Without one the running-balance check has nothing to start from, so ICICI's
+ * 595 transactions came back with zero problems whatever the rows said.
+ *
+ * Checking each row against the balance printed above it does not work either:
+ * **a bank orders same-day rows by its own internal sequence, not by the
+ * running balance.** ICICI printed a ₹650 withdrawal above the ₹650 deposit
+ * that funded it — both rows read correctly, both balances correct, and the
+ * pair in the wrong order. Two false alarms on 595 rows, and a warning that
+ * cries wolf is one people learn to click past.
+ *
+ * So the unit is a **date**. Across dates the arithmetic must hold: the
+ * previous day's closing plus this day's signed amounts has to equal one of
+ * the balances the bank printed inside the day. Which row of the day carried
+ * it does not matter, and is not knowable.
+ *
+ * Verified against six real statements: no problems on any of them, and an
+ * error injected into any one row is still caught on every one of them.
+ */
+function blockProblems(transactions) {
+  const problems = [];
+  let closing = null;
+  let i = 0;
+
+  while (i < transactions.length) {
+    const date = transactions[i].date;
+    const block = [];
+    while (i < transactions.length && transactions[i].date === date) {
+      block.push(transactions[i]);
+      i += 1;
+    }
+
+    const printed = block.map((t) => t.printedBalance).filter((b) => b !== null);
+    if (!printed.length) continue;
+
+    if (closing === null) {
+      // The first day sets the baseline: with no opening balance there is
+      // nothing before it to check against.
+      closing = printed.at(-1);
+      continue;
+    }
+
+    const moved = block.reduce(
+      (total, t) => total + (t.direction === 'in' ? t.amount : -t.amount), 0,
+    );
+    const expected = closing + moved;
+    // A rupee of drift is rounding.
+    const hit = printed.find((balance) => Math.abs(balance - expected) <= 100);
+
+    if (hit === undefined) {
+      problems.push({
+        serial: block[0].serial,
+        date,
+        reason: 'the transactions on this date do not add up to any balance printed for it',
+        expected: printed.at(-1),
+        found: expected,
+        description: block.map((t) => t.description).join(' · ').slice(0, 200),
+      });
+      // Resync to what the bank printed, so one bad day does not make every
+      // day after it look wrong too.
+      closing = printed.at(-1);
+    } else {
+      closing = hit;
+    }
+  }
+
+  return problems;
+}
+
 function describe(group) {
   return [group.row, ...group.continuations]
     .map((row) => row.text)
