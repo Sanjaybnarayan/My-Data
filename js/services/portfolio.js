@@ -51,13 +51,42 @@ export class PortfolioService extends Service {
 
     const summary = portfolioSummary(holdings);
 
+    /**
+     * The closing value a rate should be worked out from.
+     *
+     * A stale `currentValue` does not make XIRR slightly wrong, it makes it
+     * meaningless: the closing flow decides the rate almost single-handedly, so
+     * a deposit whose value was typed once and never revisited reports **0% on
+     * a deposit paying 7.1%**. That is not a missing number, it is a wrong one.
+     *
+     * Where `domain/accrual.js` can say what the deposit is actually worth, the
+     * rate is worked out from that instead, and the row is marked so the screen
+     * can say it is an estimate. Nothing is substituted silently.
+     *
+     * Where accrual cannot help — a share whose price nobody has updated — the
+     * stored figure is still used, because there is nothing better to use. That
+     * rate is stale too, and this does not pretend otherwise; it is simply not
+     * a thing this can fix.
+     */
+    const closingValue = (holding) => accrued.get(holding.id)?.value ?? null;
+    const accrued = new Map(
+      accrualReport(holdings, asOf, { transactions: txns }).drifted
+        .map((entry) => [entry.holding.id, entry]),
+    );
+
     const rows = holdings
       .filter((holding) => holding.active !== false)
       .map((holding) => {
-        const flows = cashFlows(holding, txns, { asOf });
+        const closing = closingValue(holding);
+        const flows = cashFlows(holding, txns, { asOf, value: closing });
         return {
           ...holding,
           ...holdingGain(holding),
+          // Whether the rate beside this row came from a figure somebody typed
+          // or from an estimate of what it has grown to since. The screen says
+          // which; a rate presented identically either way would be the
+          // silent substitution this is careful not to make.
+          rateEstimated: closing !== null,
           // Null rather than zero: "no rate could be computed" and "it returned
           // nothing" are different facts, and a screen that renders both as
           // "0%" tells somebody their investment is flat when in truth it has
@@ -75,7 +104,7 @@ export class PortfolioService extends Service {
       .sort((a, b) => b.value - a.value);
 
     const pooled = xirr(holdings
-      .flatMap((holding) => cashFlows(holding, txns, { asOf }))
+      .flatMap((holding) => cashFlows(holding, txns, { asOf, value: closingValue(holding) }))
       .sort((a, b) => a.date.localeCompare(b.date)));
 
     const worth = netWorth({

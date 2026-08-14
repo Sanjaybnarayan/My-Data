@@ -81,8 +81,21 @@ export function portfolioSummary(holdings) {
  * the household is negative, money returning is positive. The current value is
  * a final positive flow today, because an unsold holding is money you could
  * have back.
+ *
+ * ## Why the closing value can be passed in
+ *
+ * That final flow decides the rate almost single-handedly, so a stale
+ * `currentValue` does not make the answer slightly wrong — it makes it
+ * meaningless. A fixed deposit whose value was typed once and never revisited
+ * has a closing flow equal to its opening one, and XIRR dutifully reports
+ * **0% on a deposit paying 7.1%**.
+ *
+ * `value` lets a caller supply the closing figure it has better grounds for —
+ * in practice the accrual estimate, which the Investments screen already shows
+ * and labels beside the stored figure. Nothing is substituted silently: the
+ * caller that passes it also marks the row as an estimate.
  */
-export function cashFlows(holding, transactions, { asOf = today() } = {}) {
+export function cashFlows(holding, transactions, { asOf = today(), value: closing = null } = {}) {
   const flows = transactions
     .filter((t) => t.holding === holding.id && !t.deletedAt)
     .map((t) => {
@@ -92,7 +105,10 @@ export function cashFlows(holding, transactions, { asOf = today() } = {}) {
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const value = holdingValue(holding);
+  // `?? ` rather than `||`: a caller that has worked out the closing value is
+  // zero has said something, and falling back to the stored figure would
+  // overrule them.
+  const value = closing ?? holdingValue(holding);
   if (value) flows.push({ date: asOf, amount: value });
   return flows;
 }

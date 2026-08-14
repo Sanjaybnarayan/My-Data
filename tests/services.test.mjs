@@ -175,6 +175,54 @@ describe('the portfolio question', () => {
     assert.equal(view.shareOfAssets, null);
   });
 
+  test('a stale deposit does not report 0% on a rate it is actually earning', async () => {
+    // The closing flow decides an XIRR almost single-handedly, so a value
+    // typed once and never revisited does not make the rate slightly wrong —
+    // it makes it meaningless. Measured before this: 0% on a deposit paying
+    // 7.1%. That is a wrong number, not a missing one.
+    const db = await makeDb();
+    const person = await makePerson(db, { name: 'Asha' });
+    const fd = await db.repo('holding').create({
+      name: 'SBI deposit', kind: 'fixed deposit', owner: person.id,
+      invested: 50_000_000, currentValue: 50_000_000, interestRate: 7.1,
+      valuedOn: '2024-08-01', active: true,
+    });
+    await db.repo('investmentTransaction').create({
+      holding: fd.id, date: '2024-08-01', kind: 'buy', amount: 50_000_000,
+    });
+
+    const view = await new PortfolioService(db).overview({ asOf: '2026-08-01' });
+    const row = view.rows.find((r) => r.id === fd.id);
+
+    assert.ok(row.rate > 6.5 && row.rate < 8,
+      `expected a rate near the 7.1% recorded, got ${row.rate}`);
+    // And it says so. A rate from an estimate and a rate from a figure
+    // somebody typed are different claims; rendering them identically would be
+    // the silent substitution this is careful not to make.
+    assert.ok(row.rateEstimated, 'the row must say the rate came from an estimate');
+  });
+
+  test('and a holding nothing can re-value keeps the rate from what was typed', async () => {
+    // A share whose price nobody updated has a stale rate too, and accrual
+    // cannot help. Marking it as an estimate would be a claim about a figure
+    // this never touched.
+    const db = await makeDb();
+    const { person } = await aPortfolio(db);
+    const stock = await db.repo('holding').create({
+      name: 'Some share', kind: 'stock', owner: person.id,
+      invested: 100_000, currentValue: 130_000, active: true,
+    });
+    await db.repo('investmentTransaction').create({
+      holding: stock.id, date: '2024-08-01', kind: 'buy', amount: 100_000,
+    });
+
+    const view = await new PortfolioService(db).overview({ asOf: '2026-08-01' });
+    const row = view.rows.find((r) => r.id === stock.id);
+
+    assert.not(row.rateEstimated, 'nothing re-valued it, so nothing may claim to have');
+    assert.ok(row.rate > 0, 'and the rate is still computed from what was typed');
+  });
+
   test('a recurring deposit is valued from the instalments the service loaded', async () => {
     // The seam this closes: `accrualReport` is right in a unit test whether or
     // not anybody passes it transactions, and an RD with none comes back

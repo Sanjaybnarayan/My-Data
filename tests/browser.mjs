@@ -282,6 +282,21 @@ async function main() {
       await page.locator('#f-holding-name').press('Enter');
       await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
 
+      // The purchase that opened it. Without a dated flow there is no rate at
+      // all, so the XIRR check below would pass on an absent badge — which is
+      // exactly how it first passed while the fix was reverted.
+      await go(page, '#/investments/investmentTransaction');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.locator('#f-investmentTransaction-holding')
+        .selectOption({ label: 'SBI deposit' });
+      await page.locator('#f-investmentTransaction-kind').selectOption('buy');
+      await page.locator('#f-investmentTransaction-date').fill('2020-01-01');
+      await page.locator('#f-investmentTransaction-amount').fill('500000');
+      await page.locator('#f-investmentTransaction-amount').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
       await go(page, '#/investments');
       await page.waitForTimeout(500);
 
@@ -310,6 +325,15 @@ async function main() {
       const storedRow = (await stored.count()) ? await stored.innerText() : '';
       check('and the recorded value is left exactly as it was',
         /5,00,000/.test(storedRow) && /\+?0%/.test(storedRow), storedRow || '(no row)');
+
+      // A rate worked out from a stale closing value is not slightly wrong, it
+      // is meaningless — this deposit reported 0% while paying 7.1%. The rate
+      // now comes from the accrual estimate, and the row says so.
+      // Positive rather than negative: an absent badge is not a passing
+      // result. The rate has to be there, non-zero, and marked as an estimate.
+      check('and the rate is a real one rather than 0% on a deposit that is earning',
+        /XIRR est\./.test(storedRow) && !/\b0% XIRR/.test(storedRow),
+        storedRow || '(no row)');
 
       check('the deposit check renders without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
@@ -934,6 +958,54 @@ async function main() {
         !/people have taken more/i.test(said), said.slice(0, 500));
 
       check('the entered-category checks load without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
+    /* ------------------------------------------------- who paid, this month */
+
+    {
+      // `transaction.person` has been on every transaction since the schema was
+      // written and read by nothing. Driven through the form because that is
+      // the only place the field is offered — no importer sets it, which is
+      // also why the coverage line below matters.
+      const before = consoleErrors.length;
+
+      await go(page, '#/finance/transaction/new');
+      await page.waitForTimeout(600);
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.locator('#f-transaction-date').fill(
+        new Date().toISOString().slice(0, 10),
+      );
+      await page.locator('#f-transaction-kind').selectOption('expense');
+      await page.locator('#f-transaction-amount').fill('9000');
+      await page.locator('#f-transaction-category').selectOption('groceries');
+      await page.locator('#f-transaction-payee').fill('Monthly shop');
+      await page.locator('#f-transaction-account').selectOption({ index: 1 });
+      await page.locator('#f-transaction-person').selectOption({ index: 1 });
+      await page.locator('#f-transaction-payee').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      await go(page, '#/finance');
+      await page.waitForTimeout(700);
+      const body = (await page.locator('.app-content').innerText()).trim();
+
+      check('a payment with somebody recorded against it appears under who paid',
+        /Who paid, this month/i.test(body), body.slice(0, 400));
+
+      // The trap this design exists for. No importer sets `person`, so a
+      // percentage read as a share of household spending would be wrong by
+      // whatever fraction nobody filled in.
+      check('and the figures say what they are a share of',
+        /shares of what is tagged/i.test(body)
+        || /Every payment this period has somebody recorded/i.test(body),
+        body.slice(0, 600));
+
+      // Somebody looking at a per-person breakdown is one step from asking who
+      // owes whom. The honest answer is on the screen.
+      check('and it says why who-owes-whom cannot be answered',
+        /which costs are shared/i.test(body), body.slice(0, 600));
+
+      check('the who-paid card renders without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 
