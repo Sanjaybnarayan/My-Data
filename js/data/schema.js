@@ -120,7 +120,13 @@ const identityDocument = {
   acl: secret,
   sort: '-updatedAt',
   title: (r) => r.kind,
-  subtitle: (r) => r.number,
+  // Deliberately not the number. A title or subtitle is a *projection*: it
+  // reaches the screen through record headers, list subtitles, search results
+  // and reference pickers, none of which pass through the field renderer that
+  // masks an identifier. Printing the passport number here put it in full on
+  // every one of those surfaces while the field itself was carefully covered.
+  // A test probes every projection in the schema for exactly this.
+  subtitle: (r) => r.issuedBy,
   fields: [
     ref('person', 'person', { required: true, list: true }),
     pick('kind', ['PAN', 'Aadhaar', 'Passport', 'Driving licence', 'Voter ID',

@@ -46,6 +46,16 @@ const ADDRESS = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
 export const KINDS = Object.freeze(['google', 'backend', 'script']);
 
 /**
+ * Where the attached mailboxes are kept.
+ *
+ * Here rather than in the screen that manages them, because two screens now
+ * read it — Shops to scan, and Settings to ask whether reading each one was
+ * ever agreed to — and a key spelled out twice is a key that will be renamed
+ * once.
+ */
+export const MAILBOXES_KEY = 'inbox.mailboxes';
+
+/**
  * The deployment this application already syncs through.
  *
  * Its id is `primary` for the same reason old receipts say `primary`: changing

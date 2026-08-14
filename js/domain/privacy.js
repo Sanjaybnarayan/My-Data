@@ -28,6 +28,7 @@
  */
 
 import { entities } from '../data/schema.js';
+import { census, classified, atLeast, LEVELS } from '../data/classification.js';
 
 /** Fields that exist for the machinery rather than the household. */
 const PLUMBING = new Set(['id', 'rev', 'createdAt', 'updatedAt', 'createdBy',
@@ -87,7 +88,36 @@ export function privacyReport() {
     sealed: rows.reduce((sum, row) => sum + row.sealed.length, 0),
     plain: rows.reduce((sum, row) => sum + row.plain.length, 0),
     total: rows.reduce((sum, row) => sum + row.total, 0),
+    // How sensitive the fields are, which is a different question from whether
+    // they are ciphertext. Most of what a household would call private is
+    // stored in the clear so it can be searched, and this is the count that
+    // says so rather than letting "6.6% encrypted" stand in as the answer.
+    classification: census(),
   };
+}
+
+/**
+ * The fields at or above a level, worst first.
+ *
+ * What somebody actually wants when they ask "what is the most sensitive thing
+ * in here" — a list they can look at, not a percentage.
+ *
+ * The pairing to look for is a high level *with* `encrypted: false`. That is
+ * not necessarily wrong — a searchable field cannot be ciphertext — but it is
+ * the combination worth seeing, and it is invisible in either number alone.
+ */
+export function mostSensitive(minimum = 'HIGHLY_SENSITIVE') {
+  return classified()
+    .filter((row) => atLeast(row.level, minimum))
+    .sort((a, b) => LEVELS.indexOf(b.level) - LEVELS.indexOf(a.level))
+    .map((row) => ({
+      entity: row.entity,
+      field: row.key,
+      label: row.label,
+      level: row.level,
+      encrypted: row.encrypted,
+      searchable: row.searchable,
+    }));
 }
 
 /**

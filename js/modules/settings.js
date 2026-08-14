@@ -32,6 +32,8 @@ import {
   GOOGLE_METHOD,
 } from '../auth/google-unlock.js';
 import { recentActivity, describe as describeAudit } from '../data/audit.js';
+import { report as consentReport, record, PURPOSES, DECISIONS } from '../data/consent.js';
+import { MAILBOXES_KEY, readMailbox } from '../domain/mailboxes.js';
 
 export async function render() {
   const host = h('div', {});
@@ -50,12 +52,22 @@ async function paint(host) {
   const people = Object.fromEntries(
     (await db.repo('person').list({ decrypt: false })).map((p) => [p.id, p.name]),
   );
+  const consent = await consentReport(db, {
+    localOnly: config().localOnly,
+    configured: isConfigured(),
+    escrowed: methods.some((m) => m.method === GOOGLE_METHOD),
+    // Addresses, because consent to read one mailbox is not consent to read
+    // another and the record has to name which.
+    mailboxes: ((await db.meta(MAILBOXES_KEY, [])) ?? [])
+      .map(readMailbox).filter(Boolean).map((m) => m.email).filter(Boolean),
+  });
 
   replace(host, [
     pageHeader('Settings', { subtitle: `Device ${db.deviceId.slice(0, 12)}…` }),
 
     h('div', { class: 'grid grid--wide' }, [
       privacyCard(db, host),
+      consentCard(db, host, consent),
       googleCard(auth, sync, status),
       permissionsCard(),
       householdCard(),
@@ -241,6 +253,115 @@ function privacyCard(db, host) {
       onClick: () => { open = !open; paintDetail(); },
     }, 'Show me field by field'),
     detail,
+  ]);
+}
+
+/* ------------------------------------------------------------------ consent */
+
+/**
+ * What is happening to a household's data, and whether anybody agreed to it.
+ *
+ * This card is not only a display. It **is** the moment of asking, and until it
+ * existed there was none: keeping a copy of every record in a spreadsheet — the
+ * most consequential thing this application does — followed from a deployment
+ * being configured, and nobody was ever put the question.
+ *
+ * So the important control here is the pair of buttons on a purpose nobody has
+ * answered. Pressing one writes a record; pressing the other writes a record
+ * *and* stops the thing. An unanswered purpose is left running, deliberately —
+ * a household already syncing has no record because there was nothing to record
+ * with, and stopping their backup over a question nobody put to them would be
+ * a data-loss bug wearing a privacy costume.
+ */
+function consentCard(db, host, consent) {
+  const gaps = consent.gaps.length;
+
+  async function decide(row, decision) {
+    await record(db, {
+      purpose: row.purpose,
+      decision,
+      subject: row.subject,
+      deviceId: db.deviceId,
+    });
+    toast(decision === DECISIONS.GRANTED
+      ? 'Agreed, and recorded'
+      : `Stopped. ${PURPOSES[row.purpose].without}`, { kind: 'success' });
+    await paint(host);
+  }
+
+  const line = (row) => {
+    const purpose = PURPOSES[row.purpose];
+
+    // Nothing leaves the device, so there is nothing to agree to. Offering
+    // Agree and No here would be a decision that changes nothing — the kind
+    // of control that teaches people the rest of the list is theatre too.
+    const answerable = !purpose.localOnly;
+
+    return listItem({
+      title: purpose.title + (row.subject ? ` — ${row.subject}` : ''),
+      subtitle: [
+        purpose.what,
+        !answerable
+          ? 'Nothing to agree to — this never leaves the device.'
+          : row.decision === DECISIONS.UNRECORDED
+            ? (row.neverAsked
+              // Distinct from an unanswered prompt, and worth the extra words:
+              // it means the application never asked, not that somebody
+              // skipped past a question.
+              ? 'You have never been asked about this.'
+              : 'Not recorded on this device.')
+            : `${row.decision} ${row.at ? formatInstant(row.at) : ''}`,
+        `Seen by: ${row.processors.map((p) => p.name).join(', ') || 'nobody but you'}`,
+      ].join(' · '),
+      leading: badge(
+        row.active ? 'on' : 'off',
+        answerable && row.active && row.decision !== DECISIONS.GRANTED ? 'warning' : '',
+      ),
+      trailing: answerable
+        ? h('div', { class: 'row' }, [
+          row.decision === DECISIONS.GRANTED
+            ? button('Stop', {
+              variant: 'subtle',
+              onClick: () => decide(row, DECISIONS.WITHDRAWN),
+            })
+            : button('Agree', {
+              variant: 'subtle',
+              onClick: () => decide(row, DECISIONS.GRANTED),
+            }),
+          row.decision === DECISIONS.UNRECORDED
+            ? button('No', { variant: 'subtle', onClick: () => decide(row, DECISIONS.DENIED) })
+            : null,
+        ].filter(Boolean))
+        : null,
+    });
+  };
+
+  return card({}, [
+    cardHeader('What you agreed to', [], {
+      subtitle: gaps
+        ? `${gaps} ${gaps === 1 ? 'thing is' : 'things are'} happening without a record`
+        : 'Every active purpose has an answer',
+      iconName: 'shield',
+    }),
+
+    h('p', { class: 'small muted' },
+      'Records here are kept on this device only — they are not synced, so another '
+      + 'device has its own. Nothing on this list is a legal assessment; it is a '
+      + 'record of what was asked and answered.'),
+
+    // Everything, not only what is switched on. Somebody reading a card called
+    // "What you agreed to" wants the whole list of what this application can
+    // do with their records — the on/off badge does the work of saying which
+    // are happening now, and answering one in advance is a real thing to want.
+    h('div', { class: 'list' }, consent.purposes.map(line)),
+
+    h('details', { class: 'small' }, [
+      h('summary', {}, 'Who else touches any of this'),
+      h('div', { class: 'list' }, consent.processors.map((p) => listItem({
+        title: p.name,
+        subtitle: `${p.relationship} · sees ${p.sees} · ${p.revoke}`,
+      }))),
+    ]),
   ]);
 }
 

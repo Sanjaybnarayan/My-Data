@@ -50,7 +50,7 @@ import { MERCHANTS, searchQuery, customMerchant } from '../domain/merchants.js';
 import { planScan, enrich, byMerchant, subscriptions, reconcile } from '../domain/inbox.js';
 import {
   BACKEND, readMailbox, googleMailbox, scriptMailbox,
-  addMailbox, removeMailbox, receiptKey,
+  addMailbox, removeMailbox, receiptKey, MAILBOXES_KEY,
 } from '../domain/mailboxes.js';
 import { categoryLabel } from '../domain/categorise.js';
 import { AppsScriptTransport } from '../sync/transport.js';
@@ -65,8 +65,8 @@ import { config } from '../core/config.js';
 const SHOPS = 'inbox.shops';
 /** Where the chosen shop keys are kept, so a scan is not re-configured monthly. */
 const CHOSEN = 'inbox.chosen';
-/** Where the extra mailboxes are kept. */
-const MAILBOXES = 'inbox.mailboxes';
+/** Where the extra mailboxes are kept. Declared in the domain module. */
+const MAILBOXES = MAILBOXES_KEY;
 
 /**
  * All a *deployment* mailbox's token is for is proving which Google account is

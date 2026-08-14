@@ -30,6 +30,7 @@ import { safeFileName } from '../security/sanitize.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { canReadText, indexableText } from '../domain/filing.js';
 import { readDocument, suggestions } from '../domain/extract.js';
+import { refused } from '../data/consent.js';
 import { config } from '../core/config.js';
 
 /** Drive rejects nothing on size, but a base64 body through Apps Script does. */
@@ -239,6 +240,11 @@ export class DocumentStore {
     // prescription — so this is checked before anything is read off disk, not
     // merely before the request goes out.
     if (config().localOnly) return { uploaded: 0, skipped: 'local-only' };
+    // Same reasoning, and checked in the same place: an explicit no stops the
+    // upload, an absent record does not. Separate from the backup purpose
+    // because a household may well want the ledger backed up and the passport
+    // scans kept off Drive, and one switch cannot say that.
+    if (await refused(this.#db, 'documents')) return { uploaded: 0, skipped: 'consent-withdrawn' };
     if (!this.#transport?.configured) return { uploaded: 0, skipped: 'not-configured' };
 
     const pending = await this.#db.adapter.query('blobs', {

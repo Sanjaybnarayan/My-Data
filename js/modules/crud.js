@@ -27,6 +27,7 @@ import { Router } from '../ui/router.js';
 import { userMessage } from '../core/errors.js';
 import { can } from '../security/rbac.js';
 import { isEncrypted } from '../security/crypto.js';
+import { maskable, mask, classify } from '../data/classification.js';
 import { formatInstant } from '../core/dates.js';
 
 /**
@@ -330,10 +331,22 @@ export async function recordDetail(entityName, id, options = {}) {
 function detailValue(field, record, labels) {
   const value = record[field.key];
 
-  // A sensitive field is shown masked with an explicit reveal, so shoulder
-  // surfing a detail screen does not hand over a document number.
-  if (field.encrypted && value && !isEncrypted(value)) {
-    return reveal(String(value), { label: field.label.toLowerCase() });
+  // Two different reasons to cover a value, both ending at the same control.
+  //
+  // `encrypted` means it was ciphertext at rest and has just been decrypted
+  // for display. `maskable` means it is an identifier or a credential — an
+  // account number, a policy number, a passport number — which may well be
+  // stored in the clear and is still not something to leave sitting on a
+  // screen in a café.
+  //
+  // The same control serves both: show, hide, and copy with a warning about
+  // how long a clipboard lasts. Somebody reading their own record does not
+  // care which of the two reasons applies.
+  if (value && ((field.encrypted && !isEncrypted(value)) || maskable(field))) {
+    return reveal(String(value), {
+      label: (field.label ?? field.key).toLowerCase(),
+      masked: mask(value, classify(field)),
+    });
   }
   if (field.type === 'ref') {
     const label = labels[field.ref]?.[value];
