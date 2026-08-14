@@ -101,7 +101,13 @@ async function loadAll(db) {
     compare: fin.comparePeriods(byEntity.transaction),
     reminders: allReminders(byEntity, { horizonDays: 45 }),
     bills: fin.upcomingBills(byEntity.recurringPayment, byEntity.loan, {
-      days: 30, accounts: byEntity.account, transactions: byEntity.transaction,
+      days: 30,
+      accounts: byEntity.account,
+      transactions: byEntity.transaction,
+      // Both were already producing a date reminder here with no money
+      // attached to it, which is the half that costs nothing to know.
+      subscriptions: byEntity.subscription,
+      digitalAssets: byEntity.digitalAsset,
     }),
     activity: await recentActivity(db.adapter, { limit: 8 }),
     people: Object.fromEntries(byEntity.person.map((p) => [p.id, p.name])),
@@ -111,7 +117,22 @@ async function loadAll(db) {
 /* ---------------------------------------------------------------- widgets */
 
 /** Which record sits behind a bill, so tapping one opens something. */
-const BILL_ENTITY = { loan: 'loan', card: 'account', recurringPayment: 'recurringPayment' };
+/**
+ * The record behind a bill, so tapping one opens something.
+ *
+ * Card and subscription bills are derived rather than stored, so their own ids
+ * open nothing — the account, or the subscription, is the record they came
+ * from. Subscriptions live under Digital, not Finance.
+ */
+const DIGITAL = new Set(['subscription', 'digitalAsset']);
+
+function billHref(bill) {
+  return Router.href({
+    module: DIGITAL.has(bill.entity) ? 'digital' : 'finance',
+    entity: bill.entity,
+    id: bill.recordId,
+  });
+}
 
 /**
  * The total under a bill list, saying so when a bill was left out of it.
@@ -223,18 +244,15 @@ const WIDGETS = {
     data.bills.length
       ? h('div', { class: 'list' }, data.bills.slice(0, 8).map((bill) => listItem({
         title: bill.name,
-        subtitle: `${formatDay(bill.dueOn)}${bill.autoDebit ? ' · auto-debit' : ''}`,
+        // A subscription that does not renew itself lapses on that date. It is
+        // not auto-debit and it is not silence either.
+        subtitle: `${formatDay(bill.dueOn)}${bill.autoDebit ? ' · auto-debit'
+          : bill.source === 'subscription' ? ' · lapses unless renewed' : ''}`,
         // A card with no statement day knows the date and not the figure, and
         // an invented number here would be on the dearest bill in the list.
         value: bill.amount === null ? '—' : format(bill.amount),
         trailing: bill.overdue ? badge('overdue', 'danger') : null,
-        href: Router.href({
-          module: 'finance',
-          entity: BILL_ENTITY[bill.source] ?? 'recurringPayment',
-          // A card bill is derived, not stored, so its own id opens nothing.
-          // The account it sits on is the record behind it.
-          id: bill.source === 'card' ? bill.account : bill.id,
-        }),
+        href: billHref(bill),
       })))
       : empty({ title: 'No bills due', iconName: 'check' }),
     data.bills.length

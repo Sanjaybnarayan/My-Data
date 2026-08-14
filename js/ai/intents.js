@@ -201,6 +201,8 @@ export const intents = [
           // bill matters most.
           accounts: await ctx.load('account'),
           transactions: await ctx.load('transaction'),
+          subscriptions: await ctx.load('subscription'),
+          digitalAssets: await ctx.load('digitalAsset'),
         },
       );
       if (!bills.length) return { text: 'No bills are due in the next 30 days.' };
