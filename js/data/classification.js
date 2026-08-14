@@ -188,9 +188,16 @@ export function census() {
  * identifiers whose names carry no such suffix. Deliberately a shape test on
  * the key rather than a list of 426 decisions — a new `policyNumber` on a new
  * entity is caught the day it is added.
+ *
+ * **It is positional, and that is a hazard worth naming.** `pan` matches and
+ * `heldPan` does not, so an identifier can be hidden from this test by
+ * prefixing it. `kin` was added to the explicit list when `kycRecord` arrived,
+ * after measuring that it was rendered in full; the fields on that entity are
+ * named bare for the same reason. A test in `tests/security.test.mjs` sweeps
+ * every entity for identifier words in a key that this misses.
  */
 const IDENTIFIER_KEY =
-  /(number|no|id|code)$|^(uan|pan|ifsc|upiId)$|chassis|engine|fastag|khata|survey|credential|registration/i;
+  /(number|no|id|code)$|^(uan|pan|ifsc|upiId|kin)$|chassis|engine|fastag|khata|survey|credential|registration/i;
 
 /**
  * Should this field's value be hidden on screen by default?

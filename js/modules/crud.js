@@ -91,7 +91,18 @@ async function moduleScreen(moduleDef, entities, entityName, route) {
  * A filterable list of one entity. Exported so a module with its own layout
  * can drop it into a tab without reimplementing any of it.
  */
-export async function listSection(entityName, { fixedFilter, autoOpenNew = false, preset } = {}) {
+/**
+ * @param {string} entityName
+ * @param {{fixedFilter?: Function, autoOpenNew?: boolean, preset?: object,
+ *          banner?: () => (Node|null|Promise<Node|null>)}} [options]
+ *   `banner` renders above the table and is rebuilt on every load, so a
+ *   finding derived from the rows stays in step with them. It exists because
+ *   some entities carry an answer the table cannot show — see the KYC drift
+ *   report in `modules/identity.js`.
+ */
+export async function listSection(entityName, {
+  fixedFilter, autoOpenNew = false, preset, banner,
+} = {}) {
   const def = entity(entityName);
   const { db, router } = app();
 
@@ -99,6 +110,7 @@ export async function listSection(entityName, { fixedFilter, autoOpenNew = false
   let userFilter = () => true;
 
   const host = h('div', {});
+  const bannerHost = h('div', {});
   const table = entityTable(entityName, [], {
     onOpen: (record) => router.navigate({
       module: def.module, entity: entityName, id: record.id,
@@ -127,6 +139,7 @@ export async function listSection(entityName, { fixedFilter, autoOpenNew = false
   async function paint() {
     const visible = rows.filter(userFilter);
     table.update(visible, await referenceLabels(entityName, visible));
+    if (banner) replace(bannerHost, (await banner()) ?? []);
   }
 
   async function openForm(record = null) {
@@ -152,7 +165,7 @@ export async function listSection(entityName, { fixedFilter, autoOpenNew = false
     });
   }
 
-  replace(host, [bar, table.node]);
+  replace(host, [bar, bannerHost, table.node]);
   await load();
   if (autoOpenNew) openForm();
 

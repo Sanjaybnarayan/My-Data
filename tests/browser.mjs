@@ -1152,6 +1152,62 @@ async function main() {
       if (SHOTS) await shot(page, 'family-tree');
     }
 
+    /* ------------------------ what each institution holds, and where it differs */
+
+    {
+      // A record of what one institution holds, typed in by hand. The point of
+      // driving it through the form is the two claims that matter: that the
+      // comparison across rows reaches a screen, and that the screen never
+      // suggests any of it came from a registry.
+      const before = consoleErrors.length;
+
+      for (const [institution, address] of [
+        ['HDFC Bank', '12/A 4th Cross, Indiranagar, Bengaluru 560038'],
+        ['Zerodha', '7 Palm Grove, Koramangala, Bengaluru 560034'],
+      ]) {
+        await go(page, '#/identity/kycRecord');
+        await page.waitForTimeout(400);
+        await page.getByRole('button', { name: /Add/ }).first().click();
+        await page.waitForSelector('.modal', { timeout: 5000 });
+        await page.locator('#f-kycRecord-person').selectOption({ index: 1 });
+        await page.locator('#f-kycRecord-institution').fill(institution);
+        await page.locator('#f-kycRecord-recordedOn').fill('2026-01-15');
+        await page.locator('#f-kycRecord-heldAddress').fill(address);
+        await page.locator('#f-kycRecord-kin').fill('12345678901234');
+        await page.locator('#f-kycRecord-institution').press('Enter');
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+      }
+
+      await go(page, '#/identity/kycRecord');
+      await page.waitForTimeout(600);
+
+      const drift = page.locator('.kyc-drift');
+      const driftText = (await drift.count()) ? await drift.innerText() : '';
+
+      check('two institutions holding different addresses is reported',
+        /address/i.test(driftText) && /HDFC Bank/.test(driftText) && /Zerodha/.test(driftText),
+        driftText.slice(0, 400) || '(no drift card)');
+
+      // Never a verdict. Both are named and neither is called wrong.
+      check('and neither copy is declared the right one',
+        /Nothing here can tell which is current/.test(driftText)
+        && !/out of date|incorrect|should be/i.test(driftText), driftText.slice(0, 400));
+
+      const provenance = page.locator('.kyc-provenance');
+      const said = (await provenance.count()) ? await provenance.innerText() : '';
+
+      // The claim this whole entity has to keep. Stated on the screen itself,
+      // not only in a comment nobody using the app will read.
+      check('the screen says plainly that no registry was involved',
+        /Central KYC Records Registry/.test(said) && /nothing here is verified/i.test(said),
+        said.slice(0, 400) || '(no provenance note)');
+
+      check('the KYC screen renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'identity-kyc');
+    }
+
     /* ----------------------------------------------------------- calendar */
 
     await go(page, '#/calendar');

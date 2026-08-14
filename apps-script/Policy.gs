@@ -31,6 +31,7 @@ var POLICY = {
   "identityDocument": { read: ["owner","spouse"], write: ["owner","spouse"] },
   "importantDate": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "investmentTransaction": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
+  "kycRecord": { read: ["owner","spouse"], write: ["owner","spouse"] },
   "loan": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "medication": { read: ["owner","spouse","adult"], write: ["owner","spouse","adult"] },
   "note": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },

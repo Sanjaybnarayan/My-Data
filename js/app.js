@@ -190,6 +190,7 @@ function registerRoutes(router) {
     dashboard: () => import('./modules/dashboard.js'),
     documents: () => import('./modules/documents.js'),
     family: () => import('./modules/family.js'),
+    identity: () => import('./modules/identity.js'),
     calendar: () => import('./modules/calendar.js'),
     finance: () => import('./modules/finance.js'),
     investments: () => import('./modules/investments.js'),
