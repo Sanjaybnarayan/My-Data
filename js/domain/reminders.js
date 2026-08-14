@@ -12,7 +12,7 @@
  */
 
 import { entities } from '../data/schema.js';
-import { daysUntil, nextAnniversary, today, ageOn } from '../core/dates.js';
+import { daysUntil, daysBetween, nextAnniversary, today, ageOn } from '../core/dates.js';
 
 export const SEVERITY = { overdue: 0, urgent: 1, soon: 2, upcoming: 3 };
 
@@ -74,14 +74,26 @@ export function expiryReminders(recordsByEntity, { horizonDays = 45, clock = Dat
   return out.sort((a, b) => a.days - b.days);
 }
 
-/** Birthdays and anniversaries in the next `days`, with the age they turn. */
+/**
+ * Birthdays and anniversaries coming up, with the age they turn.
+ *
+ * `days` is the **default** lead, not a ceiling. An important date carries its
+ * own `remindDaysBefore`, and until this read it that field was collected on
+ * the form and ignored — a household asking to be told ninety days before a
+ * visa renewal got forty-five, and one asking for two days before the bins
+ * went out got nagged from twenty.
+ *
+ * This mirrors what `expiryReminders` above already does with `expiryLead`: the
+ * per-record lead wins where there is one, and it may reach further out than
+ * the caller's default, because that is what asking for it means.
+ */
 export function upcomingDates(people, importantDates, { days = 45, from = today() } = {}) {
   const out = [];
 
   for (const person of people ?? []) {
     if (person.deletedAt || !person.birthday || person.deceasedOn) continue;
     const next = nextAnniversary(person.birthday, from);
-    const away = daysUntil(next);
+    const away = daysBetween(from, next);
     if (away > days) continue;
     out.push({
       id: `birthday:${person.id}`,
@@ -98,8 +110,16 @@ export function upcomingDates(people, importantDates, { days = 45, from = today(
     if (record.deletedAt) continue;
     const next = record.recurring === false ? record.date : nextAnniversary(record.date, from);
     if (!next) continue;
-    const away = daysUntil(next);
-    if (away < 0 || away > days) continue;
+    // Measured from `from`, not from the wall clock. The two agree in the
+    // application, where `from` defaults to today — and disagree for any
+    // caller that passes one, including `allReminders` with an injected clock,
+    // which was already resolving the clock to a day for exactly this reason
+    // and then losing it here.
+    const away = daysBetween(from, next);
+    // `??` rather than `||`: nought is a preference — "tell me on the day" —
+    // and falling through to the default would overrule somebody who said so.
+    const lead = record.remindDaysBefore ?? days;
+    if (away < 0 || away > lead) continue;
     out.push({
       id: `date:${record.id}`,
       kind: record.kind,

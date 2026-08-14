@@ -50,16 +50,21 @@ recorded here"; the second measured it and found 24 dated instalments sitting in
 the database, already being read by `domain/portfolio.js`. **A refusal is a
 claim about the codebase, and it goes stale like any other.**
 
-**This application collects more than it reads.** Three fields were filled in on
+**This application collects more than it reads.** Four fields were filled in on
 a form and read by nothing downstream — `transaction.category`,
-`person.relationship` and `transaction.person` — and all three are now wired up.
-Each looked like a missing feature and was a wiring gap: the data present,
-structured and ignored. **The audit for a fourth has not been done**, and is
-worth doing directly rather than tripping over it. See
-`docs/ENTERED_CATEGORIES.md`, `docs/FAMILY_TREE.md` and
-`docs/HOUSEHOLD_LEDGER.md`.
+`person.relationship`, `transaction.person` and `importantDate.remindDaysBefore`
+— and all four are now wired up. Each looked like a missing feature and was a
+wiring gap: the data present, structured and ignored.
 
-**The form/importer seam has now produced three separate bugs**, in Phase 5's
+Three of the four were found by accident while measuring something else. The
+fourth was **audited for**: `tools/field-coverage.mjs` holds the set of fields
+nothing reads by name, and the suite fails when it grows. 92 of 369 remain
+unread and most of them should be — a nominee needs no derivation — so the
+inventory is names only, and adding to it is a deliberate act. See
+`docs/FIELD_COVERAGE.md`, `docs/ENTERED_CATEGORIES.md`, `docs/FAMILY_TREE.md`
+and `docs/HOUSEHOLD_LEDGER.md`.
+
+**The form/importer seam has produced three separate bugs**, in Phase 5's
 transfer directions, Phase 5's balances, and Phase 6's entered categories. Each
 time, the whole suite passed because every fixture was built the way the
 importer writes records. A record created by a form and a record created by an
@@ -76,7 +81,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 3 | Document intelligence, OCR, DOCX templates | extraction exists; OCR and DOCX new |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; Calendar new |
 | 5 | Financial foundation, transfer matching, economic events | **largest real gap** — see below |
-| 6 | Cards, loans, EMI, FD/RD, family ledger | cards, loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); family ledger **measured and still open** — `transaction.person` is recorded on every row and read by nothing (`docs/ENTERED_CATEGORIES.md`) |
+| 6 | Cards, loans, EMI, FD/RD, family ledger | cards, loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); **who-paid done, who-owes-whom refused for a stated reason** (`docs/HOUSEHOLD_LEDGER.md`) |
 | 7 | Investments, brokers, MCP | investments exist; brokers architecture-only |
 | 8–23 | Insights … internationalisation | not started |
 

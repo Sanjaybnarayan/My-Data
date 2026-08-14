@@ -403,6 +403,58 @@ describe('reminders', () => {
     );
     assert.length(dates, 1);
     assert.equal(dates[0].turning, 40);
+    // Counted from `from`, not from the wall clock. Without this the figure is
+    // whatever today happens to be, and every test that injects a date is
+    // measuring something else.
+    assert.equal(dates[0].days, 16);
+  });
+
+  test('a date that has already gone is not upcoming', () => {
+    const gone = [{
+      id: 'd4', title: 'Last week', kind: 'other', date: '2025-06-08',
+      recurring: false, deletedAt: null,
+    }];
+    assert.length(upcomingDates([], gone, { days: 45, from: '2025-06-15' }), 0);
+  });
+
+  test('a date carrying its own lead is told about when it asked to be', () => {
+    // `remindDaysBefore` is on the form and was read by nothing: a household
+    // asking to hear ninety days before a visa renewal got the default
+    // forty-five. The per-record lead may reach further out than the caller's
+    // default, because that is what asking for it means — the same rule
+    // `expiryLead` already follows for expiry fields.
+    const far = [{
+      id: 'd1', title: 'Visa renewal', kind: 'other', date: '2025-08-14',
+      remindDaysBefore: 90, recurring: false, deletedAt: null,
+    }];
+
+    assert.length(upcomingDates([], far, { days: 45, from: '2025-06-15' }), 1);
+    // And without a lead of its own it still uses the caller's default.
+    assert.length(upcomingDates([], [{ ...far[0], remindDaysBefore: undefined }],
+      { days: 45, from: '2025-06-15' }), 0);
+  });
+
+  test('and a short lead is not nagged about early', () => {
+    // The other direction, which is the one a household notices: two days
+    // before the bins go out should not appear a month ahead.
+    const soon = [{
+      id: 'd2', title: 'Bin day', kind: 'other', date: '2025-07-05',
+      remindDaysBefore: 2, recurring: false, deletedAt: null,
+    }];
+
+    assert.length(upcomingDates([], soon, { days: 45, from: '2025-06-15' }), 0);
+    assert.length(upcomingDates([], soon, { days: 45, from: '2025-07-04' }), 1);
+  });
+
+  test('a lead of nought means on the day, not "use the default"', () => {
+    // `??` rather than `||`. Nought is a preference somebody set.
+    const onTheDay = [{
+      id: 'd3', title: 'Rent due', kind: 'other', date: '2025-06-20',
+      remindDaysBefore: 0, recurring: false, deletedAt: null,
+    }];
+
+    assert.length(upcomingDates([], onTheDay, { days: 45, from: '2025-06-15' }), 0);
+    assert.length(upcomingDates([], onTheDay, { days: 45, from: '2025-06-20' }), 1);
   });
 
   test('a deceased person has no birthday reminder', () => {

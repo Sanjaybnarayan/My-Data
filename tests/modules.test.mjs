@@ -92,6 +92,34 @@ describe('every module', () => {
     assert.length(missing, 0, missing.join(' | '));
   });
 
+  test('does not add a field that nothing reads', async () => {
+    // Four times a field has been collected on a form and read by nothing —
+    // `transaction.category`, `person.relationship`, `transaction.person`,
+    // `importantDate.remindDaysBefore` — and each was found by tripping over
+    // it. The inventory holds the current set still, so a *new* one has to be
+    // a deliberate act.
+    //
+    // Most entries are reference data and perfectly fine. This is not a list
+    // of bugs; it is a list of everything that could quietly become one.
+    const { unreadFields } = await import('../tools/field-coverage.mjs');
+    const { fields: known } = JSON.parse(
+      await readFile(join(ROOT, 'tools', 'field-coverage.json'), 'utf8'),
+    );
+    const current = unreadFields();
+
+    assert.ok(current.length > 20, `only ${current.length} — the scan found nothing`);
+
+    const added = current.filter((f) => !known.includes(f));
+    assert.length(added, 0,
+      `${added.join(', ')} — wire it up, or run node tools/field-coverage.mjs --update`);
+
+    // The other direction, so the list cannot rot: a field that has since been
+    // wired up must come off it, or the inventory stops meaning anything.
+    const wired = known.filter((f) => !current.includes(f));
+    assert.length(wired, 0,
+      `${wired.join(', ')} are read now — run node tools/field-coverage.mjs --update`);
+  });
+
   test('is precached by the service worker', async () => {
     // The deploy workflow already checks one direction — that nothing
     // precached was left unpublished. Nothing checked the other, and the
