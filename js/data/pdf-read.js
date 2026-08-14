@@ -439,6 +439,30 @@ export function scan(bytes) {
  * @param {ReturnType<scan>} scanned
  * @param {Map<number, Uint8Array>} inflated stream data by object number
  */
+/**
+ * The stream numbers a page's `/Contents` really points at.
+ *
+ * `/Contents` can be a stream, an inline array of streams, **or a reference to
+ * an object that is itself an array of streams** — and the third form is why a
+ * real bank statement produced nothing at all. Its pages said
+ * `/Contents 141 0 R`, and object 141 was `[ 139 0 R  10 0 R  140 0 R ]`. The
+ * reader looked for a stream numbered 141, found none, and dropped the page.
+ * Thirty pages and 4,314 text-drawing operators came back as an empty document.
+ *
+ * One level of indirection is enough: an array of arrays is not a shape the
+ * specification produces, and following references without a bound is how a
+ * malformed file becomes an infinite loop.
+ */
+function contentStreams(number, objects) {
+  const body = objects.get(number)?.body ?? '';
+  const inner = /^\s*\[([\s\S]*)\]\s*$/.exec(body);
+  if (!inner) return [number];
+
+  const nested = (inner[1].match(/(\d+)\s+\d+\s+R/g) ?? [])
+    .map((reference) => Number(/(\d+)/.exec(reference)[1]));
+  return nested.length ? nested : [number];
+}
+
 export function build({ objects, text, encrypted }, inflated) {
   expandObjectStreams(objects, inflated);
   const streamData = (number) => inflated.get(number) ?? null;
@@ -488,11 +512,13 @@ export function build({ objects, text, encrypted }, inflated) {
     // several streams is one page, not several.
     const contents = /\/Contents\s*(\[[^\]]*\]|\d+\s+\d+\s+R)/.exec(page.body);
     if (!contents) continue;
-    const references = contents[1].match(/(\d+)\s+\d+\s+R/g) ?? [];
+    const references = (contents[1].match(/(\d+)\s+\d+\s+R/g) ?? [])
+      .map((reference) => Number(/(\d+)/.exec(reference)[1]))
+      .flatMap((number) => contentStreams(number, objects));
 
     const items = [];
-    for (const reference of references) {
-      const data = streamData(Number(/(\d+)/.exec(reference)[1]));
+    for (const number of references) {
+      const data = streamData(number);
       if (!data) continue;
       items.push(...extractRuns(data, fonts));
     }

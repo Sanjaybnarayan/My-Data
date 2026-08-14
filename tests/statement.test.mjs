@@ -78,9 +78,34 @@ describe('dates', () => {
     assert.equal(parseDate('05 Mar 26'), '2026-03-05');
   });
 
+  test('a numeric date is read day-first, as Indian banks print it', () => {
+    // This used to be refused, and the refusal is what kept the parser
+    // Kotak-only: ICICI prints `16.07.2026` and Axis `18-06-2026`, so a real
+    // ICICI statement with 3,242 readable rows produced zero transactions.
+    assert.equal(parseDate('01/04/2025'), '2025-04-01');
+    assert.equal(parseDate('16.07.2026'), '2026-07-16');
+    assert.equal(parseDate('18-06-2026'), '2026-06-18');
+  });
+
+  test('and day-first is the whole of that decision', () => {
+    // Reading this as the seventh of August, where the bank meant the eighth
+    // of July, moves a transaction by a month for eleven days in every twelve
+    // — and nothing on screen would say so.
+    assert.equal(parseDate('07.08.2026'), '2026-08-07');
+    assert.notEqual(parseDate('07.08.2026'), '2026-07-08');
+  });
+
+  test('a year-first date is not read off its own tail', () => {
+    // `2026-01-15` matched against the day-first pattern on the substring
+    // `26-01-15` comes back as 2015 — wrong by eleven years, and plausible.
+    assert.equal(parseDate('2026-01-15'), '2026-01-15');
+  });
+
   test('anything else is refused rather than guessed', () => {
-    assert.equal(parseDate('01/04/2025'), null);
     assert.equal(parseDate('01 Xyz 2025'), null);
+    assert.equal(parseDate('32/01/2025'), null);
+    assert.equal(parseDate('01/13/2025'), null);
+    assert.equal(parseDate('not a date'), null);
     assert.equal(parseDate(''), null);
   });
 });
@@ -484,5 +509,185 @@ describe('the whole pipeline', () => {
     assert.equal(summarise(rows).moneyOut, parsed.transactions
       .filter((t2) => t2.direction === 'out')
       .reduce((sum, t2) => sum + t2.amount, 0));
+  });
+});
+
+/* ------------------------------------------- statements that are not Kotak */
+
+/**
+ * Three banks, three layouts.
+ *
+ * The parser was built against Kotak and quietly assumed all three of its
+ * conventions: a serial column, a date spelled `15 Jul 2026`, and a bank named
+ * anywhere in the first forty lines. Real ICICI and Axis statements — 3,242
+ * and 67 rows of perfectly readable text — produced **zero** transactions.
+ *
+ * These fixtures are the shapes those files actually have, retyped. The files
+ * themselves are somebody's bank statements and do not belong in a repository.
+ */
+const cells = (...texts) => ({
+  cells: texts.map(([x, text]) => ({ x, text })),
+});
+
+describe('an ICICI statement: serial, and a dotted date', () => {
+  const rows = [
+    cells([40, 'S No.'], [90, 'Transaction Date'], [300, 'Transaction Remarks'],
+      [430, 'Withdrawal Amount (INR)'], [530, 'Deposit Amount (INR)'], [620, 'Balance (INR)']),
+    cells([40, '1'], [90, '16.07.2026'], [300, 'MMT/IMPS/619712558765/KKBKTransfer'],
+      [530, '3900.00'], [620, '5141.53']),
+    cells([40, '2'], [90, '16.07.2026'], [300, 'UPI/KEERTAN R/Payment fr/HDFC BANK'],
+      [430, '4000.00'], [620, '1141.53']),
+  ];
+
+  test('the dotted date is what used to stop it dead', () => {
+    const { transactions } = parseStatement(rows);
+    assert.length(transactions, 2);
+    assert.equal(transactions[0].date, '2026-07-16');
+  });
+
+  test('the amounts and directions come off the columns', () => {
+    const [credit, debit] = parseStatement(rows).transactions;
+    assert.equal(credit.amount, 3_900_00);
+    assert.equal(credit.direction, 'in');
+    assert.equal(debit.amount, 4_000_00);
+    assert.equal(debit.direction, 'out');
+  });
+
+  test('and the narration keeps neither the serial nor half the date', () => {
+    // `16.07.2026` contains `16.07`, which is shaped exactly like an amount.
+    // Stripping figures before the date left `.2026` glued to every narration,
+    // and the narration is what the categoriser and the duplicate fingerprint
+    // both read.
+    const [first] = parseStatement(rows).transactions;
+    assert.equal(first.description, 'MMT/IMPS/619712558765/KKBKTransfer');
+    assert.not(/\.2026/.test(first.description), first.description);
+    assert.not(/^1\b/.test(first.description), first.description);
+  });
+});
+
+describe('an Axis statement: no serial column at all', () => {
+  const rows = [
+    cells([40, 'Tran Date'], [120, 'Chq No'], [200, 'Particulars'],
+      [420, 'Debit'], [500, 'Credit'], [580, 'Balance']),
+    cells([40, '18-06-2026'], [200, 'INDDR/KKBK/Payment/'], [420, '101.00'], [580, '6133.00']),
+    cells([40, '14-08-2026'], [200, 'NEFT/CARE HEALTH INSURANCE'], [500, '56495.00'], [580, '62628.00']),
+  ];
+
+  test('a row that begins with its date still begins a transaction', () => {
+    // The serial is a convenience for reporting a bad row back to a person. It
+    // is not what identifies a transaction, and requiring one excluded every
+    // bank that does not print it.
+    const { transactions } = parseStatement(rows);
+    assert.length(transactions, 2);
+    assert.equal(transactions[0].date, '2026-06-18');
+    assert.equal(transactions[0].serial, null);
+  });
+
+  test('and the figures still land in the right columns', () => {
+    const [out, incoming] = parseStatement(rows).transactions;
+    assert.equal(out.direction, 'out');
+    assert.equal(out.amount, 101_00);
+    assert.equal(incoming.direction, 'in');
+    assert.equal(incoming.amount, 56_495_00);
+  });
+});
+
+describe('whose statement it is', () => {
+  test('a labelled IFSC names the bank', () => {
+    assert.equal(readAccount([
+      'Account Statement', 'Account No. 5612488963', 'Sanjay B N',
+      'IFSC Code KKBK0008067',
+    ]).bank, 'Kotak Mahindra Bank');
+  });
+
+  test('a counterparty’s IFSC in a narration does not', () => {
+    // The bug exactly: an ICICI statement whose early rows carried
+    // `KKBK0008067` inside somebody else's transfer reference was reported as
+    // Kotak, because the scan covered forty lines and Kotak was tested first.
+    // Getting this wrong sends the import at the wrong account.
+    assert.equal(readAccount([
+      'Statement of Transactions in Saving Account no. 008401532684 in INR',
+      'SANJAY B N Your Base Branch: ICICI BANK LIMITED,',
+      'BANGALORE',
+      '1 16.07.2026 MMT/IMPS/619712558765/KKBK0008067/Transfer 3900.00',
+    ]).bank, 'ICICI Bank');
+  });
+
+  test('the account number is found however the bank labels it', () => {
+    const number = (line) => readAccount([line]).number;
+    assert.equal(number('Account No. 5612488963'), '5612488963');
+    assert.equal(number('Statement of Axis Account No: 926010022005391 for the period'), '926010022005391');
+    assert.equal(number('Statement of Transactions in Saving Account no. 008401532684 in INR'), '008401532684');
+  });
+
+  test('and an unknown bank is empty rather than a guess', () => {
+    assert.equal(readAccount(['Some statement', 'no bank named here']).bank, '');
+  });
+});
+
+describe('a statement that never states an opening balance', () => {
+  // ICICI prints no "Opening Balance" line, so `running` stayed null and the
+  // check against the printed balance never ran. The importer reported zero
+  // problems on 595 transactions whatever the rows said — the most confident
+  // an importer can be while being wrong.
+  const rows = (balances) => [
+    cells([40, 'S No.'], [90, 'Transaction Date'], [300, 'Transaction Remarks'],
+      [430, 'Withdrawal Amount (INR)'], [530, 'Deposit Amount (INR)'], [620, 'Balance (INR)']),
+    ...balances.map(([serial, out, balance], i) => cells(
+      [40, String(serial)], [90, `0${i + 1}.04.2025`], [300, 'UPI/SOMEONE/Payment'],
+      [430, out], [620, balance],
+    )),
+  ];
+
+  test('consecutive printed balances are checked against each other', () => {
+    // 1,000 out of 5,000 leaves 4,000; the bank printed 3,500.
+    const parsed = parseStatement(rows([[1, '1000.00', '4000.00'], [2, '500.00', '3500.00'], [3, '1000.00', '1000.00']]));
+
+    assert.equal(parsed.openingBalance, null);
+    assert.length(parsed.transactions, 3);
+    assert.length(parsed.problems, 1);
+    assert.includes(parsed.problems[0].reason, 'does not follow from the balance printed above it');
+    assert.equal(parsed.problems[0].serial, 3);
+  });
+
+  test('and a statement whose rows do follow reports nothing', () => {
+    const parsed = parseStatement(rows([[1, '1000.00', '4000.00'], [2, '500.00', '3500.00'], [3, '1000.00', '2500.00']]));
+    assert.length(parsed.problems, 0);
+  });
+
+  test('the row is still imported — flagged, not dropped', () => {
+    // A row the household can see and correct beats one silently missing.
+    const parsed = parseStatement(rows([[1, '1000.00', '4000.00'], [2, '500.00', '9999.00']]));
+    assert.length(parsed.transactions, 2);
+    assert.length(parsed.problems, 1);
+  });
+});
+
+describe('the balance carried into the statement', () => {
+  test('ICICI prints it as a dated B/F row, which is not a transaction', () => {
+    // It has a date in the first cell, so the date-first rule made it look
+    // like one — and it became a transaction with no readable amount, on
+    // every statement that opens with one.
+    const rows = [
+      cells([40, 'DATE'], [120, 'MODE**'], [200, 'PARTICULARS'],
+        [430, 'DEPOSITS'], [530, 'WITHDRAWALS'], [620, 'BALANCE']),
+      cells([40, '01-04-2025'], [120, 'B/F'], [620, '50087.53']),
+      cells([40, '02-04-2025'], [200, 'UPI/SOMEONE/Payment'], [530, '87.53'], [620, '50000.00']),
+    ];
+
+    const parsed = parseStatement(rows);
+    assert.equal(parsed.openingBalance, 50_087_53);
+    assert.length(parsed.transactions, 1);
+    assert.length(parsed.problems, 0);
+  });
+
+  test('and "Opening Balance" still works where banks spell it out', () => {
+    const rows = [
+      cells([40, '#'], [75, 'Date'], [124, 'Description'],
+        [355, 'Withdrawal (Dr.)'], [429, 'Deposit (Cr.)'], [498, 'Balance']),
+      cells([124, 'Opening Balance'], [498, '10,000.00']),
+      cells([39, '1'], [73, '01 Apr 2025'], [119, 'UPI/X/Payment'], [391, '500.00'], [525, '9,500.00']),
+    ];
+    assert.equal(parseStatement(rows).openingBalance, 10_000_00);
   });
 });
