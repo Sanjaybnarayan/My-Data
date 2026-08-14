@@ -1414,6 +1414,95 @@ async function main() {
         detail.slice(0, 600));
     }
 
+    /* --------------------------------- what the calendar actually draws */
+
+    {
+      // The grid asked for a 400-day horizon and got each field's reminder
+      // lead instead, so a recurring payment left the calendar eight days out
+      // and paging one month forward showed almost nothing. Twenty days out is
+      // past that lead of seven and squarely inside the month it falls in.
+      const before = consoleErrors.length;
+
+      const due = new Date(Date.now() + (20 * 86_400_000));
+      const dueDay = due.toISOString().slice(0, 10);
+      const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const dueLabel = `${due.getUTCDate()} ${MONTHS[due.getUTCMonth()]} ${due.getUTCFullYear()}`;
+      const monthsForward = (due.getUTCFullYear() * 12 + due.getUTCMonth())
+        - (new Date().getFullYear() * 12 + new Date().getMonth());
+
+      await go(page, '#/finance/recurringPayment');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.locator('#f-recurringPayment-name').fill('Sinking fund');
+      await page.locator('#f-recurringPayment-amount').fill('7777');
+      await page.locator('#f-recurringPayment-nextDueOn').fill(dueDay);
+      await page.locator('#f-recurringPayment-name').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      await go(page, '#/calendar');
+      await page.waitForTimeout(700);
+      for (let i = 0; i < monthsForward; i++) {
+        await page.getByRole('button', { name: 'Next month' }).click();
+        await page.waitForTimeout(400);
+      }
+
+      const grid = (await page.locator('.app-content').innerText()).trim();
+      check('a payment past its reminder lead is still on the calendar',
+        grid.includes('Sinking fund'), grid.slice(0, 700));
+
+      // The amount, which no calendar entry had ever carried. Selecting the
+      // day opens the panel that shows it.
+      await page.locator(`[aria-label^="${dueLabel},"]`).first().click();
+      await page.waitForTimeout(400);
+      const panel = (await page.locator('.app-content').innerText()).trim();
+
+      check('and the calendar says how much is due, not just that something is',
+        /7,777\.00/.test(panel), panel.slice(-700));
+      check('the day it was selected on is the day it falls on',
+        panel.includes(dueLabel), panel.slice(-700));
+
+      // A policy renewal is not a bill, so it can only reach the grid through
+      // `datesInRange`. Without one of these the money path alone satisfies
+      // the checks above and the renewal fix goes unverified — which is
+      // exactly what mutating `datesInRange` away proved.
+      const renew = new Date(Date.now() + (60 * 86_400_000));
+      const renewDay = renew.toISOString().slice(0, 10);
+      const renewMonths = (renew.getUTCFullYear() * 12 + renew.getUTCMonth())
+        - (new Date().getFullYear() * 12 + new Date().getMonth());
+
+      await go(page, '#/insurance/policy');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.locator('#f-policy-name').fill('Star Health floater');
+      await page.locator('#f-policy-kind').selectOption('health');
+      await page.locator('#f-policy-insurer').fill('Star Health');
+      await page.locator('#f-policy-policyNumber').fill('P/141234/01');
+      await page.locator('#f-policy-premium').fill('18644');
+      await page.locator('#f-policy-renewsOn').fill(renewDay);
+      await page.locator('#f-policy-name').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      await go(page, '#/calendar');
+      await page.waitForTimeout(700);
+      for (let i = 0; i < renewMonths; i++) {
+        await page.getByRole('button', { name: 'Next month' }).click();
+        await page.waitForTimeout(400);
+      }
+
+      const far = (await page.locator('.app-content').innerText()).trim();
+      // 60 days out, against a reminder lead of 45. The old grid dropped it.
+      check('a renewal beyond its reminder lead is on the month it falls in',
+        far.includes('Star Health floater'), far.slice(0, 700));
+
+      check('the calendar renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'calendar-money');
+    }
+
     /* ------------------------------------------------------------- family */
 
     await go(page, '#/family');
