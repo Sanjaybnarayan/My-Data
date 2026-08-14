@@ -135,6 +135,72 @@ export function upcomingDates(people, importantDates, { days = 45, from = today(
 }
 
 /**
+ * Every dated thing inside a window, whatever its reminder lead.
+ *
+ * ## Why this is not `expiryReminders`
+ *
+ * A reminder lead answers *"how long before this should I be nagged?"*, and
+ * seven days is right for a broadband bill. A calendar asks a different
+ * question — *"what falls in September?"* — and the answer must not depend on
+ * how early anybody wanted warning.
+ *
+ * The calendar screen called `expiryReminders` with `horizonDays: 400` so that
+ * paging back and forth would work. It never worked, because `horizonDays` is
+ * only a **fallback** for fields carrying no `expiryLead` of their own:
+ *
+ *     const lead = field.expiryLead ?? horizonDays;
+ *     if (days > lead) continue;
+ *
+ * So a recurring payment (lead 7) vanished from the grid eight days out, a
+ * policy (lead 30) at thirty-one, and paging one month forward showed almost
+ * nothing. Measured on a household with nine dated things across four months,
+ * the calendar drew **three** — under a subtitle promising *"every renewal
+ * date"*.
+ *
+ * Anniversaries are deliberately not here: they repeat yearly and come from
+ * `upcomingDates`, which the caller composes alongside.
+ *
+ * @param {Record<string, object[]>} recordsByEntity
+ * @param {{from: string, to: string}} window inclusive, in calendar days
+ */
+export function datesInRange(recordsByEntity, { from, to }) {
+  const out = [];
+
+  for (const [entityName, def] of Object.entries(entities)) {
+    const rows = recordsByEntity[entityName];
+    if (!rows?.length) continue;
+
+    const expiryFields = def.fields.filter((f) => f.expiry);
+    if (!expiryFields.length) continue;
+
+    for (const record of rows) {
+      if (record.deletedAt) continue;
+      // A cancelled policy or a closed subscription is not on the calendar
+      // either — the same rule the reminders use, for the same reason.
+      if (record.active === false) continue;
+
+      for (const field of expiryFields) {
+        const date = record[field.key];
+        if (!date || date < from || date > to) continue;
+
+        out.push({
+          id: `${entityName}:${record.id}:${field.key}`,
+          entity: entityName,
+          module: def.module,
+          recordId: record.id,
+          field: field.key,
+          label: field.label,
+          title: String(def.title(record) ?? def.labels.one),
+          date,
+        });
+      }
+    }
+  }
+
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
  * One list, ordered the way a person would want to see it: what is already
  * late, then what is about to be, then the pleasant things.
  */

@@ -20,9 +20,12 @@ import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
-import { allReminders } from '../domain/reminders.js';
+import { datesInRange, upcomingDates } from '../domain/reminders.js';
+import { upcomingBills } from '../domain/finance.js';
+import { format } from '../core/money.js';
 import {
-  today, addMonths, startOfMonth, endOfMonth, addDays, formatDay, fromDay, toDay,
+  today, addMonths, startOfMonth, endOfMonth, addDays, daysBetween, formatDay,
+  fromDay, toDay,
 } from '../core/dates.js';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -31,6 +34,7 @@ const SOURCES = [
   { id: 'event', label: 'Events', colour: 'var(--series-1)' },
   { id: 'task', label: 'Tasks', colour: 'var(--series-2)' },
   { id: 'appointment', label: 'Appointments', colour: 'var(--series-3)' },
+  { id: 'money', label: 'Money due', colour: 'var(--series-6)' },
   { id: 'expiry', label: 'Renewals', colour: 'var(--series-5)' },
   { id: 'date', label: 'Birthdays', colour: 'var(--series-4)' },
 ];
@@ -53,9 +57,11 @@ export async function render(route) {
   let selected = today();
 
   async function paint() {
-    const entries = await collect(db);
     const start = startOfMonth(month);
     const end = endOfMonth(month);
+    // The window the grid is about to draw, so a month reached by paging is
+    // gathered as fully as the one the screen opened on.
+    const entries = await collect(db, { from: start, to: end });
 
     const visible = entries.filter((entry) => !hidden.has(entry.source));
     const byDay = new Map();
@@ -67,7 +73,7 @@ export async function render(route) {
 
     replace(host, [
       pageHeader('Calendar', {
-        subtitle: 'Events, tasks, appointments and every renewal date',
+        subtitle: 'Events, tasks, appointments, money due and every renewal date',
         actions: [button('Add event', {
           variant: 'primary',
           iconName: 'plus',
@@ -234,8 +240,16 @@ export async function render(route) {
  * Everything with a date, from every module, in one list. Exported so the
  * dashboard and the reports can use the same definition of "what is on the
  * calendar" rather than inventing a second one.
+ *
+ * The window is a real window. This used to ask `allReminders` for a 400-day
+ * horizon, which quietly did nothing: a reminder lead is a ceiling, so a
+ * recurring payment left the grid eight days out and paging one month forward
+ * showed almost nothing. `datesInRange` answers the question a calendar is
+ * actually asking — see `domain/reminders.js`.
+ *
+ * @param {{from?: string, to?: string}} [window]
  */
-export async function collect(db) {
+export async function collect(db, { from = addMonths(today(), -13), to = addMonths(today(), 13) } = {}) {
   const read = async (name) => {
     try {
       return await db.repo(name).list({ decrypt: false, limit: 5000 });
@@ -285,28 +299,80 @@ export async function collect(db) {
     });
   }
 
-  // Renewals and birthdays come from the same schema-driven reminder engine
-  // the dashboard uses, over a wide horizon so paging back and forth works.
+  // Renewals come from the schema, so a new expiry date on any entity is on
+  // the calendar the same day without anybody registering it here.
   const data = {};
   for (const name of ['policy', 'vehicle', 'document', 'identityDocument',
     'subscription', 'digitalAsset', 'holding', 'property', 'certificate',
-    'person', 'importantDate', 'loan', 'education', 'recurringPayment']) {
+    'person', 'importantDate', 'loan', 'education', 'recurringPayment',
+    'account', 'transaction']) {
     data[name] = await read(name);
   }
 
-  for (const reminder of allReminders(data, { horizonDays: 400 })) {
+  // What money is due, which is mostly *derived* rather than stored — a card
+  // bill comes off the statement day and the rows on the card, an EMI off the
+  // loan's payment day. Neither has a date field, so neither had ever appeared
+  // on a calendar square. The home loan EMI is usually the largest single
+  // amount a household pays.
+  const bills = upcomingBills(data.recurringPayment, data.loan, {
+    from,
+    days: Math.max(0, daysBetween(from, to)),
+    accounts: data.account,
+    transactions: data.transaction,
+    subscriptions: data.subscription,
+    digitalAssets: data.digitalAsset,
+  });
+
+  // A recurring payment is both a dated record and a bill. Keyed exactly, on
+  // the record and the day, so the two never draw the same thing twice — and
+  // the bill wins, because it is the one carrying the amount.
+  const billed = new Set(bills.map((b) => `${b.entity}:${b.recordId}:${b.dueOn}`));
+
+  for (const bill of bills) {
     entries.push({
-      source: reminder.group === 'date' ? 'date' : 'expiry',
-      date: reminder.date,
-      title: reminder.title,
-      subtitle: reminder.label ?? reminder.kind ?? '',
-      href: reminder.recordId
-        ? Router.href({ module: reminder.module, entity: reminder.entity, id: reminder.recordId })
+      source: 'money',
+      date: bill.dueOn,
+      title: bill.name,
+      subtitle: bill.amount === null
+        // A card with no statement day knows the date and not the figure.
+        ? bill.why ?? 'amount not known'
+        : format(bill.amount),
+      amount: bill.amount,
+      href: bill.recordId
+        ? Router.href({ module: moduleOf(bill.entity), entity: bill.entity, id: bill.recordId })
         : null,
     });
   }
 
+  for (const dated of datesInRange(data, { from, to })) {
+    if (billed.has(`${dated.entity}:${dated.recordId}:${dated.date}`)) continue;
+    entries.push({
+      source: 'expiry',
+      date: dated.date,
+      title: dated.title,
+      subtitle: dated.label ?? '',
+      href: Router.href({ module: dated.module, entity: dated.entity, id: dated.recordId }),
+    });
+  }
+
+  // Birthdays and anniversaries repeat yearly, so they are generated rather
+  // than filtered — a window of a year either way covers the grid.
+  for (const date of upcomingDates(data.person, data.importantDate, { days: 400, from })) {
+    entries.push({
+      source: 'date',
+      date: date.date,
+      title: date.title,
+      subtitle: date.turning ? `turning ${date.turning}` : (date.kind ?? ''),
+      href: null,
+    });
+  }
+
   return entries.filter((entry) => entry.date).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Which screen a bill's record lives on. Subscriptions are filed under Digital. */
+function moduleOf(entity) {
+  return entity === 'subscription' || entity === 'digitalAsset' ? 'digital' : 'finance';
 }
 
 function colourOf(source) {
