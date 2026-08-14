@@ -19,7 +19,9 @@ import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
-import { buildTree, generationLabel, describeRelation } from '../domain/tree.js';
+import {
+  buildTree, generationLabel, describeRelation, impliedEdges, relationshipConflicts,
+} from '../domain/tree.js';
 import { upcomingDates } from '../domain/reminders.js';
 import { formatDay, ageOn, today, relativeDays } from '../core/dates.js';
 
@@ -103,6 +105,13 @@ async function treeView() {
     const tree = buildTree(people, relationships, { rootId: me });
     const dates = upcomingDates(people, importantDates, { days: 90 });
 
+    // The `relationship` field on each person record is an edge too, and the
+    // tree now reads it. `describeRelation` has to see the same set, or a
+    // person the tree just placed would sit in the right generation with no
+    // label under their name.
+    const known = [...relationships, ...impliedEdges(people).edges];
+    const conflicts = relationshipConflicts(people, relationships);
+
     replace(host, [
       card({ class: 'card--flush' }, [
         h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
@@ -126,7 +135,7 @@ async function treeView() {
             style: { gap: 'var(--space-3)', flexWrap: 'wrap', alignItems: 'stretch' },
           }, generation.people.map((person) => personCard(person, {
             isMe: person.id === me,
-            relation: person.id === me ? 'you' : describeRelation(me, person.id, relationships),
+            relation: person.id === me ? 'you' : describeRelation(me, person.id, known),
           }))),
 
           // A line under each generation but the last, so the rows read as a
@@ -142,6 +151,36 @@ async function treeView() {
             }),
         ]))),
       ]),
+
+      // What stopped the person form being read at all. Silence here would
+      // leave a household staring at a flat tree with no idea why, when the
+      // fix is usually one field on one record.
+      tree.why
+        ? card({ class: 'card--quiet relationship-note' }, [
+          cardHeader('Some relationships could not be placed', null, { iconName: 'info' }),
+          h('p', { class: 'small muted' }, tree.why),
+        ])
+        : null,
+
+      // Two ways to record one fact means two ways to record it differently.
+      // Neither side is picked: a tree that quietly chose one would be wrong
+      // in a way nobody could see.
+      conflicts.length
+        ? card({ class: 'card--quiet relationship-conflicts' }, [
+          cardHeader('Recorded two different ways',
+            badge(String(conflicts.length), 'warning'), { iconName: 'info' }),
+          h('p', { class: 'small muted' },
+            'These people have one relationship on their own record and a different '
+            + 'one under Relationships. Nothing here picks between them — open the '
+            + 'record and correct whichever is wrong.'),
+          h('div', { class: 'list' }, conflicts.map(({ person, said, recorded }) => listItem({
+            leading: avatar(person.name),
+            title: person.name,
+            subtitle: `Their record says “${said}”, but a relationship says ${recorded}.`,
+            href: Router.href({ module: 'identity', entity: 'person', id: person.id }),
+          }))),
+        ])
+        : null,
 
       tree.unplaced.length
         ? card({ class: 'card--quiet' }, [

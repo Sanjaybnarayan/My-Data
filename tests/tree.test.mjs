@@ -1,6 +1,9 @@
 import { test, describe, assert, setSuite, fakeClock } from './harness.mjs';
 import { makeDb } from './fixture.mjs';
-import { buildTree, normaliseEdges, describeRelation, generationLabel } from '../js/domain/tree.js';
+import {
+  buildTree, normaliseEdges, describeRelation, generationLabel,
+  impliedEdges, relationshipConflicts,
+} from '../js/domain/tree.js';
 import {
   nextOccurrence, recurringToAdvance, tasksToRepeat,
   notifiableReminders, notificationFor, runAutomations,
@@ -164,6 +167,203 @@ describe('describing a relation', () => {
 
   test('strangers have no relation', () => {
     assert.equal(describeRelation('a', 'b', []), null);
+  });
+});
+
+/* ------------------------ the relationships the person form already collects */
+
+/**
+ * A household filling in the obvious field: every person record carries a
+ * `relationship` picked from the dropdown beside their name. Nobody opens the
+ * separate Relationships screen, because nothing suggests one exists.
+ */
+const HOUSEHOLD = [
+  person('p1', { name: 'Sanjay', relationship: 'self' }),
+  person('p2', { name: 'Asha', relationship: 'spouse' }),
+  person('p3', { name: 'Ravi', relationship: 'son' }),
+  person('p4', { name: 'Meera', relationship: 'daughter' }),
+  person('p5', { name: 'Krishnan', relationship: 'father' }),
+  person('p6', { name: 'Lakshmi', relationship: 'mother' }),
+];
+
+const levels = (tree) => tree.generations.map((g) => [g.level, g.people.map((p) => p.name)]);
+
+describe('a family entered on the person form', () => {
+  test('appears as a family rather than a flat list of strangers', () => {
+    // Measured before this existed: six people, every one tagged, and the tree
+    // showed one generation, zero edges and all six unplaced.
+    const tree = buildTree(HOUSEHOLD, []);
+
+    assert.deep(levels(tree), [
+      [-1, ['Krishnan', 'Lakshmi']],
+      [0, ['Asha', 'Sanjay']],
+      [1, ['Meera', 'Ravi']],
+    ]);
+    assert.length(tree.unplaced, 0);
+  });
+
+  test('and matches what the Relationships entity would have produced', () => {
+    // The two routes must agree, or a household gets a different family
+    // depending on which screen they happened to use.
+    const explicit = [
+      rel('p1', 'spouse of', 'p2'), rel('p1', 'parent of', 'p3'),
+      rel('p1', 'parent of', 'p4'), rel('p5', 'parent of', 'p1'),
+      rel('p6', 'parent of', 'p1'),
+    ];
+    const bare = HOUSEHOLD.map((p) => ({ ...p, relationship: p.id === 'p1' ? 'self' : '' }));
+
+    assert.deep(levels(buildTree(HOUSEHOLD, [])), levels(buildTree(bare, explicit)));
+  });
+
+  test('an implied edge and a recorded one are the same edge, not two', () => {
+    const tree = buildTree(HOUSEHOLD, [rel('p1', 'parent of', 'p3')]);
+    const between = tree.edges.filter((e) => (e.from === 'p1' && e.to === 'p3')
+      || (e.from === 'p3' && e.to === 'p1'));
+
+    assert.length(between, 1);
+    // The recorded one keeps its own id: somebody entered it deliberately.
+    assert.not(String(between[0].id).startsWith('implied:'), String(between[0].id));
+  });
+
+  test('siblings, grandparents and grandchildren land in the right generation', () => {
+    const wider = [
+      person('s', { name: 'Self', relationship: 'self' }),
+      person('b', { name: 'Brother', relationship: 'brother' }),
+      person('g', { name: 'Grandmother', relationship: 'grandmother' }),
+      person('k', { name: 'Grandson', relationship: 'grandson' }),
+    ];
+    const tree = buildTree(wider, []);
+
+    assert.equal(tree.levelOf.get('b'), 0, 'a brother is the same generation');
+    assert.equal(tree.levelOf.get('g'), -2, 'a grandmother is two back');
+    assert.equal(tree.levelOf.get('k'), 2, 'a grandson is two on');
+  });
+
+  test('an in-law hangs off the spouse, not off self', () => {
+    // A father-in-law is not your parent, and placing him as one would put
+    // your spouse's family in the wrong branch.
+    const tree = buildTree([
+      person('s', { name: 'Self', relationship: 'self' }),
+      person('w', { name: 'Asha', relationship: 'spouse' }),
+      person('f', { name: 'Raghavan', relationship: 'father-in-law' }),
+    ], []);
+
+    const edge = tree.edges.find((e) => e.from === 'f' || e.to === 'f');
+    assert.equal(edge.to, 'w', 'the in-law edge should point at the spouse');
+    assert.equal(tree.levelOf.get('f'), -1);
+  });
+
+  test('the tree says how much of itself was inferred', () => {
+    // A household seeing their family appear should be able to tell it came
+    // from what they typed on the person form rather than from edges they
+    // never entered.
+    assert.equal(buildTree(HOUSEHOLD, []).impliedCount, 5);
+    assert.equal(buildTree(HOUSEHOLD, [], { implied: false }).impliedCount, 0);
+  });
+
+  test('and turning it off gives back exactly the old behaviour', () => {
+    const off = buildTree(HOUSEHOLD, [], { implied: false });
+    assert.length(off.edges, 0);
+    assert.length(off.unplaced, 6);
+  });
+});
+
+describe('where the person form cannot be read', () => {
+  test('nobody marked as self, because there is nothing to be relative to', () => {
+    // "son" is a relationship *to somebody*. Guessing who would rearrange the
+    // whole family around an assumption.
+    // The same household with the one `self` marking removed. Written out
+    // rather than derived, so what is missing is visible in the fixture.
+    const { edges, why } = impliedEdges([
+      person('p1', { name: 'Sanjay', relationship: '' }),
+      person('p2', { name: 'Asha', relationship: 'spouse' }),
+      person('p3', { name: 'Ravi', relationship: 'son' }),
+      person('p5', { name: 'Krishnan', relationship: 'father' }),
+    ]);
+
+    assert.length(edges, 0);
+    assert.includes(why, 'nobody is marked');
+  });
+
+  test('two people marked as self, because it is not one family then', () => {
+    const two = [
+      person('a', { name: 'A', relationship: 'self' }),
+      person('b', { name: 'B', relationship: 'self' }),
+      person('c', { name: 'C', relationship: 'son' }),
+    ];
+    const { edges, why } = impliedEdges(two);
+
+    assert.length(edges, 0);
+    assert.includes(why, 'both marked as');
+    assert.includes(why, 'A and B');
+  });
+
+  test('an in-law with no spouse recorded is named rather than dropped', () => {
+    const { edges, why } = impliedEdges([
+      person('s', { name: 'Self', relationship: 'self' }),
+      person('f', { name: 'Raghavan', relationship: 'father-in-law' }),
+    ]);
+
+    assert.length(edges, 0);
+    assert.includes(why, 'no spouse is recorded');
+  });
+
+  test('a relationship nobody has a rule for implies nothing', () => {
+    const { edges, why } = impliedEdges([
+      person('s', { name: 'Self', relationship: 'self' }),
+      person('x', { name: 'X', relationship: 'other' }),
+    ]);
+
+    assert.length(edges, 0);
+    assert.equal(why, '', 'and it is not an error either');
+  });
+
+  test('nobody is made their own parent', () => {
+    // `self` is absent from the mapping tables, so it falls through the way
+    // `other` does. Locked as a property rather than as a guard: a self-loop
+    // would put one person in two generations at once.
+    const { edges } = impliedEdges(HOUSEHOLD);
+    const loops = edges.filter((e) => e.fromPerson === e.toPerson);
+
+    assert.length(loops, 0);
+    assert.not(edges.some((e) => e.id === 'implied:p1'), 'self implies no edge of its own');
+  });
+
+  test('a deleted person implies nothing', () => {
+    const { edges } = impliedEdges([
+      person('s', { name: 'Self', relationship: 'self' }),
+      person('d', { name: 'Gone', relationship: 'son', deletedAt: '2026-01-01T00:00:00.000Z' }),
+    ]);
+    assert.length(edges, 0);
+  });
+});
+
+describe('when the two ways of recording disagree', () => {
+  test('the contradiction is reported rather than silently resolved', () => {
+    // Ravi's own record says he is a son; an edge says he is Sanjay's parent.
+    // Neither side wins: an uncertain match is never forced, and a family tree
+    // that quietly picked one would be wrong in a way nobody could see.
+    const [conflict] = relationshipConflicts(HOUSEHOLD, [rel('p3', 'parent of', 'p1')]);
+
+    assert.ok(conflict, 'a contradiction should be reported');
+    assert.equal(conflict.person.name, 'Ravi');
+    assert.equal(conflict.said, 'son');
+    assert.includes(conflict.recorded, 'parent');
+  });
+
+  test('agreement is not a conflict', () => {
+    assert.length(relationshipConflicts(HOUSEHOLD, [rel('p1', 'parent of', 'p3')]), 0);
+  });
+
+  test('nor is a relationship recorded only one way', () => {
+    // The gap this whole thing fills. A person with a dropdown value and no
+    // edge is not in conflict with anything.
+    assert.length(relationshipConflicts(HOUSEHOLD, []), 0);
+  });
+
+  test('and with nobody marked as self there is nothing to compare', () => {
+    const bare = HOUSEHOLD.map((p) => ({ ...p, relationship: '' }));
+    assert.length(relationshipConflicts(bare, [rel('p3', 'parent of', 'p1')]), 0);
   });
 });
 
