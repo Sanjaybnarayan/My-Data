@@ -856,6 +856,14 @@ async function main() {
         /lender.s statement is the figure that counts/.test(loanBody),
         loanBody.slice(0, 900));
 
+      // The other half: an EMI is one payment made of two different things.
+      // Said next to the spending figure, and phrased so it does not claim
+      // that figure is wrong — it is a correct cash-flow number.
+      check('the spending figure says how much of the EMI was a cost',
+        /repaid the debt rather than being spent/.test(loanBody), loanBody.slice(0, 900));
+      check('and says the principal is still the household’s money',
+        /still yours/.test(loanBody), loanBody.slice(0, 900));
+
       if (SHOTS) await shot(page, 'finance-settlement');
     }
 
