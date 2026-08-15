@@ -27,7 +27,7 @@
  * second directly, which is the entire point of moving it here.
  */
 
-import { Service } from './service.js';
+import { Service, TRANSACTION_LIMIT, transactionsTruncated } from './service.js';
 import { TransfersService } from './transfers.js';
 import * as fin from '../domain/finance.js';
 import { settlementReport } from '../domain/settlement.js';
@@ -36,6 +36,7 @@ import { spendByMember } from '../domain/household.js';
 import { fromRecords } from '../domain/ledger.js';
 import { recurring as recurringCharges } from '../domain/categorise.js';
 import { today } from '../core/dates.js';
+import { cashRunway } from '../domain/runway.js';
 
 /**
  * Declared once, here, rather than inline in the screen.
@@ -47,7 +48,7 @@ import { today } from '../core/dates.js';
 /** @type {Record<string, import('./service.js').Load>} */
 export const FINANCE_OVERVIEW_LOAD = Object.freeze({
   accounts: ['account', { decrypt: false, limit: 500 }],
-  transactions: ['transaction', { decrypt: false, limit: 20_000 }],
+  transactions: ['transaction', { decrypt: false, limit: TRANSACTION_LIMIT }],
   budgets: ['budget', { decrypt: false }],
   recurring: ['recurringPayment', { decrypt: false }],
   loans: ['loan', { decrypt: false }],
@@ -108,9 +109,18 @@ export function assembleOverview(data, { clock = Date.now } = {}) {
     return { label: month.label, value: running };
   });
 
+  const bills = fin.upcomingBills(recurring, loans, {
+    days: 30, from: today(clock), accounts, transactions, subscriptions, digitalAssets,
+  });
+
   return {
     accounts,
     transactions,
+    // Whether every figure below was computed from the whole history or from a
+    // slice of it. A balance summed from the most recent N is not the account's
+    // balance once a household has more than N, and a screen showing one should
+    // say so rather than let it pass as the figure.
+    truncated: transactionsTruncated(transactions),
     // Passed through because the screen draws them directly. A view model that
     // withheld them would have the screen reach for the repository again,
     // which is the edge this whole layer exists to narrow.
@@ -126,9 +136,12 @@ export function assembleOverview(data, { clock = Date.now } = {}) {
     // `account.statementDay` and `account.dueDay` are on the account form and
     // were read by nothing, so a card with money owed on it produced no warning
     // at all. Passing the accounts and the rows brings them in.
-    bills: fin.upcomingBills(recurring, loans, {
-      days: 30, from: today(clock), accounts, transactions, subscriptions, digitalAssets,
-    }),
+    bills,
+    // Cash against what is known to be leaving it. Assembled here rather than
+    // in the screen for the reason this whole module exists — and wired in the
+    // same tranche that built it, because "the domain function exists and no
+    // screen calls it" is the finding this repository keeps making.
+    runway: cashRunway(accounts, transactions, bills, { from: today(clock), clock }),
     budgetRows: fin.budgetStatus(budgets, transactions),
     commitment: fin.committed({
       recurring, loans, subscriptions, digitalAssets, detected,

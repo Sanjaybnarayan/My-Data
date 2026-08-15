@@ -17,7 +17,9 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb, makePerson, makeAccount } from './fixture.mjs';
-import { Service, NET_WORTH_LOAD } from '../js/services/service.js';
+import {
+  Service, NET_WORTH_LOAD, TRANSACTION_LIMIT, transactionsTruncated,
+} from '../js/services/service.js';
 import { PortfolioService } from '../js/services/portfolio.js';
 import { RecordsService } from '../js/services/records.js';
 import { FinanceService, assembleOverview } from '../js/services/finance.js';
@@ -519,5 +521,59 @@ describe('cross-entity writes a document causes', () => {
     assert.ok(created.id);
     const back = await db.repo('identityDocument').get(created.id);
     assert.equal(back.kind, 'PAN');
+  });
+});
+
+/*
+ * One limit, because three screens gave three balances.
+ *
+ * Measured on a household with 25,000 transactions: the dashboard read 10,000
+ * of them and said ₹2,00,000, the Finance screen read 20,000 and said
+ * ₹4,00,000, the ledgers read 50,000 and said ₹5,00,000. The same account, the
+ * same day, one application.
+ */
+describe('one limit for every money figure', () => {
+  test('no screen or service invents a transaction limit of its own', () => {
+    // The guard, not the fix. A shared constant that nothing enforces drifts
+    // back apart the first time somebody types a number.
+    const offenders = [];
+    for (const dir of ['js/modules', 'js/services']) {
+      const base = new URL(`../${dir}/`, import.meta.url).pathname;
+      for (const file of readdirSync(base).filter((f) => f.endsWith('.js'))) {
+        const text = readFileSync(join(base, file), 'utf8');
+        // A literal limit on a transaction read — the shape that drifted.
+        const found = text.match(/repo\('transaction'\)[\s\S]{0,80}?limit:\s*\d[\d_]*/g)
+          ?? text.match(/transactions:\s*\['transaction',[^\]]*limit:\s*\d[\d_]*/g);
+        if (found) offenders.push(`${dir}/${file}: ${found[0].slice(-30)}`);
+      }
+    }
+
+    assert.equal(offenders.join('\n'), '',
+      'these read transactions with a hard-coded limit; use TRANSACTION_LIMIT');
+  });
+
+  test('the overview reports whether its figures saw the whole history', () => {
+    // The half that was missing when the shared limit landed: the signal
+    // existed and no view model carried it.
+    const whole = assembleOverview({ transactions: [] }, { clock: () => Date.parse('2026-07-20') });
+    assert.not(whole.truncated);
+
+    const sliced = assembleOverview(
+      { transactions: new Array(TRANSACTION_LIMIT).fill(null).map((_, i) => ({
+        id: `t${i}`, date: '2026-07-01', amount: 100, kind: 'expense', direction: 'out',
+      })) },
+      { clock: () => Date.parse('2026-07-20') },
+    );
+    assert.ok(sliced.truncated, 'a full slice means there is probably more history');
+  });
+
+  test('a figure computed from a full slice says it was truncated', () => {
+    // A balance summed from "the most recent N" is not the balance once a
+    // household has more than N. Saying so is the only honest option, since
+    // the number cannot be made right without reading the rest.
+    assert.ok(transactionsTruncated(new Array(TRANSACTION_LIMIT).fill({})));
+    assert.not(transactionsTruncated(new Array(TRANSACTION_LIMIT - 1).fill({})));
+    assert.not(transactionsTruncated([]));
+    assert.not(transactionsTruncated(null));
   });
 });

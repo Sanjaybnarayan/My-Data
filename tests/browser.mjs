@@ -1072,6 +1072,42 @@ async function main() {
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 
+    /* --------------------------------- how long the money lasts, on screen */
+
+    {
+      // Wired in the same tranche that built it. "The domain function exists
+      // and no screen calls it" is the finding this repository keeps making,
+      // and it is only ever found by driving the screen.
+      const before = consoleErrors.length;
+
+      await go(page, '#/finance');
+      await page.waitForTimeout(800);
+      const shown = (await page.locator('.app-content').innerText()).trim();
+
+      check('the Finance screen says how long the money lasts',
+        /runs the account out|exceeds what is in the account/i.test(shown),
+        shown.slice(0, 900));
+
+      // The refusal that matters most on a forecast: it must never tell a
+      // household they are fine, because unrecorded spending happens daily and
+      // this arithmetic cannot see it.
+      check('and never tells the household they are fine',
+        !/\b(you are fine|comfortable|plenty|safe)\b/i.test(shown), shown.slice(0, 900));
+
+      // A forecast whose assumptions are hidden is a forecast presenting itself
+      // as an answer.
+      check('the assumptions are on the screen beside the figure',
+        /Assuming:/.test(shown), shown.slice(0, 900));
+
+      check('no arithmetic leaked into the forecast',
+        !/Infinity|NaN|undefined/.test(shown), shown.slice(0, 900));
+
+      check('the forecast renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-runway');
+    }
+
     /* ------------------------- spending unlike its own history, on screen */
 
     {

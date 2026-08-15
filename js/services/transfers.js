@@ -11,7 +11,7 @@
  * balance. Tidying the total by deleting a row destroys the evidence for it.
  */
 
-import { Service } from './service.js';
+import { Service, TRANSACTION_LIMIT } from './service.js';
 import { format } from '../core/money.js';
 import {
   proposeTransfers, movementTotal, linkFor, CONFIDENCE,
@@ -26,7 +26,7 @@ export class TransfersService extends Service {
    */
   async pending({ windowDays = 3 } = {}) {
     const { transactions, accounts } = await this.load({
-      transactions: ['transaction', { decrypt: false, limit: 20_000 }],
+      transactions: ['transaction', { decrypt: false, limit: TRANSACTION_LIMIT }],
       accounts: ['account', { decrypt: false }],
     });
 

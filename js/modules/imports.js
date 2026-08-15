@@ -33,6 +33,7 @@ import { importList, orphanedTransactions, planUndo } from '../domain/imports.js
 import { format } from '../core/money.js';
 import { formatDay } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
+import { TRANSACTION_LIMIT } from '../services/service.js';
 
 export async function render() {
   const { db } = app();
@@ -46,7 +47,7 @@ export async function render() {
   async function load() {
     const [statements, transactions, accounts] = await Promise.all([
       db.repo('bankStatement').list({ decrypt: false, limit: 5000 }),
-      db.repo('transaction').list({ decrypt: false, limit: 50_000 }),
+      db.repo('transaction').list({ decrypt: false, limit: TRANSACTION_LIMIT }),
       db.repo('account').list({ decrypt: false, limit: 500 }),
     ]);
 

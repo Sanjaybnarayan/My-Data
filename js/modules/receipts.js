@@ -60,6 +60,7 @@ import { today, addDays, addMonths, formatDay } from '../core/dates.js';
 import { format } from '../core/money.js';
 import { userMessage } from '../core/errors.js';
 import { config } from '../core/config.js';
+import { TRANSACTION_LIMIT } from '../services/service.js';
 
 /** Where a household's own shops are kept. */
 const SHOPS = 'inbox.shops';
@@ -280,7 +281,7 @@ export async function render() {
 
   async function loadTransactions() {
     if (transactions.length || !receipts.length) return;
-    transactions = await db.repo('transaction').list({ decrypt: false, limit: 20_000 });
+    transactions = await db.repo('transaction').list({ decrypt: false, limit: TRANSACTION_LIMIT });
   }
 
   /**
@@ -323,7 +324,7 @@ export async function render() {
         await db.repo('transaction').update(transaction.id, patch);
         written += 1;
       }
-      transactions = await db.repo('transaction').list({ decrypt: false, limit: 20_000 });
+      transactions = await db.repo('transaction').list({ decrypt: false, limit: TRANSACTION_LIMIT });
       toast(`${written} transactions named from their receipts`, { kind: 'success' });
     } catch (err) {
       toast(userMessage(err), { kind: 'error' });

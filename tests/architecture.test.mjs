@@ -37,6 +37,21 @@ describe('reading the claims out of the document', () => {
     assert.length(probesIn('| Something | **exists** | no probe here |'), 0);
   });
 
+  test('a cell that looks like a probe and does not parse is reported, not skipped', () => {
+    // The worst failure this tool can have: a row that reads like a claim,
+    // parses as nothing, and therefore can never fail. `absent:grep:a|b` sat in
+    // the document doing exactly that — a pipe splits the markdown cell.
+    const [probe] = probesIn('| Forecasting | missing | `absent:grep:forecast|projection` |');
+    assert.equal(probe.kind, 'malformed');
+    assert.includes(checkProbe(probe), 'silently not a claim');
+  });
+
+  test('several terms are separated by commas, which markdown leaves alone', () => {
+    const [probe] = probesIn('| Thing | missing | `absent:grep:alpha,beta` |');
+    assert.equal(probe.kind, 'absent');
+    assert.equal(probe.target, 'grep:alpha,beta');
+  });
+
   test('a prose line containing pipes is still prose', () => {
     // Markdown prose can carry a pipe — in a code sample, or a table drawn
     // inside a fence. Without the leading-pipe guard the cell arithmetic below
@@ -98,6 +113,17 @@ describe('running a claim against the repository', () => {
     assert.equal(checkProbe(
       { kind: 'absent', target: 'grep:anomal', state: 'missing' },
       { sources: ['/x/present.js'], read },
+    ), null);
+  });
+
+  test('any one of several comma-separated terms is enough to fail the row', () => {
+    assert.ok(checkProbe(
+      { kind: 'absent', target: 'grep:nothing,anomal', state: 'missing' },
+      { sources: ['/x/mentions.js'], read },
+    ), 'the second term matches, so the row is stale');
+    assert.equal(checkProbe(
+      { kind: 'absent', target: 'grep:nothing,neither', state: 'missing' },
+      { sources: ['/x/mentions.js'], read },
     ), null);
   });
 });

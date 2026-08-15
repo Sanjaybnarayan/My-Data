@@ -28,6 +28,8 @@ import { describeSettlement } from '../domain/settlement.js';
 import { staleness, describeStaleness, describeEmi } from '../domain/amortise.js';
 import { describeSpendByMember, settleable } from '../domain/household.js';
 import { describeCommitments } from '../domain/commitments.js';
+import { describeRunway } from '../domain/runway.js';
+import { TRANSACTION_LIMIT } from '../services/service.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -395,7 +397,7 @@ async function financeOverview() {
     // entities, which is the first of the two gaps the service layer exists to
     // close — and the reason three silent wiring failures went unnoticed here.
     const {
-      transactions, loans, balances, compare, series, balanceSeries,
+      transactions, loans, balances, compare, series, balanceSeries, runway, truncated,
       categories, settlement, emi, byMember, bills, budgetRows, commitment,
       transfers,
     } = await new FinanceService(db).overview();
@@ -444,12 +446,37 @@ async function financeOverview() {
           : null,
 
         h('p', { class: 'small faint' }, describeCommitments(commitment, format)),
+
+        // A shortfall is a fact and reads as one; the absence of a shortfall is
+        // deliberately not reassurance, so it stays `faint` rather than
+        // becoming a green tick. See `domain/runway.js`.
+        h('p', {
+          class: runway.shortfall ? 'small money--negative' : 'small faint',
+        }, describeRunway(runway, format)),
+
+        // Said where the figure is, not in a tooltip. A forecast whose
+        // assumptions are hidden is a forecast presenting itself as an answer.
+        runway.assumptions.length
+          ? h('p', { class: 'small faint' },
+            `Assuming: ${runway.assumptions.join('; ')}.`)
+          : null,
       ].filter(Boolean)),
 
       loansCard(loans, transactions),
 
       card({}, [
         cardHeader('Cash & accounts'),
+
+        // Said where the balances are, not in a log. A balance summed from the
+        // most recent rows is not the account's balance once there are more of
+        // them than that, and the household is the only one who can tell
+        // whether it matters to them.
+        truncated
+          ? h('p', { class: 'small money--negative' },
+            `Only the most recent ${TRANSACTION_LIMIT.toLocaleString('en-IN')} transactions `
+            + 'were read, so these balances are computed from part of your history '
+            + 'rather than all of it.')
+          : null,
         metric({
           label: 'Liquid cash',
           value: formatCompact(fin.liquidCash(balances)),
