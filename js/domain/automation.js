@@ -18,7 +18,7 @@
 
 import { today, addDays, addMonths, addYears, daysUntil } from '../core/dates.js';
 import { advanceRecurring } from './finance.js';
-import { allReminders, describeReminder } from './reminders.js';
+import { allReminders, moneyReminders, describeReminder, SEVERITY } from './reminders.js';
 
 const LAST_RUN_KEY = 'automation.lastRun';
 const LAST_NOTIFIED_KEY = 'automation.lastNotified';
@@ -99,10 +99,19 @@ export function tasksToRepeat(tasks, from = today()) {
  * notifications.
  */
 export function notifiableReminders(reminders) {
-  return reminders.filter((reminder) => {
-    if (reminder.group === 'date') return reminder.days <= 1;
-    return reminder.days <= 7;
-  });
+  return reminders
+    .filter((reminder) => {
+      if (reminder.group === 'date') return reminder.days <= 1;
+      return reminder.days <= 7;
+    })
+    // Sorted here, because the digest shows the first one and the callers
+    // compose *two* already-sorted lists — which does not make a sorted list.
+    // Without this the notification led with a passport six days out while
+    // ₹35,000 of rent fell due tomorrow.
+    .sort((a, b) => {
+      const bySeverity = (SEVERITY[a.severity] ?? 9) - (SEVERITY[b.severity] ?? 9);
+      return bySeverity !== 0 ? bySeverity : a.days - b.days;
+    });
 }
 
 /** One notification for one thing, a digest for several. */
@@ -189,7 +198,25 @@ export async function runAutomations(db, { clock = Date.now, notify = true } = {
         }
       }
 
-      const due = notifiableReminders(allReminders(data, { clock }));
+      // Money is loaded into a *separate* bag, and this is not tidiness.
+      // `recurringPayment.nextDueOn` is an `expiry` field in the schema, so
+      // handing these to `allReminders` as well makes it report every bill a
+      // second time — "Rent: next due on in 1 days" beside "Rent is due
+      // tomorrow (₹35,000)". Two sources, two inputs, no overlap.
+      const moneyData = {};
+      for (const name of ['recurringPayment', 'loan', 'account', 'transaction',
+        'subscription', 'digitalAsset']) {
+        try {
+          moneyData[name] = await db.repo(name).list({ decrypt: false, limit: 5000 });
+        } catch {
+          moneyData[name] = [];
+        }
+      }
+
+      const due = notifiableReminders([
+        ...allReminders(data, { clock }),
+        ...moneyReminders(moneyData, { clock, days: 7 }),
+      ]);
       const notification = notificationFor(due);
       if (notification) {
         try {

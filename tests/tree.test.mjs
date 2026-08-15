@@ -8,6 +8,7 @@ import {
   nextOccurrence, recurringToAdvance, tasksToRepeat,
   notifiableReminders, notificationFor, runAutomations,
 } from '../js/domain/automation.js';
+import { moneyReminders, describeReminder, allReminders } from '../js/domain/reminders.js';
 import {
   guessCategory, formatSize, iconForMime, matches, categoryForEntity,
   personFolderName, documentPath, categoryFolderName, HOUSEHOLD_FOLDER,
@@ -463,6 +464,77 @@ describe('notifications', () => {
 
   test('nothing due produces no notification at all', () => {
     assert.equal(notificationFor([]), null);
+  });
+
+  /*
+   * Money. The notifier read thirteen entity types and not one of them carries
+   * a bill, so a household was told its passport expires in six days and
+   * nothing about the rent due tomorrow.
+   */
+  const clock = () => Date.parse('2026-08-15T00:00:00Z');
+  const money = {
+    recurringPayment: [{
+      id: 'r1', name: 'Rent', kind: 'rent', amount: 35_000_00, frequency: 'monthly',
+      nextDueOn: '2026-08-16', deletedAt: null,
+    }],
+    loan: [{ id: 'l1', name: 'Home loan', emiAmount: 18_500_00, emiDay: 18, deletedAt: null }],
+  };
+
+  test('a bill due tomorrow is something worth interrupting somebody for', () => {
+    const due = notifiableReminders(moneyReminders(money, { clock, days: 7 }));
+    assert.length(due, 2);
+    assert.equal(due[0].title, 'Rent');
+    assert.equal(due[0].days, 1);
+  });
+
+  test('the amount is in the sentence, because it is the reason to look', () => {
+    const [rent] = moneyReminders(money, { clock, days: 7 });
+    assert.includes(describeReminder(rent), '35,000');
+    assert.includes(describeReminder(rent), 'due in 1 day');
+    assert.not(/due in 1 days/.test(describeReminder(rent)), 'one day is not "1 days"');
+  });
+
+  test('a bill whose amount is unknown says so rather than reading as free', () => {
+    assert.includes(describeReminder({
+      group: 'money', title: 'HDFC card', days: 3, amount: null,
+    }), 'amount not known yet');
+  });
+
+  test('the digest leads with the most urgent, across both sources', () => {
+    // Two already-sorted lists composed do not make a sorted list. Before this
+    // the notification led with a passport six days out while ₹35,000 of rent
+    // fell due tomorrow.
+    const due = notifiableReminders([
+      { id: 'p', group: 'expiry', days: 6, title: 'Passport', label: 'Expires on', severity: 'urgent' },
+      ...moneyReminders(money, { clock, days: 7 }),
+    ]);
+    assert.equal(notificationFor(due).body, describeReminder(due[0]));
+    assert.includes(notificationFor(due).body, 'Rent');
+  });
+
+  test('the default window is the same 45 days the other reminders use', () => {
+    // Not exercised anywhere in the application, which passes 7 — so it is
+    // pinned here rather than left to whoever calls this next.
+    const far = {
+      recurringPayment: [{
+        id: 'r9', name: 'Insurance', kind: 'insurance', amount: 12_000_00,
+        frequency: 'yearly', nextDueOn: '2026-09-10', deletedAt: null,
+      }],
+    };
+    assert.length(moneyReminders(far, { clock }), 1);
+    assert.length(moneyReminders(far, { clock, days: 7 }), 0);
+  });
+
+  test('money reminders and expiry reminders do not report the same bill twice', () => {
+    // `recurringPayment.nextDueOn` is an `expiry` field in the schema, so
+    // handing the money records to `allReminders` as well reports every bill a
+    // second time. The two sources take two inputs for exactly this reason.
+    const expiry = allReminders(money, { clock });
+    const both = [...allReminders({}, { clock }), ...moneyReminders(money, { clock, days: 7 })];
+
+    assert.ok(expiry.some((r) => r.title === 'Rent'),
+      'the schema does produce an expiry reminder for a bill');
+    assert.length(both.filter((r) => r.title === 'Rent'), 1);
   });
 });
 

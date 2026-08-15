@@ -13,6 +13,8 @@
 
 import { entities } from '../data/schema.js';
 import { daysUntil, daysBetween, nextAnniversary, today, ageOn } from '../core/dates.js';
+import { format } from '../core/money.js';
+import { upcomingBills } from './finance.js';
 
 export const SEVERITY = { overdue: 0, urgent: 1, soon: 2, upcoming: 3 };
 
@@ -224,8 +226,91 @@ export function allReminders(data, options = {}) {
   });
 }
 
+/**
+ * Money due, in the shape a reminder is in.
+ *
+ * ## Why this is beside `allReminders` and not inside it
+ *
+ * `allReminders` answers *"which dated records need attention?"* — an expiry,
+ * a birthday. It has four callers, and two of them (the dashboard and the
+ * report builder) already show bills through their own widget. Folding money
+ * into it would have those two count every bill twice.
+ *
+ * The notifier is asking a different question: *"what is worth interrupting
+ * somebody for?"* — and the answer to that plainly includes ₹35,000 of rent
+ * due tomorrow. So this is a second function beside the first, which is the
+ * same remedy `datesInRange` and `billsInRange` took, for the same reason.
+ *
+ * ## What it was fixing
+ *
+ * The notifier read thirteen entity types and **not one of them carries a
+ * bill**. A household was told its passport expires in six days and told
+ * nothing at all about the rent due tomorrow or the EMI three days after —
+ * ₹53,500 a month of committed outflow, invisible to every notification the
+ * application sends.
+ *
+ * That is the third appearance of one shape: money reached no calendar square,
+ * then reached one square a year, and now reaches no notification.
+ *
+ * @param {object} data records by entity name
+ * @param {{from?: string, days?: number, clock?: () => number}} [options]
+ */
+export function moneyReminders(data, { from = null, days = 45, clock = Date.now } = {}) {
+  const start = from ?? today(clock);
+
+  // `upcomingBills`, not `billsInRange`: the question here is "what is due
+  // soon", which is the one `upcomingBills` actually answers. The other fills
+  // a calendar window, and asking it this would be the mistake this project
+  // already has a name for.
+  const bills = upcomingBills(data.recurringPayment ?? [], data.loan ?? [], {
+    days,
+    from: start,
+    accounts: data.account ?? null,
+    transactions: data.transaction ?? null,
+    subscriptions: data.subscription ?? null,
+    digitalAssets: data.digitalAsset ?? null,
+  });
+
+  return bills.map((bill) => {
+    const away = bill.days ?? daysBetween(start, bill.dueOn);
+    return {
+      id: `bill:${bill.id}`,
+      entity: bill.entity,
+      module: 'finance',
+      recordId: bill.recordId,
+      field: 'dueOn',
+      label: 'Due',
+      title: bill.name,
+      date: bill.dueOn,
+      days: away,
+      // A card bill with no statement day has a date and no amount. Left null
+      // rather than defaulted to zero — which is how `billsTotal` already
+      // tells the two apart — so a sentence can say the amount is not known
+      // instead of saying the bill is free.
+      amount: bill.amount ?? null,
+      autoDebit: Boolean(bill.autoDebit),
+      group: 'money',
+      severity: severityFor(away, days),
+    };
+  }).sort((a, b) => a.days - b.days);
+}
+
 /** A sentence for a notification or the assistant. */
-export function describeReminder(reminder) {
+export function describeReminder(reminder, money = format) {
+  if (reminder.group === 'money') {
+    const when = reminder.days < 0
+      ? `was due ${-reminder.days} ${-reminder.days === 1 ? 'day' : 'days'} ago`
+      : reminder.days === 0 ? 'is due today'
+        : `is due in ${reminder.days} ${reminder.days === 1 ? 'day' : 'days'}`;
+    // The amount is the reason a bill is worth interrupting somebody for, so
+    // it is in the sentence — except where it genuinely is not known, which is
+    // said rather than filled in with a zero.
+    const sum = reminder.amount === null || reminder.amount === undefined
+      ? ' (amount not known yet)'
+      : ` (${money(reminder.amount)})`;
+    return `${reminder.title} ${when}${sum}`;
+  }
+
   if (reminder.group === 'date') {
     const turning = reminder.turning ? ` (turning ${reminder.turning})` : '';
     return reminder.days === 0
