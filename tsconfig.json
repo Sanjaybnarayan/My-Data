@@ -16,7 +16,12 @@
     "parameter and tell nobody anything. `noUnusedLocals` and",
     "`noFallthroughCasesInSwitch` are different in kind — each finding is a",
     "mistake rather than a missing declaration, and the first run of them found",
-    "ten pieces of dead code."
+    "ten pieces of dead code. `noImplicitReturns` joined them once it was",
+    "measured: one finding in the whole codebase, and a real one — a bus",
+    "handler returning a value on one branch and nothing on the other.",
+    "",
+    "There is still no linter, and that is now a decision rather than a gap.",
+    "See tools/lint.mjs, which counts what a generic one would have found."
   ],
   "compilerOptions": {
     "noEmit": true,
@@ -33,7 +38,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
-    "noImplicitReturns": false,
+    "noImplicitReturns": true,
     "forceConsistentCasingInFileNames": true,
 
     "skipLibCheck": true

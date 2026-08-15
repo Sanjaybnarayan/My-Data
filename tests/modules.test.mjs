@@ -142,3 +142,52 @@ describe('every module', () => {
     assert.length(absent, 0, absent.join(' | '));
   });
 });
+
+describe('what ships to a browser', () => {
+  test('contains nothing that can leak a record or execute a string', async () => {
+    // Not a linter — `tools/lint.mjs` explains why there deliberately is none,
+    // with the counts that decided it. Five patterns a type checker cannot see,
+    // every one at zero, and the value is entirely in the direction this fails:
+    // a `console.log` pasted into a screen that renders a PAN prints a
+    // household's identity number into a console anybody can open.
+    const { lint } = await import('../tools/lint.mjs');
+    const findings = lint();
+
+    assert.length(findings, 0,
+      findings.map((f) => `${f.file}:${f.line} [${f.rule.id}] ${f.text}`).join(' | '));
+  });
+
+  test('and the rules still fire on the things they name', async () => {
+    // A ratchet reporting zero forever is indistinguishable from a regex that
+    // stopped matching. Each rule is shown a line it must catch.
+    const { findingsIn } = await import('../tools/lint.mjs');
+    const fires = (code, rule) => assert.ok(
+      findingsIn(code).some((f) => f.rule === rule), `${rule} missed: ${code}`);
+
+    fires('const a = () => { console.log("pan", x); };', 'no-console-log');
+    fires('const b = () => { debugger; };', 'no-debugger');
+    fires('const c = (s) => eval(s);', 'no-eval');
+    fires('const c2 = (s) => new Function(s);', 'no-eval');
+    fires('const d = (el, t) => { el.innerHTML = t; };', 'no-innerhtml');
+    fires('const d2 = (el, t) => el.insertAdjacentHTML("beforeend", t);', 'no-innerhtml');
+    fires('const e = () => window.prompt("pin");', 'no-browser-dialogs');
+    fires('const e2 = () => alert("hi");', 'no-browser-dialogs');
+  });
+
+  test('and stay quiet on the things they must not flag', async () => {
+    // The half that matters more. On its first run `no-browser-dialogs`
+    // reported four of this application's own `prompt` and `confirm` calls —
+    // and a rule whose every finding is wrong is worse than no rule, because
+    // people learn to skip the output.
+    const { findingsIn } = await import('../tools/lint.mjs');
+    const quiet = (code) => assert.length(findingsIn(code), 0, `false positive: ${code}`);
+
+    quiet('const f = (err) => console.error("boot failed", err);');
+    quiet('const g = async () => { const v = await prompt({ title: "x" }); return v; };');
+    quiet('const h = async () => { const v = await confirm({ title: "x" }); return v; };');
+    // This file's own prose, and `domain/paymentapp.js`'s, contain every
+    // pattern here. A rule that fires on its own explanation is unusable.
+    quiet('// never use eval( or innerHTML = here');
+    quiet('/*\n * console.log is banned, see below\n */');
+  });
+});

@@ -51,6 +51,13 @@ jobs:
       - name: Check the backend's access rules match the schema
         run: node tools/policy.mjs --check
 
+      # Not a linter — see `tools/lint.mjs` for why there is deliberately none.
+      # Five patterns a type checker cannot see, every one of them at zero, and
+      # the value is in the direction this fails: a `console.log` pasted into a
+      # screen that renders a PAN prints it into a browser console.
+      - name: Check nothing shipped can leak or execute a string
+        run: node tools/lint.mjs
+
   # Types are checked, never compiled: the application ships the JavaScript in
   # this repository and nothing here touches a byte of it. A separate job so a
   # failure reads as "types" rather than as "the suite broke", and because it is
