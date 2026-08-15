@@ -68,7 +68,73 @@ That is a real piece of work and it is not a small one:
 - the conflict engine, which is `domain/events.js`'s problem shape again —
   ₹5,000 against ₹5,500 is a question, never a silent choice.
 
+## What is built now
+
+`js/domain/sms.js`, tested in `tests/sms.test.mjs`. The reading half of the
+phase, on message **text** from wherever it came — which is rule 55's
+"abstraction and alternative ingestion", not a device integration.
+
+### The security gate runs first, and that ordering is the protection
+
+A bank's OTP message looks exactly like its debit message: same sender, same
+shape, and often **the same amount inside it**. So `isAuthenticationSecret`
+runs before any field is read, and a message it claims yields *nothing* — no
+text, no amount, no reference, not even the fields that would be harmless.
+
+The cheapest way never to store a one-time code is never to parse the message
+holding one. A gate that runs after extraction has already copied the code into
+a field.
+
+The vocabulary is deliberately wide — *do not share*, *CVV*, *UPI PIN*,
+*verification code* — because the two errors are not comparable. A false
+positive drops a notification nobody needed. A false negative copies somebody's
+credential into a database and possibly into a model.
+
+### Rule 51, on every reading
+
+Every reading carries `authoritative: false`, and `SOURCE_PRIORITY` puts SMS
+below every statement and above only an AI inference. An SMS is a notification
+*about* a transaction, never the transaction.
+
+### The four tests that could not run before
+
+| Prompt test | Now |
+| --- | --- |
+| the same SMS twice → one event | `dedupe`, fingerprinted over what a resend cannot change — deliberately **not** the arrival time |
+| SMS + statement → one transaction, multiple evidence | `reconcileWithStatement` returns `LINKED` with `evidence: ['sms', 'bank-statement']` |
+| SMS ₹5,000 vs statement ₹5,500 → CONFLICT | both figures and the difference, and *"nothing here changes a figure on its own"* |
+| SMS + statement + Gmail receipt → one event | **partly**: the SMS-to-statement link exists; joining the Gmail receipt to the same event is not built |
+
+**The amount is compared after the link is made, never used to make it.** That
+is the subtle half: if differing amounts stopped two records matching, a
+conflict could never be found at all — the disagreement would look like two
+separate events.
+
+### The native capability says what it is
+
+`nativeStatus()` returns `NOT_SUPPORTED` with a reason and the alternatives that
+do work. The same refusal `docs/KYC.md` makes about CKYCRR, for the same reason:
+a connector with no authorised access reports its state and does nothing else.
+
+**12 of 12 mutations caught**, including *the security gate running after
+extraction*, *an OTP reading keeping its text*, *a disagreement silently taking
+the statement figure*, and *the native connector claiming to work*.
+
+A vacuous test of mine was caught by the type checker rather than by me: it
+asserted `nativeStatus()` is not `CONNECTED`, which returns a literal and so
+could never fail.
+
 ## Still not done
 
-**All of it.** This document is a record that the phase exists, not a claim that
-any part of it has begun.
+- **No screen.** Nothing pastes a message in or shows a conflict. The domain is
+  built and unwired, which is the gap this repository keeps finding — recorded
+  here rather than discovered later.
+- **No entities.** `SMSMessage`, `SMSEvent`, `SMSSource` and
+  `SMSProcessingRecord` are in the prompt's list and not in the schema, so
+  nothing is stored and the three storage modes do not exist.
+- **No three-way link.** SMS to statement is done; adding the Gmail receipt to
+  the same economic event is not.
+- **No real-time processing**, no `last_processed_message`, no idempotent
+  incremental run — all of which need somewhere to store state.
+- **No Android companion**, and the policy check rule 54 requires has not been
+  done, because there is nothing yet to request a permission for.
