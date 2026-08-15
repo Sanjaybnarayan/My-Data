@@ -285,8 +285,37 @@ which would file the receipt by losing the invoice already there.
 
 ## Still not done
 
-- **No screen offers the match yet.** `receiptMatchesIn` is reachable from the
-  document store and nothing calls it, which is the defect this repository keeps
-  finding; it is recorded here rather than left to be discovered.
+- ~~No screen offers the match yet.~~ **Done** — see below.
 - **A part payment is never matched**, by design, so a receipt for a bill paid
   in two instalments stays unfiled.
+
+
+## The screen, and the bug that only a real receipt could find
+
+The panel names the payment and offers to file the receipt against it — on a
+**probable** match only, because a control that always errored on an ambiguous
+one would be worse than no control.
+
+**The first wiring never ran, and the suite was green.** It was hooked at the
+end of `paintReading`, which returns early when a document's text was read and
+there are no identifiers to offer — which is *exactly what a receipt is*. So the
+call sat after a `return` that a receipt always takes.
+
+Nothing caught it, and nothing could have: the panel is deliberately silent when
+it has nothing to say, so an absent panel and a working-but-quiet one look
+identical from outside. Only a check that uploads a real receipt against a real
+payment can tell them apart, and writing that check is what turned a green suite
+red. It is now two named checks, and both mutations of the wiring are caught.
+
+**A second thing the same exercise found:** the screen swallowed the failure with
+`.catch(() => null)`, which turned a broken read into a blank panel — a failure
+shaped exactly like "nothing to report". It now says so.
+
+## Still not done
+
+- **A part payment is never matched**, by design, so a receipt for a bill paid
+  in two instalments stays unfiled.
+- **`payer` reads badly on flattened text.** Extracted from a PDF whose lines
+  run together, it returned `"Mr Sanjay Narayan Towards"` — the bound runs into
+  the next label. The receipt tests use multi-line fixtures, so this is
+  untested ground and a wrong value of the kind that reader exists to avoid.

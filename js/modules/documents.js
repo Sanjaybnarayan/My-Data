@@ -25,6 +25,8 @@ import { modal } from '../ui/components/modal.js';
 import { toast } from '../ui/components/toast.js';
 import { entityForm } from '../ui/components/form.js';
 import { recordDetail } from './crud.js';
+import { MATCH, attachmentFor } from '../domain/receiptmatch.js';
+import { format } from '../core/money.js';
 import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
@@ -371,7 +373,8 @@ async function documentDetail(id) {
 
   const preview = h('div', { class: 'stack' });
   const reading = h('div', { class: 'stack' });
-  const host = h('div', { class: 'stack' }, [base.node, reading, preview]);
+  const matched = h('div', { class: 'stack' });
+  const host = h('div', { class: 'stack' }, [base.node, reading, matched, preview]);
 
   /**
    * What was read off this document, and what it is worth doing about.
@@ -415,6 +418,96 @@ async function documentDetail(id) {
 
       ...offers.map((offer) => offerRow(offer)),
     ].filter(Boolean)));
+  }
+
+  /**
+   * The payment this receipt is the receipt for.
+   *
+   * ## Why here, and worked out now
+   *
+   * `receiptMatchesIn` existed for a tranche with nothing calling it — the
+   * defect this codebase keeps finding, written down at the time rather than
+   * left to be discovered. This is the call.
+   *
+   * Worked out when somebody opens the document rather than when it was
+   * uploaded, because the statement carrying the payment is very often imported
+   * weeks later. A match made at upload would freeze an answer taken before the
+   * evidence arrived.
+   */
+  async function paintReceiptMatch() {
+    // Reported rather than swallowed. An earlier version returned null here,
+    // which turned a broken read into a blank panel — the failure that looks
+    // exactly like "nothing to say".
+    const result = await store.receiptMatchesIn(id).catch((err) => ({
+      proposals: [],
+      why: `this receipt could not be checked against your payments: ${userMessage(err)}`,
+    }));
+    if (!result || (!result.proposals.length && !result.why)) {
+      replace(matched, null);
+      return;
+    }
+
+    // Not a receipt at all: say nothing rather than explain an absence on every
+    // policy and bill a household opens.
+    if (result.why === 'this does not read as a receipt') {
+      replace(matched, null);
+      return;
+    }
+
+    const [best] = result.proposals;
+
+    replace(matched, card({ class: 'card--quiet' }, [
+      cardHeader('The payment this receipt is for'),
+
+      // The honest sentence when nothing matched — usually that the statement
+      // has not been imported yet, which is a more useful thing to be told
+      // than an empty panel.
+      result.why
+        ? h('p', { class: 'small muted' }, capitalise(result.why) + '.')
+        : null,
+
+      ...result.proposals.map((proposal) => listItem({
+        title: `${formatDay(proposal.transaction.date)} · ${proposal.transaction.payee || proposal.transaction.category || 'payment'}`,
+        subtitle: proposal.why,
+        value: format(proposal.transaction.amount),
+        leading: badge(proposal.confidence,
+          proposal.confidence === MATCH.PROBABLE ? 'info' : 'warning'),
+        // Only on a probable one. An uncertain match applied by a button is
+        // still uncertain, and the button would be doing the deciding — the
+        // same refusal `attachmentFor` makes, so a control here that always
+        // errored would be worse than none.
+        trailing: proposal.confidence === MATCH.PROBABLE
+          ? button('File it against this', {
+            variant: 'subtle',
+            onClick: () => attach(proposal),
+          })
+          : null,
+      })),
+
+      best && best.confidence !== MATCH.PROBABLE
+        ? h('p', { class: 'small faint' },
+          'Filing this against the wrong payment would leave evidence pointing '
+          + 'at the wrong row, so nothing is offered until one of them is '
+          + 'clearly it.')
+        : null,
+    ].filter(Boolean)));
+  }
+
+  async function attach(proposal) {
+    const link = attachmentFor(proposal, id);
+    if (!link) {
+      toast('Only a clear match can be filed automatically', { kind: 'error' });
+      return;
+    }
+
+    try {
+      await db.repo('transaction').update(link.transactionId, link.patch);
+      toast('Filed against that payment — the receipt is still here too',
+        { kind: 'success' });
+      await paintReceiptMatch();
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    }
   }
 
   function offerRow(offer) {
@@ -531,6 +624,11 @@ async function documentDetail(id) {
   let revoke = () => {};
   await open();
   await paintReading();
+  // Beside `paintReading`, not inside it: that function returns early when a
+  // document's text was read and there are no identifiers to offer — which is
+  // exactly what a receipt is. Hooked there, this panel never ran at all, and
+  // the browser check that drives a real receipt end to end is what said so.
+  void paintReceiptMatch();
 
   const off = bus.on(`${TOPIC.dataChanged}:documents`, (payload) => {
     if (payload.id === id) open().then(paintReading);
