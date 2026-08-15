@@ -84,6 +84,19 @@ export const SCOPES = Object.freeze([
     without: 'The unlock key is a visible file in your Drive instead. Nothing breaks.',
   },
   {
+    id: `${AUTH}calendar.app.created`,
+    where: 'browser',
+    required: false,
+    title: 'A calendar of its own',
+    why: 'Only if you turn on calendar sync. This is the narrowest calendar '
+      + 'permission Google offers: it can see and change **only calendars this '
+      + 'application created**, and nothing else in your account. Your work '
+      + 'calendar, your family calendar and everything already in them stay '
+      + 'invisible to it.',
+    without: 'Renewals and bills can still be exported as an .ics file and '
+      + 'imported by hand, which is what the Calendar screen does today.',
+  },
+  {
     id: `${AUTH}gmail.readonly`,
     where: 'browser',
     required: false,
@@ -172,6 +185,20 @@ export const IDENTITY_SCOPES = Object.freeze(['openid', 'email']);
 
 export const APPDATA_SCOPE = `${AUTH}drive.appdata`;
 export const GMAIL_SCOPE = `${AUTH}gmail.readonly`;
+
+/**
+ * The narrowest calendar permission Google offers.
+ *
+ * `calendar.app.created` reaches only calendars this application made.
+ * `calendar.events` — the obvious alternative — would grant read and write over
+ * every calendar the person owns, to do a job that only ever touches one. This
+ * file already carries the story of the last time this application asked for
+ * more than it used, and that is not a mistake worth repeating on a diary.
+ */
+export const CALENDAR_SCOPE = `${AUTH}calendar.app.created`;
+
+/** Identity plus the application's own calendar. Asked for separately. */
+export const CALENDAR_SCOPES = Object.freeze([...IDENTITY_SCOPES, CALENDAR_SCOPE]);
 
 /** Identity plus the mail itself, for a mailbox attached by signing in. */
 export const MAIL_SCOPES = Object.freeze([...IDENTITY_SCOPES, GMAIL_SCOPE]);

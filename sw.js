@@ -73,6 +73,7 @@ const SHELL = [
   './js/security/sanitize.js',
   './js/security/session.js',
 
+  './js/sync/calendar.js',
   './js/sync/conflict.js',
   './js/sync/engine.js',
   './js/sync/outbox.js',

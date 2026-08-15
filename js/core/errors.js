@@ -78,6 +78,11 @@ export class LockedError extends AppError {
  * backs off and tries again or parks the entry for a human.
  */
 export class TransportError extends AppError {
+  /**
+   * @param {string} message
+   * @param {{status?: number, retryable?: boolean|null, cause?: unknown,
+   *          body?: string}} [options]
+   */
   constructor(message, { status = 0, retryable = null, cause, body } = {}) {
     super(message, { code: 'transport', cause, details: { status, body } });
     this.status = status;
