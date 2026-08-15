@@ -38,6 +38,17 @@
  * the typical-spend estimate has no basis. It says so and forecasts on the
  * dated bills alone, labelled as such, rather than quietly using a smaller
  * sample.
+ *
+ * **It does not pool accounts silently.** Measured on a household who sweep
+ * their salary to savings: ₹3,000 in the account the rent leaves from,
+ * ₹3,45,000 in savings, and a pooled forecast reporting **no shortfall** while
+ * the rent bounces on the 20th. That is precisely the comfortable-wrong answer
+ * this file was written to avoid, and it was in this file.
+ *
+ * So where a bill records which account it leaves from, that account is checked
+ * on its own — see `accountShortfalls`. Money elsewhere is not a defence
+ * against a payment failing; it is a reason the household can *fix* it, which
+ * is exactly why they need telling.
  */
 
 import { addDays, daysBetween, today } from '../core/dates.js';
@@ -143,7 +154,10 @@ export function nextExpectedIncome(transactions, { from = null, clock = Date.now
  * @param {object[]} bills as `upcomingBills` returns — dated and known
  * @param {{days?: number, from?: string, clock?: () => number}} [options]
  * @returns {{cash, perDay, lowest: {date, amount}, shortfall: {date, amount}|null,
+ *            accountShortfalls: Array<{account, name, date, bill, amount}>,
  *            income: object|null, assumptions: string[], why: string|null}}
+ *   `accountShortfalls` is the sharper answer: a payment that fails because the
+ *   account it leaves is empty, whatever is sitting in the others.
  */
 export function cashRunway(accounts, transactions, bills, {
   days = 45, from = null, clock = Date.now,
@@ -155,6 +169,11 @@ export function cashRunway(accounts, transactions, bills, {
 
   const dated = new Map();
   for (const bill of bills ?? []) {
+    // A hole in the list is skipped rather than thrown on. The per-account loop
+    // below already tolerated one — through `bill?.account`, which was doing
+    // more than its name suggested — and a test for that found this loop did
+    // not, so a single null ended the forecast before any figure existed.
+    if (!bill?.dueOn) continue;
     // A bill already overdue is money that has not left yet, so it counts from
     // today rather than from a date in the past — dropping it would make the
     // forecast cheerier than the household's own bank.
@@ -165,6 +184,39 @@ export function cashRunway(accounts, transactions, bills, {
     // than by a silent zero.
     if (bill.amount === null || bill.amount === undefined) continue;
     dated.set(on, (dated.get(on) ?? 0) + bill.amount);
+  }
+
+  // Per account, for the bills that say which one they leave from. A pooled
+  // total answers "is there enough money"; a household needs "is there enough
+  // money *there*", and only the second predicts a failed payment.
+  const balances = accountBalances(accounts ?? [], transactions ?? []);
+  const accountShortfalls = [];
+  const byAccount = new Map();
+  for (const bill of bills ?? []) {
+    if (!bill?.account) continue;
+    if (bill.amount === null || bill.amount === undefined) continue;
+    const on = bill.dueOn < start ? start : bill.dueOn;
+    if (daysBetween(start, on) > days) continue;
+    if (!byAccount.has(bill.account)) byAccount.set(bill.account, []);
+    byAccount.get(bill.account).push({ ...bill, dueOn: on });
+  }
+  for (const [accountId, own] of byAccount) {
+    const account = balances.find((row) => row.id === accountId);
+    if (!account) continue;
+    let running = account.balance ?? 0;
+    for (const one of [...own].sort((a, b) => a.dueOn.localeCompare(b.dueOn))) {
+      running -= one.amount;
+      if (running < 0) {
+        accountShortfalls.push({
+          account: accountId,
+          name: account.name ?? accountId,
+          date: one.dueOn,
+          bill: one.name,
+          amount: running,
+        });
+        break;
+      }
+    }
   }
 
   let balance = cash;
@@ -193,7 +245,8 @@ export function cashRunway(accounts, transactions, bills, {
     assumptions.push('money expected to arrive is not counted — the next credit your '
       + 'history suggests is reported beside this figure, not inside it');
   }
-  const unknownBills = (bills ?? []).filter((bill) => bill.amount === null || bill.amount === undefined);
+  const unknownBills = (bills ?? []).filter((bill) => bill?.dueOn
+    && (bill.amount === null || bill.amount === undefined));
   if (unknownBills.length) {
     assumptions.push(`${unknownBills.length} bill${unknownBills.length === 1 ? '' : 's'} `
       + 'here have no amount recorded and are not subtracted, so the real figure is lower');
@@ -204,6 +257,7 @@ export function cashRunway(accounts, transactions, bills, {
     perDay: daily.perDay,
     lowest,
     shortfall,
+    accountShortfalls,
     income,
     assumptions,
     why: daily.why,
@@ -213,6 +267,16 @@ export function cashRunway(accounts, transactions, bills, {
 /** A sentence that does not promise anything it cannot know. */
 export function describeRunway(runway, money = (n) => String(n)) {
   if (!runway) return null;
+
+  // Said first, and regardless of the pooled figure. A payment that fails is
+  // the thing that costs a household a fee and a phone call, and "you have the
+  // money elsewhere" does not stop it happening.
+  const stuck = runway.accountShortfalls?.[0];
+  if (stuck) {
+    return `${stuck.bill} leaves ${stuck.name} on ${stuck.date}, and that account is `
+      + `${money(Math.abs(stuck.amount))} short of it — money in your other accounts `
+      + 'will not move itself.';
+  }
 
   if (runway.shortfall) {
     return `On ${runway.shortfall.date} what is known to be leaving exceeds what is `

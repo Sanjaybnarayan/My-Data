@@ -124,8 +124,49 @@ The rendering carries the refusals rather than only the figure:
 browser suite (252/253) — so the panel is genuinely exercised rather than merely
 present, which is the distinction that took a whole tranche to learn.
 
+## Accounts are not one pot
+
+Recorded here as a limitation, then measured — and it was the comfortable-wrong
+answer this file exists to avoid, sitting in this file.
+
+A household who sweep their salary to savings:
+
+```
+Salary a/c    ₹3,000     <- the rent leaves here
+Savings       ₹3,45,000
+pooled cash   ₹3,48,000  -> forecast: no shortfall
+```
+
+The rent bounces on the 20th. The forecast said nothing, because ₹3,48,000
+covers ₹35,000 — and no single account did.
+
+So where a bill records which account it leaves from, that account is now
+checked on its own, and the sentence leads with it:
+
+> Rent leaves Salary a/c on 2026-08-20, and that account is ₹32,000 short of it
+> — money in your other accounts will not move itself.
+
+It is said **first**, before the pooled figure, because a failed payment costs a
+fee and a phone call and *"you have the money elsewhere"* does not stop it
+happening. Money elsewhere is not a defence; it is the reason the household can
+fix it, which is exactly why they need telling.
+
+**Bills that name no account are left to the pooled figure.** Most do not record
+one, and inventing an account for them would be a guess producing a confident
+wrong warning.
+
+**6 of 6 mutations caught.** Two survived the first pass:
+
+- nothing exercised the seam where `upcomingBills` reads
+  `recurringPayment.account` — my tests built bill objects by hand, and the
+  whole check rests on that field arriving;
+- and testing a hole in the bill list found that the **pooled loop crashed on a
+  null**, which predates this change. The per-account loop tolerated one through
+  `bill?.account` — an optional chain doing more work than its name suggested —
+  and writing the test for that found the older loop did not.
+
 ## Still not done
-- **One account, one currency.** Cash is the liquid total; a household with
-  money in the wrong account on the wrong day is not modelled.
+- **One currency.** Every amount is assumed to be INR minor units, as
+  everywhere else in this repository.
 - **No seasonality**, so a December of gifts reads as an ordinary month until it
   arrives.
