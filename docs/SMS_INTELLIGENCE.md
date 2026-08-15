@@ -1,4 +1,4 @@
-# SMS Intelligence — Phase 6, not started
+# SMS Intelligence — Phase 6
 
 One of the eight documents the master prompt requires from Phase 0. It did not
 exist, and neither does the phase it describes.
@@ -36,14 +36,18 @@ constrain it:
 | 56 | An SMS parse is never treated as accurate without source confirmation |
 | 57 | Every financial event must be explainable |
 
-## What exists today
+## What existed when this was written
 
-Nothing. The only occurrence of "sms" in the codebase is a categoriser rule
+Nothing. The only occurrence of "sms" in the codebase was a categoriser rule
 matching *"sms charges"* on a bank statement — a fee, not a message.
 
-There is no SMS entity, no `SMSMessage`, `SMSEvent`, `SMSSource` or
+There was no SMS entity, no `SMSMessage`, `SMSEvent`, `SMSSource` or
 `SMSProcessingRecord`, no permission handling, no OTP classification, and no
 abstraction behind which any of it could later sit.
+
+The section *"What is built now"* below is the part that has since changed.
+**`SMSMessage` and the other three entities are still not stored** — the reader
+and the reconciler are pure, and nothing is persisted yet.
 
 ## What can honestly be built here, and what cannot
 

@@ -106,6 +106,7 @@ const SHELL = [
   './js/domain/import.js',
   './js/domain/imports.js',
   './js/domain/kyc.js',
+  './js/domain/kycconflict.js',
   './js/domain/ledger.js',
   './js/domain/inbox.js',
   './js/domain/mailboxes.js',
