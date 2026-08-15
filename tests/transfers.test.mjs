@@ -295,3 +295,123 @@ describe('the near-match sentence, through the service', () => {
     assert.ok(near.why.includes('NEFT charges'), near.why);
   });
 });
+
+/**
+ * Confirming a movement that landed in more than one piece.
+ *
+ * The tranche that found these could only *show* them. `linkFor` writes
+ * `toAccount` — *this money went there* — and a split has one source and
+ * several destinations, so there was no single account to name and no button
+ * that could honestly be offered.
+ *
+ * A shared id on every leg records it without inventing a direction. Not the
+ * `EconomicEvent` entity: a thread through rows that already exist.
+ */
+describe('recording a movement in pieces', () => {
+  const split = async (db) => {
+    const { hdfc, icici } = await twoAccounts(db);
+    const sbi = await makeAccount(db, { name: 'SBI Savings' });
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 30_000_00 }));
+    await db.repo('transaction').create(legOf(sbi, 'in', { amount: 20_000_00 }));
+  };
+
+  test('every leg is threaded, the anchor included', async () => {
+    const db = await makeDb();
+    await split(db);
+    const service = new TransfersService(db);
+
+    const { sets } = await service.pending();
+    const { movement } = await service.confirmSet(sets[0]);
+
+    const rows = await db.repo('transaction').list({ decrypt: false });
+    const threaded = rows.filter((r) => r.movement === movement);
+    // Three, not two: a thread that skipped the anchor would join the pieces to
+    // each other and to nothing they came from.
+    assert.length(threaded, 3);
+  });
+
+  test('and every bank row survives it', async () => {
+    const db = await makeDb();
+    await split(db);
+    const service = new TransfersService(db);
+    const { sets } = await service.pending();
+    await service.confirmSet(sets[0]);
+
+    const rows = await db.repo('transaction').list({ decrypt: false });
+    assert.length(rows, 3);
+    assert.deep(rows.map((r) => r.amount).sort((a, b) => a - b),
+      [20_000_00, 30_000_00, 50_000_00]);
+  });
+
+  test('the confirmed movement is read back, and counted once', async () => {
+    const db = await makeDb();
+    await split(db);
+    const service = new TransfersService(db);
+    await service.confirmSet((await service.pending()).sets[0]);
+
+    const { recorded } = await service.pending();
+    assert.length(recorded, 1);
+    // ₹50,000, not the ₹100,000 that summing every leg would give.
+    assert.equal(recorded[0].amount, 50_000_00);
+    assert.deep(recorded[0].accountNames.slice().sort(),
+      ['HDFC Savings', 'ICICI Savings', 'SBI Savings']);
+  });
+
+  test('once recorded it stops being proposed', async () => {
+    const db = await makeDb();
+    await split(db);
+    const service = new TransfersService(db);
+    await service.confirmSet((await service.pending()).sets[0]);
+
+    const { sets, unmatched } = await service.pending();
+    // `toAccount` is still empty on every leg, so these are still loose legs by
+    // the old test — what stops them being re-offered has to be the thread.
+    assert.length(sets, 0);
+    assert.length(unmatched, 0);
+  });
+
+  test('a leg deleted afterwards leaves the movement', async () => {
+    // Through the service this is the repository's doing rather than the
+    // grouping's — `list` drops soft-deleted rows before they get here — but it
+    // is the behaviour a household sees, so it is pinned where they see it.
+    const db = await makeDb();
+    await split(db);
+    const service = new TransfersService(db);
+    await service.confirmSet((await service.pending()).sets[0]);
+
+    const rows = await db.repo('transaction').list({ decrypt: false });
+    const twenty = rows.find((r) => r.amount === 20_000_00);
+    await db.repo('transaction').remove(twenty.id);
+
+    const { recorded } = await service.pending();
+    assert.length(recorded[0].legs, 2);
+    // And the figure follows: the outgoing side is untouched, so ₹50,000 still
+    // stands as what left — but nothing counts the deleted row.
+    assert.not(recorded[0].legs.some((l) => l.id === twenty.id), 'deleted leg still counted');
+  });
+
+  test('an uncertain grouping cannot be confirmed by pressing a button', async () => {
+    const db = await makeDb();
+    const { hdfc, icici } = await twoAccounts(db);
+    const sbi = await makeAccount(db, { name: 'SBI Savings' });
+    const axis = await makeAccount(db, { name: 'Axis Savings' });
+    const kotak = await makeAccount(db, { name: 'Kotak Savings' });
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 30_000_00 }));
+    await db.repo('transaction').create(legOf(sbi, 'in', { amount: 20_000_00 }));
+    await db.repo('transaction').create(legOf(axis, 'in', { amount: 25_000_00 }));
+    await db.repo('transaction').create(legOf(kotak, 'in', { amount: 25_000_00 }));
+
+    const service = new TransfersService(db);
+    const { sets } = await service.pending();
+    assert.equal(sets[0].confidence, CONFIDENCE.POSSIBLE);
+
+    let threw = null;
+    try { await service.confirmSet(sets[0]); } catch (err) { threw = err; }
+    assert.ok(threw, 'an ambiguous grouping was accepted');
+
+    const rows = await db.repo('transaction').list({ decrypt: false });
+    assert.not(rows.some((r) => r.movement), 'nothing should have been written');
+  });
+});

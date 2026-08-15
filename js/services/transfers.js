@@ -15,7 +15,7 @@ import { Service } from './service.js';
 import { format } from '../core/money.js';
 import {
   proposeTransfers, movementTotal, linkFor, CONFIDENCE,
-  proposeMultiLeg, multiLegTotal,
+  proposeMultiLeg, multiLegTotal, movementFor, recordedMovements,
 } from '../domain/events.js';
 
 export class TransfersService extends Service {
@@ -66,6 +66,15 @@ export class TransfersService extends Service {
     return {
       proposals: named,
       total: movementTotal(proposals),
+      // What has already been confirmed. Written by `confirmSet` below, and
+      // read here — a field written by a confirmation that nothing ever looks
+      // at again is the defect this codebase has found more often than any
+      // other.
+      recorded: recordedMovements(transactions).map((m) => ({
+        ...m,
+        accountNames: [...new Set(m.legs.map((l) => nameOf.get(l.account) ?? ''))]
+          .filter(Boolean),
+      })),
       sets: namedSets,
       setsTotal: multiLegTotal(sets),
       // Where the search gave up rather than guessed, and why. Silence here
@@ -94,5 +103,30 @@ export class TransfersService extends Service {
       throw new Error('only a probable pairing can be confirmed — this one is a question');
     }
     return this.repo('transaction').update(link.transactionId, link.patch);
+  }
+
+  /**
+   * Record that several rows are one movement.
+   *
+   * The counterpart of `confirm` for a split or a sweep, which `linkFor` could
+   * not express: `toAccount` names one destination and a split has several, so
+   * these were being proposed with no way at all to accept them.
+   *
+   * Every leg is patched with the same id and nothing else. As with `confirm`,
+   * both — here, all — of the bank's rows survive untouched.
+   */
+  async confirmSet(set) {
+    const movement = movementFor(set);
+    if (!movement) {
+      throw new Error('only a probable grouping can be confirmed — this one is a question');
+    }
+
+    const repo = this.repo('transaction');
+    for (const { transactionId, patch } of movement.patches) {
+      // Sequential rather than in parallel: these are one fact, and a partial
+      // write that joined three of four legs would be worse than none.
+      await repo.update(transactionId, patch);
+    }
+    return movement;
   }
 }

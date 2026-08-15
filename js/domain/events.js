@@ -82,12 +82,18 @@ function daysBetween(a, b) {
  * `toAccount` already set means somebody — or an earlier confirmation — has
  * said where it went, and proposing it again would offer to redo a decision
  * that has been made.
+ *
+ * `movement` is the same statement about a movement with more than two legs,
+ * and leaving it out of this check was a real bug rather than an omission: a
+ * confirmed split stayed loose, so it was offered again on the next paint and
+ * confirming twice minted a second id over the first.
  */
 export function isLooseLeg(txn) {
   return Boolean(txn)
     && txn.kind === 'transfer'
     && !txn.deletedAt
     && !txn.toAccount
+    && !txn.movement
     && (txn.direction === 'in' || txn.direction === 'out')
     && Number.isFinite(txn.amount)
     && txn.amount > 0;
@@ -485,4 +491,100 @@ export function multiLegTotal(proposals) {
     moved: confident.reduce((sum, p) => sum + p.amount, 0),
     awaiting: (proposals ?? []).filter((p) => p.confidence === CONFIDENCE.POSSIBLE).length,
   };
+}
+
+/**
+ * What confirming a multi-leg movement would change — without changing it.
+ *
+ * ## Why `linkFor` could not do this
+ *
+ * `linkFor` writes `toAccount` on the outgoing leg: *this money went there*.
+ * A split has one source and **several** destinations, so there is no single
+ * account to name, and the field cannot hold the fact. That is why the split
+ * was proposed with no confirm control at all — there was nothing a button
+ * could honestly write.
+ *
+ * A shared id on every leg records it without inventing a direction: the rows
+ * carrying the same `movement` are the same economic event. It works for two
+ * legs and for five, and it says nothing about which way the money went that
+ * the rows do not already say themselves.
+ *
+ * ## What it deliberately is not
+ *
+ * **Not the `EconomicEvent` entity.** There is no record with a kind, a
+ * narrative or a life of its own — only a thread through the rows that already
+ * exist. What that entity would additionally buy, and why it is not built on
+ * the strength of this, is in `docs/MULTI_LEG.md`.
+ *
+ * **Not destructive.** Every leg keeps its own amount, narration, reference and
+ * running balance. Each is a bank's record of one side, and a household
+ * questioning the figure later needs all of them.
+ *
+ * @param {object} set a proposal from `proposeMultiLeg`
+ * @param {() => string} [id] how to mint the shared id
+ * @returns {{movement: string, patches: Array<{transactionId: string, patch: object}>}|null}
+ */
+export function movementFor(set, id = defaultMovementId) {
+  // The same refusal as `linkFor`: an uncertain grouping applied by a confirm
+  // button is still uncertain, and the button would be doing the deciding.
+  if (!set || set.confidence !== CONFIDENCE.PROBABLE) return null;
+  if (!set.anchor || !set.legs?.length) return null;
+
+  const movement = id();
+
+  return {
+    movement,
+    // Every leg, the anchor included. A thread that skipped the anchor would
+    // join the pieces to each other and to nothing they came from.
+    patches: [set.anchor, ...set.legs].map((leg) => ({
+      transactionId: leg.id,
+      patch: { movement },
+    })),
+  };
+}
+
+function defaultMovementId() {
+  // Prefixed so a value in this field is recognisable as one of ours in a
+  // spreadsheet, where every column is just text.
+  const random = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  return `mvt_${random}`;
+}
+
+/**
+ * The legs already recorded as one movement, grouped.
+ *
+ * The read side of the field above. Without it the confirmation would write
+ * something nothing ever looks at, which is the defect this codebase has found
+ * more often than any other.
+ */
+export function recordedMovements(transactions) {
+  const byId = new Map();
+
+  for (const row of transactions ?? []) {
+    // The `deletedAt` half is belt and braces through the service, where the
+    // repository has already dropped soft-deleted rows — mutation testing says
+    // so. It stays because this takes a plain array and a caller with the raw
+    // rows would otherwise count a row the household removed.
+    if (!row || row.deletedAt || !row.movement) continue;
+    if (!byId.has(row.movement)) byId.set(row.movement, []);
+    byId.get(row.movement).push(row);
+  }
+
+  return [...byId.entries()].map(([movement, legs]) => ({
+    movement,
+    legs,
+    date: legs.map((l) => l.date).sort()[0],
+    // Counted once. Each leg carries the full amount of its own side, so
+    // summing them would report a ₹50,000 movement as ₹100,000 — the whole
+    // distinction this file exists to hold.
+    amount: Math.max(
+      sumOf(legs.filter((l) => l.direction === 'out')),
+      sumOf(legs.filter((l) => l.direction === 'in')),
+    ),
+  })).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+function sumOf(legs) {
+  return legs.reduce((total, leg) => total + (leg.amount ?? 0), 0);
 }
