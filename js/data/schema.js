@@ -1155,6 +1155,70 @@ const economicEvent = {
   ],
 };
 
+/**
+ * A message the household brought in, kept because it is evidence.
+ *
+ * ## Why it is stored at all
+ *
+ * `domain/sms.js` reads a message and `services/sms.js` reconciles one, and
+ * until now neither kept anything. That made rule 52 — *multiple sources
+ * describing one event are linked, not duplicated* — unachievable by
+ * construction: there was no second source to link to, only a reading that
+ * vanished when the screen closed.
+ *
+ * A stored message is the **evidence** behind a link. A household asking why a
+ * transaction is dated the 15th when the bank statement says the 16th can be
+ * shown the alert that arrived on the 15th. Nothing else in the application can
+ * answer that.
+ *
+ * ## What it must never hold
+ *
+ * **Rule 53.** A message classified `AUTHENTICATION_SECRET` is never written —
+ * not with its text redacted, not with its amount kept, not at all. The check
+ * runs in `domain/sms.js` before any field is read, and `services/sms.js`
+ * refuses the write before the repository is reached. There is no field on this
+ * entity that could hold a one-time code, and that is deliberate: a schema with
+ * nowhere to put a secret cannot be talked into keeping one.
+ *
+ * ## It is never authoritative
+ *
+ * **Rule 51.** `authoritative` is not a field here, because it would be a
+ * constant `false` and a stored constant is one edit away from being wrong.
+ * `SOURCE_PRIORITY` in `domain/sms.js` says where a message ranks — below every
+ * statement, above only an AI inference — and the reconciler reads that rather
+ * than a column.
+ */
+const smsMessage = {
+  name: 'smsMessage', module: 'finance', sheet: 'Messages', version: 1,
+  labels: { one: 'Message', many: 'Messages' }, icon: 'inbox',
+  acl: restricted,
+  sort: '-receivedAt',
+  indexes: [['byFingerprint', 'fingerprint'], ['byTransaction', 'transaction']],
+  title: (r) => r.sender || r.category,
+  subtitle: (r) => r.category,
+  fields: [
+    text('sender', { required: true, list: true, label: 'From' }),
+    day('receivedAt', { required: true, list: true, label: 'Received' }),
+    // Encrypted: a bank alert names an account tail, a payee and a balance.
+    { key: 'text', type: 'textarea', label: 'Message', encrypted: true },
+    text('category', { list: true }),
+    money('amount', { list: true }),
+    pick('direction', ['in', 'out']),
+    text('accountTail', { label: 'Account ending', encrypted: true }),
+    text('reference', { label: 'Reference' }),
+    money('balance', { label: 'Balance stated' }),
+    day('transactionDate', { label: 'Date in the message' }),
+    // What makes the same message arriving twice one record rather than two.
+    text('fingerprint', { hidden: true }),
+    pick('source', ['imported', 'native'], { default: 'imported' }),
+    // Rule 52: the link, not a copy. A message and a statement row are two
+    // pieces of evidence for one event, and this is which row.
+    ref('transaction', 'transaction', { label: 'Matched row' }),
+    text('agreement', { label: 'Against the statement' }),
+    note(),
+  ],
+};
+
 /* ---------------------------------------------------------------- registry */
 
 export const entities = Object.freeze(Object.fromEntries(
@@ -1166,7 +1230,7 @@ export const entities = Object.freeze(Object.fromEntries(
     healthRecord, medication, vaccination, appointment,
     policy, property, education, certificate,
     project, task, event, noteEntity, vaultItem,
-    digitalAsset, subscription, emergencyContact,
+    digitalAsset, subscription, emergencyContact, smsMessage,
   ].map((e) => [e.name, normalise(e)]),
 ));
 
@@ -1175,7 +1239,7 @@ export const modules = Object.freeze([
   { id: 'dashboard', label: 'Dashboard', icon: 'grid', entities: [] },
   { id: 'identity', label: 'Identity', icon: 'user', entities: ['person', 'identityDocument', 'kycRecord', 'employment'] },
   { id: 'family', label: 'Family', icon: 'family', entities: ['relationship', 'importantDate'] },
-  { id: 'finance', label: 'Finance', icon: 'wallet', entities: ['account', 'transaction', 'bankStatement', 'receipt', 'budget', 'recurringPayment', 'loan'] },
+  { id: 'finance', label: 'Finance', icon: 'wallet', entities: ['account', 'transaction', 'bankStatement', 'receipt', 'budget', 'recurringPayment', 'loan', 'smsMessage'] },
   { id: 'investments', label: 'Investments', icon: 'chart', entities: ['holding', 'investmentTransaction'] },
   { id: 'documents', label: 'Documents', icon: 'file', entities: ['document'] },
   { id: 'vehicles', label: 'Vehicles', icon: 'car', entities: ['vehicle', 'vehicleService', 'fuelLog'] },

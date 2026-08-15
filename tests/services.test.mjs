@@ -29,6 +29,7 @@ import { IdentityService, assembleIdentityReview } from '../js/services/identity
 import { EstateService, ESTATE_LOAD } from '../js/services/estate.js';
 import { xirr } from '../js/domain/portfolio.js';
 import { estate } from '../js/domain/estate.js';
+import { entities } from '../js/data/schema.js';
 
 setSuite('services');
 
@@ -764,4 +765,142 @@ describe('nominations, read where they can be read', () => {
       assert.length(review.nominations, 0);
       assert.length(review.gaps, 0, 'a sealed nominee is not a missing one');
     });
+});
+
+describe('a message that is kept, and one that is never written', () => {
+  const DEBIT = 'Rs 50,000.00 debited from a/c XX8963 on 15-08-26 to VPA '
+    + 'landlord@okicici UPI Ref 412345678901. Avl Bal Rs 1,40,500.00';
+
+  /** Every value in every store, flattened — the only honest way to say "nowhere". */
+  async function everything(db) {
+    const found = [];
+    for (const name of Object.keys(entities)) {
+      const rows = await db.adapter.query(name, {}).catch(() => []);
+      for (const row of rows) found.push(JSON.stringify(row));
+    }
+    for (const name of ['audit', 'outbox', 'search', 'meta']) {
+      const rows = await db.adapter.query(name, {}).catch(() => []);
+      for (const row of rows) found.push(JSON.stringify(row));
+    }
+    return found.join(' ');
+  }
+
+  test('an OTP is not written anywhere in the database', async () => {
+    // Rule 53, asserted across every store rather than against the one table
+    // it was most likely to land in. A redacted-but-stored middle ground is
+    // what this is checking does not exist.
+    const db = await makeDb();
+    const out = await new MessagesService(db)
+      .ingest({ text: '481923 is your OTP for Rs 50,000 to a/c XX8963. Do not share it.',
+        sender: 'HDFCBK', receivedAt: '2026-08-15T10:31:00Z' });
+
+    assert.equal(out.stored, null);
+    assert.includes(out.why, 'one-time code');
+
+    const dump = await everything(db);
+    assert.not(dump.includes('481923'), 'the code reached a store');
+    assert.not(dump.includes('Do not share'), 'the text reached a store');
+    assert.length(await db.repo('smsMessage').list({}), 0);
+  });
+
+  test('an ordinary debit is kept, with what it matched', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db, { name: 'HDFC Savings' });
+    const row = await db.repo('transaction').create({
+      date: '2026-08-15', kind: 'expense', amount: 50_000_00, account: account.id,
+      accountNumber: 'XXXXXX8963', reference: 'UPI/412345678901',
+    });
+
+    const out = await new MessagesService(db).ingest({
+      text: DEBIT, sender: 'HDFCBK', receivedAt: '2026-08-15T10:31:00Z',
+    });
+
+    assert.ok(out.stored);
+    assert.equal(out.stored.amount, 50_000_00);
+    // Rule 52: linked, not duplicated. One event, two pieces of evidence.
+    assert.equal(out.stored.transaction, row.id);
+    assert.equal(out.stored.agreement, 'linked');
+  });
+
+  test('the text comes back through real encryption', async () => {
+    const db = await makeDb();
+    const out = await new MessagesService(db).ingest({
+      text: DEBIT, sender: 'HDFCBK', receivedAt: '2026-08-15T10:31:00Z',
+    });
+
+    const sealed = (await db.adapter.query('smsMessage', {}))[0];
+    assert.ok(String(sealed.text).startsWith('enc:v1:'), 'stored in the clear');
+
+    const read = await db.repo('smsMessage').get(out.stored.id);
+    assert.includes(read.text, 'debited from a/c');
+  });
+
+  test('the same message twice is one record', async () => {
+    const db = await makeDb();
+    const service = new MessagesService(db);
+    await service.ingest({ text: DEBIT, sender: 'HDFCBK', receivedAt: '2026-08-15T10:31:00Z' });
+    const second = await service.ingest({
+      text: DEBIT, sender: 'HDFCBK', receivedAt: '2026-08-15T10:33:00Z',
+    });
+
+    assert.includes(second.why, 'already recorded');
+    assert.length(await db.repo('smsMessage').list({}), 1);
+  });
+
+  test('a message matching nothing is kept without a link invented', async () => {
+    const db = await makeDb();
+    const out = await new MessagesService(db).ingest({
+      text: DEBIT, sender: 'HDFCBK', receivedAt: '2026-08-15T10:31:00Z',
+    });
+
+    assert.ok(out.stored, 'evidence of something no statement covers is worth keeping');
+    assert.not(out.stored.transaction, 'no row was invented for it');
+    assert.equal(out.stored.agreement, 'none');
+  });
+
+  test('a disagreement is stored as a disagreement', async () => {
+    // Rule 51 and rule 56 together: the message is never authoritative, and
+    // neither figure is written over the other.
+    const db = await makeDb();
+    const account = await makeAccount(db, { name: 'HDFC Savings' });
+    await db.repo('transaction').create({
+      date: '2026-08-15', kind: 'expense', amount: 55_000_00, account: account.id,
+      accountNumber: 'XXXXXX8963', reference: 'UPI/412345678901',
+    });
+
+    const out = await new MessagesService(db).ingest({
+      text: DEBIT, sender: 'HDFCBK', receivedAt: '2026-08-15T10:31:00Z',
+    });
+
+    assert.equal(out.stored.agreement, 'conflict');
+    assert.equal(out.stored.amount, 50_000_00, 'the message still says what it said');
+    const row = await db.repo('transaction').get(out.stored.transaction);
+    assert.equal(row.amount, 55_000_00, 'and the statement still says what it said');
+  });
+
+  test('a pasted message with no arrival time still saves', async () => {
+    // The browser check found this: every fixture above supplies `receivedAt`,
+    // so a required field was never missing until a person pasted into the
+    // real box. The day it was brought in is recorded rather than the day it
+    // was sent being invented.
+    const db = await makeDb();
+    const out = await new MessagesService(db).ingest(
+      { text: DEBIT, sender: 'pasted' },
+      { clock: () => Date.parse('2026-09-01T00:00:00Z') },
+    );
+
+    assert.ok(out.stored);
+    assert.equal(out.stored.receivedAt, '2026-09-01');
+    // And the date the message itself names is kept apart from it.
+    assert.equal(out.stored.transactionDate, '2026-08-15');
+  });
+
+  test('no field on the entity could hold a one-time code', () => {
+    // The structural half of rule 53: there is no redacted-but-stored middle
+    // ground to get wrong, because there is nowhere to put one.
+    const keys = entities.smsMessage.fields.map((f) => f.key);
+    for (const key of ['otp', 'code', 'pin', 'password', 'secret']) {
+      assert.not(keys.includes(key), key);
+    }
+  });
 });

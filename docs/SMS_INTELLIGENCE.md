@@ -45,9 +45,10 @@ There was no SMS entity, no `SMSMessage`, `SMSEvent`, `SMSSource` or
 `SMSProcessingRecord`, no permission handling, no OTP classification, and no
 abstraction behind which any of it could later sit.
 
-The section *"What is built now"* below is the part that has since changed.
-**`SMSMessage` and the other three entities are still not stored** — the reader
-and the reconciler are pure, and nothing is persisted yet.
+The section *"What is built now"* below is the part that has since changed, and
+it changed twice: the reader and reconciler came first, and `smsMessage` is now
+stored and linked to the row it matches (`docs/SMS_STORAGE.md`). The other three
+entities are mapped rather than built, for reasons that document sets out.
 
 ## What can honestly be built here, and what cannot
 

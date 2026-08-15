@@ -106,8 +106,11 @@ export async function render() {
       const text = String(box.value ?? '').trim();
       if (!text) return;
 
-      const { reading, result } = await new MessagesService(app().db)
-        .readAndReconcile({ text, sender: 'pasted' });
+      // `ingest` rather than `readAndReconcile`: the message is kept as
+      // evidence and linked to the row it matched, which is rule 52. A
+      // credential is still refused before any write — that check is inside.
+      const { reading, result, stored, why } = await new MessagesService(app().db)
+        .ingest({ text, sender: 'pasted' });
 
       // A credential is refused before anything else is said about it, and the
       // box is cleared so it does not sit on screen either.
@@ -127,9 +130,21 @@ export async function render() {
           reading.transactionDate ? ` · ${reading.transactionDate}` : '',
         ].join('')),
         // Rule 51, on the screen and not only in the data.
+        //
+        // This used to end "Nothing here is recorded from it", which was true
+        // until the message began being kept. A sentence that was accurate
+        // when written is the easiest kind to leave standing after it stops
+        // being so.
         h('p', { class: 'small faint' },
           'A message is a notification about a transaction, not the transaction. '
-          + 'Nothing here is recorded from it.'),
+          + 'It is kept as evidence and linked to the statement row it matches; '
+          + 'it never becomes a transaction of its own.'),
+        why
+          ? h('p', { class: 'small faint' }, `${why[0].toUpperCase()}${why.slice(1)}.`)
+          : null,
+        stored && !why
+          ? h('p', { class: 'small faint' }, 'Kept, so the link can be shown later.')
+          : null,
         result.agreement === AGREEMENT.LINKED
           ? h('p', { class: 'small' },
             `This matches a statement row on ${result.transaction.date} — one event, `

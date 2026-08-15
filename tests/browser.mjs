@@ -498,9 +498,19 @@ async function main() {
         check('a pasted bank message is read on screen',
           /50,000/.test(said) && /upi payment|bank debit/i.test(said), said.slice(0, 600));
 
+        check('and it is kept, so the link survives the screen closing',
+          /Kept, so the link/i.test(said), said.slice(0, 600));
+
         // Rule 51, where a household can see it rather than only in the data.
         check('and the screen says a message is not the transaction',
           /not the transaction/i.test(said), said.slice(0, 600));
+
+        // Rule 52. The screen used to say "nothing here is recorded from it",
+        // which was true until the message began being kept — and a sentence
+        // that was accurate when written is the easiest kind to leave standing
+        // after it stops being so.
+        check('and says what keeping it is for',
+          /kept as evidence and linked/i.test(said), said.slice(0, 600));
 
         // Rule 53, driven rather than asserted in a unit test. The message
         // names an amount, and none of it may be read or shown.
@@ -517,6 +527,11 @@ async function main() {
           !/77,777/.test(otp), otp.slice(0, 600));
         check('and the box is cleared so the code does not sit there',
           (await page.locator('#sms-text').inputValue()) === '', 'the textarea still held it');
+
+        // Rule 53, said on the screen rather than only refused in the data: a
+        // credential produces no "kept" line, because nothing was kept.
+        check('nothing is said to have been kept for the one-time code',
+          !/Kept, so the link/i.test(otp), otp.slice(0, 600));
 
         check('reading a message raises no console error',
           consoleErrors.length === smsBefore, consoleErrors.slice(smsBefore).join(' | '));
