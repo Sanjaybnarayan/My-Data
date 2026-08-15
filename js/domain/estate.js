@@ -51,6 +51,7 @@
  */
 
 import { compareValue, AGREEMENT } from './kycconflict.js';
+import { ENVELOPE_PREFIX } from '../security/crypto.js';
 
 /**
  * On screen, above everything else. Asserted by a test, so removing it fails
@@ -84,6 +85,22 @@ export const NOMINATED = Object.freeze([
 const plain = (value) => String(value ?? '').trim();
 const live = (rows) => (rows ?? []).filter((row) => row && !row.deletedAt);
 
+/**
+ * A nominee that is still sealed.
+ *
+ * All three nominee fields are `encrypted: true`, and the dashboard's bulk
+ * loader reads every entity with `decrypt: false` because nine widgets sharing
+ * one pass is the whole point of it. A caller wiring this in there would get
+ * ciphertext where a name should be — and the failure would be **silent in the
+ * worst direction**: every record would look like it *had* a nominee, so the
+ * gap list would be empty and a household would be told there was nothing to
+ * fix.
+ *
+ * So a sealed value is neither a nominee nor a gap. It is counted as
+ * unreadable and named as such, which is a bug report rather than a finding.
+ */
+const sealed = (value) => typeof value === 'string' && value.startsWith(ENVELOPE_PREFIX);
+
 /** A holding or policy that has been closed is not a gap anybody can fix. */
 const open = (row) => row.active !== false && row.archived !== true;
 
@@ -101,6 +118,7 @@ export function nominations(data) {
 
   for (const spec of NOMINATED) {
     for (const row of live(data?.[spec.collection] ?? []).filter(open)) {
+      if (sealed(row.nominee)) continue;
       const nominee = plain(row.nominee);
       if (!nominee) continue;
 
@@ -141,6 +159,10 @@ export function nominationGaps(data) {
 
   for (const spec of NOMINATED) {
     for (const row of live(data?.[spec.collection] ?? []).filter(open)) {
+      // A sealed nominee is not a missing one, and needs no check of its own
+      // here: ciphertext is a non-empty string, so `plain` already excludes it.
+      // The guard was written twice and mutation testing said so — the second
+      // copy could not fail. `unreadable` is where a sealed value is counted.
       if (plain(row.nominee)) continue;
       const amount = spec.amount(row);
       out.push({
@@ -243,6 +265,16 @@ export function legacyInstructions(data) {
  * counts the gaps whose value is not. Adding the two would be a figure that
  * claims to be a total and is not one.
  */
+export function unreadable(data) {
+  let count = 0;
+  for (const spec of NOMINATED) {
+    for (const row of live(data?.[spec.collection] ?? []).filter(open)) {
+      if (sealed(row.nominee)) count += 1;
+    }
+  }
+  return count;
+}
+
 export function estate(data) {
   const recorded = nominations(data);
   const gaps = nominationGaps(data);
@@ -255,6 +287,9 @@ export function estate(data) {
     atStake: gaps.reduce((total, gap) => total + (gap.amount ?? 0), 0),
     valueUnknown: gaps.filter((gap) => gap.amount === null).length,
     unresolved: recorded.filter((row) => !row.person).length,
+    // Records this could not read at all — see `sealed` above. Never folded
+    // into the counts, because "we could not look" is not "nothing is wrong".
+    unreadable: unreadable(data),
     unnominable: unnominable(data),
     legacy: legacyInstructions(data),
   };

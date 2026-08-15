@@ -30,12 +30,13 @@ import { formatCompact, format } from '../core/money.js';
 import { formatDay, relativeDays, today } from '../core/dates.js';
 import { summarise } from '../ai/summary.js';
 import { TRANSACTION_LIMIT, transactionsTruncated } from '../services/service.js';
+import { EstateService } from '../services/estate.js';
 
 const WIDGET_KEY = 'dashboard.widgets';
 
 const ALL_WIDGETS = [
   'summary', 'networth', 'spending', 'reminders', 'bills', 'budgets',
-  'portfolio', 'dates', 'tasks', 'activity',
+  'portfolio', 'nominations', 'dates', 'tasks', 'activity',
 ];
 
 export async function render() {
@@ -115,6 +116,13 @@ async function loadAll(db) {
       digitalAssets: byEntity.digitalAsset,
     }),
     activity: await recentActivity(db.adapter, { limit: 8 }),
+    // Assembled by its own service rather than from `byEntity` above, and the
+    // reason is not tidiness: the three nominee fields are encrypted, this
+    // loader reads everything with `decrypt: false`, and a nominations widget
+    // built from ciphertext would report **no gaps at all** — every record
+    // would look as though it carried a nominee. The one screen built to say
+    // "these have nobody named on them" would say nothing.
+    estate: await new EstateService(db).review(),
     people: Object.fromEntries(byEntity.person.map((p) => [p.id, p.name])),
   };
 }
@@ -130,6 +138,9 @@ async function loadAll(db) {
  * from. Subscriptions live under Digital, not Finance.
  */
 const DIGITAL = new Set(['subscription', 'digitalAsset']);
+
+/** Where each nominated entity's record lives, so a gap opens the thing itself. */
+const MODULE_OF = { account: 'finance', holding: 'investments', policy: 'insurance' };
 
 function billHref(bill) {
   return Router.href({
@@ -306,6 +317,52 @@ const WIDGETS = {
     ]);
   },
 
+  /**
+   * Which accounts, investments and policies have nobody named on them.
+   *
+   * Not ranked by money, and the total is deliberately beside the count rather
+   * than in place of it: an unnominated account becomes an unclaimed deposit
+   * whatever its balance, and a list sorted by size tells a household the small
+   * ones matter less.
+   */
+  nominations: (data) => {
+    const { gaps, atStake, valueUnknown, unreadable, notice } = data.estate;
+    if (!gaps.length && !unreadable) return null;
+
+    return card({ class: 'card--flush nominations' }, [
+      h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
+        cardHeader('Nobody nominated', badge(String(gaps.length), 'warning'),
+          { iconName: 'alert' })),
+
+      h('p', { class: 'small muted', style: { padding: '0 var(--space-5)' } }, notice),
+
+      h('div', { class: 'list' }, gaps.slice(0, 8).map((gap) => listItem({
+        title: gap.name,
+        subtitle: gap.where,
+        // Never a zero. A record whose value this screen does not know shows a
+        // dash, the same way a card bill with no statement day does.
+        value: gap.amount === null ? '—' : format(gap.amount),
+        href: Router.href({ module: MODULE_OF[gap.entity], entity: gap.entity, id: gap.id }),
+      }))),
+
+      h('div', { class: 'card-footer', style: { padding: 'var(--space-3) var(--space-5)' } }, [
+        h('span', { class: 'small muted' }, valueUnknown
+          ? `Known value at stake · ${valueUnknown} without one recorded`
+          : 'Value at stake'),
+        h('span', { class: 'spacer' }),
+        money(atStake),
+      ]),
+
+      // A bug report, not a finding. It means this widget was handed records it
+      // could not read, and saying nothing would look like good news.
+      unreadable
+        ? h('p', { class: 'small faint', style: { padding: '0 var(--space-5) var(--space-4)' } },
+          `${unreadable} record${unreadable === 1 ? '' : 's'} could not be read here, `
+          + 'so they are counted in neither list.')
+        : null,
+    ]);
+  },
+
   dates: (data) => {
     const rows = data.reminders.filter((r) => r.group === 'date').slice(0, 6);
     if (!rows.length) return null;
@@ -400,6 +457,7 @@ const WIDGET_LABELS = {
   bills: 'Upcoming bills',
   budgets: 'Budgets',
   portfolio: 'Investments',
+  nominations: 'Nominations',
   dates: 'Birthdays & anniversaries',
   tasks: 'Tasks',
   activity: 'Recent activity',
