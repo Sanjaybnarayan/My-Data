@@ -125,6 +125,49 @@ page anywhere.
 - **A category is compared only to itself.** A household whose whole spending
   doubled sees every category flagged, with nothing saying the month as a whole
   was unusual.
-- **No seasonality.** School fees every April and insurance every March will be
-  flagged annually until a year of history teaches it otherwise, and it has no
-  mechanism to learn that.
+## Seasonality, and a correction to this document
+
+This section closed by predicting that *"school fees every April and insurance
+every March will be flagged annually"*. **That was wrong**, and measuring it
+before building anything is what found the real defect.
+
+A category spent on once a year has **one month of history**, and the
+three-month bar already drops it. School fees were never flagged. What *is*
+flagged is a category with plenty of history that varies by season:
+
+```
+electricity: ₹2,200 in January, ₹9,000 in May, every year
+2026-05  ->  bills 3.6x unusual
+```
+
+Every May, for ever — while the household's own data from twelve months earlier
+says May is always like this.
+
+**The fix is the household's own past.** Where the same month a year ago exists
+and this month is within 40% of it, the finding is `seasonal` rather than
+`above-usual`, and the sentence names the figure it was compared against:
+
+> ₹9,000 on bills, above a usual ₹2,500 — but it was ₹9,000 the same month last
+> year, so this looks like your own pattern.
+
+**It is reported, not dropped.** They asked what is unlike their history, and
+*"your electricity does this every May"* is an answer; silence is not. But
+departures are listed **before** patterns whatever the amounts, because a large
+seasonal figure sitting above a small genuine surprise teaches a household to
+skim the list, and the surprise is the only part they cannot predict.
+
+The tolerance is deliberately generous. The question is not whether two figures
+match but whether last year explains this year, and ₹9,000 last May against
+₹11,000 this May is the same summer.
+
+**6 of 6 mutations caught**, including *anything with a last year counts as
+seasonal*, *the same month last year read as this month*, and *patterns ordered
+among departures*.
+
+### Still not done
+
+- **One year is the whole memory.** Two years of history could tell a rising
+  trend from a stable season, and this cannot.
+- **A season shifting** — a hotter summer arriving in March — reads as a
+  departure in March and a pattern in May, which is arguably right and is
+  certainly untested.
