@@ -214,3 +214,20 @@ same receipt twice is declined as a decision already made.
 **61 of the original 71 remain**, across thirteen screens. Ten of `documents.js`
 are ordinary reads and belong in a load spec, which is the same shape as the
 Finance migration rather than a new one.
+
+
+---
+
+## Postscript 2: the tool had a silent failure of its own
+
+The probe added in Postscript 1 — `absent:grep:forecast|projection` — **never
+parsed**. A pipe inside a markdown table cell splits the cell, so `probesIn`
+found nothing there: the row was silently not a claim, could never fail, and was
+not even counted in the total.
+
+It was found only by building forecasting and noticing the check still passed.
+
+Alternatives now use **commas**. More importantly, a cell that looks like a probe
+and does not parse is now reported as **malformed** rather than skipped — a
+silent non-claim is the exact failure this tool exists to prevent, and it had
+one. See `docs/CASH_RUNWAY.md`.

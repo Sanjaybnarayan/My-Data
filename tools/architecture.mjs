@@ -29,7 +29,11 @@
  *     that survived a rename with its contents gutted.
  *   - `absent:grep:<term>` — the term must appear **nowhere** in `js/` or
  *     `apps-script/`. This is the direction nobody checks: a row still saying
- *     *missing* about something that now exists.
+ *     *missing* about something that now exists. Several terms are separated by
+ *     **commas**, never a pipe: a pipe splits the markdown cell, and the probe
+ *     then parses as nothing at all. A cell that looks like a probe and does
+ *     not parse is reported rather than skipped, because that failure is silent
+ *     and this document exists to stop silent failures.
  *
  * The last is the whole point. A document only drifts in the direction of
  * understating what is built, because building is what people do.
@@ -96,7 +100,22 @@ export function probesIn(markdown) {
     const cells = line.split('|').map((cell) => cell.trim());
     const evidence = cells.at(-2) ?? '';
     const match = /^`(file|export|absent):(.+)`$/.exec(evidence);
-    if (!match) return;
+    if (!match) {
+      // A cell that *looks* like a probe and does not parse is the worst case:
+      // it is silently not a claim, so the row can never fail. That is exactly
+      // how `absent:grep:forecast|projection` sat in this document doing
+      // nothing — a pipe inside a markdown table cell splits the cell.
+      if (/`?(file|export|absent):/.test(line)) {
+        out.push({
+          line: index + 1,
+          component: cells[1] ?? '',
+          state: (cells[2] ?? '').replace(/\*/g, '').trim(),
+          kind: 'malformed',
+          target: evidence || line.trim(),
+        });
+      }
+      return;
+    }
 
     out.push({
       line: index + 1,
@@ -138,8 +157,17 @@ export function checkProbe(probe, { sources = null, read = readFileSync } = {}) 
     return exported.test(text) ? null : `cites ${path}#${name}, which it does not export`;
   }
 
+  if (probe.kind === 'malformed') {
+    return 'has an evidence cell that looks like a probe and does not parse, so the '
+      + 'row is silently not a claim. A regex alternative needs commas, not a '
+      + 'pipe: a pipe splits the markdown cell';
+  }
+
   if (probe.kind === 'absent') {
-    const term = probe.target.replace(/^grep:/, '');
+    // Commas rather than pipes, for exactly the reason above. Turned back into
+    // an alternation here, where markdown cannot see it.
+    const term = probe.target.replace(/^grep:/, '').split(',').map((t) => t.trim())
+      .filter(Boolean).join('|');
     const found = (sources ?? sourceFiles()).find((path) => {
       const text = String(read(path, 'utf8'));
       return new RegExp(term, 'i').test(text);

@@ -115,6 +115,7 @@ const SHELL = [
   './js/domain/receiptmatch.js',
   './js/domain/reminders.js',
   './js/domain/rentreceipt.js',
+  './js/domain/runway.js',
   './js/domain/statement.js',
   './js/domain/tabular.js',
   './js/domain/tree.js',

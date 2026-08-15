@@ -1,0 +1,116 @@
+# How long the money lasts
+
+`js/domain/runway.js`, tested in `tests/runway.test.mjs`. Layer 3's
+*forecasting*, which the architecture document probed as missing.
+
+## The question nothing answered
+
+Every input already existed. `liquidCash` says what is in the account,
+`upcomingBills` says what is dated and due, and the history says what a month
+usually costs. Nothing combined them, so the one question a household actually
+asks between pay days — **will this last?** — had no answer anywhere.
+
+Measured on one household with ₹1,40,500 in the account:
+
+```
+cash                       ₹1,40,500
+bills dated in 30 days      ₹53,500
+naive answer                ₹87,000 "left"
+```
+
+That naive answer is the reason this file is careful. Their own history says a
+usual day costs ₹3,383 — groceries, fuel, a meal — and once that is counted the
+account goes short on **9 September**, three weeks before the naive figure runs
+out. A bills-only forecast is not merely imprecise; it is comfortable, and wrong
+in the direction that costs money.
+
+## Why this is the most dangerous file in `domain/`
+
+Everything else here describes what happened. This describes what has **not
+happened yet**, and its failure mode is not a wrong number but a reassuring one.
+
+**It never predicts income.** Salary is not a record — it is a pattern in the
+transactions — and a forecast assuming the next one arrives says *you are fine*
+on the strength of something nobody promised. The next expected credit is
+reported **beside** the figure and never added to it. A household with ₹5,000
+and a ₹50,000 bill is short, whatever their salary usually does.
+
+**It counts ordinary spending, not just bills.** The trap above, closed. The
+daily rate is the median of complete months, excluding the categories already
+counted as dated bills — counting rent twice would make the whole thing useless.
+
+**It never says the household is fine.** A shortfall is a fact: on a given day,
+known outgoings exceed known cash. Sufficiency is not, because unrecorded
+spending happens daily. The absence of a shortfall reads *"nothing recorded here
+runs the account out"* — a statement about the calculation, not about the month.
+
+**It refuses without history.** Under two complete months there is no basis for
+a daily rate; it says so and forecasts on dated bills alone, labelled.
+
+**A month in progress is not divided by a whole month of days**, and **an
+overdue bill counts from today** rather than being dropped — that money has not
+left yet, and dropping it would make this cheerier than the household's own
+bank.
+
+## Mutation testing
+
+**10 of 10 caught**, including *expected income added to the forecast*,
+*ordinary spending ignored*, *bills counted twice*, and *the sentence promising
+the household is fine*.
+
+Three survived the first pass and **all three were my tests, not the code** —
+the same lesson as the previous tranche, arriving again:
+
+- the partial-month test used three *equal* months, and a fourth value cannot
+  move a median of equal numbers, so it could not tell the guard from its
+  absence;
+- the transfer test used category `self-transfer`, which the skip list already
+  excludes, so it exercised the category guard and left the `kind` guard
+  untouched;
+- the missing-amount test asserted the balance stayed finite. It does — but with
+  `NaN` in the running balance every comparison is false, so `lowest` silently
+  freezes on the day before the bill and the forecast stops half way while
+  *looking* fine. The assertion is now on the date of the lowest point.
+
+That third one is the shape worth remembering: **an assertion can be true and
+still not be the assertion that catches the bug.**
+
+## What this found in the tool built last tranche
+
+The architecture document carried:
+
+```
+| Forecasting | missing | `absent:grep:forecast|projection` |
+```
+
+**It had never parsed.** A pipe inside a markdown table cell splits the cell, so
+`probesIn` found no probe there at all — the row was silently not a claim and
+could never fail. It was added one tranche earlier, in the commit that
+introduced alternatives, and the count stayed at 48 because the row was never
+counted.
+
+Two fixes: alternatives now use **commas**, which markdown leaves alone; and a
+cell that *looks* like a probe and does not parse is now **reported as
+malformed** rather than skipped. A silent non-claim is the one failure this tool
+exists to prevent, and it had one of its own.
+
+A smaller lesson from the same row: `projection` was too generic a term — the
+schema uses the word for field projections — so that probe would have failed
+falsely even before forecasting existed.
+
+## Verification
+
+- `npm test` **1506**, browser **248**, typecheck **181/181**
+- architecture **49 claims** (48 before: the malformed row now parses and counts)
+- field-coverage 83, policy, lint, UI→database 61/61 — clean
+
+## Still not done
+
+- **Nothing shows this on a screen.** The domain function exists and no screen
+  calls it — precisely the gap this repository keeps finding, recorded here
+  before it can be discovered later. The Finance overview is the obvious home
+  and `services/finance.js` is now the place to assemble it.
+- **One account, one currency.** Cash is the liquid total; a household with
+  money in the wrong account on the wrong day is not modelled.
+- **No seasonality**, so a December of gifts reads as an ordinary month until it
+  arrives.

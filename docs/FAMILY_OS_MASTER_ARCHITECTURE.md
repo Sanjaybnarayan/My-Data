@@ -163,7 +163,7 @@ another caller to migrate.
 | Entity resolution | **partial** | `export:js/domain/categorise.js#resolveAliases` |
 | Knowledge graph | missing | `absent:grep:knowledgeGraph` |
 | Anomaly detection | **exists** | `export:js/domain/unusual.js#unusualSpending` |
-| Forecasting | missing | `absent:grep:forecast|projection` |
+| Forecasting | **exists** — cash against known outgoings, never predicting income | `export:js/domain/runway.js#cashRunway` |
 | AI privacy gate | **partial — outbound only** | `export:js/ai/mcp.js#describeSurface` |
 
 Two rows here were *missing* and are not: OCR had been implemented in
