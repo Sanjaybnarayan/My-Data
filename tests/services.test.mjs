@@ -27,6 +27,7 @@ import { DocumentsService } from '../js/services/documents.js';
 import { MessagesService } from '../js/services/sms.js';
 import { IdentityService, assembleIdentityReview } from '../js/services/identity.js';
 import { EstateService, ESTATE_LOAD } from '../js/services/estate.js';
+import { EvidenceService, EVIDENCE_LOAD } from '../js/services/evidence.js';
 import { xirr } from '../js/domain/portfolio.js';
 import { estate } from '../js/domain/estate.js';
 import { entities } from '../js/data/schema.js';
@@ -902,5 +903,56 @@ describe('a message that is kept, and one that is never written', () => {
     for (const key of ['otp', 'code', 'pin', 'password', 'secret']) {
       assert.not(keys.includes(key), key);
     }
+  });
+});
+
+describe('what the sources say, through a real database', () => {
+  test('a payment with three sources is counted as one, corroborated', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db, { name: 'HDFC Savings' });
+    const row = await db.repo('transaction').create({
+      date: '2026-08-15', kind: 'expense', amount: 2_499_00, account: account.id,
+      accountNumber: 'XXXXXX8963', reference: 'UPI/412345678901',
+    });
+    await db.repo('receipt').create({
+      date: '2026-08-15', merchant: 'Chai House', amount: 2_499_00,
+      messageId: 'm-1', mailbox: 'personal', transaction: row.id,
+    });
+    await new MessagesService(db).ingest({
+      text: 'Rs 2,499.00 debited from a/c XX8963 on 15-08-26 to VPA chaihouse@okhdfc '
+        + 'UPI Ref 412345678901. Avl Bal Rs 1,40,500.00',
+      sender: 'HDFCBK', receivedAt: '2026-08-15T10:31:00Z',
+    });
+
+    const review = await new EvidenceService(db).review();
+    assert.equal(review.total, 1);
+    assert.equal(review.corroborated, 1);
+    assert.equal(review.bySources[3], 1);
+    assert.length(review.orphans, 0);
+  });
+
+  test('a receipt and an alert with no row between them is reported, not created',
+    async () => {
+      const db = await makeDb();
+      await db.repo('receipt').create({
+        date: '2026-08-20', merchant: 'Metro Cash', amount: 8_750_00,
+        messageId: 'm-2', mailbox: 'personal',
+      });
+      await new MessagesService(db).ingest({
+        text: 'Rs 8,750.00 debited from a/c XX8963 on 20-08-26 to VPA metro@okaxis '
+          + 'UPI Ref 999888777666. Avl Bal Rs 1,31,750.00',
+        sender: 'HDFCBK', receivedAt: '2026-08-20T18:02:00Z',
+      });
+
+      const review = await new EvidenceService(db).review();
+      assert.length(review.orphans, 1);
+      assert.equal(review.orphans[0].amount, 8_750_00);
+      // The refusal, through the repository rather than in a pure function.
+      assert.length(await db.repo('transaction').list({}), 0);
+    });
+
+  test('messages are loaded decrypted, or the summary reads ciphertext', () => {
+    // The trap `docs/SEALED_VALUES.md` records, one entity along.
+    assert.equal(EVIDENCE_LOAD.messages[1].decrypt, true);
   });
 });

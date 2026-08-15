@@ -533,6 +533,32 @@ async function main() {
         check('nothing is said to have been kept for the one-time code',
           !/Kept, so the link/i.test(otp), otp.slice(0, 600));
 
+        // The kept message, reachable. A record stored and never listed is a
+        // record a household cannot check, which is the whole objection to
+        // keeping it in the first place.
+        await go(page, '#/finance/smsMessage');
+        // Longer than the usual pause: the banner reads three entities before
+        // the table paints.
+        await page.waitForTimeout(1500);
+        const list = (await page.locator('.app-content').innerText()).trim();
+
+        // `pasted`, not `HDFCBK`: the Import screen is where this message came
+        // from and it says so. Asserting the bank's short code would have been
+        // asserting something the screen never claimed.
+        check('the kept message is listed under Messages',
+          /pasted/.test(list) && /UPI_PAYMENT/i.test(list), list.slice(0, 400));
+        check('and the one-time code is nowhere in that list',
+          !/123456/.test(list) && !/77,777/.test(list), list.slice(0, 400));
+        // A message record comes from a message. A blank form for one would
+        // invite a household to type what a bank said.
+        check('and there is no form offering to invent one',
+          (await page.getByRole('button', { name: /^Add$/ }).count()) === 0, list.slice(0, 200));
+
+        // Back to Import: the next block reaches for the file input on this
+        // screen, and leaving the page on Messages made it time out.
+        await go(page, '#/finance/import');
+        await page.waitForTimeout(400);
+
         check('reading a message raises no console error',
           consoleErrors.length === smsBefore, consoleErrors.slice(smsBefore).join(' | '));
       }

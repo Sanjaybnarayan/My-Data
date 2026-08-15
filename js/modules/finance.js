@@ -30,6 +30,8 @@ import { describeSpendByMember, settleable } from '../domain/household.js';
 import { describeCommitments } from '../domain/commitments.js';
 import { describeRunway } from '../domain/runway.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
+import { EvidenceService } from '../services/evidence.js';
+import { describeOrphan } from '../domain/evidence.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -46,10 +48,15 @@ const TABS = [
   { id: 'budget', label: 'Budgets' },
   { id: 'recurringPayment', label: 'Recurring' },
   { id: 'loan', label: 'Loans' },
+  { id: 'smsMessage', label: 'Messages' },
 ];
 
 /** Screens that produce records rather than listing one entity. */
-const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights', 'transaction', 'bankStatement']);
+// `smsMessage` is here because a message record comes from a message. Offering
+// a blank form for one would invite a household to type what a bank said,
+// which is the opposite of evidence.
+const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights', 'transaction',
+  'bankStatement', 'smsMessage']);
 
 export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity) {
@@ -141,9 +148,62 @@ export async function render(route) {
     return { node: host };
   }
 
-  section = await listSection(active, { autoOpenNew: route.id === 'new' });
+  section = await listSection(active, {
+    autoOpenNew: route.id === 'new',
+    banner: active === 'smsMessage' ? evidenceBanner : undefined,
+  });
   replace(body, section.node);
   return { node: host, destroy: section.destroy };
+}
+
+/**
+ * What the household's sources say when read against each other.
+ *
+ * Two findings, and neither is a list of messages — which is why this sits
+ * above the table rather than in it. A payment the ledger never saw is not a
+ * property of any one row; it is the absence of one.
+ */
+async function evidenceBanner() {
+  const review = await new EvidenceService(app().db).review();
+  const cards = [];
+
+  if (review.orphans.length) {
+    cards.push(card({ class: 'evidence-orphans' }, [
+      cardHeader('Paid, and not in the ledger',
+        badge(String(review.orphans.length), 'warning'), { iconName: 'alert' }),
+      h('div', { class: 'list' }, review.orphans.map((orphan) => listItem({
+        title: orphan.merchant || 'A payment',
+        subtitle: describeOrphan(orphan, format),
+        value: format(orphan.amount),
+      }))),
+      h('p', { class: 'small faint' },
+        'Nothing has been added. Import the statement these belong to, or add '
+        + 'the payment yourself if there is no statement for it.'),
+    ]));
+  }
+
+  if (review.disagreeing) {
+    cards.push(card({ class: 'card--quiet evidence-disagreements' }, [
+      cardHeader('Sources that disagree', badge(String(review.disagreeing), 'warning'),
+        { iconName: 'info' }),
+      h('p', { class: 'small muted' },
+        `${review.disagreeing} payment${review.disagreeing === 1 ? '' : 's'} where a `
+        + 'message, a receipt and the statement do not state the same figure. '
+        + 'Every figure is kept as it was recorded; nothing here decides which '
+        + 'is right.'),
+    ]));
+  }
+
+  if (review.corroborated) {
+    cards.push(card({ class: 'card--quiet evidence-count' }, [
+      h('p', { class: 'small muted', style: { margin: 0 } },
+        `${review.corroborated} of ${review.total} payments have more than one `
+        + 'thing saying they happened. That is corroboration, not verification — '
+        + 'none of these sources is a person having checked it.'),
+    ]));
+  }
+
+  return cards.length ? cards : null;
 }
 
 /* --------------------------------------------------------------- overview */
