@@ -1,8 +1,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb } from './fixture.mjs';
 import {
-  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact,
-  detectKind, readDocument, suggestions,
+  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt,
 } from '../js/domain/extract.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
@@ -297,5 +296,165 @@ describe('a scan read by the server', () => {
     await store.flush();
 
     assert.equal(asked, false, 'a PDF read on the device must not be OCR-ed again');
+  });
+});
+
+/**
+ * Reading a receipt.
+ *
+ * Receipts were routed through the bill reader, and the roadmap recorded three
+ * missed fields. Measured across four real layouts — a school fee receipt, a
+ * temple donation, a rent receipt and a hospital payment — it was worse than
+ * three: **nothing at all**, no amount and no date, eight fields of eight.
+ *
+ * A bill and a receipt describe the same money in opposite tenses. A bill says
+ * *amount payable*; a receipt says **"received the sum of"**, because the
+ * paying has already happened. Looking for one set of words in a document
+ * written with the other finds nothing.
+ *
+ * Worse than the missing ones: `biller` came back **filled in with the person
+ * who paid** on three of the four, and on the rent receipt it was
+ * `"Sanjay Narayan towards rent for the month"`, which is not anybody's name.
+ */
+const SCHOOL_FEE = `
+GREENWOOD PUBLIC SCHOOL
+Fee Receipt
+Receipt No: GPS/2026/04412        Date: 12 Jul 2026
+Received with thanks from Mr Sanjay Narayan
+Student: Aarav Narayan   Class VII-B   Adm No 20419
+Towards: Term II Tuition Fee
+Received the sum of Rupees Forty Eight Thousand Five Hundred Only
+Amount: Rs. 48,500.00
+Mode of Payment: NEFT
+`;
+
+const HOSPITAL = `
+APOLLO HOSPITALS
+PAYMENT RECEIPT
+Bill No: IP/2026/77812   Receipt Date: 21 Jun 2026
+Patient Name: Meera Narayan   UHID: APL8829111
+Payment received towards: Inpatient charges
+Paid Amount        : 1,24,380.00
+Mode: Credit Card
+Thank you for your payment.
+`;
+
+const DONATION = `
+SHRI VENKATESHWARA TRUST (Regd.)
+DONATION RECEIPT
+Receipt No. 88231                 Dated: 03/08/2026
+Received from: Sanjay Narayan
+Being donation towards Annadanam
+Sum of Rs 11,000/- (Rupees Eleven Thousand only)
+Payment received by UPI
+`;
+
+const RENT = `
+RENT RECEIPT
+Received a sum of Rs. 35,000 (Rupees Thirty Five Thousand Only)
+from Sanjay Narayan towards rent for the month of July 2026
+for the property at 14/3 Rose Villa, Indiranagar, Bengaluru.
+Landlord: R Krishnan
+Date: 05-07-2026
+`;
+
+/** A receipt whose only amount cue is the phrase itself, with no `Amount:` line. */
+const PLAIN = `
+PAYMENT RECEIPT
+Received the sum of Rs. 12,000 from Sanjay Narayan
+Receipt Date: 09 Aug 2026
+`;
+
+describe('reading a receipt', () => {
+  test('the phrase a receipt is written with is enough on its own', () => {
+    // No "Amount:" line anywhere — if the phrasing is not read, nothing is.
+    // The first version of these checks used receipts that also carried an
+    // `Amount:` line, so dropping the phrase entirely changed nothing.
+    assert.equal(readReceipt(PLAIN).amount, 12_000_00);
+    assert.equal(readReceipt(RENT).amount, 35_000_00);
+  });
+
+  test('a payer this cannot identify is left empty, not guessed at', () => {
+    // "from Sanjay Narayan towards rent for the month of July 2026" is one
+    // line, and reading a bare "from" as a name produced `"Sanjay Narayan
+    // towards rent for the month"` — filed as a person, and not anybody's
+    // name. Only labels that unambiguously introduce a payer are read, so this
+    // layout yields nothing, and nothing is the right answer.
+    //
+    // Asserted as absent rather than as "not containing 'towards'": the first
+    // version of this checked a value that was already `undefined`, so it
+    // passed whatever the reader did.
+    assert.equal(readReceipt(RENT).payer, undefined);
+    assert.equal(readReceipt(SCHOOL_FEE).payer, 'Mr Sanjay Narayan');
+  });
+
+  test('the amount is found in the tense a receipt is written in', () => {
+    assert.equal(readReceipt(SCHOOL_FEE).amount, 48_500_00);
+    assert.equal(readReceipt(DONATION).amount, 11_000_00);
+  });
+
+  test('an Indian-grouped amount is read whole', () => {
+    // 1,24,380 — lakh grouping, not thousands. Read as ₹1,24,380 or as
+    // ₹1.24, and the second is a bill somebody thinks they have paid.
+    assert.equal(readReceipt(HOSPITAL).amount, 1_24_380_00);
+  });
+
+  test('the date is the receipt date', () => {
+    assert.equal(readReceipt(SCHOOL_FEE).receiptDate, '2026-07-12');
+    assert.equal(readReceipt(HOSPITAL).receiptDate, '2026-06-21');
+    assert.equal(readReceipt(DONATION).receiptDate, '2026-08-03');
+  });
+
+  test('the person who paid is the payer, not the biller', () => {
+    // A receipt's "from" is the payer; a bill's is the company. Filing one as
+    // the other is a wrong value rather than a missing one.
+    assert.equal(readReceipt(SCHOOL_FEE).payer, 'Mr Sanjay Narayan');
+    assert.equal(readReceipt(DONATION).payer, 'Sanjay Narayan');
+    assert.equal(readReceipt(SCHOOL_FEE).biller, undefined);
+  });
+
+  test('a payment method is never read as a person', () => {
+    // "Payment received by UPI" is ordinary phrasing, and reading `received
+    // by` as a name filled this with "UPI" — a payment method presented as
+    // whoever took the money.
+    assert.not(readReceipt(DONATION).receivedBy, JSON.stringify(readReceipt(DONATION)));
+  });
+
+  test('what it was for is taken only where it is said', () => {
+    assert.equal(readReceipt(SCHOOL_FEE).towards, 'Term II Tuition Fee');
+    assert.equal(readReceipt(HOSPITAL).towards, 'Inpatient charges');
+  });
+
+  test('the receipt number is kept', () => {
+    assert.equal(readReceipt(SCHOOL_FEE).receiptNumber, 'GPS/2026/04412');
+  });
+
+  test('nothing is invented from an empty document', () => {
+    assert.deep(readReceipt(''), {});
+    assert.deep(readReceipt('a page with no receipt on it'), {});
+  });
+});
+
+describe('a receipt is not a bill, even when it says Bill No', () => {
+  test('a hospital payment receipt is read as a receipt', () => {
+    // "Bill No: IP/2026/77812" at the top had this read as a bill, so its
+    // amount was looked for under "amount payable" — a phrase a receipt never
+    // uses, because the money has already gone.
+    assert.equal(detectKind(HOSPITAL), 'receipt');
+  });
+
+  test('and an actual bill still is one', () => {
+    // The reordering must not drag bills across with it.
+    const bill = `BESCOM ELECTRICITY BILL
+      Consumer No: 1234567890
+      Bill Date: 01 Jul 2026   Due Date: 18 Jul 2026
+      Amount Payable: Rs. 2,340.00`;
+    assert.equal(detectKind(bill), 'bill');
+    assert.equal(readBill(bill).amount, 2_340_00);
+  });
+
+  test('readDocument sends each to its own reader', () => {
+    assert.equal(readDocument(HOSPITAL).fields.amount, 1_24_380_00);
+    assert.equal(readDocument(HOSPITAL).fields.receiptDate, '2026-06-21');
   });
 });
