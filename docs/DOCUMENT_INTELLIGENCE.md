@@ -289,7 +289,6 @@ which would file the receipt by losing the invoice already there.
 - **A part payment is never matched**, by design, so a receipt for a bill paid
   in two instalments stays unfiled.
 
-
 ## The screen, and the bug that only a real receipt could find
 
 The panel names the payment and offers to file the receipt against it — on a
@@ -315,7 +314,35 @@ shaped exactly like "nothing to report". It now says so.
 
 - **A part payment is never matched**, by design, so a receipt for a bill paid
   in two instalments stays unfiled.
-- **`payer` reads badly on flattened text.** Extracted from a PDF whose lines
-  run together, it returned `"Mr Sanjay Narayan Towards"` — the bound runs into
-  the next label. The receipt tests use multi-line fixtures, so this is
-  untested ground and a wrong value of the kind that reader exists to avoid.
+- ~~**`payer` reads badly on flattened text.**~~ **Fixed** — see below.
+
+## When the line breaks are gone
+
+A PDF's text layer often arrives with the line breaks stripped, and **every
+receipt fixture in this repository was multi-line** — so a capture bounded only
+by length had never met the shape a real extraction produces.
+
+Measured across four flattened layouts, **three returned a wrong name**:
+
+```
+  "Mr Sanjay Narayan Towards"
+  "Sanjay Narayan Being donation towards Ann"
+  "R Krishnan Amount"
+```
+
+The worst runs through a whole clause and stops mid-word. `towards` had the same
+fault from the other side: a school fee receipt said the payment was towards
+*"Term II Tuition Fee Amount"*.
+
+**A wrong name is a claim, not a gap** — the distinction this reader was built
+on — so the capture now stops where the next label begins. `NEXT_LABEL` is
+receipt vocabulary rather than anything clever: the words that actually follow a
+payer on an Indian receipt. A value that is *only* a label becomes nothing,
+because half a name is not a better answer than none.
+
+Found while diagnosing something else, which is where most of the wrong values
+in this repository have come from. The lesson is narrower than "test more": the
+fixtures were all the shape a **person** would type a receipt, and none was the
+shape a **reader** produces from one.
+
+**5 of 5 mutations caught**, including a fragment returned instead of nothing.
