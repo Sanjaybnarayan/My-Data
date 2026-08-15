@@ -78,6 +78,15 @@ both directions. Making the limit injectable purely to make the sentence
 reachable would put a seam in production code whose only purpose is to be
 smaller in a test, and that seam is how the real constant stops being tested.
 
+## Both screens that show a balance now say it
+
+The dashboard was the other one, and it is the screen a household looks at
+first: net worth is built on those same balances, so a partial history makes the
+headline figure partial too. It carries the same signal and the same sentence.
+
+Neither screen has a browser check for the sentence, for the reason above, and
+that is the same limitation on both rather than a new one.
+
 ## Still not done
 - **50,000 is a number, not a principle.** A household with more history than
   that still gets a wrong balance, quietly, until the sentence above exists.

@@ -29,7 +29,7 @@ import { recentActivity, describe as describeAudit } from '../data/audit.js';
 import { formatCompact, format } from '../core/money.js';
 import { formatDay, relativeDays, today } from '../core/dates.js';
 import { summarise } from '../ai/summary.js';
-import { TRANSACTION_LIMIT } from '../services/service.js';
+import { TRANSACTION_LIMIT, transactionsTruncated } from '../services/service.js';
 
 const WIDGET_KEY = 'dashboard.widgets';
 
@@ -91,6 +91,10 @@ async function loadAll(db) {
   return {
     ...byEntity,
     accounts,
+    // The same signal the Finance screen carries. Net worth is built on these
+    // balances, so a partial history makes the headline figure partial too, and
+    // this is the screen a household looks at first.
+    truncated: transactionsTruncated(byEntity.transaction),
     net: netWorth({
       accounts: byEntity.account,
       transactions: byEntity.transaction,
@@ -173,6 +177,12 @@ const WIDGETS = {
         { label: 'Net worth breakdown', size: 150 },
       )
       : h('p', { class: 'small faint' }, 'Add an account or an investment to see this.'),
+    data.truncated
+      ? h('p', { class: 'small money--negative' },
+        `Only the most recent ${TRANSACTION_LIMIT.toLocaleString('en-IN')} transactions `
+        + 'were read, so the balances behind this figure are computed from part '
+        + 'of your history rather than all of it.')
+      : null,
     data.net.staleValuations.length
       ? h('p', { class: 'small faint' }, [
         icon('info', { size: 14 }),
