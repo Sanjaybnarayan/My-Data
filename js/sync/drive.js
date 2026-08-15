@@ -30,6 +30,7 @@ import { safeFileName } from '../security/sanitize.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { canReadText, indexableText } from '../domain/filing.js';
 import { readDocument, suggestions } from '../domain/extract.js';
+import { matchReceipt } from '../domain/receiptmatch.js';
 import { refused } from '../data/consent.js';
 import { config } from '../core/config.js';
 
@@ -208,6 +209,43 @@ export class DocumentStore {
     const read = await this.#readText(new Uint8Array(await blob.arrayBuffer()), document.mimeType);
     return read ? { identifiers: read.identifiers, readable: true }
       : { identifiers: [], readable: false };
+  }
+
+  /**
+   * Which payment this receipt is the receipt for.
+   *
+   * ## Why on demand, and why nothing is written
+   *
+   * The same shape as `identifiersIn` above, for the same reason. A receipt's
+   * amount and date are already read at upload; the payment it belongs to is
+   * not knowable then, because the statement carrying it is very often imported
+   * weeks later. Storing a match made at upload time would freeze an answer
+   * taken before the evidence arrived.
+   *
+   * So it is worked out when somebody looks, from whatever has been imported by
+   * then — and it is a **proposal**. `transaction.documents` is where the answer
+   * goes, and only a person puts it there.
+   */
+  async receiptMatchesIn(documentId) {
+    const document = await this.#db.repo('document').get(documentId);
+    if (!document || !canReadText(document.mimeType)) {
+      return { receipt: null, proposals: [], why: 'this file’s text cannot be read here' };
+    }
+
+    const blob = await this.read(documentId);
+    if (!blob) return { receipt: null, proposals: [], why: 'this file is not on this device' };
+
+    const read = await this.#readText(new Uint8Array(await blob.arrayBuffer()), document.mimeType);
+    if (read?.kind !== 'receipt') {
+      return { receipt: null, proposals: [], why: 'this does not read as a receipt' };
+    }
+
+    const receipt = read.fields ?? {};
+    const transactions = await this.#db.repo('transaction').list({
+      decrypt: false, limit: 20_000,
+    });
+
+    return { receipt, ...matchReceipt(receipt, transactions, { documentId }) };
   }
 
   /**
