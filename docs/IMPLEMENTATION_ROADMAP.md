@@ -85,6 +85,12 @@ open"* was carried over a backend that already verified identity with Google,
 took the role from the member list rather than the request, and enforced a
 generated policy table — three quarters of the gate, for months.
 
+**Phase 9 supplied the ninth**, and mildly: *"Automation"* was carried over a
+module that had been running on every launch for some while. The finding was not
+that it was missing but that money had never been given to it — the third time
+one shape has appeared, after the calendar's squares and the calendar's
+recurrence (`docs/NOTIFICATIONS.md`).
+
 **Phase 8 supplied the eighth, and it is the one that best justifies the rule.**
 *"Insights: not started"* was carried over a working Insights screen — and
 measuring it found something worse than a stale line, because the screen was
@@ -145,7 +151,8 @@ is untested against the other. See `docs/BALANCES.md` and
 | 6 | Cards, loans, EMI, FD/RD, family ledger | loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); **who-paid done, who-owes-whom refused for a stated reason** (`docs/HOUSEHOLD_LEDGER.md`); **card bills now due-dated from the statement, not the current balance** (`docs/CARD_BILLS.md`); **subscriptions are in the committed figure that had always named them** (`docs/COMMITMENTS.md`) |
 | 7 | Investments, brokers, MCP | investments exist and XIRR is right; **`holding.invested` never moved, so a fund fed a SIP reported 162% gain where its own transactions said 24.61%** (`docs/COST_BASIS.md`). Brokers still architecture-only. **MCP measured and answered: there is nowhere in this design for an MCP *server* to run** — the records are on the device and the only server this application has never holds them, which is what the gate's answer costs. A local tool surface derived from the thirteen assistant intents exists instead, returning sentences and counts rather than records (`docs/MCP.md`) |
 | 8 | Insights | **the screen already existed** — `insights()` over categorised rows, on the Ledgers screen — and that line was the eighth to go stale on measurement. What it *said* was wrong: on an ICICI statement every UPI payment, in both directions, grouped under one counterparty called `unknown`, because the payee was taken from a fixed field position and `DR`/`CR` sits there instead. Rent, Netflix and a backup plan read as **one charge of ₹1,180 repeating weekly**, and the screen reported *"2 payments repeat on a schedule"* to a household that had five (`docs/STATEMENT_FORMATS.md`). **The two halves of the household's own money now meet**: the records say ₹53,500 a month is committed, the statements show ₹55,329 a month actually leaving on a schedule, and the ₹1,829 difference — two subscriptions nobody wrote down — is named beside the figure rather than folded into it (`docs/COMMITMENTS.md`) |
-| 9–23 | Automation … internationalisation | not started |
+| 9 | Automation | **already built and wired** — `runAutomations` runs on every launch, advances overdue bills, repeats completed tasks and notifies once a day. The ninth line found already done. What it did *not* do was money: the notifier read thirteen entity types, **none of which carries a bill**, so a household with ₹53,500 a month committed was told its passport expires in six days and nothing about the rent due tomorrow (`docs/NOTIFICATIONS.md`) |
+| 10–23 | Sharing … internationalisation | not started — and the repository holds no list of what they are beyond this elision, so the names here are inference, not record |
 
 ## The prompt's ten financial tests
 
