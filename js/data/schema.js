@@ -294,7 +294,11 @@ const transaction = {
   acl: restricted,
   sort: '-date',
   indexes: [['byDate', 'date'], ['byAccount', 'account'], ['byCategory', 'category'],
-    ['byImportKey', 'importKey']],
+    ['byImportKey', 'importKey'],
+    // The legs of one movement. `transaction.movement` points at the event, so
+    // asking an event for its own legs is a reverse lookup — and without this
+    // it is a scan of every transaction the household has, to find two.
+    ['byMovement', 'movement']],
   title: (r) => r.payee || r.category,
   fields: [
     day('date', { required: true, list: true, default: 'today' }),

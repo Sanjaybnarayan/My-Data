@@ -52,7 +52,8 @@ describe('reading a source off a record', () => {
   });
 
   test('the entities it does understand are listed', () => {
-    assert.deep(understood(), ['bankStatement', 'document', 'receipt', 'transaction']);
+    assert.deep(understood(),
+      ['bankStatement', 'document', 'economicEvent', 'receipt', 'transaction']);
   });
 });
 
@@ -119,8 +120,26 @@ describe('explaining it to a person', () => {
     assert.not(/not checked by anyone/.test(said), said);
   });
 
-  test('an unknown source says so plainly rather than inventing one', () => {
-    assert.includes(explain('vehicle', {}), 'Source not recorded');
+  test('a gap in this file is not reported as a gap in the record', () => {
+    // These read identically until the economic-event tranche measured it: a
+    // record that genuinely says nothing about its source and an entity this
+    // file was never taught both produced "Source not recorded", telling a
+    // household their data is incomplete when nothing had ever looked. The
+    // distinction `isUnderstood` exists for was not being asked.
+    const said = explain('vehicle', {});
+    assert.includes(said, 'gap in this application');
+    assert.not(said.includes('Source not recorded'), said);
+  });
+
+  test('a movement says it was calculated, and still nobody checked it', () => {
+    const said = explain('economicEvent', { why: 'a debit and a credit one day apart' });
+    assert.includes(said, 'Calculated from other records');
+    assert.includes(said, 'not checked by anyone');
+  });
+
+  test('a movement with no reasoning recorded says that too', () => {
+    assert.includes(explain('economicEvent', {}),
+      'nothing was recorded about why these rows were treated as one movement');
   });
 });
 

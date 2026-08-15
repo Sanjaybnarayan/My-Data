@@ -168,7 +168,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | Phase | Prompt scope | Position here |
 | --- | --- | --- |
 | 0 | Repository audit | **complete** |
-| 0.5 | Trust, privacy, governance, consent, lineage | **complete** — six tranches, merged in #19 |
+| 0.5 | Trust, privacy, governance, consent, lineage | **complete** — six tranches, merged in #19. Lineage was complete and unreachable for the one entity rule 57 is about; see `docs/EXPLAINABILITY.md` |
 | 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer, typecheck, row-level server authorization and the device registry done; ABAC is own-record rules only; **no API layer exists**, and the prompt's relational database is deliberately not built (see the gate) |
 | 2 | Family, people, identity, family tree, CKYC 2.0, profile completion | **partial** — tree reads the person form (`docs/FAMILY_TREE.md`), CKYC built as a local record with no registry (`docs/KYC.md`), conflict engine including the shared-identifier case (`docs/IDENTITY_CONFLICTS.md`). **No conflict screen, no profile completion**; `KYCVersion`/`KYCConflict` are derived at read time by design |
 | 3 | Document AI, OCR, document management, DOCX engine | **largely done** — OCR pre-existed in `apps-script/Drive.gs`; extraction at 89%; receipt reader; DOCX writer (`docs/DOCX.md`) and DOCX **template reader** handling run-split placeholders (`docs/DOCUMENT_AI.md`). **No template versioning, no PDF output, no Drive upload of a generated document; no Word content controls or `MERGEFIELD`** |

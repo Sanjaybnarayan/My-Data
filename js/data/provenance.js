@@ -55,6 +55,7 @@ export const METHODS = Object.freeze({
   READ_EMAIL: 'read from an email receipt',
   TYPED: 'typed by a person',
   RULES: 'classified by rules',
+  MATCHED: 'matched from the account rows it is made of',
   UNKNOWN: 'unknown',
 });
 
@@ -124,6 +125,37 @@ const READERS = {
       };
     }
     return { source: SOURCES.MANUAL, method: METHODS.TYPED, confidence: 'high' };
+  },
+
+  /**
+   * A movement is the one record here that is *made of* other records.
+   *
+   * It had no reader, and the consequence was measured rather than guessed:
+   * an event whose two legs were parsed from a named PDF reported
+   *
+   *     This economic event came from something not recorded.
+   *
+   * — about the entity rule 57 is written for. The legs are findable
+   * (`transaction.movement`) and the reasoning is on the record (`why`), so
+   * "not recorded" was never true; nothing had been taught to look.
+   *
+   * `DERIVED` is used rather than inheriting a leg's source, because an event
+   * is not read from a statement. It is a conclusion drawn from rows that
+   * were, and `domain/explain.js` is what walks down to them.
+   */
+  economicEvent(record) {
+    return {
+      source: SOURCES.DERIVED,
+      method: METHODS.MATCHED,
+      // What the matcher recorded at the moment a person confirmed it. It is
+      // the reasoning, not a sign-off — `verification` stays unverified.
+      evidence: record.why || null,
+      // A rules decision, never a person's, whatever `why` says.
+      confidence: record.why ? 'medium' : 'low',
+      note: record.why
+        ? null
+        : 'nothing was recorded about why these rows were treated as one movement',
+    };
   },
 
   bankStatement(record) {
@@ -206,6 +238,16 @@ export function understood() {
  * and to never imply a person checked it when nobody has.
  */
 export function explain(entityName, record) {
+  // Two different silences used to read identically. A record that genuinely
+  // says nothing about its source and an entity this file was never taught
+  // both produced "Source not recorded" — which tells a household their data
+  // is incomplete when the truth is that this application never looked.
+  // `isUnderstood` exists to tell them apart and was not being asked.
+  if (!isUnderstood(entityName)) {
+    return 'Nothing here knows how to read a source for this kind of record. '
+      + 'That is a gap in this application, not a fact about this record.';
+  }
+
   const p = provenanceOf(entityName, record);
 
   const opening = {
