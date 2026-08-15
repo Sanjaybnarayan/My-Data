@@ -63,7 +63,10 @@ export function toast(message, { kind = 'info', ms, action } = {}) {
 /** Wire the bus once, at boot. */
 export function mountToasts() {
   return bus.on(TOPIC.toast, (payload) => {
-    if (typeof payload === 'string') return toast(payload);
-    toast(payload.message, payload);
+    // Both paths return nothing. The string branch used to `return toast(...)`,
+    // handing back a dismiss function that the bus discards — so one path
+    // produced a value and the other did not, for no reason either could act on.
+    if (typeof payload === 'string') toast(payload);
+    else toast(payload.message, payload);
   });
 }
