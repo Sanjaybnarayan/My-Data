@@ -239,6 +239,22 @@ export class AppsScriptTransport {
     return this.call('devices', { op: 'name', deviceId, label, ...(email ? { email } : {}) });
   }
 
+  /** "I know what this is." Stops it being counted as unrecognised. */
+  acknowledgeDevice(deviceId, email) {
+    return this.call('devices', { op: 'acknowledge', deviceId, ...(email ? { email } : {}) });
+  }
+
+  /**
+   * Who the backend thinks you are, and whether anything unfamiliar has synced.
+   *
+   * The device count rides along on a request the client already makes, so
+   * asking costs nothing extra — and a household should not have to go looking
+   * for the one fact on that screen that matters.
+   */
+  ping() {
+    return this.call('ping', {});
+  }
+
   /** Row counts per sheet, to verify a backup actually landed. */
   verify() {
     return this.call('verify', {});
@@ -293,6 +309,12 @@ export class FakeTransport {
   nameDevice(deviceId, label, email) {
     return this.call('devices', { op: 'name', deviceId, label, ...(email ? { email } : {}) });
   }
+
+  acknowledgeDevice(deviceId, email) {
+    return this.call('devices', { op: 'acknowledge', deviceId, ...(email ? { email } : {}) });
+  }
+
+  ping() { return this.call('ping', {}); }
 
   verify() { return this.call('verify', {}); }
 }

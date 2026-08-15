@@ -573,6 +573,10 @@ function devicesCard() {
     const row = (device) => {
       const isThis = device.id === db.deviceId;
       const revoked = Boolean(device.revokedAt);
+      // Never on the device being used: it vouches for itself by being the
+      // thing in somebody's hand, and marking it would make every household
+      // suspect themselves on the day they installed this.
+      const unrecognised = !isThis && !revoked && !device.acknowledgedAt;
 
       return listItem({
         // The id is still shown, shortened, because two identical phones report
@@ -584,7 +588,8 @@ function devicesCard() {
           `first seen ${formatDay(device.firstSeenAt.slice(0, 10))}`,
           device.id.slice(0, 12),
         ].filter(Boolean).join(' · '),
-        leading: revoked ? badge('signed out', 'warning') : null,
+        leading: revoked ? badge('signed out', 'warning')
+          : unrecognised ? badge('new', 'danger') : null,
         trailing: h('div', { class: 'row' }, [
           button('Rename', {
             variant: 'subtle',
@@ -601,6 +606,13 @@ function devicesCard() {
               await act(() => transport.nameDevice(device.id, label), 'Renamed');
             },
           }),
+          // Only where it would change something. A button on every row would
+          // make the marked ones no easier to find, which is the whole job.
+          unrecognised ? button('I recognise this', {
+            variant: 'subtle',
+            onClick: () => act(() => transport.acknowledgeDevice(device.id),
+              'Noted — it will not be flagged again'),
+          }) : null,
           // No control at all on the device being used. Signing yourself out
           // from the thing you are holding would lock you out of the reply to
           // your own request, and the backend refuses it — a button that always
@@ -631,6 +643,15 @@ function devicesCard() {
       h('p', { class: 'small faint' },
         'Names are worked out from the browser and can be wrong. Rename any of '
         + 'them to something you will recognise.'),
+
+      // Said where the marks are, so "new" has a meaning rather than being a
+      // colour somebody has to interpret.
+      devices.some((d) => d.id !== app().db.deviceId && !d.revokedAt && !d.acknowledgedAt)
+        ? h('p', { class: 'small faint' },
+          'Anything marked new has synced without your saying you recognise it. '
+          + 'If you know what it is, say so and it stops being flagged; if you '
+          + 'do not, sign it out.')
+        : null,
     ]);
   }
 }

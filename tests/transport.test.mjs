@@ -90,14 +90,27 @@ describe('the device actions', () => {
     assert.equal(rec.sent[1].body.payload.email, 'spouse@example.com');
   });
 
+  test('ping actually asks the backend, which is where the count comes from', () => {
+    // A `ping` that resolved locally would report no unrecognised devices for
+    // ever, and the notice at boot would go quiet rather than wrong — the
+    // failure mode nobody notices.
+    const { rec, transport } = make();
+    return transport.ping().then(() => {
+      assert.length(rec.sent, 1);
+      assert.equal(rec.sent[0].body.action, 'ping');
+    });
+  });
+
   test('revoke, restore and rename each name themselves', async () => {
     const { rec, transport } = make();
     await transport.revokeDevice('dev_old');
     await transport.restoreDevice('dev_old');
     await transport.nameDevice('dev_old', 'the one in the study');
 
+    await transport.acknowledgeDevice('dev_old');
+
     assert.deep(rec.sent.map((call) => call.body.payload.op),
-      ['revoke', 'restore', 'name']);
+      ['revoke', 'restore', 'name', 'acknowledge']);
     assert.equal(rec.sent[2].body.payload.label, 'the one in the study');
   });
 });

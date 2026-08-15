@@ -121,15 +121,57 @@ A second thing surfaced the same way: the device methods had been added to
 `FakeTransport` only, because the two classes carry the same method names and
 the edit landed in the wrong one. Nothing would have caught that either.
 
+## Saying it, rather than waiting to be asked
+
+The registry could be **read** and never **spoke**. Everything in it was
+reachable from Settings — which means the one fact on that screen that matters,
+*something you do not recognise has your household's data*, waited for somebody
+to go looking. Nobody goes looking.
+
+A device is now **unrecognised** until a person says otherwise, and the count
+comes back on `ping` — a request the client already makes, so noticing costs no
+extra round trip. On opening the application, an unrecognised device raises a
+warning with no timer on it and a way through to the list. It is the one message
+in this application worth making somebody dismiss.
+
+### What is never counted
+
+- **The device being used.** It vouches for itself by being the thing in
+  somebody's hand, and counting it would warn every household about themselves
+  on the day they installed this — which teaches people to dismiss the notice
+  before it ever matters.
+- **A device already signed out.** It has been dealt with; nagging afterwards is
+  the same mistake from the other end.
+- **Somebody else's devices.** Each person is counted their own. A spouse
+  signing in on a new phone is their business; who may sync *at all* is the
+  member list's question, and the owner already holds that.
+
+### When it is said, stated plainly
+
+A PWA cannot push a notification while it is closed. So the honest moment is the
+next time somebody opens the application — later than one would like, and said
+that way in the code rather than dressed up as an alert. A household that wants
+to know sooner needs a channel this application does not have.
+
+The check swallows its own failures: a backend deployed before this does not
+know the action, and an error about a check nobody asked for helps nobody.
+
+### What the mutation testing caught
+
+**7 of 7**, after a first pass that caught 6. The survivor was `ping` no longer
+reaching the backend — which would have made the count read zero for ever, so
+the notice would go **quiet rather than wrong**. That is the failure nobody
+notices, and it now has a test.
+
 ## Still not done
 
 - **A revoked device keeps its local copy.** This refuses it the *backend*;
   records already on that device stay there, and only the lock screen stands
   between somebody and them. Remote wipe is not something a PWA can do, and
   claiming otherwise would be the kind of promise this project refuses to make.
-- **Nothing tells a person a new device signed in.** They find out by opening
-  this screen, which means an unrecognised device sits unnoticed until somebody
-  looks.
+- **The notice waits for the application to be opened.** No push, no email —
+  there is no channel here that reaches somebody who is not looking.
 - **The list is not browser-checked past rendering.** With no backend configured
   there is nothing to list, so the check confirms the card appears and explains
-  itself; revoking and renaming are covered against the real backend in Node.
+  itself; revoking, renaming and acknowledging are covered against the real
+  backend in Node.
