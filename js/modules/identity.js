@@ -26,8 +26,10 @@ import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { entitiesOfModule } from '../data/schema.js';
-import { kycDrift, describeDrift, stale, kinNote, latestPerInstitution } from '../domain/kyc.js';
-import { formatDay, today } from '../core/dates.js';
+import { describeDrift } from '../domain/kyc.js';
+import { describeConflict, SEVERITY, KIND } from '../domain/kycconflict.js';
+import { IdentityService } from '../services/identity.js';
+import { formatDay } from '../core/dates.js';
 
 const TABS = ['person', 'identityDocument', 'kycRecord', 'employment'];
 
@@ -73,31 +75,21 @@ export async function render(route) {
  * of the application follows.
  */
 async function kycBanner() {
-  const { db } = app();
+  const review = await new IdentityService(app().db).review();
+  if (!review.any) return null;
 
-  const [people, records, documents] = await Promise.all([
-    db.repo('person').list({ limit: 500 }),
-    db.repo('kycRecord').list({ limit: 2000 }),
-    db.repo('identityDocument').list({ limit: 2000 }),
-  ]);
-
-  const live = records.filter((r) => !r.deletedAt);
-  if (!live.length) return null;
-
+  const nameOf = IdentityService.nameLookup(review.people);
   const cards = [provenanceNote()];
 
-  for (const person of people.filter((p) => !p.deletedAt)) {
-    const drift = kycDrift(person, live, documents);
-    if (drift.length) cards.push(driftCard(person, drift));
-  }
+  // Above the per-person drift, always. One identifier held against two people
+  // is not a worse version of an address disagreement — it is a different
+  // thing, and the only finding here that can mean somebody's identity is
+  // being used twice.
+  if (review.conflicts.length) cards.push(conflictCard(review.conflicts, nameOf));
 
-  const notChecked = stale(live, today());
-  if (notChecked.length) cards.push(staleCard(notChecked));
-
-  const malformed = latestPerInstitution(live)
-    .map((record) => ({ record, note: kinNote(record.kin) }))
-    .filter(({ note }) => note);
-  if (malformed.length) cards.push(kinCard(malformed));
+  for (const { person, entries } of review.drift) cards.push(driftCard(person, entries));
+  if (review.stale.length) cards.push(staleCard(review.stale));
+  if (review.malformed.length) cards.push(kinCard(review.malformed));
 
   return cards;
 }
@@ -116,6 +108,42 @@ function provenanceNote() {
       + 'statements, portals and letters. Nothing here is fetched from the '
       + 'Central KYC Records Registry, and nothing here is verified — only '
       + 'compared.'),
+  ]);
+}
+
+/**
+ * What is wrong across the household, worst first.
+ *
+ * The severity is a badge and never an instruction. A household decides what to
+ * do about a shared CKYC identifier; this screen's whole job is to make sure
+ * they know it exists.
+ */
+function conflictCard(conflicts, nameOf) {
+  const critical = conflicts.filter((one) => one.severity === SEVERITY.CRITICAL);
+
+  return card({ class: 'kyc-conflicts' }, [
+    cardHeader(
+      critical.length
+        ? 'One identifier, more than one person'
+        : 'An institution disagrees with your own record',
+      badge(String(conflicts.length), critical.length ? 'danger' : 'warning'),
+      { iconName: 'info' },
+    ),
+
+    h('div', { class: 'list' }, conflicts.map((conflict) => listItem({
+      title: conflict.kind === KIND.SHARED_IDENTIFIER
+        ? `${conflict.field.toUpperCase()} recorded against ${conflict.people.length} people`
+        : `${conflict.institution}: ${conflict.label.toLowerCase()}`,
+      subtitle: describeConflict(conflict, nameOf),
+      href: conflict.kind === KIND.FIELD
+        ? Router.href({ module: 'identity', entity: 'kycRecord', id: conflict.record })
+        : undefined,
+    }))),
+
+    h('p', { class: 'small faint' },
+      'Nothing here is merged, corrected or decided. A disagreement between two '
+      + 'identity records is usually evidence that something is wrong somewhere '
+      + 'else — at an institution, or in what somebody was told.'),
   ]);
 }
 

@@ -2104,8 +2104,53 @@ async function main() {
         await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
       }
 
+      // A third record, against a *different* person, carrying the same CKYC
+      // identifier. This is the prompt's CRITICAL identity test, and the
+      // reason it is driven through the form is that the engine reported it
+      // for a whole tranche while no screen drew it.
+      await go(page, '#/identity/kycRecord');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.locator('#f-kycRecord-person').selectOption({ index: 2 });
+      await page.locator('#f-kycRecord-institution').fill('Axis Bank');
+      await page.locator('#f-kycRecord-recordedOn').fill('2026-02-20');
+      await page.locator('#f-kycRecord-kin').fill('12345678901234');
+      await page.locator('#f-kycRecord-institution').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
       await go(page, '#/identity/kycRecord');
       await page.waitForTimeout(600);
+
+      const conflicts = page.locator('.kyc-conflicts');
+      const conflictText = (await conflicts.count()) ? await conflicts.innerText() : '';
+
+      check('one CKYC identifier against two people reaches the screen',
+        /KIN recorded against 2 people/i.test(conflictText)
+        && /different people/i.test(conflictText),
+        conflictText.slice(0, 400) || '(no conflict card)');
+
+      // The engine returns the field name and never the value. A screen that
+      // printed the identifier would undo that on its own.
+      check('and the identifier itself is not printed anywhere on it',
+        conflictText.length > 0 && !/12345678901234/.test(conflictText),
+        conflictText.slice(0, 400));
+
+      check('the screen refuses to merge or decide',
+        /Nothing here is merged, corrected or decided/.test(conflictText),
+        conflictText.slice(0, 400));
+
+      // Order is the message. One identifier held against two people is not a
+      // worse address disagreement, and putting it under one would bury the
+      // only finding here that can mean somebody's identity is being used
+      // twice. Asserted against the DOM because it is a claim about the DOM.
+      const order = await page.evaluate(() => {
+        const cards = [...document.querySelectorAll('.kyc-conflicts, .kyc-drift')];
+        return cards.map((node) => (node.classList.contains('kyc-conflicts')
+          ? 'conflicts' : 'drift'));
+      });
+      check('and the conflict card sits above the per-person drift',
+        order[0] === 'conflicts' && order.includes('drift'), order.join(' > '));
 
       const drift = page.locator('.kyc-drift');
       const driftText = (await drift.count()) ? await drift.innerText() : '';

@@ -120,8 +120,9 @@ Audited after Phase 9, thirteen of its rows still said `missing` about things
 built phases earlier — including `EconomicEvent`, which it called the largest
 single piece of Layer 4 work. Every row there now carries a probe that CI runs,
 and the one architectural invariant the project admits is broken — screens
-reaching the repository directly — is a **counted ratchet at 71** rather than a
-sentence of regret. See `docs/ARCHITECTURE_DRIFT.md`. This roadmap has no such
+reaching the repository directly — is a **counted ratchet, now at 58** rather than a
+sentence of regret — it has only ever moved down, and moving it down is what
+`--update` is for. See `docs/ARCHITECTURE_DRIFT.md`. This roadmap has no such
 check, which is the obvious next thing to want.
 
 **This application collects more than it reads.** Nine fields were filled in on
@@ -170,7 +171,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 0 | Repository audit | **complete** |
 | 0.5 | Trust, privacy, governance, consent, lineage | **complete** — six tranches, merged in #19. Lineage was complete and unreachable for the one entity rule 57 is about; see `docs/EXPLAINABILITY.md` |
 | 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer, typecheck, row-level server authorization and the device registry done; ABAC is own-record rules only; **no API layer exists**, and the prompt's relational database is deliberately not built (see the gate) |
-| 2 | Family, people, identity, family tree, CKYC 2.0, profile completion | **partial** — tree reads the person form (`docs/FAMILY_TREE.md`), CKYC built as a local record with no registry (`docs/KYC.md`), conflict engine including the shared-identifier case (`docs/IDENTITY_CONFLICTS.md`). **No conflict screen, no profile completion**; `KYCVersion`/`KYCConflict` are derived at read time by design |
+| 2 | Family, people, identity, family tree, CKYC 2.0, profile completion | **partial** — tree reads the person form (`docs/FAMILY_TREE.md`), CKYC built as a local record with no registry (`docs/KYC.md`), conflict engine including the shared-identifier case (`docs/IDENTITY_CONFLICTS.md`) and on the screen (`docs/IDENTITY_SCREEN.md`). **No profile completion**; `KYCVersion`/`KYCConflict` are derived at read time by design |
 | 3 | Document AI, OCR, document management, DOCX engine | **largely done** — OCR pre-existed in `apps-script/Drive.gs`; extraction at 89%; receipt reader; DOCX writer (`docs/DOCX.md`) and DOCX **template reader** handling run-split placeholders (`docs/DOCUMENT_AI.md`). **No template versioning, no PDF output, no Drive upload of a generated document; no Word content controls or `MERGEFIELD`** |
 | 4 | Gmail, Drive, Calendar | **done** — including Google Calendar sync, never run against the live API (`docs/CALENDAR.md`) |
 | 5 | Financial foundation, statements, transfer matching, economic events, reconciliation | **done** — `EconomicEvent` is an entity, multi-leg movements, settlement, reconciliation that refuses to lie (`docs/STATEMENT_FORMATS.md`, `docs/MULTI_LEG.md`) |

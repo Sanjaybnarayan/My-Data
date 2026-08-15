@@ -25,6 +25,7 @@ import { RecordsService } from '../js/services/records.js';
 import { FinanceService, assembleOverview } from '../js/services/finance.js';
 import { DocumentsService } from '../js/services/documents.js';
 import { MessagesService } from '../js/services/sms.js';
+import { IdentityService, assembleIdentityReview } from '../js/services/identity.js';
 import { xirr } from '../js/domain/portfolio.js';
 
 setSuite('services');
@@ -619,5 +620,98 @@ describe('reading a bank message against what was imported', () => {
     assert.equal(reading.amount, null);
     assert.equal(result.agreement, 'none');
     assert.not(asked, 'no repository call was made for a credential');
+  });
+});
+
+describe('identity review — what the household is told, worst first', () => {
+  const kyc = (db, over) => db.repo('kycRecord').create({
+    institution: 'HDFC', recordedOn: '2026-07-01', source: 'account statement', ...over,
+  });
+
+  test('a shared CKYC identifier is the first thing on the screen', async () => {
+    // The assembly this service exists for. Before it, the engine reported a
+    // CRITICAL finding and nothing drew it.
+    const db = await makeDb();
+    const sanjay = await makePerson(db, { name: 'Sanjay Narayan', birthday: '1980-05-04' });
+    const meera = await makePerson(db, { name: 'Meera Narayan', birthday: '1984-11-19' });
+
+    await kyc(db, { person: sanjay.id, kin: 'KIN00012345678', heldName: 'Sanjay Narayan' });
+    await kyc(db, {
+      person: meera.id, institution: 'ICICI', kin: 'KIN00012345678',
+      heldName: 'Meera Narayan',
+    });
+    await kyc(db, { person: sanjay.id, institution: 'Axis', heldBirthday: '1980-04-05' });
+
+    const review = await new IdentityService(db).review();
+
+    assert.ok(review.any);
+    assert.equal(review.conflicts[0].severity, 'CRITICAL');
+    assert.ok(review.conflicts.some((one) => one.institution === 'Axis'
+      && one.field === 'birthday'));
+  });
+
+  test('a household with no KYC records gets no banner rather than an empty one',
+    async () => {
+      const db = await makeDb();
+      await makePerson(db, { name: 'Sanjay Narayan' });
+      assert.not((await new IdentityService(db).review()).any);
+    });
+
+  test('the names come from the household, and an unknown id stays an id', () => {
+    const nameOf = IdentityService.nameLookup([{ id: 'p1', name: 'Sanjay' }]);
+    assert.equal(nameOf('p1'), 'Sanjay');
+    // Better a household sees an id than a blank where a name should be.
+    assert.equal(nameOf('p9'), 'p9');
+  });
+
+  test('conflicts and drift are kept apart', async () => {
+    // Two different questions with two different fixes. Merged into one list
+    // they would need a column to say which was which.
+    const db = await makeDb();
+    const person = await makePerson(db, { name: 'Sanjay Narayan', birthday: '1980-05-04' });
+    await kyc(db, { person: person.id, heldBirthday: '1980-04-05' });
+    await kyc(db, { person: person.id, institution: 'Axis', heldBirthday: '1979-01-01' });
+
+    const review = await new IdentityService(db).review();
+    assert.ok(review.conflicts.length, 'both institutions disagree with the person');
+    assert.ok(review.drift.length, 'and with each other');
+  });
+
+  test('the assembler drops a deleted record given plain rows', () => {
+    // Through the repository this filter is redundant — `list` has already
+    // dropped soft-deleted rows, and two mutations survived saying so. The
+    // assembler is exported to be usable *without* a database, and that is the
+    // interface where a deleted row would otherwise be compared.
+    const people = [{ id: 'p1', name: 'Sanjay Narayan', birthday: '1980-05-04' }];
+    const records = [{
+      id: 'k1', person: 'p1', institution: 'HDFC', heldBirthday: '1980-04-05',
+      deletedAt: '2026-01-01',
+    }];
+
+    const review = assembleIdentityReview({ people, records });
+    assert.not(review.any);
+    assert.length(review.conflicts, 0);
+  });
+
+  test('and a deleted person is not compared against anything', () => {
+    const people = [
+      { id: 'p1', name: 'Sanjay Narayan', birthday: '1980-05-04', deletedAt: '2026-01-01' },
+    ];
+    const records = [{
+      id: 'k1', person: 'p1', institution: 'HDFC', heldBirthday: '1980-04-05', deletedAt: null,
+    }];
+
+    assert.length(assembleIdentityReview({ people, records }).conflicts, 0);
+  });
+
+  test('a deleted record is in neither', async () => {
+    const db = await makeDb();
+    const person = await makePerson(db, { name: 'Sanjay Narayan', birthday: '1980-05-04' });
+    const record = await kyc(db, { person: person.id, heldBirthday: '1980-04-05' });
+    await db.repo('kycRecord').remove(record.id);
+
+    const review = await new IdentityService(db).review();
+    assert.not(review.any);
+    assert.length(review.conflicts, 0);
   });
 });

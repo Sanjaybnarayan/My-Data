@@ -188,3 +188,8 @@ No screen. This tranche is the engine and its tests; `js/modules/identity.js`
 does not yet show a conflict banner, and the roadmap's *"no profile completion,
 no `KYCVersion`/`KYCConflict` entities"* remains true — `docs/KYC.md` explains
 why the last two are derived at read time rather than stored.
+
+**The screen was built in the next tranche** — `docs/IDENTITY_SCREEN.md`. This
+paragraph is left as written, because it is the finding this codebase makes
+most often and it is worth seeing it made and answered in consecutive
+documents rather than quietly edited away.
