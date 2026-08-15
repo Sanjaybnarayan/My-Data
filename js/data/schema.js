@@ -359,10 +359,16 @@ const transaction = {
     // record of one side, and tidying the total by merging them would destroy
     // the evidence for it.
     //
-    // This is deliberately **not** the `EconomicEvent` entity the prompt asks
-    // for. See `docs/MULTI_LEG.md` for what that would additionally need and
-    // why it is not built on the strength of this.
-    text('movement', { label: 'Part of movement', hidden: true }),
+    // Now a real reference. It began as a bare string, deliberately, with the
+    // entity's cost measured and declined; two tranches later the fee link had
+    // nowhere to live and the kind of a movement could not be said at all, so
+    // the entity was built and this points at it.
+    ref('movement', 'economicEvent', { label: 'Part of movement', hidden: true }),
+    // What this row is *to* that movement. A leg is money that moved; a fee is
+    // money that left and did not arrive. Threading a charge onto a movement
+    // without saying which it is would make a ₹50 bank charge look like ₹50 of
+    // the amount transferred.
+    pick('movementRole', ['leg', 'fee'], { hidden: true }),
   ],
 };
 
@@ -1082,11 +1088,75 @@ const emergencyContact = {
   ],
 };
 
+
+/**
+ * One movement of money, as the household's economy saw it.
+ *
+ * ## Why an entity, after a tranche that deliberately did not build one
+ *
+ * The previous tranche threaded a shared id through the legs and said plainly
+ * that this was **not** the `EconomicEvent` the prompt asks for, listing what an
+ * entity would additionally buy. Two of those things have since become the
+ * blocking gap rather than a nicety:
+ *
+ *   - **A kind.** A split, a sweep and a transfer that lost a fee on the way
+ *     are different events, and a bare thread cannot say which.
+ *   - **Somewhere for the fee to live.** `domain/events.js` finds the charge
+ *     that accounts for a near-match exactly, names it in a sentence, and has
+ *     nowhere to record it. A fee row is not a leg of the movement — it is
+ *     money that left and did not arrive — so threading it onto the same id
+ *     without saying what it is would make it look like one.
+ *
+ * ## What it is not
+ *
+ * It is **not a replacement for the rows**. Every statement line survives, with
+ * its own narration, reference and running balance; this sits beside them and
+ * says what they add up to. Deleting a leg leaves the event standing, reported
+ * short rather than silently rewritten.
+ *
+ * It holds no amount that is not derivable from its legs. `amount` is written
+ * once, at confirmation, as the figure the person agreed to — and
+ * `domain/events.js` re-derives the same number from the rows on every read, so
+ * a disagreement between the two is visible rather than authoritative. That is
+ * the same "offer, never overwrite" rule the rest of this application follows.
+ */
+const economicEvent = {
+  name: 'economicEvent', module: 'finance', sheet: 'EconomicEvents', version: 1,
+  labels: { one: 'Movement', many: 'Movements' }, icon: 'refresh',
+  acl: restricted,
+  sort: '-date',
+  indexes: [['byDate', 'date']],
+  title: (r) => r.title || r.kind,
+  subtitle: (r) => r.kind,
+  fields: [
+    day('date', { required: true, list: true, default: 'today' }),
+    pick('kind', [
+      // Two accounts, one amount. The ordinary case.
+      'transfer',
+      // One debit, several credits.
+      'split',
+      // Several debits, one credit.
+      'sweep',
+      // The amounts differ, and a charge on the statement accounts for the
+      // difference exactly. The charge is a leg with `role: 'fee'`.
+      'transfer with fee',
+    ], { required: true, list: true, default: 'transfer' }),
+    money('amount', { required: true, list: true, label: 'Amount moved' }),
+    text('title', { list: true, search: true, label: 'What this was' }),
+    // What the person was shown when they agreed to it. Kept because a
+    // confirmation is a decision, and a decision with no record of what it was
+    // based on cannot be revisited.
+    text('why', { label: 'Why it was offered', search: true }),
+    note(),
+  ],
+};
+
 /* ---------------------------------------------------------------- registry */
 
 export const entities = Object.freeze(Object.fromEntries(
   [person, relationship, identityDocument, kycRecord, employment, importantDate,
-    account, transaction, bankStatement, receipt, budget, recurringPayment, loan,
+    account, transaction, economicEvent, bankStatement, receipt, budget,
+    recurringPayment, loan,
     holding, investmentTransaction, document,
     vehicle, vehicleService, fuelLog,
     healthRecord, medication, vaccination, appointment,

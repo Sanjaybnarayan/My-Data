@@ -522,7 +522,8 @@ export function multiLegTotal(proposals) {
  *
  * @param {object} set a proposal from `proposeMultiLeg`
  * @param {() => string} [id] how to mint the shared id
- * @returns {{movement: string, patches: Array<{transactionId: string, patch: object}>}|null}
+ * @returns {{movement: string, event: object,
+ *             patches: Array<{transactionId: string, patch: object}>}|null}
  */
 export function movementFor(set, id = defaultMovementId) {
   // The same refusal as `linkFor`: an uncertain grouping applied by a confirm
@@ -534,12 +535,83 @@ export function movementFor(set, id = defaultMovementId) {
 
   return {
     movement,
+    // The record the legs point at. Written first, so a leg never references
+    // an event that is not there.
+    event: {
+      id: movement,
+      date: set.anchor.date,
+      kind: set.shape === 'sweep' ? 'sweep' : 'split',
+      amount: set.amount,
+      title: `${set.legs.length + 1} rows, one movement`,
+      why: set.why ?? '',
+    },
     // Every leg, the anchor included. A thread that skipped the anchor would
     // join the pieces to each other and to nothing they came from.
     patches: [set.anchor, ...set.legs].map((leg) => ({
       transactionId: leg.id,
-      patch: { movement },
+      patch: { movement, movementRole: 'leg' },
     })),
+  };
+}
+
+/**
+ * What confirming a near-match *with the charge that explains it* would change.
+ *
+ * ## The gap this closes
+ *
+ * `proposeTransfers` finds the ₹50 bank charge that accounts for a ₹50,000 /
+ * ₹49,950 pair exactly, names it in the sentence, and had **nowhere to record
+ * it**. So the evidence was shown and then thrown away on every repaint, and
+ * the pairing stayed a question for ever — there was no answer a person could
+ * give that the application could keep.
+ *
+ * ## Why this is a confirmation and not a promotion
+ *
+ * The pairing is still `possible`, and `linkFor` still refuses it. What changes
+ * is that a **person** can now accept it, which was always the missing half:
+ * the rule is that unequal amounts never match *automatically*, not that they
+ * can never be matched. The sentence they are agreeing to is stored on the
+ * event, because a decision with no record of what it was based on cannot be
+ * revisited.
+ *
+ * The charge is threaded on as `movementRole: 'fee'`, not as a leg. A fee is
+ * money that left and did not arrive; counting it as a leg would say ₹50 of the
+ * transfer went somewhere it did not.
+ *
+ * @param {object} proposal a near-match from `proposeTransfers`, with evidence
+ */
+export function feeMovementFor(proposal, id = defaultMovementId) {
+  // Belt and braces, and worth naming as such: mutation testing shows this
+  // clause can be removed without failing anything, because an exact pairing
+  // never carries evidence and the check below turns it away regardless. It
+  // stays because "this path is for the uncertain ones" is a property of the
+  // answer rather than of how the evidence happens to be populated.
+  if (!proposal || proposal.confidence !== CONFIDENCE.POSSIBLE) return null;
+  // Exactly one charge. Two that each fit is a question this cannot answer, and
+  // picking one would be the guess every rule here exists to refuse.
+  if (proposal.evidence?.length !== 1) return null;
+  if (proposal.ambiguous) return null;
+
+  const movement = id();
+  const fee = proposal.evidence[0];
+
+  return {
+    movement,
+    event: {
+      id: movement,
+      date: proposal.out.date,
+      kind: 'transfer with fee',
+      // What actually left the household: the transfer plus the charge. The
+      // arriving side is smaller by exactly the fee, which is the whole point.
+      amount: proposal.out.amount,
+      title: 'One movement, less a charge',
+      why: proposal.why ?? '',
+    },
+    patches: [
+      { transactionId: proposal.out.id, patch: { movement, movementRole: 'leg' } },
+      { transactionId: proposal.in.id, patch: { movement, movementRole: 'leg' } },
+      { transactionId: fee.id, patch: { movement, movementRole: 'fee' } },
+    ],
   };
 }
 
@@ -571,9 +643,15 @@ export function recordedMovements(transactions) {
     byId.get(row.movement).push(row);
   }
 
-  return [...byId.entries()].map(([movement, legs]) => ({
+  return [...byId.entries()].map(([movement, rows]) => {
+    // A fee is not a leg. Summing it into either side would report a ₹50 bank
+    // charge as ₹50 of the amount transferred.
+    const legs = rows.filter((r) => r.movementRole !== 'fee');
+    const fees = rows.filter((r) => r.movementRole === 'fee');
+    return {
     movement,
     legs,
+    fees,
     date: legs.map((l) => l.date).sort()[0],
     // Counted once. Each leg carries the full amount of its own side, so
     // summing them would report a ₹50,000 movement as ₹100,000 — the whole
@@ -582,7 +660,10 @@ export function recordedMovements(transactions) {
       sumOf(legs.filter((l) => l.direction === 'out')),
       sumOf(legs.filter((l) => l.direction === 'in')),
     ),
-  })).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    // Reported beside the amount, never folded into it.
+    charged: sumOf(fees),
+    };
+  }).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
 function sumOf(legs) {

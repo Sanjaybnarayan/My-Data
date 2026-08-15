@@ -415,3 +415,173 @@ describe('recording a movement in pieces', () => {
     assert.not(rows.some((r) => r.movement), 'nothing should have been written');
   });
 });
+
+/**
+ * The movement as a record of its own, and the fee that finally has a home.
+ *
+ * The tranche before this threaded a shared id through the legs and said
+ * plainly that it was **not** the `EconomicEvent` the prompt asks for. Two of
+ * the things it listed as missing had since become the blocking gap: a movement
+ * could not say what *kind* it was, and the charge that explains a near-match
+ * was found, shown, and thrown away on every repaint because there was nowhere
+ * to record it.
+ */
+describe('a movement as a record of its own', () => {
+  const split = async (db) => {
+    const { hdfc, icici } = await twoAccounts(db);
+    const sbi = await makeAccount(db, { name: 'SBI Savings' });
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 30_000_00 }));
+    await db.repo('transaction').create(legOf(sbi, 'in', { amount: 20_000_00 }));
+  };
+
+  test('confirming a split writes an event the legs point at', async () => {
+    const db = await makeDb();
+    await split(db);
+    const service = new TransfersService(db);
+    const { movement } = await service.confirmSet((await service.pending()).sets[0]);
+
+    const event = await db.repo('economicEvent').get(movement);
+    assert.ok(event, 'no event record was written');
+    assert.equal(event.kind, 'split');
+    assert.equal(event.amount, 50_000_00);
+
+    const rows = await db.repo('transaction').list({ decrypt: false });
+    assert.length(rows.filter((r) => r.movement === event.id), 3);
+  });
+
+  test('a sweep is recorded as a sweep, not as a split', async () => {
+    // Two debits funding one credit. Nothing pinned the kind, so the record
+    // could have called every movement a split and no test would have noticed.
+    const db = await makeDb();
+    const { hdfc, icici } = await twoAccounts(db);
+    const sbi = await makeAccount(db, { name: 'SBI Savings' });
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 30_000_00 }));
+    await db.repo('transaction').create(legOf(sbi, 'out', { amount: 20_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 50_000_00 }));
+
+    const service = new TransfersService(db);
+    const { movement } = await service.confirmSet((await service.pending()).sets[0]);
+    assert.equal((await db.repo('economicEvent').get(movement)).kind, 'sweep');
+  });
+
+  test('and every leg is marked as a leg', async () => {
+    const db = await makeDb();
+    await split(db);
+    const service = new TransfersService(db);
+    await service.confirmSet((await service.pending()).sets[0]);
+
+    const rows = await db.repo('transaction').list({ decrypt: false });
+    assert.length(rows.filter((r) => r.movementRole === 'leg'), 3);
+    assert.length(rows.filter((r) => r.movementRole === 'fee'), 0);
+  });
+});
+
+describe('the charge that finally has somewhere to live', () => {
+  // Returns the accounts: `twoAccounts` creates fresh ones on every call, so
+  // asking it twice gives two different ICICIs — which is how the ambiguous
+  // case below quietly put its second charge on an account nothing looks at.
+  const nearMatch = async (db) => {
+    const { hdfc, icici } = await twoAccounts(db);
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 49_950_00 }));
+    await db.repo('transaction').create(legOf(hdfc, 'out', {
+      amount: 50_00, kind: 'expense', category: 'bank charges', payee: 'NEFT charges',
+    }));
+    return { hdfc, icici };
+  };
+
+  const near = (proposals) => proposals.find((p) => p.confidence === CONFIDENCE.POSSIBLE);
+
+  test('a person can accept it, and the fee is recorded as a fee', async () => {
+    const db = await makeDb();
+    await nearMatch(db);
+    const service = new TransfersService(db);
+    const { movement } = await service.confirmWithFee(near((await service.pending()).proposals));
+
+    const event = await db.repo('economicEvent').get(movement);
+    assert.equal(event.kind, 'transfer with fee');
+
+    const rows = await db.repo('transaction').list({ decrypt: false });
+    const fee = rows.find((r) => r.movementRole === 'fee');
+    assert.ok(fee, 'the charge was not recorded');
+    assert.equal(fee.amount, 50_00);
+    // Not a leg. Counting it as one would say ₹50 of the transfer went
+    // somewhere it did not.
+    assert.length(rows.filter((r) => r.movementRole === 'leg'), 2);
+  });
+
+  test('the sentence they agreed to is kept', async () => {
+    // A decision with no record of what it was based on cannot be revisited.
+    const db = await makeDb();
+    await nearMatch(db);
+    const service = new TransfersService(db);
+    const { movement } = await service.confirmWithFee(near((await service.pending()).proposals));
+
+    const event = await db.repo('economicEvent').get(movement);
+    assert.ok(/accounts for it exactly/.test(event.why), event.why);
+    assert.ok(event.why.includes('₹50.00'), event.why);
+  });
+
+  test('the fee is reported beside the amount, never inside it', async () => {
+    const db = await makeDb();
+    await nearMatch(db);
+    const service = new TransfersService(db);
+    await service.confirmWithFee(near((await service.pending()).proposals));
+
+    const { recorded } = await service.pending();
+    assert.length(recorded, 1);
+    assert.equal(recorded[0].amount, 50_000_00);
+    assert.equal(recorded[0].charged, 50_00);
+    assert.length(recorded[0].legs, 2);
+    assert.length(recorded[0].fees, 1);
+  });
+
+  test('two charges that each fit cannot be accepted', async () => {
+    // Picking one would be the guess every rule here exists to refuse.
+    const db = await makeDb();
+    // On the *receiving* account, which `chargesExplaining` also looks at — an
+    // inward-remittance fee is charged where the money arrives.
+    const { icici } = await nearMatch(db);
+    await db.repo('transaction').create(legOf(icici, 'out', {
+      amount: 50_00, kind: 'expense', category: 'bank charges', payee: 'Other charge',
+    }));
+
+    const service = new TransfersService(db);
+    const proposal = near((await service.pending()).proposals);
+
+    let threw = null;
+    try { await service.confirmWithFee(proposal); } catch (err) { threw = err; }
+    assert.ok(threw, 'an ambiguous explanation was accepted');
+    assert.length(await db.repo('economicEvent').list({ decrypt: false }), 0);
+  });
+
+  test('a pairing with no explaining charge cannot be accepted either', async () => {
+    const db = await makeDb();
+    const { hdfc, icici } = await twoAccounts(db);
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 49_950_00 }));
+
+    const service = new TransfersService(db);
+    const proposal = near((await service.pending()).proposals);
+
+    let threw = null;
+    try { await service.confirmWithFee(proposal); } catch (err) { threw = err; }
+    assert.ok(threw, 'a bare near-match was accepted');
+  });
+
+  test('an exact pairing is not routed through this at all', async () => {
+    const db = await makeDb();
+    const { hdfc, icici } = await twoAccounts(db);
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 50_000_00 }));
+
+    const service = new TransfersService(db);
+    const [probable] = (await service.pending()).proposals;
+    assert.equal(probable.confidence, CONFIDENCE.PROBABLE);
+
+    let threw = null;
+    try { await service.confirmWithFee(probable); } catch (err) { threw = err; }
+    assert.ok(threw, 'a probable pairing went through the fee path');
+  });
+});

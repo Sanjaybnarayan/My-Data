@@ -15,7 +15,7 @@ import { Service } from './service.js';
 import { format } from '../core/money.js';
 import {
   proposeTransfers, movementTotal, linkFor, CONFIDENCE,
-  proposeMultiLeg, multiLegTotal, movementFor, recordedMovements,
+  proposeMultiLeg, multiLegTotal, movementFor, recordedMovements, feeMovementFor,
 } from '../domain/events.js';
 
 export class TransfersService extends Service {
@@ -116,10 +116,29 @@ export class TransfersService extends Service {
    * both — here, all — of the bank's rows survive untouched.
    */
   async confirmSet(set) {
-    const movement = movementFor(set);
-    if (!movement) {
-      throw new Error('only a probable grouping can be confirmed — this one is a question');
-    }
+    return this.#record(movementFor(set),
+      'only a probable grouping can be confirmed — this one is a question');
+  }
+
+  /**
+   * Accept a near-match on the strength of the charge that explains it.
+   *
+   * The pairing stays `possible` and `linkFor` still refuses it — the rule is
+   * that unequal amounts never match *automatically*, not that they can never
+   * be matched. This is the person doing the deciding, which was always the
+   * missing half: the evidence was found, shown, and then thrown away on every
+   * repaint because there was no answer they could give that would be kept.
+   */
+  async confirmWithFee(proposal) {
+    return this.#record(feeMovementFor(proposal),
+      'this pairing has no single charge that accounts for the difference');
+  }
+
+  async #record(movement, refusal) {
+    if (!movement) throw new Error(refusal);
+
+    // The event first, so a leg never points at a record that is not there.
+    await this.repo('economicEvent').create(movement.event);
 
     const repo = this.repo('transaction');
     for (const { transactionId, patch } of movement.patches) {

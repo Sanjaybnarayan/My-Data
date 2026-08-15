@@ -21,6 +21,7 @@ var POLICY = {
   "certificate": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "digitalAsset": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "document": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
+  "economicEvent": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "education": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "emergencyContact": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "employment": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },

@@ -163,6 +163,17 @@ function transfersCard(db, transfers, repaint) {
   const probable = proposals.filter((p) => p.confidence === CONFIDENCE.PROBABLE);
   const questions = proposals.filter((p) => p.confidence === CONFIDENCE.POSSIBLE);
 
+  async function acceptFee(proposal) {
+    try {
+      await new TransfersService(db).confirmWithFee(proposal);
+      toast('Recorded as one movement, less the charge — every row is kept',
+        { kind: 'success' });
+      await repaint();
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    }
+  }
+
   async function confirmSet(set) {
     try {
       await new TransfersService(db).confirmSet(set);
@@ -190,7 +201,12 @@ function transfersCard(db, transfers, repaint) {
     leading: badge(p.confidence, p.confidence === CONFIDENCE.PROBABLE ? 'info' : 'warning'),
     trailing: p.confidence === CONFIDENCE.PROBABLE
       ? button('One movement', { variant: 'subtle', onClick: () => confirm(p) })
-      : null,
+      // A near-match with exactly one charge accounting for it can now be
+      // accepted by a person. The engine still will not: unequal amounts never
+      // match *automatically*, which is not the same as never.
+      : p.evidence?.length === 1 && !p.ambiguous
+        ? button('Accept with the charge', { variant: 'subtle', onClick: () => acceptFee(p) })
+        : null,
   });
 
   return card({}, [
