@@ -144,11 +144,18 @@ others were **audited for**: `tools/field-coverage.mjs` holds the set of fields
 nothing reads by name, and the suite fails in *both* directions — when the set
 grows, and when a field on it starts being read. The second half is what
 reported *"account.dueDay, account.statementDay are read now"* during the card
-tranche, and the same again for the three subscription fields. 86 of 369 remain
-unread and most of them should be — a nominee needs no derivation — so the
-inventory is names only, and adding to it is a deliberate act. See
-`docs/FIELD_COVERAGE.md`, `docs/ENTERED_CATEGORIES.md`, `docs/FAMILY_TREE.md`,
-`docs/HOUSEHOLD_LEDGER.md`, `docs/CARD_BILLS.md` and `docs/COMMITMENTS.md`.
+tranche, and the same again for the three subscription fields. 78 of 369 remain
+unread and most of them should be, so the inventory is names only, and adding to
+it is a deliberate act.
+
+**This sentence used to justify that with "a nominee needs no derivation", and
+it was wrong.** Four fields came off the list in one tranche when the claim was
+finally tested — the three nominees and `digitalAsset.legacyInstruction`, whose
+form label is *"On my death, do this"*. See `docs/NOMINATIONS.md`, and note that
+the reasoning which produced the wrong example is still available for every name
+left on the list. See also `docs/FIELD_COVERAGE.md`, `docs/ENTERED_CATEGORIES.md`,
+`docs/FAMILY_TREE.md`, `docs/HOUSEHOLD_LEDGER.md`, `docs/CARD_BILLS.md` and
+`docs/COMMITMENTS.md`.
 
 **The form/importer seam has produced three separate bugs**, in Phase 5's
 transfer directions, Phase 5's balances, and Phase 6's entered categories. Each
@@ -173,7 +180,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 9 | Financial insights, forecast, goals, Family CFO, anomaly detection | **mostly done** — insights (`docs/STATEMENT_FORMATS.md`), anomaly detection with seasonality (`docs/UNUSUAL_SPENDING.md`), forecasting (`docs/CASH_RUNWAY.md`). **No goals, no Family CFO screen** |
 | 10 | Insurance, vehicles, fuel, property, tenants, purchases, warranty, subscriptions, travel | **entities exist, intelligence does not** — no fuel OCR, no warranty extraction, no tenant rent tracking |
 | 11 | Health, medical records, ABDM architecture | entities exist; **no ABDM connector** |
-| 12 | Legal, estate, digital life, crypto metadata | digital life exists; **no legal, estate, will or beneficiary entities** |
+| 12 | Legal, estate, digital life, crypto metadata | **started** — digital life existed; nominations, gaps and legacy instructions are now read across accounts, investments and policies, with the nominee-is-not-an-heir refusal on the screen (`docs/NOMINATIONS.md`). **No legal, estate, will, executor or beneficiary entities, and no screen** |
 | 13 | Household staff | **not started** |
 | 14 | Family chat, media, sharing, E2EE | **not started** |
 | 15 | Location, safe zones, geofencing, SOS | **not started** — and correctly refused for a PWA |

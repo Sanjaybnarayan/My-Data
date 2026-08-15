@@ -40,9 +40,20 @@ for, so the value reaches a derivation without anything naming the key.
 
 ## What a finding does *not* mean
 
-**92 of 369 fields are unread, and that is not 92 bugs.** A policy's nominee, a
-vehicle's chassis number and a medication's dosage are reference data: you
-record them, you read them on screen, and nothing should compute with them.
+**92 of 369 fields are unread, and that is not 92 bugs.** A vehicle's chassis
+number and a medication's dosage are reference data: you record them, you read
+them on screen, and nothing should compute with them.
+
+**This paragraph used to open with "a policy's nominee", and that example was
+wrong.** It stood here as the illustration of a field that is *correctly*
+unread, and `docs/NOMINATIONS.md` records what happened when it was finally
+tested: a household could not ask which of its accounts had no nominee, what
+was nominated to one person, or whether two spellings were the same person —
+three derivations, all taking that field as input. The correction is left
+visible rather than replaced with a safer example, because the failure was not
+the example. It was assuming a field is reference data because it looks like
+reference data **on a form**, and that assumption can be made about any of the
+names still on this list.
 
 The inventory is therefore **names only, with no per-field justification**. A
 hundred invented reasons would be worth less than the single question this
