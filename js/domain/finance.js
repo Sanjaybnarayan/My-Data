@@ -243,6 +243,10 @@ export function upcomingBills(recurring, loans, {
       dueOn: r.nextDueOn,
       overdue: r.nextDueOn < from,
       autoDebit: Boolean(r.autoDebit),
+      // Which account it leaves from, where the household recorded one. A
+      // forecast that pools every account will happily report no shortfall
+      // while the rent bounces out of an empty current account.
+      account: r.account ?? null,
     }));
   }
 
