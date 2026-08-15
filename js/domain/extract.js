@@ -271,6 +271,43 @@ export function readBill(text) {
  * fields are different because the facts are different, and reusing the bill's
  * shape is what made a payer look like a biller.
  */
+/**
+ * Words that begin the *next* thing on a receipt.
+ *
+ * A PDF's text layer often arrives with the line breaks gone, so
+ * "Received with thanks from Mr Sanjay Narayan" and "Towards: Term II Tuition
+ * Fee" become one run — and a capture bounded only by length swallows the
+ * label after it. Measured across four flattened layouts, three produced a
+ * wrong name, the worst being `"Sanjay Narayan Being donation towards Ann"`.
+ *
+ * A wrong name is a claim, not a gap, so the capture stops where the next
+ * label starts. The list is receipt vocabulary rather than anything clever:
+ * these are the words that follow a payer on an Indian receipt.
+ */
+const NEXT_LABEL = /\b(towards?|being|amount|sum|date[d]?|mode|payment|paid|receipt|student|class|adm|on account of|in respect of|for the month|vide|cheque|ref)\b/i;
+
+/**
+ * Cut a captured value where the next label begins.
+ *
+ * Returns null rather than a fragment when nothing is left: half a name is not
+ * a better answer than none, and the whole point of this reader is that a
+ * missing value is a gap while a wrong one is a claim.
+ */
+export function stopAtLabel(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+
+  const at = text.search(NEXT_LABEL);
+  // `at > 0`, not `>= 0`: a value that *starts* with one of these words was
+  // never a name to begin with, and cutting it to nothing is the right answer.
+  const cut = (at > 0 ? text.slice(0, at) : at === 0 ? '' : text)
+    // Trailing punctuation left behind by the cut.
+    .replace(/[\s,;:.\-]+$/, '')
+    .trim();
+
+  return cut.length >= 2 ? cut : null;
+}
+
 export function readReceipt(text) {
   const source = String(text ?? '');
 
@@ -285,9 +322,9 @@ export function readReceipt(text) {
     // The length bound is belt and braces on top of that: mutation testing
     // shows widening it changes nothing today, because every label here is
     // followed by a name at the end of its line.
-    payer: readField(source, [
+    payer: stopAtLabel(readField(source, [
       'received with thanks from', 'received from', 'paid by',
-    ], { pattern: '[A-Za-z][A-Za-z .]{2,40}' }),
+    ], { pattern: '[A-Za-z][A-Za-z .]{2,40}' })),
 
     // Who issued it. A receipt rarely labels this, so it is left empty far more
     // often than it is guessed at — an invented payee on a payment record is
@@ -319,8 +356,11 @@ export function readReceipt(text) {
     ]),
 
     // What it was for, where the document says so plainly. Not inferred.
-    towards: readField(source, ['towards', 'being', 'on account of'],
-      { pattern: '[A-Za-z][A-Za-z .&-]{2,60}' }),
+    // Bounded the same way. On flattened text this ran into "Amount", so a
+    // school fee receipt said the payment was towards
+    // "Term II Tuition Fee Amount".
+    towards: stopAtLabel(readField(source, ['towards', 'being', 'on account of'],
+      { pattern: '[A-Za-z][A-Za-z .&-]{2,60}' })),
   });
 }
 

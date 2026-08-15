@@ -1,7 +1,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb } from './fixture.mjs';
 import {
-  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt,
+  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt, stopAtLabel,
 } from '../js/domain/extract.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
@@ -456,5 +456,73 @@ describe('a receipt is not a bill, even when it says Bill No', () => {
   test('readDocument sends each to its own reader', () => {
     assert.equal(readDocument(HOSPITAL).fields.amount, 1_24_380_00);
     assert.equal(readDocument(HOSPITAL).fields.receiptDate, '2026-06-21');
+  });
+});
+
+/**
+ * A receipt whose lines have run together.
+ *
+ * A PDF's text layer often arrives with the line breaks gone, and every receipt
+ * fixture above is multi-line — so a capture bounded only by length was untested
+ * against the shape a real extraction produces. Measured across four flattened
+ * layouts, **three returned a wrong name**:
+ *
+ *     "Mr Sanjay Narayan Towards"
+ *     "Sanjay Narayan Being donation towards Ann"
+ *     "R Krishnan Amount"
+ *
+ * A wrong name is a claim, not a gap. This is the bound that stops it.
+ */
+const FLAT = {
+  school: 'GREENWOOD PUBLIC SCHOOL Fee Receipt Received with thanks from '
+    + 'Mr Sanjay Narayan Towards: Term II Tuition Fee Amount: Rs. 48,500.00',
+  donation: 'DONATION RECEIPT Received from: Sanjay Narayan Being donation '
+    + 'towards Annadanam Sum of Rs 11,000',
+  rent: 'Received with thanks from R Krishnan Amount: Rs. 35,000 Date: 05-07-2026',
+};
+
+describe('a payer’s name when the line breaks are gone', () => {
+  test('stops before the label that follows it', () => {
+    assert.equal(readReceipt(FLAT.school).payer, 'Mr Sanjay Narayan');
+    assert.equal(readReceipt(FLAT.rent).payer, 'R Krishnan');
+  });
+
+  test('and before a whole clause that follows it', () => {
+    // The worst of the three: the name ran on through "Being donation towards"
+    // and stopped mid-word.
+    assert.equal(readReceipt(FLAT.donation).payer, 'Sanjay Narayan');
+  });
+
+  test('what it was for is bounded the same way', () => {
+    // Otherwise a school fee receipt says the payment was towards
+    // "Term II Tuition Fee Amount".
+    assert.equal(readReceipt(FLAT.school).towards, 'Term II Tuition Fee');
+    assert.equal(readReceipt(FLAT.donation).towards, 'Annadanam');
+  });
+
+  test('the amount and date are unaffected', () => {
+    // The bound must not cost what already worked.
+    assert.equal(readReceipt(FLAT.school).amount, 48_500_00);
+    assert.equal(readReceipt(FLAT.rent).receiptDate, '2026-07-05');
+  });
+
+  test('a multi-line receipt reads exactly as it did', () => {
+    assert.equal(readReceipt(SCHOOL_FEE).payer, 'Mr Sanjay Narayan');
+    assert.equal(readReceipt(SCHOOL_FEE).towards, 'Term II Tuition Fee');
+  });
+
+  test('a value that is only a label becomes nothing', () => {
+    // Half a name is not a better answer than none.
+    assert.equal(stopAtLabel('Towards'), null);
+    assert.equal(stopAtLabel('  '), null);
+    assert.equal(stopAtLabel(null), null);
+  });
+
+  test('a name with no label after it is left whole', () => {
+    assert.equal(stopAtLabel('R Krishnan'), 'R Krishnan');
+  });
+
+  test('trailing punctuation from the cut is trimmed', () => {
+    assert.equal(stopAtLabel('Sanjay Narayan, Towards'), 'Sanjay Narayan');
   });
 });
