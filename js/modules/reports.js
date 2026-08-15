@@ -16,7 +16,12 @@ import { modal } from '../ui/components/modal.js';
 import { app } from '../context.js';
 import { reports, produce, exportEntity } from '../reports/build.js';
 import { entities, entity } from '../data/schema.js';
-import { range, formatDay } from '../core/dates.js';
+import { range, formatDay, today, addMonths } from '../core/dates.js';
+import { format } from '../core/money.js';
+import { docx } from '../reports/docx.js';
+import {
+  rentReceived, rentYear, rentReceiptBlocks, rentReceiptFilename,
+} from '../domain/rentreceipt.js';
 import { userMessage } from '../core/errors.js';
 import { ACTIONS } from '../data/audit.js';
 
@@ -34,6 +39,104 @@ const FORMATS = [
   ['xlsx', 'Excel', 'grid'],
   ['csv', 'CSV', 'report'],
 ];
+
+/**
+ * Rent receipts, for rent the household has actually been paid.
+ *
+ * ## One direction only
+ *
+ * A receipt is a statement by the person who **received** the money. This
+ * issues them for property the household rents out, where they are the one
+ * making the statement and signing it.
+ *
+ * It does not produce receipts for rent the household *pays*. That would mean
+ * writing, in a landlord's voice, that the landlord received it — a document
+ * asserting somebody else's acknowledgement, produced by the party who benefits
+ * from the claim. Tenants need those for HRA and often cannot get them, which
+ * is exactly the pressure that makes writing one dangerous rather than helpful.
+ *
+ * ## And only for months there is a payment for
+ *
+ * `property.monthlyRent` is what the rent *is*, not evidence any arrived. A
+ * month with no matching credit produces **no document**, and is listed as
+ * unreceipted instead — the difference between a record and a claim.
+ */
+function rentReceiptsCard() {
+  const host = h('div', {});
+  void paint();
+  return host;
+
+  async function paint() {
+    const { db } = app();
+    const [properties, transactions, people] = await Promise.all([
+      db.repo('property').list({ decrypt: false, limit: 500 }),
+      db.repo('transaction').list({ decrypt: false, limit: 20_000 }),
+      db.repo('person').list({ decrypt: false, limit: 200 }),
+    ]);
+
+    const rented = properties.filter((p) => !p.deletedAt && p.rented && p.monthlyRent);
+    if (!rented.length) {
+      replace(host, null);
+      return;
+    }
+
+    const to = today();
+    const from = addMonths(to, -12).slice(0, 8) + '01';
+
+    replace(host, card({ class: 'card--quiet', style: { marginTop: 'var(--space-5)' } }, [
+      cardHeader('Rent receipts', null, { iconName: 'receipt' }),
+      h('p', { class: 'small muted' },
+        'For rent you have been paid, on the property you let. One document per '
+        + 'month, from the payment that actually arrived — a month with no '
+        + 'matching credit gets no receipt, because a receipt is a statement '
+        + 'that money was received.'),
+
+      h('div', { class: 'list' }, rented.map((property) => {
+        const { months } = rentReceived(property, transactions, { from, to });
+        const year = rentYear(months);
+        const owner = people.find((person) => person.id === property.owner)?.name ?? '';
+
+        return listItem({
+          title: property.name,
+          subtitle: [
+            `${year.receipted} of ${months.length} months received`,
+            year.missing ? `${year.missing} with no matching payment` : null,
+            // Reported, never printed on the document. Whether a PAN goes on it
+            // is the signer's decision and theirs to write.
+            year.needsPan
+              ? 'over ₹1,00,000 — your tenant will need your PAN for their claim'
+              : null,
+          ].filter(Boolean).join(' · '),
+          value: format(year.total),
+          trailing: year.receipted
+            ? button(`Download ${year.receipted}`, {
+              variant: 'subtle',
+              class: 'btn--small',
+              onClick: () => downloadReceipts(property, months, owner),
+            })
+            : null,
+        });
+      })),
+    ]));
+  }
+
+  async function downloadReceipts(property, months, owner) {
+    const issued = months.filter((month) => month.received);
+    for (const month of issued) {
+      const blocks = rentReceiptBlocks(property, month, { owner, at: today() });
+      if (!blocks) continue;
+      // One file each rather than a bundle: twelve separate receipts is what a
+      // tenant hands over, and a zip of them is one more thing to explain.
+      await download({
+        blobParts: docx(blocks, { title: `Rent receipt ${month.month}` }),
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filename: rentReceiptFilename(property, month),
+      });
+    }
+    toast(`${issued.length} receipt${issued.length === 1 ? '' : 's'} saved — sign each one`,
+      { kind: 'success' });
+  }
+}
 
 export async function render() {
   const host = h('div', {});
@@ -53,6 +156,8 @@ export async function render() {
           onClick: () => run(report, format),
         }))),
     ]))),
+
+    rentReceiptsCard(),
 
     card({ class: 'card--quiet', style: { marginTop: 'var(--space-5)' } }, [
       cardHeader('Export raw data', null, { iconName: 'download' }),
