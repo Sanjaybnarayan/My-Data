@@ -122,3 +122,136 @@ so their own ids open nothing.
   readers
 - `tests/commitments.test.mjs` — 32 tests. 22 mutations, all caught, one after
   a survivor exposed the absent-`autoRenew` gap above.
+
+---
+
+# The other direction: money that leaves and nothing records
+
+Everything above asks what the **records** add up to. A bank statement answers a
+different question — what actually left — and the two had never been put side by
+side.
+
+## What was measured
+
+One salaried household, six months of statement, against its own records:
+
+```
+  committed, from the records          : ₹53,500 a month
+  repeating charges the ledger can see  : ₹55,329 a month
+```
+
+Two charges, repeating monthly at a steady amount, that no record in the
+application accounts for:
+
+```
+  CLOUD BACKUP    ₹1,180  monthly  x6
+  NETFLIX           ₹649  monthly  x6
+```
+
+**₹1,829 a month — ₹21,948 a year.** Both figures were already being computed.
+Neither had ever been compared with the other.
+
+## A correction to this document's own first draft
+
+The first measurement said **₹10,829 a month**, because the fixture's grocery
+shop was exactly ₹9,000 in each of six months — which no real grocery shop is.
+With realistic variation the detector's own 20% tolerance rejects it, and the
+figure falls to ₹1,829.
+
+That is worth recording rather than quietly fixing. The overstatement came from
+a fixture built to be *tidy*, and a household would have been shown a number
+nearly six times too large. The same fixture discipline that found the receipt
+reader's flattened-text bug applies to money: **a fixture that is neater than
+reality produces a finding that is bigger than reality.**
+
+## What it will not do
+
+**It does not create anything.** A detected charge is not a record. Promoting
+one to a `subscription` on the strength of a name match would be this file
+deciding something the household did not, and the standing rule here is that an
+uncertain match is never forced.
+
+**It is not added to the committed total.** Not because the money is not real,
+but because `total` means *what the records say*, and this is read from
+statements. The sentence says which, in those words, so the two are never
+confused:
+
+> A further ₹1,829.00 a month leaves on a schedule that no record here explains
+> — CLOUD BACKUP, NETFLIX. That is read from your statements, not from this
+> list, so it is not added to the figure above.
+
+**An uncertain match is excluded from the figure.** Two records that fit equally
+well, or a single shared word on otherwise unalike names, are reported as
+questions and counted in nothing. A total that included maybes would overstate,
+and the entire value of this number is that it can be believed.
+
+## How a narration is matched to a record
+
+Word overlap, not equality. A record says *Rent* and the narration says
+*LANDLORD RENT*; a record says *Home loan* and the narration says *ACH DR HDFC
+HOME LOAN EMI*. Requiring equality would report every real commitment as
+unaccounted — a wrong claim in the other direction, and a louder one.
+
+`WEAK` is what stops that being too generous: *ach*, *upi*, *emi*, *bank*,
+*card*, *payment* and the like are dropped before overlap is counted. Without
+it, a record called *Card payment* shares both its words with every card
+narration and would account for all of them.
+
+**The amount is reported, not required.** A record saying ₹499 while ₹649 leaves
+every month is one commitment at a stale price, not two commitments — and that
+pair is exactly what is worth showing. Requiring the amounts to agree would hide
+it as unaccounted and invent a second commitment that does not exist. This is
+the same choice `duplicateCommitments` makes, for the same reason.
+
+## What this costs
+
+The Finance overview now categorises every transaction it loads on each paint,
+to find what repeats. Measured:
+
+| Rows | categorise | recurring | total |
+| --- | --- | --- | --- |
+| 2,000 | 75ms | 12ms | 87ms |
+| 10,000 | 152ms | 12ms | 164ms |
+| 20,000 | 223ms | 23ms | 246ms |
+
+A quarter of a second at the 20,000-row limit the screen loads at. That is the
+same order of work the Ledgers screen already does on every visit, and it is
+stated here rather than discovered later.
+
+## Verification
+
+- **10 of 10 mutations caught** on the domain layer — including *a stopped run
+  counted as a commitment*, *an ambiguous match picking the first record*,
+  *uncertain charges counted in the figure*, *a cadence ignored when totalling*,
+  *the unaccounted figure folded into the committed total*, and *weak words
+  identifying a commitment*.
+- Two survived the first pass and were **genuine missing tests**: a record named
+  for a common word swallowing every narration, and `differsBy` reporting a
+  difference against no record at all — a value a screen could print as
+  *"differs by ₹649"* when there is nothing to differ from.
+- A third survivor was **my own mutation being wrong**: it replaced only the
+  first line of the `WEAK` set, leaving *card* and *payment* weak, so the test
+  it was meant to defeat could not fire. The fourth time in this project that a
+  survivor has turned out to be a bad mutation rather than a gap, and the reason
+  every survivor is read before it is believed.
+- **4 browser checks**, driving real transactions through the real form, and
+  **the wiring itself mutated** — the screen not passing what it detected, and
+  the detector run over nothing — because a panel that is silent when it has
+  nothing to say is indistinguishable from one that never runs. That is the
+  receipt-match lesson, applied before it could happen again rather than after.
+
+## Still not done
+
+- **Nothing offers to create the missing record.** A button that turned a
+  detected charge into a subscription is the obvious next step and is
+  deliberately absent: it would need the household to confirm an amount, a
+  cadence and a name that were all inferred, and inferring three things and
+  asking for one confirmation is how a wrong record gets written.
+- **A charge is matched to a record, never to an account.** A household paying
+  the same subscription from two accounts sees one charge, because
+  `counterpartyKey` groups on the payee alone.
+- **The detector cannot tell a subscription from a habit.** A standing order and
+  a fortnightly shop of consistent size look identical by shape. The tolerance
+  rejects most habits, as the correction above shows, but not all — and where it
+  does not, the household is shown a row it can dismiss rather than a claim it
+  must argue with.

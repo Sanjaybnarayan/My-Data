@@ -1339,6 +1339,74 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-commitments');
     }
 
+    /* ------------ repeating charges the records do not account for */
+
+    {
+      // The records say what the household meant to commit to; the statement
+      // says what actually leaves. Nothing had ever put the two side by side.
+      //
+      // Driven through the real form because that is the whole lesson of the
+      // receipt-match panel: a screen that is deliberately silent when it has
+      // nothing to say looks identical, from outside, to one that never runs.
+      const before = consoleErrors.length;
+
+      const addCharge = async (payee, amount, date) => {
+        // Away and back: the router keys on the hash, so navigating to the
+        // same one twice does nothing and the second form never opens.
+        await go(page, '#/finance');
+        await go(page, '#/finance/transaction/new');
+        await page.waitForTimeout(600);
+        await page.waitForSelector('.modal', { timeout: 5000 });
+        await page.locator('#f-transaction-date').fill(date);
+        await page.locator('#f-transaction-kind').selectOption('expense');
+        await page.locator('#f-transaction-amount').fill(amount);
+        await page.locator('#f-transaction-payee').fill(payee);
+        await page.locator('#f-transaction-account').selectOption({ index: 1 });
+        await page.locator('#f-transaction-payee').press('Enter');
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+      };
+
+      // Three months of a charge nobody recorded anywhere.
+      const monthsAgo = (n) => {
+        const d = new Date();
+        d.setMonth(d.getMonth() - n);
+        d.setDate(14);
+        return d.toISOString().slice(0, 10);
+      };
+      for (const n of [3, 2, 1]) await addCharge('CLOUD BACKUP', '1180', monthsAgo(n));
+
+      // And three of one that *is* recorded — a Netflix subscription was added
+      // on the Digital screen above. This is the half that stops the panel
+      // crying wolf about money the household has already written down.
+      for (const n of [3, 2, 1]) await addCharge('NETFLIX', '649', monthsAgo(n));
+
+      await go(page, '#/finance');
+      await page.waitForTimeout(900);
+      const text = (await page.locator('.app-content').innerText()).trim();
+
+      check('a repeating charge no record explains is named on the Finance screen',
+        /no record here explains/.test(text) && /CLOUD BACKUP/i.test(text),
+        text.slice(0, 900));
+
+      // The provenance matters as much as the figure: this one is read from
+      // statements rather than from the list of records above it, and a
+      // household should be told which.
+      check('and the sentence says it was read from the statements, not the records',
+        /not added to the figure above/.test(text), text.slice(0, 900));
+
+      // The other direction. Netflix repeats identically and is recorded, so
+      // reporting it here would be telling a household they have a commitment
+      // they had in fact already entered.
+      const claim = /no record here explains[^.]*\./.exec(text)?.[0] ?? '';
+      check('a charge the household already recorded is not reported as unaccounted',
+        claim.length > 0 && !/NETFLIX/i.test(claim), claim || '(no sentence)');
+
+      check('the unaccounted figure renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-unaccounted');
+    }
+
     /* ------------------------------------------------------- documents */
 
     await go(page, '#/documents');

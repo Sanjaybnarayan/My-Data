@@ -605,13 +605,17 @@ export function committedMonthlyOutflow(recurring, loans) {
  * folded in. See `domain/commitments.js`.
  */
 export function committed({
-  recurring = [], loans = [], subscriptions = [], digitalAssets = [],
+  recurring = [], loans = [], subscriptions = [], digitalAssets = [], detected = [],
 } = {}) {
   return commitmentSummary({
     recurring,
     loans,
     subscriptions,
     digitalAssets,
+    // What the statements show repeating. Passed through rather than computed
+    // here: this module knows nothing about narrations, and the detector wants
+    // categorised rows that only the ledger builds.
+    detected,
     base: committedMonthlyOutflow(recurring, loans),
   });
 }
