@@ -103,6 +103,16 @@ with no linter"* was carried from the Phase 0 audit as a live risk for the whole
 of this work. Measured: one implicit return, and nothing else worth a rule. The
 answer was not to install a linter but to say so.
 
+**The tenth stale line was the numbering itself.** Reading the master prompt
+directly — it is not in this repository, and had never been read against this
+document — showed that **Phase 6, SMS Intelligence, was skipped without record**,
+shifting every later number by one. A missing row is worse than a stale one: a
+stale row wastes a measurement, a missing row silently deletes a phase.
+
+The same reading found that this document's *"all ten financial tests pass"* was
+measured against a list of ten it had assembled itself, where the prompt asks
+eleven — four of which need SMS.
+
 **Every phase should begin by re-reading this row rather than trusting it.**
 
 **And the master architecture document no longer relies on anybody doing so.**
@@ -152,18 +162,71 @@ is untested against the other. See `docs/BALANCES.md` and
 | --- | --- | --- |
 | 0 | Repository audit | **complete** |
 | 0.5 | Trust, privacy, governance, consent, lineage | **complete** — six tranches, merged in #19 |
-| 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer, typecheck and **row-level server authorization** done (`docs/OWN_RECORDS.md`); **lint measured and answered — there is deliberately no linter, and `tools/lint.mjs` says why** (see above); **the policy-only server turned out to be three quarters built** — identity, roles and policy were already server-side and authoritative, and the missing device registry was a field parsed on every request and never read (`docs/DEVICE_REGISTRY.md`) |
-| 2 | Family, identity, tree, CKYC 2.0 | **tree now reads the person form** (`docs/FAMILY_TREE.md`); **CKYC built as a local record, with no registry** (`docs/KYC.md`) |
-| 3 | Document intelligence, OCR, DOCX templates | **OCR already existed** (Drive's own, `apps-script/Drive.gs`) — that line was stale; extraction measured at **89% with zero wrong fields**; **the identifier a scan finds now reaches the encrypted field instead of being dropped** (`docs/DOCUMENT_INTELLIGENCE.md`). **a receipt reader now exists** — receipts were routed through the bill reader and yielded *nothing*, 0 of 8 amounts and dates across four real layouts, while filling `biller` with the name of the person who **paid** (`docs/DOCUMENT_INTELLIGENCE.md`). **DOCX now exists too** — a `.docx` is a ZIP of XML parts and the xlsx writer already had the ZIP, so it cost no dependency; the harder half was deciding that a rent receipt may only be issued for rent **received**, never for rent paid, because a receipt is a statement by whoever took the money (`docs/DOCX.md`). Reading a `.docx` remains, and nothing yet files a receipt against the payment it records |
-| 4 | Gmail, Drive, Calendar | Gmail + Drive exist; **a calendar screen already existed and drew 3 of 9 dated things** — its 400-day horizon was silently capped by each field's reminder lead, and money due never reached a square at all. **Bills then reached exactly one square each**: a household paying ₹80,239 a month saw it in September and read *nothing due* for the other eleven months of the year (`docs/CALENDAR.md`). **Calendar entries now carry a stable identity and export as RFC 5545 iCalendar**, which Google Calendar and Apple Calendar both read — a snapshot the household saves, not a sync. **Google Calendar sync now exists**, on `calendar.app.created` — the narrowest scope Google offers, reaching only calendars this application created and nothing else in the account. Idempotent by construction, one-way, and **not verified against the live API**, which is said rather than glossed (`docs/CALENDAR.md`) |
-| 5 | Financial foundation, transfer matching, economic events | **the importer knew one bank** — real ICICI and Axis statements produced zero transactions from thousands of readable rows, and a statement with no opening balance was never checked at all (`docs/STATEMENT_FORMATS.md`). **A PhonePe export read as zero rows, and spans four accounts at once — a payment app's row is a bank row seen from the other side, linked by the UTR** (`docs/PAYMENT_APPS.md`). **all ten prompt tests pass**, locked in `tests/prompt.test.mjs` — see below. **a movement landing in more than one piece is now proposed as one event** — ₹50,000 out arriving as ₹30,000 and ₹20,000 reported 0 proposals and 3 loose ends before it (`docs/MULTI_LEG.md`). **a charge that closes a near-match exactly is now named as evidence** — and the sentence that offers it was printing minor units raw, so a ₹50 fee read as *“differ by 5000”* (`docs/MULTI_LEG.md`). **a multi-leg movement can now be confirmed**, threading one id through every leg — `toAccount` names one destination and a split has several, so these had been proposed with nothing a button could write (`docs/MULTI_LEG.md`). **`EconomicEvent` is now an entity**, built once two tranches had made it the blocking gap: a movement can say what *kind* it is, and the charge that explains a near-match finally has somewhere to live — recorded as a fee rather than a leg, and reported beside the amount rather than inside it (`docs/MULTI_LEG.md`) |
-| 6 | Cards, loans, EMI, FD/RD, family ledger | loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); **who-paid done, who-owes-whom refused for a stated reason** (`docs/HOUSEHOLD_LEDGER.md`); **card bills now due-dated from the statement, not the current balance** (`docs/CARD_BILLS.md`); **subscriptions are in the committed figure that had always named them** (`docs/COMMITMENTS.md`) |
-| 7 | Investments, brokers, MCP | investments exist and XIRR is right; **`holding.invested` never moved, so a fund fed a SIP reported 162% gain where its own transactions said 24.61%** (`docs/COST_BASIS.md`). Brokers still architecture-only. **MCP measured and answered: there is nowhere in this design for an MCP *server* to run** — the records are on the device and the only server this application has never holds them, which is what the gate's answer costs. A local tool surface derived from the thirteen assistant intents exists instead, returning sentences and counts rather than records (`docs/MCP.md`) |
-| 8 | Insights | **the screen already existed** — `insights()` over categorised rows, on the Ledgers screen — and that line was the eighth to go stale on measurement. What it *said* was wrong: on an ICICI statement every UPI payment, in both directions, grouped under one counterparty called `unknown`, because the payee was taken from a fixed field position and `DR`/`CR` sits there instead. Rent, Netflix and a backup plan read as **one charge of ₹1,180 repeating weekly**, and the screen reported *"2 payments repeat on a schedule"* to a household that had five (`docs/STATEMENT_FORMATS.md`). **The two halves of the household's own money now meet**: the records say ₹53,500 a month is committed, the statements show ₹55,329 a month actually leaving on a schedule, and the ₹1,829 difference — two subscriptions nobody wrote down — is named beside the figure rather than folded into it (`docs/COMMITMENTS.md`) |
-| 9 | Automation | **already built and wired** — `runAutomations` runs on every launch, advances overdue bills, repeats completed tasks and notifies once a day. The ninth line found already done. What it did *not* do was money: the notifier read thirteen entity types, **none of which carries a bill**, so a household with ₹53,500 a month committed was told its passport expires in six days and nothing about the rent due tomorrow (`docs/NOTIFICATIONS.md`) |
-| 10–23 | Sharing … internationalisation | not started — and the repository holds no list of what they are beyond this elision, so the names here are inference, not record |
+| 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer, typecheck, row-level server authorization and the device registry done; ABAC is own-record rules only; **no API layer exists**, and the prompt's relational database is deliberately not built (see the gate) |
+| 2 | Family, people, identity, family tree, CKYC 2.0, profile completion | **partial** — tree reads the person form (`docs/FAMILY_TREE.md`), CKYC built as a local record with no registry (`docs/KYC.md`). **No conflict engine, no profile completion, no `KYCVersion`/`KYCConflict` entities** |
+| 3 | Document AI, OCR, document management, DOCX engine | **largely done** — OCR pre-existed in `apps-script/Drive.gs`; extraction at 89%; receipt reader; DOCX **writer** (`docs/DOCX.md`). **No DOCX template engine** — nothing reads a `.docx` or detects editable fields, which is the whole of what the prompt asks for |
+| 4 | Gmail, Drive, Calendar | **done** — including Google Calendar sync, never run against the live API (`docs/CALENDAR.md`) |
+| 5 | Financial foundation, statements, transfer matching, economic events, reconciliation | **done** — `EconomicEvent` is an entity, multi-leg movements, settlement, reconciliation that refuses to lie (`docs/STATEMENT_FORMATS.md`, `docs/MULTI_LEG.md`) |
+| **6** | **SMS Intelligence** | **NOT STARTED, AND NOT PREVIOUSLY ACKNOWLEDGED.** No SMS abstraction, no pipeline, no OTP handling, no conflict engine. Rules 51–57 are all SMS rules and none is addressed. See below |
+| 7 | Credit cards, loans, EMI, FD, RD, family ledger | **done** (`docs/ACCRUAL.md`, `docs/CARD_BILLS.md`, `docs/HOUSEHOLD_LEDGER.md`, `docs/COMMITMENTS.md`) |
+| 8 | Investments, broker, Zerodha, MCP, P&L, net worth | **done bar brokers** — XIRR, cost basis (`docs/COST_BASIS.md`), MCP measured and answered (`docs/MCP.md`). Brokers remain architecture-only, correctly |
+| 9 | Financial insights, forecast, goals, Family CFO, anomaly detection | **mostly done** — insights (`docs/STATEMENT_FORMATS.md`), anomaly detection with seasonality (`docs/UNUSUAL_SPENDING.md`), forecasting (`docs/CASH_RUNWAY.md`). **No goals, no Family CFO screen** |
+| 10 | Insurance, vehicles, fuel, property, tenants, purchases, warranty, subscriptions, travel | **entities exist, intelligence does not** — no fuel OCR, no warranty extraction, no tenant rent tracking |
+| 11 | Health, medical records, ABDM architecture | entities exist; **no ABDM connector** |
+| 12 | Legal, estate, digital life, crypto metadata | digital life exists; **no legal, estate, will or beneficiary entities** |
+| 13 | Household staff | **not started** |
+| 14 | Family chat, media, sharing, E2EE | **not started** |
+| 15 | Location, safe zones, geofencing, SOS | **not started** — and correctly refused for a PWA |
+| **16** | **Notifications, tasks, reminders, automation** | **already built** — `runAutomations` runs on every launch, and money now reaches a notification (`docs/NOTIFICATIONS.md`) |
+| 17 | Knowledge graph, universal search, family timeline, what changed | search exists; **no knowledge graph, no timeline, no what-changed** |
+| 18 | AI family assistant, AI governance, AI privacy | assistant exists; **governance and the AI Privacy Gate are one outbound pattern check** |
+| 19 | Advanced analytics, Family CFO, forecasting, risk detection | forecasting done; **no Family CFO, no risk detection** |
+| 20 | Security hardening, privacy hardening, compliance evidence | **not started** — and no compliance documents exist at all |
+| 21 | Backup, restore, portability, recovery | export exists; **no encrypted backup, no sandboxed restore** |
+| 22 | PWA optimisation | **done throughout** — installable, offline shell, sync queue, precache ratchet |
+| 23–25 | Android companion, iOS companion, internationalisation | **not started** |
 
-## The prompt's ten financial tests
+## The numbering was wrong, and this is the correction
+
+Every phase number in this document from 6 onward was **off by one**, because
+**Phase 6 — SMS Intelligence — was skipped without ever being recorded as
+skipped.** What this file called Phase 6 was the prompt's Phase 7, what it
+called Phase 7 was Phase 8, and the "Insights" and "Automation" work was the
+prompt's Phase 9 and Phase 16.
+
+That is the same failure this document has caught itself making nine times, in
+its worst form yet: not a stale row, but a **missing row** that shifted every
+row after it. A reader planning "Phase 6" would have built credit cards, which
+were already done, and SMS would have stayed invisible indefinitely.
+
+**Phase 6 is the largest unbuilt piece of this application.** The prompt gives
+it a pipeline, twenty-four message categories, an extraction contract, a
+security rule for OTPs, three storage modes, real-time processing, a
+reconciliation model and a conflict engine — and rules **51 through 57** exist
+solely to constrain it.
+
+## The financial tests: ten run, eleven asked for
+
+**The prompt specifies eleven, and four of them are about SMS.** This file has
+been reporting *"all ten pass"* against a list that is not the prompt's list —
+the four SMS tests were dropped, and the remaining seven were renumbered to ten
+by splitting duplicate detection into statement and receipt cases.
+
+What the prompt asks and this repository cannot yet answer:
+
+| Prompt test | State |
+| --- | --- |
+| SMS + bank statement, same transaction → **one transaction, multiple evidence** | **cannot run** — no SMS |
+| the same SMS twice → **one event** | **cannot run** |
+| SMS + statement + Gmail receipt → **one economic event** | **cannot run** |
+| SMS ₹5,000 against statement ₹5,500 → **CONFLICT** | **cannot run** |
+
+The seven that are the prompt's and do pass — internal transfer, card purchase,
+bank→card settlement, bank→broker, broker→stock, bank→FD, duplicate statement —
+are genuinely covered. The claim that was wrong is *"all ten"*, because ten was
+never the number.
+
+## The ten this repository runs
 
 The sharpest specification in the whole document — and the table that used to
 sit here was **prose, and had gone stale**. It was written before Phases 5 and
