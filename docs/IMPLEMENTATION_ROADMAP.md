@@ -80,7 +80,12 @@ module that had been drawing a month grid for some while — and drawing a third
 of what it promised. Phase 4 again made it a fifth, recording recurrence as open
 while eleven of twelve months read *nothing due*.
 
-**Phase 1's lint line is the sixth, and the plainest.** *"25,000 untyped lines
+**Phase 1 supplied the sixth and the seventh.** *"The policy-only server still
+open"* was carried over a backend that already verified identity with Google,
+took the role from the member list rather than the request, and enforced a
+generated policy table — three quarters of the gate, for months.
+
+**The lint line is the plainest of the seven.** *"25,000 untyped lines
 with no linter"* was carried from the Phase 0 audit as a live risk for the whole
 of this work. Measured: one implicit return, and nothing else worth a rule. The
 answer was not to install a linter but to say so.
@@ -125,7 +130,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | --- | --- | --- |
 | 0 | Repository audit | **complete** |
 | 0.5 | Trust, privacy, governance, consent, lineage | **complete** — six tranches, merged in #19 |
-| 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer, typecheck and **row-level server authorization** done (`docs/OWN_RECORDS.md`); **lint measured and answered — there is deliberately no linter, and `tools/lint.mjs` says why** (see above); the policy-only server still open |
+| 1 | Database, API, auth, RBAC/ABAC | **in progress** — service layer, typecheck and **row-level server authorization** done (`docs/OWN_RECORDS.md`); **lint measured and answered — there is deliberately no linter, and `tools/lint.mjs` says why** (see above); **the policy-only server turned out to be three quarters built** — identity, roles and policy were already server-side and authoritative, and the missing device registry was a field parsed on every request and never read (`docs/DEVICE_REGISTRY.md`) |
 | 2 | Family, identity, tree, CKYC 2.0 | **tree now reads the person form** (`docs/FAMILY_TREE.md`); **CKYC built as a local record, with no registry** (`docs/KYC.md`) |
 | 3 | Document intelligence, OCR, DOCX templates | **OCR already existed** (Drive's own, `apps-script/Drive.gs`) — that line was stale; extraction measured at **89% with zero wrong fields**; **the identifier a scan finds now reaches the encrypted field instead of being dropped** (`docs/DOCUMENT_INTELLIGENCE.md`). A receipt reader and DOCX remain |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; **a calendar screen already existed and drew 3 of 9 dated things** — its 400-day horizon was silently capped by each field's reminder lead, and money due never reached a square at all. **Bills then reached exactly one square each**: a household paying ₹80,239 a month saw it in September and read *nothing due* for the other eleven months of the year (`docs/CALENDAR.md`). **Calendar entries now carry a stable identity and export as RFC 5545 iCalendar**, which Google Calendar and Apple Calendar both read — a snapshot the household saves, not a sync. **Google Calendar sync now exists**, on `calendar.app.created` — the narrowest scope Google offers, reaching only calendars this application created and nothing else in the account. Idempotent by construction, one-way, and **not verified against the live API**, which is said rather than glossed (`docs/CALENDAR.md`) |
