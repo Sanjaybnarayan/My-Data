@@ -256,3 +256,68 @@ actually pins.
   done, because a near-match is `possible` and never gets confirmed at all.
 - **The confirm control is not browser-checked**, for the same reason as before:
   a loose leg is an import-only state that no form will create.
+
+
+# The entity, built once it was the blocking gap
+
+The tranche above declined to build `EconomicEvent` and listed what it would
+buy. Two of those things had since stopped being niceties:
+
+- **A kind.** A split, a sweep and a transfer that lost a fee on the way are
+  different events, and a bare thread cannot say which.
+- **Somewhere for the fee to live.** `chargesExplaining` finds the ₹50 charge
+  that accounts for a ₹50,000 / ₹49,950 pair exactly and names it in a
+  sentence — and had nowhere to record it, so the evidence was found, shown,
+  and thrown away on every repaint. There was no answer a person could give
+  that the application would keep.
+
+So the entity exists now, and `transaction.movement` is a real reference to it
+rather than a bare string.
+
+## A fee is not a leg
+
+`movementRole` says which each row is. A leg is money that moved; a fee is money
+that left and did not arrive. Threading the charge on without saying which would
+report a ₹50 bank charge as ₹50 of the amount transferred — and
+`recordedMovements` reports `charged` **beside** the amount, never inside it.
+
+## Accepting a near-match is a person's decision, not a promotion
+
+The pairing stays `possible` and `linkFor` still refuses it. The rule was always
+that unequal amounts never match **automatically** — not that they can never be
+matched. What was missing was any way for a person to say yes, so the button
+that appears when exactly one charge accounts for the difference is the missing
+half rather than a loosening.
+
+The sentence they agreed to is stored on the event. A decision with no record of
+what it was based on cannot be revisited.
+
+## What it still refuses
+
+- Two charges that each fit exactly: `feeMovementFor` returns null, because
+  picking one would be the guess every rule here exists to refuse.
+- An ambiguous grouping, as before.
+- Writing any amount that is not derivable from the legs — `domain/events.js`
+  re-derives it on every read, so a disagreement is visible rather than
+  authoritative.
+
+## Mutation testing
+
+**8 of 9.** The survivor is the `POSSIBLE` check in `feeMovementFor`: an exact
+pairing never carries evidence, so the `evidence.length !== 1` clause turns it
+away regardless. Stated rather than tested. The first pass caught 7 — the miss
+was that **nothing pinned the kind**, so every movement could have been recorded
+as a split.
+
+Two fixtures were wrong before they were right, both the same way: `twoAccounts`
+creates fresh records on every call, so asking it twice gave two different
+ICICIs and put the second charge on an account nothing looks at.
+
+## Still not done
+
+- **Nothing shows an economic event on a screen of its own.** They are written,
+  read back into the transfers card, and counted; there is no list of movements
+  to browse.
+- **No migration.** Movements confirmed before this tranche carry a `mvt_` id
+  pointing at no record. They are not broken — the thread still groups them —
+  but they have no kind.
