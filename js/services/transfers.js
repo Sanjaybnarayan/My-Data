@@ -12,6 +12,7 @@
  */
 
 import { Service } from './service.js';
+import { format } from '../core/money.js';
 import {
   proposeTransfers, movementTotal, linkFor, CONFIDENCE,
   proposeMultiLeg, multiLegTotal,
@@ -30,7 +31,10 @@ export class TransfersService extends Service {
     });
 
     const nameOf = new Map(accounts.map((a) => [a.id, a.name]));
-    const { proposals, unmatched } = proposeTransfers(transactions, { windowDays });
+    // The rupee sign and the grouping. Without it the near-match sentence
+    // prints minor units, and "differ by 5000" for a ₹50 fee is a hundredfold
+    // overstatement in the sentence somebody decides from.
+    const { proposals, unmatched } = proposeTransfers(transactions, { windowDays, money: format });
 
     const named = proposals.map((p) => ({
       ...p,

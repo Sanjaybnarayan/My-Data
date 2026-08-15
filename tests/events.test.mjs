@@ -388,3 +388,129 @@ describe('what a set is not allowed to guess', () => {
     assert.length(proposeMultiLeg(four, { maxLegs: 4 }).proposals, 1);
   });
 });
+
+/**
+ * The charge that explains a near-match, and the amount that was printed wrong.
+ *
+ * Measured: ₹50,000 out, ₹49,950 in, and a ₹50 bank charge on the same account
+ * the same day. The application said *"a fee would explain it, and so would
+ * these being two unrelated payments. Nothing here can tell which"* — while the
+ * row that tells sat in the same array.
+ *
+ * The same sentence carried a live wrong number. It interpolated minor units
+ * raw, so a ₹50 difference printed as **"The amounts differ by 5000"**, which
+ * reads as five thousand rupees. Nothing had ever pinned that sentence.
+ */
+const near = (over = {}) => [
+  { id: 'out-50k', account: 'hdfc', date: '2026-08-10', amount: 50_000_00, kind: 'transfer', direction: 'out', deletedAt: null, toAccount: null, narration: 'NEFT to ICICI' },
+  { id: 'in-49950', account: 'icici', date: '2026-08-10', amount: 49_950_00, kind: 'transfer', direction: 'in', deletedAt: null, toAccount: null, narration: 'NEFT from HDFC' },
+  { id: 'fee', account: 'hdfc', date: '2026-08-10', amount: 50_00, kind: 'expense', direction: 'out', deletedAt: null, narration: 'NEFT charges', ...over },
+];
+
+const rupees = (minor) => `₹${(minor / 100).toFixed(2)}`;
+const only = (rows, options) => proposeTransfers(rows, { money: rupees, ...options }).proposals[0];
+
+describe('the amount in the sentence somebody decides from', () => {
+  test('a difference is money, not minor units', () => {
+    // "differ by 5000" for a ₹50 fee is a hundredfold overstatement.
+    const p = only(near());
+    assert.ok(p.why.includes('₹50.00'), p.why);
+    assert.not(/differ by 5000/.test(p.why), p.why);
+  });
+
+  test('even with no formatter passed, the decimal point is in the right place', () => {
+    // The convention elsewhere defaults to `String(n)`, which is what produced
+    // the wrong number here, because no caller could pass a formatter.
+    const p = proposeTransfers(near()).proposals[0];
+    assert.ok(p.why.includes('50.00'), p.why);
+    assert.not(/\b5000\b/.test(p.why), p.why);
+  });
+});
+
+describe('a charge that accounts for the difference exactly', () => {
+  test('it is named, with its own description', () => {
+    const p = only(near());
+    assert.length(p.evidence, 1);
+    assert.equal(p.evidence[0].id, 'fee');
+    assert.ok(p.why.includes('NEFT charges'), p.why);
+    assert.ok(p.why.includes('accounts for it exactly'), p.why);
+  });
+
+  test('and the pairing is still only possible', () => {
+    // Unequal amounts never match automatically. A charge of the right size on
+    // the right day is strong evidence and is not somebody having checked.
+    assert.equal(only(near()).confidence, 'possible');
+  });
+
+  test('a charge on the receiving account counts too', () => {
+    // An inward-remittance fee is charged where the money arrived.
+    const p = only(near({ account: 'icici' }));
+    assert.length(p.evidence, 1);
+  });
+
+  test('a charge of the wrong amount explains nothing', () => {
+    const p = only(near({ amount: 49_00 }));
+    assert.length(p.evidence, 0);
+    assert.ok(p.why.includes('Nothing here can tell which'), p.why);
+  });
+
+  test('a charge on an unrelated account explains nothing', () => {
+    const p = only(near({ account: 'sbi' }));
+    assert.length(p.evidence, 0);
+  });
+
+  test('a charge outside the window explains nothing', () => {
+    const p = only(near({ date: '2026-08-30' }));
+    assert.length(p.evidence, 0);
+  });
+
+  test('a deleted charge explains nothing', () => {
+    const p = only(near({ deletedAt: '2026-08-11T00:00:00.000Z' }));
+    assert.length(p.evidence, 0);
+  });
+
+  test('another loose transfer leg is not a fee', () => {
+    // A third leg of the right size is a candidate for its own pairing.
+    // Explaining one movement by consuming another is not an explanation.
+    const p = only(near({ kind: 'transfer', toAccount: null }));
+    assert.length(p.evidence, 0);
+  });
+
+  test('two charges that each fit is a question, not an answer', () => {
+    const rows = [...near(), {
+      id: 'fee2', account: 'icici', date: '2026-08-10', amount: 50_00,
+      kind: 'expense', direction: 'out', deletedAt: null, narration: 'Other charge',
+    }];
+    const p = only(rows);
+    assert.length(p.evidence, 2);
+    assert.ok(/2 separate charges/.test(p.why), p.why);
+    assert.equal(p.confidence, 'possible');
+  });
+
+  test('a blank narration falls through to the payee, rather than printing nothing', () => {
+    // `??` would stop at the empty string, because '' is not nullish — and an
+    // empty narration is far commoner than an absent one. The first version of
+    // this check blanked every field at once, so both readings gave the same
+    // answer and the rule went untested.
+    const p = only(near({ narration: '', payee: 'NEFT charges' }));
+    assert.ok(p.why.includes('NEFT charges'), p.why);
+    assert.not(p.why.includes('“”'), p.why);
+  });
+
+  test('and with nothing to call it, the quotes are left out altogether', () => {
+    const p = only(near({ narration: '', payee: '', category: '' }));
+    assert.not(p.why.includes('“”'), p.why);
+    assert.ok(p.why.includes('accounts for it exactly'), p.why);
+  });
+
+  test('an exact pairing is unaffected by any of this', () => {
+    const exact = [
+      { id: 'out', account: 'hdfc', date: '2026-08-10', amount: 50_000_00, kind: 'transfer', direction: 'out', deletedAt: null, toAccount: null },
+      { id: 'in', account: 'icici', date: '2026-08-10', amount: 50_000_00, kind: 'transfer', direction: 'in', deletedAt: null, toAccount: null },
+      { id: 'fee', account: 'hdfc', date: '2026-08-10', amount: 50_00, kind: 'expense', deletedAt: null },
+    ];
+    const p = only(exact);
+    assert.equal(p.confidence, 'probable');
+    assert.equal(p.evidence, undefined);
+  });
+});

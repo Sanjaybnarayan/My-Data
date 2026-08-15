@@ -271,3 +271,27 @@ describe('a movement in pieces, against the database', () => {
       ['Axis Savings', 'HDFC Savings', 'ICICI Savings', 'Kotak Savings', 'SBI Savings']);
   });
 });
+
+describe('the near-match sentence, through the service', () => {
+  test('the difference is shown in rupees, not in paise', async () => {
+    // The service is where the real formatter is passed. Without it the domain
+    // default prints "50.00" and the screen loses the rupee sign; before either,
+    // it printed "5000" for a ₹50 fee — a hundredfold overstatement in the one
+    // sentence that exists to help somebody decide.
+    const db = await makeDb();
+    const { hdfc, icici } = await twoAccounts(db);
+
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 49_950_00 }));
+    await db.repo('transaction').create(legOf(hdfc, 'out', {
+      amount: 50_00, kind: 'expense', category: 'bank charges', payee: 'NEFT charges',
+    }));
+
+    const { proposals } = await new TransfersService(db).pending();
+    const near = proposals.find((p) => p.confidence === CONFIDENCE.POSSIBLE);
+
+    assert.ok(near, JSON.stringify(proposals.map((p) => p.confidence)));
+    assert.ok(near.why.includes('\u20b950.00'), near.why);
+    assert.ok(near.why.includes('NEFT charges'), near.why);
+  });
+});
