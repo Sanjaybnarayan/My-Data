@@ -113,6 +113,7 @@ const SHELL = [
   './js/domain/portfolio.js',
   './js/domain/privacy.js',
   './js/domain/reminders.js',
+  './js/domain/rentreceipt.js',
   './js/domain/statement.js',
   './js/domain/tabular.js',
   './js/domain/tree.js',
@@ -156,6 +157,7 @@ const SHELL = [
   './js/ai/summary.js',
 
   './js/reports/csv.js',
+  './js/reports/docx.js',
   './js/reports/xlsx.js',
   './js/reports/pdf.js',
   './js/reports/build.js',
