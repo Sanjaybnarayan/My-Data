@@ -104,12 +104,27 @@ falsely even before forecasting existed.
 - architecture **49 claims** (48 before: the malformed row now parses and counts)
 - field-coverage 83, policy, lint, UI→database 61/61 — clean
 
-## Still not done
+## On the screen, in the same tranche
 
-- **Nothing shows this on a screen.** The domain function exists and no screen
-  calls it — precisely the gap this repository keeps finding, recorded here
-  before it can be discovered later. The Finance overview is the obvious home
-  and `services/finance.js` is now the place to assemble it.
+*"The domain function exists and no screen calls it"* is the finding this
+repository keeps making — the receipt-match panel went a whole tranche that way,
+and the unusual-spending wiring failed silently three times. So this one was
+wired in the same tranche that built it, assembled in `services/finance.js`
+rather than in the screen, and driven by five browser checks.
+
+The rendering carries the refusals rather than only the figure:
+
+- a shortfall reads as a **negative** figure; the absence of one stays `faint`
+  rather than becoming a green tick, because it is not reassurance;
+- the **assumptions are printed beside the number**, not hidden in a tooltip. A
+  forecast whose assumptions are hidden is a forecast presenting itself as an
+  answer.
+
+**The wiring was mutated too.** Handing the screen an empty forecast fails the
+browser suite (252/253) — so the panel is genuinely exercised rather than merely
+present, which is the distinction that took a whole tranche to learn.
+
+## Still not done
 - **One account, one currency.** Cash is the liquid total; a household with
   money in the wrong account on the wrong day is not modelled.
 - **No seasonality**, so a December of gifts reads as an ordinary month until it

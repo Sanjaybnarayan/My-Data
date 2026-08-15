@@ -36,6 +36,7 @@ import { spendByMember } from '../domain/household.js';
 import { fromRecords } from '../domain/ledger.js';
 import { recurring as recurringCharges } from '../domain/categorise.js';
 import { today } from '../core/dates.js';
+import { cashRunway } from '../domain/runway.js';
 
 /**
  * Declared once, here, rather than inline in the screen.
@@ -108,6 +109,10 @@ export function assembleOverview(data, { clock = Date.now } = {}) {
     return { label: month.label, value: running };
   });
 
+  const bills = fin.upcomingBills(recurring, loans, {
+    days: 30, from: today(clock), accounts, transactions, subscriptions, digitalAssets,
+  });
+
   return {
     accounts,
     transactions,
@@ -126,9 +131,12 @@ export function assembleOverview(data, { clock = Date.now } = {}) {
     // `account.statementDay` and `account.dueDay` are on the account form and
     // were read by nothing, so a card with money owed on it produced no warning
     // at all. Passing the accounts and the rows brings them in.
-    bills: fin.upcomingBills(recurring, loans, {
-      days: 30, from: today(clock), accounts, transactions, subscriptions, digitalAssets,
-    }),
+    bills,
+    // Cash against what is known to be leaving it. Assembled here rather than
+    // in the screen for the reason this whole module exists — and wired in the
+    // same tranche that built it, because "the domain function exists and no
+    // screen calls it" is the finding this repository keeps making.
+    runway: cashRunway(accounts, transactions, bills, { from: today(clock), clock }),
     budgetRows: fin.budgetStatus(budgets, transactions),
     commitment: fin.committed({
       recurring, loans, subscriptions, digitalAssets, detected,
