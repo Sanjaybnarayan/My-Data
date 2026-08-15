@@ -24,6 +24,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { zip } from '../js/reports/xlsx.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8247;
@@ -474,6 +475,47 @@ async function main() {
       });
       check('the PDF reader can decompress in the browser',
         decoded === 'column x, column y, balance', String(decoded));
+
+      // A pasted bank message, through the real box on the real screen.
+      // Phase 6's reading exists in `domain/sms.js`; this is the half that
+      // proves a household can reach it.
+      {
+        const smsBefore = consoleErrors.length;
+
+        await page.locator('#sms-text').fill(
+          'Rs 50,000.00 debited from a/c XX8963 on 15-08-26 to VPA landlord@okicici '
+          + 'UPI Ref 412345678901. Avl Bal Rs 1,40,500.00',
+        );
+        await page.getByRole('button', { name: /^Read$/ }).click();
+        await page.waitForTimeout(400);
+        const said = (await page.locator('.app-content').innerText()).trim();
+
+        check('a pasted bank message is read on screen',
+          /50,000/.test(said) && /upi payment|bank debit/i.test(said), said.slice(0, 600));
+
+        // Rule 51, where a household can see it rather than only in the data.
+        check('and the screen says a message is not the transaction',
+          /not the transaction/i.test(said), said.slice(0, 600));
+
+        // Rule 53, driven rather than asserted in a unit test. The message
+        // names an amount, and none of it may be read or shown.
+        await page.locator('#sms-text').fill(
+          '123456 is your OTP for a transaction of Rs 77,777. Do not share it with anyone.',
+        );
+        await page.getByRole('button', { name: /^Read$/ }).click();
+        await page.waitForTimeout(400);
+        const otp = (await page.locator('.app-content').innerText()).trim();
+
+        check('a one-time code is refused rather than read',
+          /has not been read, stored, or sent/i.test(otp), otp.slice(0, 600));
+        check('and its amount never reaches the screen',
+          !/77,777/.test(otp), otp.slice(0, 600));
+        check('and the box is cleared so the code does not sit there',
+          (await page.locator('#sms-text').inputValue()) === '', 'the textarea still held it');
+
+        check('reading a message raises no console error',
+          consoleErrors.length === smsBefore, consoleErrors.slice(smsBefore).join(' | '));
+      }
 
       // A real CSV through the real file input. The parse and the plan are
       // covered by unit tests; what only a browser can show is that a File
@@ -1494,6 +1536,59 @@ async function main() {
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
       if (SHOTS) await shot(page, 'finance-unaccounted');
+    }
+
+    /* ------------------------------ a docx template, through the real input */
+
+    {
+      // Phase 3's engine reads a .docx; this proves a household can reach it.
+      const before = consoleErrors.length;
+
+      await go(page, '#/reports');
+      await page.waitForTimeout(600);
+
+      // Built here rather than inside the page: the same `zip` the application
+      // ships, so this exercises the reader rather than a fixture the reader
+      // was written around — and importing it in Node keeps the type checker
+      // able to resolve it, which a `page.evaluate` import does not.
+      const enc = (text) => new TextEncoder().encode(text);
+      // A placeholder split across runs, which is what Word actually writes
+      // once a person has edited the sentence.
+      const templateXml = '<w:document><w:body><w:p>'
+        + '<w:r><w:t>Received from </w:t></w:r>'
+        + '<w:r><w:t>{{Ten</w:t></w:r><w:r><w:t>ant}}</w:t></w:r>'
+        + '<w:r><w:t> the sum of {{Amount}}.</w:t></w:r>'
+        + '</w:p></w:body></w:document>';
+      const bytes = zip([
+        { name: '[Content_Types].xml', data: enc('<Types/>') },
+        { name: 'word/document.xml', data: enc(templateXml) },
+      ]);
+
+      await page.locator('#docx-template').setInputFiles({
+        name: 'rent-agreement.docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        buffer: Buffer.from(bytes),
+      });
+      await page.waitForTimeout(600);
+
+      const said = (await page.locator('.app-content').innerText()).trim();
+
+      check('a .docx template is read and its fields listed',
+        /2 fields found/.test(said) && /rent-agreement\.docx/.test(said), said.slice(0, 700));
+
+      // The split placeholder is the whole difficulty. A naive reader finds
+      // neither field and reports an empty template as read.
+      check('and a placeholder Word split across runs is one of them',
+        (await page.locator('#docx-field-Tenant').count()) === 1,
+        said.slice(0, 700));
+
+      check('the screen says an empty field keeps its marker',
+        /keeps its marker/.test(said), said.slice(0, 700));
+
+      check('reading a template raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'reports-template');
     }
 
     /* ------------------------------------------------------- documents */

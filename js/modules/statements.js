@@ -35,6 +35,8 @@ import {
   fingerprint,
 } from '../domain/import.js';
 import { summarise, categoryLabel, businessLedger } from '../domain/categorise.js';
+import { AGREEMENT } from '../domain/sms.js';
+import { MessagesService } from '../services/sms.js';
 import { today } from '../core/dates.js';
 import { format } from '../core/money.js';
 import { transact } from '../data/unit.js';
@@ -68,6 +70,7 @@ export async function render() {
   // Deliberately not a page header: this screen lives inside Finance's, and
   // two of them stacked reads as two pages.
   replace(host, [
+    smsCard(),
     card({}, [
       cardHeader('Import statements', [
         button('Choose files', { variant: 'primary', iconName: 'plus', onClick: () => input.click() }),
@@ -79,6 +82,82 @@ export async function render() {
 
   paint();
   return { node: host };
+
+  /* ------------------------------------------------------------------ sms */
+
+  /**
+   * A bank message, pasted.
+   *
+   * The prompt's Phase 6 says a PWA must not depend on SMS access, and a
+   * browser cannot read an inbox — so this is the alternative ingestion rule 55
+   * asks for. It reads what the message says, checks it against the statements
+   * already imported, and writes nothing.
+   */
+  function smsCard() {
+    const box = h('textarea', {
+      id: 'sms-text',
+      rows: 3,
+      class: 'input',
+      placeholder: 'Paste a bank message here',
+    });
+    const out = h('div', {});
+
+    async function readIt() {
+      const text = String(box.value ?? '').trim();
+      if (!text) return;
+
+      const { reading, result } = await new MessagesService(app().db)
+        .readAndReconcile({ text, sender: 'pasted' });
+
+      // A credential is refused before anything else is said about it, and the
+      // box is cleared so it does not sit on screen either.
+      if (reading.secret) {
+        box.value = '';
+        replace(out, h('p', { class: 'small money--negative' },
+          'That message carries a one-time code or a PIN. It has not been read, '
+          + 'stored, or sent anywhere — and it should not be pasted here.'));
+        return;
+      }
+
+      replace(out, [
+        h('p', { class: 'small' }, [
+          `${reading.category.replace(/_/g, ' ').toLowerCase()}`,
+          reading.amount ? ` · ${format(reading.amount)}` : '',
+          reading.direction ? ` · ${reading.direction === 'out' ? 'out' : 'in'}` : '',
+          reading.transactionDate ? ` · ${reading.transactionDate}` : '',
+        ].join('')),
+        // Rule 51, on the screen and not only in the data.
+        h('p', { class: 'small faint' },
+          'A message is a notification about a transaction, not the transaction. '
+          + 'Nothing here is recorded from it.'),
+        result.agreement === AGREEMENT.LINKED
+          ? h('p', { class: 'small' },
+            `This matches a statement row on ${result.transaction.date} — one event, `
+            + 'two sources.')
+          : null,
+        result.agreement === AGREEMENT.CONFLICT
+          ? h('p', { class: 'small money--negative' },
+            `The message says ${format(result.sms)} and the statement says `
+            + `${format(result.statement)}. ${result.why}`)
+          : null,
+        result.agreement === AGREEMENT.NONE
+          ? h('p', { class: 'small faint' },
+            'No imported statement row looks like this one.')
+          : null,
+      ].filter(Boolean));
+    }
+
+    return card({}, [
+      cardHeader('Read a bank message', [
+        button('Read', { variant: 'subtle', onClick: () => void readIt() }),
+      ], {
+        subtitle: 'A browser cannot read your inbox — paste one instead',
+        iconName: 'info',
+      }),
+      box,
+      out,
+    ]);
+  }
 
   /* --------------------------------------------------------------- reading */
 
