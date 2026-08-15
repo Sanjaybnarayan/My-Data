@@ -94,11 +94,16 @@ async function moduleScreen(moduleDef, entities, entityName, route) {
 /**
  * @param {string} entityName
  * @param {{fixedFilter?: Function, autoOpenNew?: boolean, preset?: object,
- *          banner?: () => (Node|null|Promise<Node|null>)}} [options]
+ *          banner?: () => (Node|Node[]|null|Promise<Node|Node[]|null>)}} [options]
  *   `banner` renders above the table and is rebuilt on every load, so a
  *   finding derived from the rows stays in step with them. It exists because
  *   some entities carry an answer the table cannot show — see the KYC drift
  *   report in `modules/identity.js`.
+ *
+ *   The signature said `Node` and its only caller has always returned an
+ *   **array** of cards. `replace` accepts either, so nothing broke, and the
+ *   inferred type of that caller was loose enough that nothing complained —
+ *   until a view model with real shapes in it made the array concrete.
  */
 export async function listSection(entityName, {
   fixedFilter, autoOpenNew = false, preset, banner,
