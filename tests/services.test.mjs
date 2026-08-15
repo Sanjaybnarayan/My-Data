@@ -552,6 +552,21 @@ describe('one limit for every money figure', () => {
       'these read transactions with a hard-coded limit; use TRANSACTION_LIMIT');
   });
 
+  test('the overview reports whether its figures saw the whole history', () => {
+    // The half that was missing when the shared limit landed: the signal
+    // existed and no view model carried it.
+    const whole = assembleOverview({ transactions: [] }, { clock: () => Date.parse('2026-07-20') });
+    assert.not(whole.truncated);
+
+    const sliced = assembleOverview(
+      { transactions: new Array(TRANSACTION_LIMIT).fill(null).map((_, i) => ({
+        id: `t${i}`, date: '2026-07-01', amount: 100, kind: 'expense', direction: 'out',
+      })) },
+      { clock: () => Date.parse('2026-07-20') },
+    );
+    assert.ok(sliced.truncated, 'a full slice means there is probably more history');
+  });
+
   test('a figure computed from a full slice says it was truncated', () => {
     // A balance summed from "the most recent N" is not the balance once a
     // household has more than N. Saying so is the only honest option, since

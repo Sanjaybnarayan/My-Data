@@ -29,6 +29,7 @@ import { staleness, describeStaleness, describeEmi } from '../domain/amortise.js
 import { describeSpendByMember, settleable } from '../domain/household.js';
 import { describeCommitments } from '../domain/commitments.js';
 import { describeRunway } from '../domain/runway.js';
+import { TRANSACTION_LIMIT } from '../services/service.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -396,7 +397,7 @@ async function financeOverview() {
     // entities, which is the first of the two gaps the service layer exists to
     // close — and the reason three silent wiring failures went unnoticed here.
     const {
-      transactions, loans, balances, compare, series, balanceSeries, runway,
+      transactions, loans, balances, compare, series, balanceSeries, runway, truncated,
       categories, settlement, emi, byMember, bills, budgetRows, commitment,
       transfers,
     } = await new FinanceService(db).overview();
@@ -465,6 +466,17 @@ async function financeOverview() {
 
       card({}, [
         cardHeader('Cash & accounts'),
+
+        // Said where the balances are, not in a log. A balance summed from the
+        // most recent rows is not the account's balance once there are more of
+        // them than that, and the household is the only one who can tell
+        // whether it matters to them.
+        truncated
+          ? h('p', { class: 'small money--negative' },
+            `Only the most recent ${TRANSACTION_LIMIT.toLocaleString('en-IN')} transactions `
+            + 'were read, so these balances are computed from part of your history '
+            + 'rather than all of it.')
+          : null,
         metric({
           label: 'Liquid cash',
           value: formatCompact(fin.liquidCash(balances)),

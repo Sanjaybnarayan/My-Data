@@ -57,13 +57,28 @@ fired is a guard nobody should trust.
 - `npm test` **1508**, browser **253**, typecheck **181/181**
 - architecture 49 claims, field-coverage 83, policy, lint, UI→database 61/61
 
-## Still not done
+## It now says so, on the screen with the balances
 
-- **Nothing yet says "truncated" on a screen.** `transactionsTruncated` exists
-  and the Finance service does not call it. That is a gap of exactly the kind
-  this repository keeps finding, and it is recorded rather than glossed —
-  the honest fix needs a sentence on each screen that shows a balance, which is
-  more than one tranche's work.
+Recorded as a gap in the commit that created the signal, and closed in the next
+one rather than left to be discovered. The Finance overview carries `truncated`
+through the view model, and where it is true the Cash & accounts card says:
+
+> Only the most recent 50,000 transactions were read, so these balances are
+> computed from part of your history rather than all of it.
+
+It is rendered as a **negative**, not as a `faint` aside, because unlike the
+forecast's "nothing here runs you out" this is not a neutral observation — it
+says a figure on the same card is not what it appears to be.
+
+**The sentence itself has no browser check**, and that is worth stating plainly
+rather than leaving to be assumed: reaching it needs 50,000 transactions in
+IndexedDB, which is minutes of a suite that runs in five. The signal is tested
+where it is decided — `assembleOverview` reports it, and a service test pins
+both directions. Making the limit injectable purely to make the sentence
+reachable would put a seam in production code whose only purpose is to be
+smaller in a test, and that seam is how the real constant stops being tested.
+
+## Still not done
 - **50,000 is a number, not a principle.** A household with more history than
   that still gets a wrong balance, quietly, until the sentence above exists.
 - **Pagination would remove the question**, and the repository has no cursor API.

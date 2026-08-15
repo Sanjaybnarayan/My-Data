@@ -27,7 +27,7 @@
  * second directly, which is the entire point of moving it here.
  */
 
-import { Service, TRANSACTION_LIMIT } from './service.js';
+import { Service, TRANSACTION_LIMIT, transactionsTruncated } from './service.js';
 import { TransfersService } from './transfers.js';
 import * as fin from '../domain/finance.js';
 import { settlementReport } from '../domain/settlement.js';
@@ -116,6 +116,11 @@ export function assembleOverview(data, { clock = Date.now } = {}) {
   return {
     accounts,
     transactions,
+    // Whether every figure below was computed from the whole history or from a
+    // slice of it. A balance summed from the most recent N is not the account's
+    // balance once a household has more than N, and a screen showing one should
+    // say so rather than let it pass as the figure.
+    truncated: transactionsTruncated(transactions),
     // Passed through because the screen draws them directly. A view model that
     // withheld them would have the screen reach for the repository again,
     // which is the edge this whole layer exists to narrow.
