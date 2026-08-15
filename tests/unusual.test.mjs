@@ -183,3 +183,78 @@ describe('reaching the screen', () => {
     assert.length(insights(rows, summary).filter((n) => n.kind === 'unusual'), 2);
   });
 });
+
+/*
+ * Seasonality.
+ *
+ * Measured before it was built: an electricity bill of ₹9,000 every May and
+ * ₹2,200 every January was reported as **3.6× unusual** — every May, for ever.
+ * The household knows summer costs more, and their own data a year earlier
+ * proves it is not unusual.
+ *
+ * The claim this repository had recorded — that annual bills like school fees
+ * would be flagged — turned out to be **wrong**: a category seen once a year
+ * has one month of history and the three-month bar already drops it. Measuring
+ * the recorded gap is what found the real one.
+ */
+describe('a summer is not a surprise', () => {
+  const seasonalBill = {
+    '01': 2_200_00, '02': 2_400_00, '03': 3_800_00, '04': 7_000_00,
+    '05': 9_000_00, '06': 8_200_00, '07': 4_200_00, '08': 2_600_00,
+    '09': 2_400_00, '10': 2_300_00, '11': 2_100_00, '12': 2_200_00,
+  };
+
+  const twoSummers = () => [
+    ...Object.entries(seasonalBill).map(([m, amount]) => spend(`2025-${m}-10`, 'bills', amount)),
+    ...['01', '02', '03', '04', '05'].map((m) => spend(`2026-${m}-10`, 'bills', seasonalBill[m])),
+  ];
+
+  test('a category that did this last year too is named as a pattern', () => {
+    const [finding] = unusualSpending(twoSummers(), { month: '2026-05' });
+
+    assert.equal(finding.kind, UNUSUAL.SEASONAL);
+    assert.equal(finding.sameMonthLastYear, 9_000_00);
+    assert.includes(describeUnusual(finding), 'the same month last year');
+    assert.includes(describeUnusual(finding), 'your own pattern');
+  });
+
+  test('and is still reported, not silently dropped', () => {
+    // They asked what is unlike their history. "Your electricity does this
+    // every May" is the answer, not silence.
+    assert.length(unusualSpending(twoSummers(), { month: '2026-05' }), 1);
+  });
+
+  test('a genuine jump in the same month is still a departure', () => {
+    // Last May ₹9,000, this May ₹40,000. The season does not explain that.
+    const rows = twoSummers().map((r) => (r.date === '2026-05-10'
+      ? { ...r, amount: 40_000_00 } : r));
+    const [finding] = unusualSpending(rows, { month: '2026-05' });
+
+    assert.equal(finding.kind, UNUSUAL.ABOVE);
+  });
+
+  test('with no year of history, nothing is called seasonal', () => {
+    const oneYear = ['01', '02', '03', '04', '05'].map(
+      (m) => spend(`2026-${m}-10`, 'bills', seasonalBill[m]),
+    );
+    const [finding] = unusualSpending(oneYear, { month: '2026-05' });
+
+    assert.equal(finding.kind, UNUSUAL.ABOVE, 'a first summer has nothing to compare to');
+    assert.equal(finding.sameMonthLastYear, null);
+  });
+
+  test('a departure is listed before a pattern, whatever the amounts', () => {
+    // A big seasonal figure above a small genuine surprise teaches a household
+    // to skim the list, and the surprise is the only part they cannot predict.
+    const rows = [
+      ...twoSummers(),
+      ...['02', '03', '04'].map((m) => spend(`2026-${m}-14`, 'retail', 3_000_00)),
+      spend('2026-05-14', 'retail', 9_000_00),
+    ];
+    const found = unusualSpending(rows, { month: '2026-05' });
+
+    assert.equal(found[0].category, 'retail');
+    assert.equal(found[0].kind, UNUSUAL.ABOVE);
+    assert.equal(found[1].kind, UNUSUAL.SEASONAL);
+  });
+});

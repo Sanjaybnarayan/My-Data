@@ -58,11 +58,22 @@ export const MIN_MONTHS = 3;
 /** How far above its own median a category has to sit to be worth saying. */
 export const RATIO = 2;
 
+/**
+ * How close to the same month last year still counts as "the same again".
+ *
+ * Generous on purpose. The question is not whether two figures match but
+ * whether last year explains this year, and an electricity bill that was
+ * ₹9,000 last May and ₹11,000 this May is the same summer, not an anomaly.
+ */
+export const SEASONAL_TOLERANCE = 0.4;
+
 export const UNUSUAL = Object.freeze({
   /** Spent before, and this period is well above the usual figure. */
   ABOVE: 'above-usual',
   /** Never spent on before. Not a multiple of anything. */
   FIRST: 'first-time',
+  /** Above the usual figure, and it was this high the same month last year. */
+  SEASONAL: 'seasonal',
 });
 
 const monthOf = (date) => String(date ?? '').slice(0, 7);
@@ -101,12 +112,18 @@ export function categoryHistory(rows, { month }) {
     months.set(at, (months.get(at) ?? 0) + (row.amount ?? 0));
   }
 
+  // The same month, a year earlier. A household's own past is the only thing
+  // that can tell a summer from a surprise, and it is already in the data.
+  const [year, monthOfYear] = month.split('-');
+  const lastYear = `${Number(year) - 1}-${monthOfYear}`;
+
   const out = [];
   for (const [category, months] of perMonth) {
     const before = [...months].filter(([at]) => at < month);
     out.push({
       category,
       current: months.get(month) ?? 0,
+      sameMonthLastYear: months.get(lastYear) ?? null,
       // The months it was actually spent in, not the months since the first
       // one. A category bought in January and July has two months of history,
       // and treating the gap as five months of zero would call July normal.
@@ -159,9 +176,18 @@ export function unusualSpending(rows, {
     if (!row.usual) continue;
     if (row.current < row.usual * ratio) continue;
 
+    // It was this high the same month last year, so this is the household's
+    // own pattern rather than a departure from it. Reported separately rather
+    // than dropped: they asked what is unlike their history, and "your
+    // electricity does this every May" is the answer, not silence.
+    const lastYear = row.sameMonthLastYear;
+    const seasonal = Boolean(lastYear)
+      && Math.abs(row.current - lastYear) <= lastYear * SEASONAL_TOLERANCE;
+
     findings.push({
       category: row.category,
-      kind: UNUSUAL.ABOVE,
+      kind: seasonal ? UNUSUAL.SEASONAL : UNUSUAL.ABOVE,
+      sameMonthLastYear: lastYear,
       amount: row.current,
       usual: row.usual,
       times: row.current / row.usual,
@@ -170,9 +196,14 @@ export function unusualSpending(rows, {
     });
   }
 
-  // Biggest absolute difference first — a household cares about the rupees,
-  // not the multiple. A ₹50,000 jump matters more than a tripled ₹3,000.
-  return findings.sort((a, b) => (b.amount - (b.usual ?? 0)) - (a.amount - (a.usual ?? 0)));
+  // Departures first, patterns after — whatever the amounts. A big seasonal
+  // figure above a small genuine surprise would teach a household to skim
+  // past the list, and the surprise is the only part they cannot predict.
+  // Within each group, the biggest rupee difference: a household cares about
+  // the money, not the multiple, so a ₹50,000 jump beats a tripled ₹3,000.
+  const rank = (row) => (row.kind === UNUSUAL.SEASONAL ? 1 : 0);
+  return findings.sort((a, b) => rank(a) - rank(b)
+    || (b.amount - (b.usual ?? 0)) - (a.amount - (a.usual ?? 0)));
 }
 
 /**
@@ -186,6 +217,12 @@ export function describeUnusual(finding, money = format, label = (k) => k) {
   if (!finding) return null;
   const name = label(finding.category);
   const caveat = finding.partial ? ' so far this month' : '';
+
+  if (finding.kind === UNUSUAL.SEASONAL) {
+    return `${money(finding.amount)} on ${name}${caveat}, above a usual `
+      + `${money(finding.usual)} — but it was ${money(finding.sameMonthLastYear)} `
+      + 'the same month last year, so this looks like your own pattern.';
+  }
 
   if (finding.kind === UNUSUAL.FIRST) {
     return `${money(finding.amount)} on ${name}${caveat} — the first time anything `
