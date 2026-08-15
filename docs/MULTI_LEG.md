@@ -106,14 +106,87 @@ happens to catch.
 - **`EconomicEvent` as an entity.** Still not built, and now for a sharper
   reason than before: a split has no single `toAccount`, so recording one needs
   a record with many legs rather than a field on a transaction.
-- **A fee leg is not used as evidence.** Measured alongside this: ₹50,000 out,
-  ₹49,950 in, and a ₹50 charge sitting on the same account the same day. The
-  arithmetic closes exactly, and the application still says *"a fee would
-  explain it, and so would these being two unrelated payments. Nothing here can
-  tell which"* — while a row that would tell is on the statement. Naming that
-  row as evidence, without promoting the pairing to probable, is the obvious
-  next tranche.
+- ~~A fee leg is not used as evidence.~~ **Done** — see below.
 - **The screen path is not browser-checked.** A loose leg is an import-only
   state by design — the validator refuses a hand-entered transfer with no
   destination — so the browser suite cannot create one through a form. The
   service layer is covered against a real database; the rendering is not.
+
+
+# The charge that explains a near-match
+
+The tranche above recorded this as the obvious next one. Measuring it turned up
+**two** things, and the second was worse than the one being looked for.
+
+## The one that was looked for
+
+₹50,000 leaves HDFC, ₹49,950 arrives at ICICI, and a ₹50 bank charge sits on the
+HDFC statement the same day. The arithmetic closes exactly. The application said:
+
+> The amounts differ by 5000 — a fee would explain it, and so would these being
+> two unrelated payments. **Nothing here can tell which.**
+
+Something here could. The row that tells was in the same array.
+
+## The one that was found on the way
+
+Look at that sentence again. **"differ by 5000"** — for a ₹50 fee.
+
+Everything in this application is in minor units, and this sentence interpolated
+them raw. A household reads five thousand rupees where the truth is fifty: a
+hundredfold overstatement, in the one sentence that exists to help somebody
+decide whether two rows are the same movement. **Nothing had ever pinned that
+sentence** — the whole suite passed with it wrong, and it took writing a test
+about fees to look at it.
+
+The convention elsewhere in the codebase is a `money` parameter defaulting to
+`String(n)`, which is safe where every caller passes a real formatter. Here no
+caller *could*, because `why` is built inside the module. So the default now at
+least moves the decimal point, and the service passes `core/money.js`'s `format`
+for the rupee sign and the grouping. Both halves are tested, because a default
+that silently prints paise is exactly how this happened.
+
+## What counts as an explanation
+
+A charge is named only when it is **exactly** the difference. "About right" would
+find a coincidence on any statement busy enough, and this sentence is read by
+somebody about to make a decision.
+
+| Rule | Why |
+| --- | --- |
+| Either account | a bank fee is charged where the money left, an inward-remittance fee where it arrived |
+| Inside the window | the same three days the pairing itself allows |
+| Not a transfer leg | a third loose leg of the right size is a candidate for its own pairing — explaining one movement by consuming another is not an explanation |
+| Not deleted | — |
+| Two that fit is a question | *"2 separate charges would each account for it exactly"*, and which belongs is not something the figures can say |
+
+**The pairing stays `possible`.** Unequal amounts never match automatically, and
+that rule does not bend because the evidence got better. A charge of the right
+size on the right day is strong evidence and is still not somebody having
+checked. What changed is that the person deciding is now shown the row.
+
+## What the mutation testing caught
+
+**10 of 11**, after a first pass that caught 8 — the three misses were all my
+tests rather than the code:
+
+- *"empty narration prints as empty quotes"* survived because the fixture
+  blanked `narration`, `payee` and `category` at once, so `||` and `??` gave the
+  same answer. An empty narration with a real payee is the case that separates
+  them, and it is what a statement importer actually produces.
+- *"service stops passing the rupee formatter"* survived because no test looked
+  at the sentence through the service. One does now, and it asserts the ₹.
+- *"evidence hunted for an exact pairing too"* survives and is **stated rather
+  than tested**: `chargesExplaining` is only ever called from the `!exact`
+  branch, so a zero difference cannot reach it. The guard stays because "there
+  is no gap to explain" is a property of the question rather than of the one
+  caller that happens to ask it.
+
+## Not done
+
+- **Nothing writes the fee link.** The charge is named in the sentence and
+  carried on the proposal as `evidence`; no field records that this row explains
+  that movement, because there is nowhere in the schema to put it. That is the
+  same `EconomicEvent` shortfall as the split above, from a different direction.
+- **The screen shows the sentence, not the row.** A household reads that a
+  charge accounts for the difference; they cannot click through to it.

@@ -44,6 +44,23 @@
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/**
+ * The last-resort money formatter.
+ *
+ * Everything in this application is in minor units, and the near-match sentence
+ * used to interpolate them raw: a ₹50 fee printed as **"The amounts differ by
+ * 5000"**, which a household reads as five thousand rupees. A hundredfold
+ * overstatement, in the one sentence that exists to help somebody decide.
+ *
+ * The convention elsewhere is a `money` parameter defaulting to `String(n)` —
+ * fine where every caller passes a real formatter, and the trap here, because
+ * no caller could. So the default at least moves the decimal point; the service
+ * passes `core/money.js`'s `format` for the rupee sign and the grouping.
+ */
+function minorToMajor(minor) {
+  return (minor / 100).toFixed(2);
+}
+
 export const CONFIDENCE = Object.freeze({
   /** Exact amount, close in time, and the only candidate either side. */
   PROBABLE: 'probable',
@@ -80,14 +97,20 @@ export function isLooseLeg(txn) {
  * Pair up the loose legs.
  *
  * @param {object[]} transactions
- * @param {{windowDays?: number, nearWindow?: number}} [options]
+ * @param {{windowDays?: number, nearWindow?: number,
+ *           money?: (minor: number) => string}} [options]
+ *   `money` — how to render an amount in the sentence a person decides from.
+ *   Defaulted to something that at least moves the decimal point; the service
+ *   passes the real formatter.
  *   `windowDays` — how far apart two legs may be and still be one movement.
  *   Three days covers a weekend, which is when most of them land.
  *   `nearWindow` — the largest difference in amount that is worth mentioning
  *   at all, in minor units. Above it, two amounts are simply two amounts.
  * @returns {{proposals: object[], unmatched: object[]}}
  */
-export function proposeTransfers(transactions, { windowDays = 3, nearWindow = 10_000 } = {}) {
+export function proposeTransfers(transactions, {
+  windowDays = 3, nearWindow = 10_000, money = minorToMajor,
+} = {}) {
   const legs = (transactions ?? []).filter(isLooseLeg);
   const outs = legs.filter((t) => t.direction === 'out');
   const ins = legs.filter((t) => t.direction === 'in');
@@ -121,7 +144,7 @@ export function proposeTransfers(transactions, { windowDays = 3, nearWindow = 10
     amount: c.out.amount,
     days: c.days,
     difference: c.difference,
-    ...verdict(c, candidates),
+    ...verdict(c, candidates, { money, rows: transactions ?? [], windowDays }),
   }));
 
   const spoken = new Set(proposals.flatMap((p) => [p.out.id, p.in.id]));
@@ -135,14 +158,47 @@ export function proposeTransfers(transactions, { windowDays = 3, nearWindow = 10
  * probable if the same debit matches a second credit just as well — and a rule
  * that only looked at the pair in front of it would call both of them certain.
  */
-function verdict(candidate, all) {
+function verdict(candidate, all, { money, rows, windowDays }) {
   const { out, inn, days, difference, exact } = candidate;
 
   if (!exact) {
+    // A charge on either account, inside the window, for exactly the missing
+    // amount. Measured: ₹50,000 out, ₹49,950 in, and a ₹50 fee sitting on the
+    // same statement the same day — while this sentence said nothing here could
+    // tell which. Something here could.
+    const charges = chargesExplaining(candidate, rows, windowDays);
+
+    if (charges.length === 1) {
+      return {
+        confidence: CONFIDENCE.POSSIBLE,
+        ambiguous: false,
+        evidence: charges,
+        // Still `possible`, and deliberately. Unequal amounts never match
+        // automatically — a charge for the right amount on the right day is
+        // strong evidence and is not the same thing as somebody checking. What
+        // changes is that the person deciding is shown the row.
+        why: `The amounts differ by ${money(difference)}, and there is a charge of `
+          + `${money(charges[0].amount)} on ${charges[0].date}${describeRow(charges[0])} `
+          + 'that accounts for it exactly. Worth checking rather than assuming.',
+      };
+    }
+
+    if (charges.length > 1) {
+      return {
+        confidence: CONFIDENCE.POSSIBLE,
+        ambiguous: false,
+        evidence: charges,
+        why: `The amounts differ by ${money(difference)}, and ${charges.length} `
+          + 'separate charges would each account for it exactly. Which of them '
+          + 'belongs to this movement is not something these figures can say.',
+      };
+    }
+
     return {
       confidence: CONFIDENCE.POSSIBLE,
       ambiguous: false,
-      why: `The amounts differ by ${difference} — a fee would explain it, and so `
+      evidence: [],
+      why: `The amounts differ by ${money(difference)} — a fee would explain it, and so `
         + 'would these being two unrelated payments. Nothing here can tell which.',
     };
   }
@@ -168,6 +224,48 @@ function verdict(candidate, all) {
       : `Same amount ${days} day${days === 1 ? '' : 's'} apart, opposite directions `
         + 'on two of your accounts.',
   };
+}
+
+/**
+ * Rows that would account for the gap between two near-matching legs.
+ *
+ * A bank fee is charged where the money left, and an inward-remittance charge
+ * where it arrived, so both accounts are looked at. The row must be *exactly*
+ * the difference: "about right" would find a coincidence on any statement busy
+ * enough, and this sentence is read by somebody about to make a decision.
+ *
+ * Transfer legs are excluded. A third loose leg of the right size is a
+ * candidate for its own pairing, not a fee — treating it as one would explain
+ * a movement by consuming another movement.
+ */
+function describeRow(row) {
+  // Truthiness rather than `??`: a narration is an empty string far more often
+  // than it is absent, and “” in the middle of the sentence names nothing while
+  // looking like it meant to.
+  const label = row.narration || row.payee || row.category;
+  return label ? ` — “${label}” —` : '';
+}
+
+function chargesExplaining(candidate, rows, windowDays) {
+  const { out, inn, difference } = candidate;
+  // Belt and braces, and worth naming as such: this is only ever called from
+  // the `!exact` branch, where the difference is non-zero by definition, so
+  // mutation testing shows removing it breaks nothing today. It stays because
+  // "there is no gap to explain" is a property of the question rather than of
+  // the one caller that happens to ask it.
+  if (!difference) return [];
+
+  const accounts = new Set([out.account, inn.account].filter(Boolean));
+
+  return (rows ?? []).filter((row) => {
+    if (!row || row.deletedAt) return false;
+    if (row.id === out.id || row.id === inn.id) return false;
+    if (row.kind === 'transfer') return false;
+    if (row.amount !== difference) return false;
+    if (!accounts.has(row.account)) return false;
+    const days = daysBetween(out.date, row.date);
+    return days !== null && days <= windowDays;
+  });
 }
 
 /**
