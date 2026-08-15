@@ -85,7 +85,14 @@ open"* was carried over a backend that already verified identity with Google,
 took the role from the member list rather than the request, and enforced a
 generated policy table — three quarters of the gate, for months.
 
-**The lint line is the plainest of the seven.** *"25,000 untyped lines
+**Phase 8 supplied the eighth, and it is the one that best justifies the rule.**
+*"Insights: not started"* was carried over a working Insights screen — and
+measuring it found something worse than a stale line, because the screen was
+running and *wrong*. Had the line been trusted, the work would have been to
+build a second insights surface beside a broken one. See
+`docs/STATEMENT_FORMATS.md`.
+
+**The lint line is the plainest of the eight.** *"25,000 untyped lines
 with no linter"* was carried from the Phase 0 audit as a live risk for the whole
 of this work. Measured: one implicit return, and nothing else worth a rule. The
 answer was not to install a linter but to say so.
@@ -137,7 +144,8 @@ is untested against the other. See `docs/BALANCES.md` and
 | 5 | Financial foundation, transfer matching, economic events | **the importer knew one bank** — real ICICI and Axis statements produced zero transactions from thousands of readable rows, and a statement with no opening balance was never checked at all (`docs/STATEMENT_FORMATS.md`). **A PhonePe export read as zero rows, and spans four accounts at once — a payment app's row is a bank row seen from the other side, linked by the UTR** (`docs/PAYMENT_APPS.md`). **all ten prompt tests pass**, locked in `tests/prompt.test.mjs` — see below. **a movement landing in more than one piece is now proposed as one event** — ₹50,000 out arriving as ₹30,000 and ₹20,000 reported 0 proposals and 3 loose ends before it (`docs/MULTI_LEG.md`). **a charge that closes a near-match exactly is now named as evidence** — and the sentence that offers it was printing minor units raw, so a ₹50 fee read as *“differ by 5000”* (`docs/MULTI_LEG.md`). **a multi-leg movement can now be confirmed**, threading one id through every leg — `toAccount` names one destination and a split has several, so these had been proposed with nothing a button could write (`docs/MULTI_LEG.md`). **`EconomicEvent` is now an entity**, built once two tranches had made it the blocking gap: a movement can say what *kind* it is, and the charge that explains a near-match finally has somewhere to live — recorded as a fee rather than a leg, and reported beside the amount rather than inside it (`docs/MULTI_LEG.md`) |
 | 6 | Cards, loans, EMI, FD/RD, family ledger | loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); **who-paid done, who-owes-whom refused for a stated reason** (`docs/HOUSEHOLD_LEDGER.md`); **card bills now due-dated from the statement, not the current balance** (`docs/CARD_BILLS.md`); **subscriptions are in the committed figure that had always named them** (`docs/COMMITMENTS.md`) |
 | 7 | Investments, brokers, MCP | investments exist and XIRR is right; **`holding.invested` never moved, so a fund fed a SIP reported 162% gain where its own transactions said 24.61%** (`docs/COST_BASIS.md`). Brokers still architecture-only. **MCP measured and answered: there is nowhere in this design for an MCP *server* to run** — the records are on the device and the only server this application has never holds them, which is what the gate's answer costs. A local tool surface derived from the thirteen assistant intents exists instead, returning sentences and counts rather than records (`docs/MCP.md`) |
-| 8–23 | Insights … internationalisation | not started |
+| 8 | Insights | **the screen already existed** — `insights()` over categorised rows, on the Ledgers screen — and that line was the eighth to go stale on measurement. What it *said* was wrong: on an ICICI statement every UPI payment, in both directions, grouped under one counterparty called `unknown`, because the payee was taken from a fixed field position and `DR`/`CR` sits there instead. Rent, Netflix and a backup plan read as **one charge of ₹1,180 repeating weekly**, and the screen reported *"2 payments repeat on a schedule"* to a household that had five (`docs/STATEMENT_FORMATS.md`) |
+| 9–23 | Automation … internationalisation | not started |
 
 ## The prompt's ten financial tests
 

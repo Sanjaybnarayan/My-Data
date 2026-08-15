@@ -174,3 +174,127 @@ an error injected into any single row is still caught on every one of them.
   text extraction splits a balance oddly. Both are reported rather than guessed
   — the right outcome for genuinely ambiguous rows, and not worth over-fitting
   a parser to one small file.
+
+---
+
+# The rows were read; the payee was not
+
+A follow-on, measured a phase later, on the very statements the work above made
+readable. Making an ICICI statement produce 595 rows is not the same as making
+those rows mean anything, and nobody had looked at what the ledger made of them.
+
+## What was measured
+
+The Insights screen exists — Phase 8's roadmap line said *"not started"*, and it
+was the eighth such line to go stale on measurement. It runs `insights()` over
+`categorise()`d rows, and both had been there for some while.
+
+What it reported, over six months of a salaried household's statement:
+
+```
+  [recurring] 2 payments repeat on a schedule, ₹27,500 a cycle.
+```
+
+Two. The household had **five**, worth ₹64,329 a cycle, and the largest of them
+— ₹35,000 of rent — was not among the two.
+
+## Why
+
+`counterpartyOf` took the payee from the second field of a UPI narration.
+**Every UPI fixture in this repository is the shape where that is right**, so
+nothing failed. Two shapes that are at least as common are not:
+
+| Narration | Payee read as | What it is |
+| --- | --- | --- |
+| `UPI/DR/305012345678/Amazon/UTIB/…` | `DR` | a direction indicator |
+| `UPI/CR/218765432109/SANJAY NARAYAN/…` | `CR` | the same, incoming |
+| `UPI/052012345678/Payment from Ph/SANJAY/…` | `052012345678` | a reference number |
+
+The two failures are opposites from one cause. `counterpartyKey` drops fragments
+too short to be a name, so `DR` and `CR` both reduced to **`unknown`** — one
+bucket holding every UPI payment on the statement, in both directions. The
+reference-number shape gives the reverse: a counterparty per payment, keyed by
+twelve digits that never repeat.
+
+## What that fed
+
+Everything that groups by counterparty, which is most of the ledger:
+`peopleLedger`, `lendingLedger`, `businessLedger`, `recurring`, and the Insights
+screen over all of them. None of it failed. It produced sentences:
+
+- rent, Netflix and a cloud backup plan — three payees, three amounts — read as
+  **one charge of ₹1,180 repeating weekly, eighteen times**. The cadence was the
+  gaps *between different payees*, and the amount was their median.
+- `insights()` then reported those as *"2 payments repeat on a schedule"*, having
+  silently lost the largest commitment the household has.
+
+A wrong counterparty does not merely fail to group. It groups two strangers
+together and says so confidently, which is the class of defect this project
+treats as worse than a gap.
+
+## The fix
+
+The payee is not at a fixed position, so the reader stops assuming one: it walks
+the fields and takes the first that could be somebody's name. What cannot be one
+is specific and checkable rather than clever — a direction indicator, a bare
+reference, and a field that is nothing but the words a narration uses to
+describe itself, which `NOISE` already lists because `counterpartyKey` has to
+ignore them when grouping.
+
+Where no field reads as a name, a VPA's local part is used — `netflix.payu@…`
+is not a name, but it is what the payee calls itself and it groups correctly
+across months. A phone-number VPA is refused, because that identifies an account
+rather than a person.
+
+Where nothing names anybody, the answer is **`UPI payment`** and not the
+least-bad field. That groups unnamed payments together, which is the same merge
+`DR` used to make by accident — and the difference is the entire point: this one
+is labelled as unnamed, so a household reading *"UPI payment ×12"* is told the
+payee is missing rather than shown a stranger's name. **A wrong name is a claim;
+a missing one is a gap.**
+
+## After
+
+```
+  LANDLORD RENT                35,000  monthly  x6
+  ACH DR HDFC HOME LOAN EMI    18,500  monthly  x6
+  POS BIG BAZAAR RETAIL         9,000  monthly  x6
+  CLOUD BACKUP                  1,180  monthly  x6
+  NETFLIX                         649  monthly  x6
+
+  [recurring] 5 payments repeat on a schedule, ₹64,329 a cycle.
+```
+
+## Verification
+
+- **8 of 8 mutations caught**, including *a direction indicator accepted as a
+  name*, *a reference number accepted as a name*, *a phone-number VPA accepted
+  as a payee*, *a dash-separated narration split on slashes*, and *a resolver
+  falling through to another rail's pattern*.
+- One mutation survived the first run and was a finding about the new code
+  rather than a missing test: a defensive `break` that **could not be reached**,
+  because the fallback beside it always returned first. Unreachable defensive
+  code is dead code, so the contract was made explicit instead — a resolver owns
+  the narration it matched — and the mutation is caught.
+- Typecheck **lowered 186 → 181**, not raised: the type checker objected to
+  `asOf`, which `recurring()` has always accepted and never documented. Three of
+  the five findings were the new tests and two were already there.
+- The fixtures are retyped layouts, as everywhere else here. Real statements are
+  somebody's bank statements and do not belong in a repository.
+
+## Still not done
+
+- **`insights()` and the Finance screen still do not compare notes.** Measured
+  on the same household: `committedMonthlyOutflow` reports **₹53,500 a month**
+  from the recorded commitments, while the ledger can now see **₹64,329 a month**
+  actually leaving on a schedule. The difference is ₹10,829 a month — ₹1,29,948
+  a year — of real, repeating outgoings that no record accounts for, and nothing
+  puts the two figures side by side. Both are derived, both are honest about
+  their own inputs, and they disagree. That is the next tranche, and it is the
+  same shape as `docs/COMMITMENTS.md`: a screen making a claim about its own
+  contents.
+- **A landlord now reads as a person**, so the people ledger offers *"1 people
+  have taken more from this account than has come back"* about rent. That is
+  `looksLikePerson` doing what it says on a name it could not see before, and it
+  is a pre-existing judgement rather than something this change introduced — but
+  it is newly visible because of it, and it is worth saying so.
