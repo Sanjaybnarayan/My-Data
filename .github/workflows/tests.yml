@@ -58,6 +58,13 @@ jobs:
       - name: Check nothing shipped can leak or execute a string
         run: node tools/lint.mjs
 
+      # The architecture document describes a codebase, and a description goes
+      # stale silently. Thirteen of its rows still said "missing" about things
+      # built phases earlier, so every row now carries a probe and this fails
+      # when one disagrees — in either direction.
+      - name: Check the architecture document still describes this repository
+        run: node tools/architecture.mjs
+
   # Types are checked, never compiled: the application ships the JavaScript in
   # this repository and nothing here touches a byte of it. A separate job so a
   # failure reads as "types" rather than as "the suite broke", and because it is

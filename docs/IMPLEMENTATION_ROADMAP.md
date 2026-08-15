@@ -105,6 +105,15 @@ answer was not to install a linter but to say so.
 
 **Every phase should begin by re-reading this row rather than trusting it.**
 
+**And the master architecture document no longer relies on anybody doing so.**
+Audited after Phase 9, thirteen of its rows still said `missing` about things
+built phases earlier — including `EconomicEvent`, which it called the largest
+single piece of Layer 4 work. Every row there now carries a probe that CI runs,
+and the one architectural invariant the project admits is broken — screens
+reaching the repository directly — is a **counted ratchet at 71** rather than a
+sentence of regret. See `docs/ARCHITECTURE_DRIFT.md`. This roadmap has no such
+check, which is the obvious next thing to want.
+
 **This application collects more than it reads.** Nine fields were filled in on
 a form and read by nothing downstream — `transaction.category`,
 `person.relationship`, `transaction.person`, `importantDate.remindDaysBefore`,

@@ -25,7 +25,7 @@ import { modal } from '../ui/components/modal.js';
 import { toast } from '../ui/components/toast.js';
 import { entityForm } from '../ui/components/form.js';
 import { recordDetail } from './crud.js';
-import { MATCH, attachmentFor } from '../domain/receiptmatch.js';
+import { MATCH } from '../domain/receiptmatch.js';
 import { format } from '../core/money.js';
 import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
@@ -39,6 +39,7 @@ import { identifierOffers, identityRecordFor, textState } from '../domain/identi
 import { formatDay, daysUntil } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
 import { can } from '../security/rbac.js';
+import { DocumentsService } from '../services/documents.js';
 
 export async function render(route) {
   if (route.id && route.id !== 'new') return documentDetail(route.id);
@@ -494,14 +495,15 @@ async function documentDetail(id) {
   }
 
   async function attach(proposal) {
-    const link = attachmentFor(proposal, id);
-    if (!link) {
-      toast('Only a clear match can be filed automatically', { kind: 'error' });
-      return;
-    }
-
     try {
-      await db.repo('transaction').update(link.transactionId, link.patch);
+      // The decision stays in the domain and the write in the service; this
+      // screen only says what happened. An uncertain match comes back as an
+      // answer rather than an exception, because it is one.
+      const result = await new DocumentsService(db).fileReceipt(proposal, id);
+      if (!result.filed) {
+        toast(result.why, { kind: 'error' });
+        return;
+      }
       toast('Filed against that payment — the receipt is still here too',
         { kind: 'success' });
       await paintReceiptMatch();
@@ -527,10 +529,8 @@ async function documentDetail(id) {
         variant: 'subtle',
         onClick: async () => {
           try {
-            // Written through the repository, which is what encrypts `number`
-            // and checks the permission. Nothing about the value passes
-            // through a searchable field on the way.
-            await db.repo('identityDocument').create(identityRecordFor(offer, record));
+            await new DocumentsService(db)
+              .recordIdentifier(identityRecordFor(offer, record));
             toast(`${offer.kind} recorded, encrypted`, { kind: 'success' });
             await paintReading();
           } catch (err) {

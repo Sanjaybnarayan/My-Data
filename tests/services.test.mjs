@@ -20,6 +20,8 @@ import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 import { Service, NET_WORTH_LOAD } from '../js/services/service.js';
 import { PortfolioService } from '../js/services/portfolio.js';
 import { RecordsService } from '../js/services/records.js';
+import { FinanceService, assembleOverview } from '../js/services/finance.js';
+import { DocumentsService } from '../js/services/documents.js';
 import { xirr } from '../js/domain/portfolio.js';
 
 setSuite('services');
@@ -356,5 +358,166 @@ describe('what deleting a record would break', () => {
     let threw = false;
     try { await new RecordsService(db).impactOfDeleting('nonsense', 'x'); } catch { threw = true; }
     assert.ok(threw, 'reporting "nothing refers to it" would be a licence to delete');
+  });
+});
+
+/*
+ * The Finance overview, which used to be assembled inline in the screen.
+ *
+ * None of these could be written before: the arithmetic lived in a closure
+ * inside a render function, reachable only by driving a browser. Wiring a new
+ * finding into that screen family failed three times in a row, silently, for
+ * exactly that reason.
+ */
+describe('the finance overview, assembled where it can be reached', () => {
+  const clock = () => Date.parse('2026-07-20T00:00:00Z');
+
+  const records = () => ({
+    accounts: [{ id: 'a1', name: 'HDFC', kind: 'savings', openingBalance: 50_000_00, deletedAt: null }],
+    transactions: [
+      { id: 't1', date: '2026-07-05', amount: 35_000_00, kind: 'expense', direction: 'out',
+        category: 'rent', account: 'a1', narration: 'UPI/DR/1/LANDLORD/ICIC/l@ok/Rent', deletedAt: null },
+      { id: 't2', date: '2026-07-02', amount: 120_000_00, kind: 'income', direction: 'in',
+        category: 'salary', account: 'a1', narration: 'NEFT CR ACME SALARY', deletedAt: null },
+    ],
+    budgets: [], recurring: [], loans: [], subscriptions: [], digitalAssets: [], people: [],
+  });
+
+  test('the balance is the opening figure plus what moved', () => {
+    const view = assembleOverview(records(), { clock });
+    assert.equal(view.balances[0].balance, 50_000_00 + 120_000_00 - 35_000_00);
+  });
+
+  test('this month is counted from the clock it is given, not the wall clock', () => {
+    // The screen never passed a clock, so every figure here silently used the
+    // real date and no test could pin any of them to a month.
+    const july = assembleOverview(records(), { clock });
+    const september = assembleOverview(records(), { clock: () => Date.parse('2026-09-20T00:00:00Z') });
+
+    assert.ok(july.categories.length > 0, 'July has spending, or this test proves nothing');
+    assert.equal(september.categories.length, 0, 'July is not September');
+  });
+
+  test('a missing entity yields an empty view rather than throwing', () => {
+    const view = assembleOverview({}, { clock });
+    assert.equal(view.balances.length, 0);
+    assert.equal(view.bills.length, 0);
+    assert.equal(view.commitment.total, 0);
+  });
+
+  test('the commitment figure carries what the statements show repeating', () => {
+    // The seam that took two tranches to build and had no test above the
+    // domain layer: the detector runs on the ledger, the figure comes from the
+    // records, and the screen is where they meet.
+    const data = records();
+    for (const m of ['03', '04', '05', '06', '07']) {
+      data.transactions.push({
+        id: `n${m}`, date: `2026-${m}-14`, amount: 649_00, kind: 'expense', direction: 'out',
+        category: 'subscription', account: 'a1',
+        narration: 'UPI/DR/412345678901/NETFLIX/HDFC/n@hdfcbank/Pay', deletedAt: null,
+      });
+    }
+    const view = assembleOverview(data, { clock });
+
+    assert.ok(view.detected.some((charge) => /NETFLIX/i.test(charge.name)),
+      'the ledger sees the repeating charge');
+    assert.equal(view.commitment.unaccounted, 649_00,
+      'and nothing records it, so it is named beside the committed figure');
+  });
+
+  test('the load names every entity the overview reads', async () => {
+    // A screen that quietly adds a ninth `db.repo` call is the drift this whole
+    // layer exists to stop, and the architecture ratchet counts it.
+    const db = await makeDb();
+    const view = await new FinanceService(db).overview({ clock });
+    assert.ok(Array.isArray(view.bills));
+    assert.ok(Array.isArray(view.transfers.proposals));
+  });
+});
+
+/*
+ * What a document does to the records around it.
+ *
+ * Both of these begin with a document and end by changing a *different*
+ * entity, which is the second thing `services/service.js` says this layer is
+ * for. Neither could be exercised without a browser before, and both are
+ * writes where being wrong matters: one files evidence against a payment, the
+ * other creates a record holding a document number.
+ */
+describe('cross-entity writes a document causes', () => {
+  const probable = (transaction) => ({
+    transaction, confidence: 'probable', days: 0, ambiguous: false, why: '',
+  });
+
+  test('a clear match files the receipt against the payment', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    const txn = await db.repo('transaction').create({
+      date: '2026-07-05', amount: 48_500_00, kind: 'expense', direction: 'out',
+      account: account.id, payee: 'School',
+    });
+
+    const result = await new DocumentsService(db).fileReceipt(probable(txn), 'doc-1');
+    assert.ok(result.filed);
+
+    const after = await db.repo('transaction').get(txn.id);
+    assert.equal((after.documents ?? []).join(), 'doc-1');
+  });
+
+  test('a receipt is appended, never substituted for what is already filed', async () => {
+    // A transaction may have a receipt and an invoice and a warranty. Filing
+    // one by losing the others would be worse than not filing at all.
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    const txn = await db.repo('transaction').create({
+      date: '2026-07-05', amount: 48_500_00, kind: 'expense', direction: 'out',
+      account: account.id, documents: ['invoice-9'],
+    });
+
+    await new DocumentsService(db).fileReceipt(probable(txn), 'doc-1');
+    const after = await db.repo('transaction').get(txn.id);
+    assert.equal((after.documents ?? []).sort().join(), 'doc-1,invoice-9');
+  });
+
+  test('an uncertain match is an answer, not an exception, and writes nothing', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    const txn = await db.repo('transaction').create({
+      date: '2026-07-05', amount: 48_500_00, kind: 'expense', direction: 'out',
+      account: account.id,
+    });
+
+    const result = await new DocumentsService(db).fileReceipt(
+      { transaction: txn, confidence: 'possible', ambiguous: true }, 'doc-1',
+    );
+
+    assert.not(result.filed);
+    assert.includes(result.why, 'clear match');
+    const after = await db.repo('transaction').get(txn.id);
+    assert.equal((after.documents ?? []).length, 0, 'an uncertain match writes nothing at all');
+  });
+
+  test('filing the same receipt twice does not list it twice', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    const txn = await db.repo('transaction').create({
+      date: '2026-07-05', amount: 48_500_00, kind: 'expense', direction: 'out',
+      account: account.id, documents: ['doc-1'],
+    });
+
+    const result = await new DocumentsService(db).fileReceipt(probable(txn), 'doc-1');
+    assert.not(result.filed, 'a decision already made is not offered again');
+  });
+
+  test('an identifier a scan found is written as its own record', async () => {
+    const db = await makeDb();
+    const person = await makePerson(db);
+    const created = await new DocumentsService(db).recordIdentifier({
+      kind: 'PAN', number: 'ABCDE1234F', person: person.id,
+    });
+
+    assert.ok(created.id);
+    const back = await db.repo('identityDocument').get(created.id);
+    assert.equal(back.kind, 'PAN');
   });
 });

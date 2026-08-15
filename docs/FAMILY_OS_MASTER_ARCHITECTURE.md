@@ -1,12 +1,27 @@
 # FamilyOS — Master Architecture
 
 Target architecture, expressed in five layers, with the current position of
-each component marked. Written during Phase 0; nothing here is built yet
-except what is marked **exists**.
+each component marked.
 
-> **This document is conditional.** Layers 1 and 4 depend on the open question
-> in `PROJECT_AUDIT.md` §0 — whether FamilyOS gains a server. Where the answer
-> changes the design, both branches are given rather than one assumed.
+> ### This document is checked, not trusted
+>
+> It was written during Phase 0 and opened with *"nothing here is built yet
+> except what is marked **exists**"*. Audited nine phases later, **thirteen rows
+> marked `missing` had been built** — consent, provenance, lineage, retention,
+> six-level classification, device management, OCR, Google Calendar,
+> `EconomicEvent` and more. Anyone trusting it would have planned work that was
+> already done, which is exactly what the roadmap has now caught itself doing
+> nine times.
+>
+> So every row carries a **probe**, and `tools/architecture.mjs` runs them in
+> CI. A row claiming something exists must cite a file that does; a row claiming
+> something is missing must name a term that appears nowhere in the source. The
+> second direction is the one that goes stale, because building is what people
+> do, and nobody re-reads a table to check whether it is still pessimistic.
+>
+> The gate question in `PROJECT_AUDIT.md` §0 has since been answered — hybrid,
+> with a policy-only server — so the conditional branches this document once
+> carried have been resolved rather than left open.
 
 ---
 
@@ -29,31 +44,46 @@ Forbidden edges, all of which currently hold except the last:
 | Gmail → database | Blocked. `sync/gmail.js` returns receipts; `domain/inbox.js` plans; the repository writes. |
 | Bank → database | Blocked. Statements go through `domain/import.js`, which produces a *plan* first. |
 | AI → database | Blocked. `js/ai/` reads only. |
-| **UI → database** | **Not blocked.** Screens call `db.repo(...)` directly. See §2. |
+| **UI → database** | **Not blocked**, and now counted. |
+
+The last edge is the only architectural invariant this project declares and does
+not hold. It is not a boolean anybody fixes in one tranche — screens call
+`db.repo(...)` **71 times** — so it is a ratchet rather than a promise:
+`tools/architecture-budget.json` holds the count, `tools/architecture.mjs`
+fails the build if it rises, and every tranche that moves a screen onto
+`js/services/` lowers it permanently.
+
+The service layer exists and is barely adopted: four service modules against
+those 71 direct calls. Naming the number is what turns "we should migrate
+someday" into something with a direction.
 
 ---
 
 ## Layer 1 — Trust & Governance
 
-| Component | State | Notes |
+| Component | State | Evidence |
 | --- | --- | --- |
-| Authentication (local) | **exists** | PIN / WebAuthn / recovery phrase / Google, two-level key hierarchy |
-| Authentication (Google) | **exists** | `js/auth/google.js`, implicit flow, token in memory |
-| MFA | missing | |
-| Session security | **exists** | Idle timeout drops the data key |
-| Session revocation, device management | missing | |
-| RBAC | **exists, advisory** | `js/security/rbac.js` — browser-side |
-| ABAC | missing | |
-| Data classification | **one boolean** | `encrypted: true` on 28 of 426 fields; the prompt asks for six levels |
-| Consent engine | missing | |
-| Provenance | missing | |
-| Lineage | missing | |
-| Retention / deletion policy | missing | Soft delete exists; no propagation |
-| Audit | **exists** | `js/data/audit.js` |
-| Privacy centre | **exists** | `js/domain/privacy.js` — reports what is and is not encrypted |
-| Local-only switch | **exists** | Enforced at four egress points |
-| AI governance | missing | |
-| Connector permissions | **partial** | Scope registry `js/core/scopes.js` |
+| Authentication (local) | **exists** | `export:js/auth/lock.js#lockScreen` |
+| Authentication (Google) | **exists** | `export:js/auth/google.js#GoogleAuth` |
+| MFA | missing | `absent:grep:multi-factor` |
+| Session security | **exists** | `export:js/security/session.js#Session` |
+| Session revocation, device management | **exists** | `export:apps-script/Code.gs#manageDevices` |
+| RBAC | **exists, server-authoritative** | `file:apps-script/Policy.gs` |
+| ABAC | **partial — own-record rules only** | `export:apps-script/Policy.gs#ownRecordAllows` |
+| Data classification | **exists — six levels** | `export:js/data/classification.js#LEVELS` |
+| Consent engine | **exists** | `file:js/data/consent.js` |
+| Provenance | **exists** | `file:js/data/provenance.js` |
+| Lineage | **exists** | `file:js/data/lineage.js` |
+| Retention / deletion policy | **exists** | `file:js/data/retention.js` |
+| Audit | **exists** | `file:js/data/audit.js` |
+| Privacy centre | **exists** | `file:js/domain/privacy.js` |
+| Local-only switch | **exists** | `export:js/core/config.js#loadLocalOnly` |
+| AI governance | **partial — one outbound gate** | `export:js/ai/mcp.js#callTool` |
+| Connector permissions | **partial — scope registry** | `file:js/core/scopes.js` |
+
+Eight of these rows said *missing* when this document was written. They were
+built across Phases 0.5 and 1 and the document was never updated — which is the
+whole reason it now carries probes.
 
 **The decision that shapes this layer.** Under a serverless architecture,
 Layer 1 can enforce *cryptographic* boundaries (a key you do not have) but not
@@ -73,8 +103,19 @@ and applies no role.
 documents, vehicles, health, insurance, property, education, tasks, calendar,
 notes, vault, digital, emergency, reports, settings.
 
-Missing from the prompt's navigation: **people** (distinct from family),
-**staff**, **chat**, **safety**, **AI**, **privacy** as a top-level entry.
+| Component | State | Evidence |
+| --- | --- | --- |
+| Module registry drives navigation | **exists** | `export:js/data/schema.js#modules` |
+| Assistant screen | **exists** | `file:js/modules/assistant-screen.js` |
+| Domain-service layer | **exists, barely adopted** | `file:js/services/service.js` |
+| People (distinct from family) | missing | `absent:grep:staffMember` |
+| Chat | missing | `absent:grep:chatMessage` |
+| Safety | missing | `absent:grep:geofence` |
+
+Privacy is reachable through Settings rather than as a top-level entry, and the
+assistant is routed at `#/assistant`. Staff, chat and safety are genuinely
+absent — and safety is one of the things `PROJECT_AUDIT.md` records as
+**deliberately not scheduled**, because a PWA cannot deliver location or SOS.
 
 **The architectural debt here is the missing domain-service layer.** Screens
 call the repository directly, so every module added before the layer exists is
@@ -109,20 +150,26 @@ another caller to migrate.
 
 ## Layer 3 — Intelligence
 
-| Component | State |
-| --- | --- |
-| Categorisation | **exists** — rule-based, four kinds, override map |
-| Statement extraction (PDF) | **exists** — column-geometry parser |
-| Statement extraction (CSV/card) | **exists** — `js/domain/tabular.js`, four column layouts |
-| Duplicate detection | **exists** — fingerprint over immutable fields |
-| Reconciliation | **exists** — refuses to call an unbalanced statement ready |
-| Receipt reading | **exists** — `js/domain/inbox.js`, ~25 merchants |
-| Local assistant | **exists** — rule-based, no model call |
-| OCR | missing |
-| Entity resolution | missing |
-| Knowledge graph | missing |
-| Anomaly detection, forecasting | missing |
-| AI privacy gate | missing |
+| Component | State | Evidence |
+| --- | --- | --- |
+| Categorisation | **exists** | `export:js/domain/categorise.js#categorise` |
+| Statement extraction (PDF) | **exists** | `export:js/domain/statement.js#parseStatement` |
+| Statement extraction (CSV/card) | **exists** | `export:js/domain/tabular.js#detectHeader` |
+| Duplicate detection | **exists** | `export:js/domain/import.js#fingerprint` |
+| Reconciliation | **exists** | `export:js/domain/statement.js#reconcile` |
+| Receipt reading | **exists** | `export:js/domain/extract.js#readReceipt` |
+| Local assistant | **exists** | `export:js/ai/assistant.js#Assistant` |
+| OCR | **exists — Drive's own converter** | `file:apps-script/Drive.gs` |
+| Entity resolution | **partial** | `export:js/domain/categorise.js#resolveAliases` |
+| Knowledge graph | missing | `absent:grep:knowledgeGraph` |
+| Anomaly detection | **exists** | `export:js/domain/unusual.js#unusualSpending` |
+| Forecasting | missing | `absent:grep:forecast|projection` |
+| AI privacy gate | **partial — outbound only** | `export:js/ai/mcp.js#describeSurface` |
+
+Two rows here were *missing* and are not: OCR had been implemented in
+`apps-script/Drive.gs` before Phase 3 opened, and the receipt reader arrived in
+Phase 3 itself. **Anomaly detection and forecasting are genuinely absent** —
+measured, not assumed, and the probe fails the build the day either appears.
 
 **Principle to preserve:** the categoriser is deterministic and testable.
 Whatever model work arrives later, the rule that *AI confidence is not
@@ -136,23 +183,27 @@ verification* means the deterministic path must stay the one that writes.
 derive stores, indexes, validators, forms, columns, Sheets tabs, reminders and
 report fields.
 
-**The gap that matters most.** The prompt separates an *account transaction*
-(what the statement says) from an *economic event* (what happened). Today:
+**The gap that mattered most, now closed.** The prompt separates an *account
+transaction* (what the statement says) from an *economic event* (what happened).
+This document called `EconomicEvent` plus a transfer-matching engine *"the
+largest single piece of Layer 4 work"*. Both exist, and all ten of the prompt's
+financial tests run in `tests/prompt.test.mjs` rather than being claimed in
+prose — see `docs/PROMPT_TESTS.md` and `docs/MULTI_LEG.md`.
 
-- categorisation **does** distinguish transfers from spending and income, so an
-  internal transfer is already excluded from both totals;
-- but there is **no cross-account matching**, so a ₹50,000 debit at HDFC and a
-  ₹50,000 credit at ICICI remain two records, not one event.
+| Component | State | Evidence |
+| --- | --- | --- |
+| Schema as single source of truth | **exists** | `export:js/data/schema.js#entities` |
+| Economic events | **exists** | `export:js/domain/events.js#proposeMultiLeg` |
+| Transfer matching, explicit confidence | **exists** | `export:js/domain/events.js#proposeTransfers` |
+| Six-level classification | **exists** | `export:js/data/classification.js#MEANING` |
+| Referential integrity | **partial — checked before delete** | `file:js/services/records.js` |
+| Multi-currency | **partial — formatter only, records carry no currency** | `export:js/core/money.js#CURRENCIES` |
+| `LedgerEntry` | missing | `absent:grep:ledgerEntry` |
 
-Implementing `EconomicEvent` + a transfer-matching engine with explicit
-confidence (`VERY_HIGH` … `UNMATCHED`, never forcing a match) is the largest
-single piece of Layer 4 work and is what the prompt's financial TEST 1–8 are
-written against.
-
-Also missing: `LedgerEntry`, referential integrity, multi-currency, and the
-six-level classification.
-
----
+Multi-currency is the row most likely to be misread, so it is spelled out: six
+currencies are *formattable*, and no record stores which one it is in. Every
+amount in the database is assumed to be INR minor units. That is a real
+limitation, not a partial feature.
 
 ## Layer 5 — Connectors & Ingestion
 
@@ -163,14 +214,19 @@ CONNECTOR ─> RAW INGESTION ─> VALIDATION ─> NORMALISATION
           ─> ENTITY RESOLUTION ─> TRUST ─> INTELLIGENCE ─> DATA
 ```
 
-| Connector | State |
-| --- | --- |
-| Google OAuth (multi-account) | **exists** |
-| Gmail | **exists** — receipts, query printed before it runs |
-| Google Drive | **exists** — documents + key escrow |
-| Google Sheets | **exists** — via Apps Script |
-| Google Calendar | missing |
-| DigiLocker, CKYCRR, ABDM, Account Aggregator, brokers | **absent, and correctly so** |
+| Connector | State | Evidence |
+| --- | --- | --- |
+| Google OAuth (multi-account) | **exists** | `export:js/auth/google.js#GoogleAuth` |
+| Gmail | **exists** | `file:js/sync/gmail.js` |
+| Google Drive | **exists** | `file:js/sync/drive.js` |
+| Google Sheets | **exists** — via Apps Script | `file:apps-script/Sheets.gs` |
+| Google Calendar | **exists** — never run against the live API | `export:js/sync/calendar.js#CalendarClient` |
+| DigiLocker, CKYCRR, ABDM, Account Aggregator, brokers | **absent, and correctly so** | `absent:grep:digilocker` |
+
+Google Calendar was `missing` here and is not. It writes only to a calendar it
+created itself, on the narrowest scope Google offers — and **it has never been
+run against the live API**, which is stated on the row rather than left for
+somebody to discover.
 
 **Rule for all of the above:** architecture may be prepared; connectivity may
 not be claimed. A connector with no authorised access reports

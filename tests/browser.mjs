@@ -1072,6 +1072,59 @@ async function main() {
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 
+    /* ------------------------- spending unlike its own history, on screen */
+
+    {
+      // The wiring for this failed silently three times while it was written —
+      // a month key read from the wrong field, an unsorted array taken as
+      // sorted, and an import that matched nothing. Every one produced no
+      // error and no output, and the unit tests passed throughout. Only
+      // driving a real transaction to a real screen tells a working panel from
+      // an absent one.
+      const before = consoleErrors.length;
+
+      await go(page, '#/finance');
+      await go(page, '#/finance/transaction/new');
+      await page.waitForTimeout(600);
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.locator('#f-transaction-date').fill('2026-07-11');
+      await page.locator('#f-transaction-kind').selectOption('expense');
+      await page.locator('#f-transaction-amount').fill('85000');
+      await page.locator('#f-transaction-category').selectOption('health');
+      await page.locator('#f-transaction-payee').fill('Apollo Hospitals');
+      await page.locator('#f-transaction-account').selectOption({ index: 1 });
+      await page.locator('#f-transaction-payee').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      await go(page, '#/finance/insights');
+      await page.waitForTimeout(700);
+      const shown = (await page.locator('.app-content').innerText()).trim();
+
+      check('a category never spent on before is named on the Insights screen',
+        /first time anything has been spent there/i.test(shown), shown.slice(0, 800));
+
+      check('and the amount is on the screen beside it',
+        /85,000/.test(shown), shown.slice(0, 800));
+
+      // The refusal that matters most, driven rather than asserted in a unit
+      // test: with no history there is no ratio. Scoped to the sentence that
+      // makes the claim — other findings on this screen legitimately carry a
+      // multiple, and scanning the whole page for the word "times" was an
+      // assertion about the wrong thing.
+      const firstTime = /[^.]*first time anything has been spent there[^.]*\./i.exec(shown)?.[0] ?? '';
+      check('a first occurrence is never given a multiple',
+        firstTime.length > 0 && !/\btimes\b/i.test(firstTime), firstTime || '(no sentence)');
+
+      // And nothing anywhere on the screen divided by zero on the way.
+      check('no arithmetic leaked onto the screen',
+        !/Infinity|NaN/.test(shown), shown.slice(0, 800));
+
+      check('the insights screen renders it without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-unusual');
+    }
+
     /* ------------------------------------------------- who paid, this month */
 
     {

@@ -31,6 +31,8 @@
  * `overrides` lets a household correct one permanently.
  */
 
+import { unusualSpending, describeUnusual } from './unusual.js';
+
 /* ------------------------------------------------------------- categories */
 
 /**
@@ -815,10 +817,34 @@ export function lendingLedger(transactions) {
  * Every insight is a fact with its arithmetic attached, not an opinion. The
  * threshold for saying something is that it would change a decision.
  */
-export function insights(transactions, summary = summarise(transactions)) {
+export function insights(transactions, summary = summarise(transactions), {
+  month = null, complete = true,
+} = {}) {
   const notes = [];
   const list = transactions ?? [];
   const months = Math.max(1, summary.byMonth.length);
+
+  // Spending unlike its own history, first, because it is the only note here
+  // about something that *happened* — the rest describe the period's shape.
+  // Measured on a household that spent ₹85,000 on healthcare having never spent
+  // anything on it: the screen's whole output was that rent was the largest
+  // category and two payments repeat. See `domain/unusual.js`.
+  // The *largest* key, not the last one. `summary.byMonth` is grouped rather
+  // than sorted, so `.at(-1)` returns whichever month happened to be grouped
+  // last — it gave June for a period ending in July, and the note simply never
+  // appeared. An ordering nothing promises is not an ordering.
+  const latest = month
+    ?? summary.byMonth.map((bucket) => bucket.key).sort().at(-1)
+    ?? null;
+  if (latest) {
+    for (const finding of unusualSpending(list, { month: latest, complete })) {
+      notes.push({
+        kind: 'unusual',
+        text: describeUnusual(finding, format, categoryLabel),
+        amount: finding.amount,
+      });
+    }
+  }
 
   if (summary.net < 0) {
     notes.push({
