@@ -143,3 +143,89 @@ the number it just stored.
   in `canReadText`, and are not in Drive's `OCR_TYPES` either — so those files
   are stored and filed and never read. Phase 3's "DOCX templates" is a separate
   piece of work and is untouched.
+
+
+# Reading a receipt
+
+The tranche above measured extraction at **89% with zero wrong fields**, and
+recorded three misses — *"all three are receipts, which say 'received the sum
+of' rather than 'amount payable'"*. Measuring it properly found both halves of
+that sentence were understated.
+
+## What was measured
+
+Four real layouts, retyped: a school fee receipt, a temple donation, a rent
+receipt and a hospital payment.
+
+```
+  amount + date found : 0 of 8
+```
+
+Not three misses — **nothing at all**. And the reason is one sentence: a bill
+and a receipt describe the same money in opposite tenses. A bill says *amount
+payable* and *due date*; a receipt says **"received the sum of"** and *receipt
+date*, because the paying has already happened. Receipts were routed through
+`readBill`, so every label it looked for was a phrase a receipt never uses.
+
+## The wrong values, which mattered more
+
+`zero wrong fields` did not survive contact with these:
+
+| Layout | `biller` came back as |
+| --- | --- |
+| School fee | `Mr Sanjay Narayan` — the person who **paid** |
+| Donation | `Sanjay Narayan` — likewise |
+| Rent | `Sanjay Narayan towards rent for the month` — not anybody's name |
+
+A receipt's "from" is the payer; a bill's is the company. Filing one as the
+other is not a missing field, it is a claim.
+
+So a receipt now names a `payer` and never a `biller`. **The fields differ
+because the facts differ**, and reusing the bill's shape is precisely what made
+a payer look like a biller.
+
+## A receipt that says "Bill No"
+
+The hospital payment receipt was detected as a **bill**, because `Bill No:
+IP/2026/77812` sits at the top of it. `receipt` is now matched before `bill`,
+and a test pins that an actual electricity bill still reads as one — a
+reordering that dragged bills across with it would be a worse bug than the one
+being fixed.
+
+## Where it still declines
+
+A bare "from" appears mid-sentence on most rent receipts, and reading it as a
+name is what produced the nonsense above. Only labels that unambiguously
+introduce a payer are read, so **some layouts yield no payer at all** — and that
+is the intended trade. A missing name is a gap; a wrong one is a claim.
+
+The same rule dropped `received by` as a label for who took the money: *"Payment
+received by UPI"* is ordinary phrasing, and reading it filled the field with
+`"UPI"` — a payment method presented as a person.
+
+## What the mutation testing caught
+
+**6 of 7**, and both of the original survivors were **my own mutations being
+wrong**, which is worth recording because a bad mutation reads exactly like a
+missing test:
+
+- *"the commonest receipt phrasing is dropped"* survived because `'sum of'` is a
+  substring of `'received the sum of'` and was left behind. Removing every
+  phrasing fails the suite, as it should.
+- *"the payer swallows the rest of the sentence"* survived because the fixture's
+  payer was already `undefined`, so the assertion passed on nothing. It now
+  asserts absence directly.
+
+The remaining survivor is the length bound on a payer's name, which changes
+nothing today because every label read is followed by a name at the end of its
+line. Stated in the code rather than tested.
+
+## Still not done
+
+- **Nothing files a receipt against the payment it records.** The amount and
+  date are read; no transaction is matched to them, so a receipt for ₹48,500 and
+  the ₹48,500 that left the account are still two unconnected facts.
+- **DOCX** remains unread, as before.
+- **No receipt names its payee reliably.** Indian receipts put the issuing
+  organisation in the letterhead rather than against a label, and reading a
+  letterhead is guessing.

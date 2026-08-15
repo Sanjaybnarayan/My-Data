@@ -196,8 +196,12 @@ const KIND_RULES = [
   { kind: 'statement', match: /account statement|statement of account|opening balance.{0,40}closing balance/i },
   { kind: 'policy', match: /policy (no|number)|sum assured|policy schedule|premium (due|paid|amount)/i },
   { kind: 'identity', match: /permanent account number|\bUIDAI\b|aadhaar|passport no|driving licence|voter/i },
+  // Before `bill`, and the order is the whole point: a hospital receipt says
+  // "Bill No: IP/2026/77812" at the top and was being read as a bill, so its
+  // amount was looked for under "amount payable" — a phrase a receipt never
+  // uses, because the money has already been paid.
+  { kind: 'receipt', match: /\breceipt\b|paid successfully|payment received|thank you for your payment|received with thanks|received the sum of/i },
   { kind: 'bill', match: /\b(bill|invoice)\b|amount (payable|due)|due date|consumer (no|number)|units consumed|tax invoice/i },
-  { kind: 'receipt', match: /receipt|paid successfully|payment received|thank you for your payment/i },
 ];
 
 /** What sort of document this is, or `unknown`. */
@@ -240,6 +244,86 @@ export function readBill(text) {
   });
 }
 
+/**
+ * A receipt: money that has already moved.
+ *
+ * ## Why this is not `readBill`
+ *
+ * Receipts were routed through the bill reader, and measured across four real
+ * layouts — a school fee receipt, a temple donation, a rent receipt and a
+ * hospital payment — it found **nothing at all**: no amount and no date, eight
+ * fields out of eight missing.
+ *
+ * The reason is that a bill and a receipt describe the same money in opposite
+ * tenses. A bill says *amount payable* and *due date*; a receipt says
+ * **"received the sum of"** and *receipt date*, because the paying has already
+ * happened. Looking for one set of words in a document written with the other
+ * finds nothing, which is what it did.
+ *
+ * ## The wrong value, which was worse than the missing ones
+ *
+ * `biller` came back filled in on three of the four — with the name of the
+ * person who **paid**. A receipt's "from" is the payer; a bill's is the
+ * company. The rent receipt produced `"Sanjay Narayan towards rent for the
+ * month"`, which is not anybody's name.
+ *
+ * So a receipt names a `payer` and a `receivedBy`, and never a `biller`. The
+ * fields are different because the facts are different, and reusing the bill's
+ * shape is what made a payer look like a biller.
+ */
+export function readReceipt(text) {
+  const source = String(text ?? '');
+
+  return prune({
+    // "Received with thanks from X" and "Received from: X" — the person who
+    // paid. Only labels that unambiguously introduce one: a bare "from" appears
+    // mid-sentence on most rent receipts and reading it produced `"Sanjay
+    // Narayan towards rent for the month"`, filed as a person.
+    //
+    // The consequence is that some layouts yield no payer at all, and that is
+    // the intended trade — a missing name is a gap, a wrong one is a claim.
+    // The length bound is belt and braces on top of that: mutation testing
+    // shows widening it changes nothing today, because every label here is
+    // followed by a name at the end of its line.
+    payer: readField(source, [
+      'received with thanks from', 'received from', 'paid by',
+    ], { pattern: '[A-Za-z][A-Za-z .]{2,40}' }),
+
+    // Who issued it. A receipt rarely labels this, so it is left empty far more
+    // often than it is guessed at — an invented payee on a payment record is
+    // worse than none.
+    //
+    // `received by` is deliberately **not** a label here. "Payment received by
+    // UPI" is ordinary phrasing on an Indian receipt, and reading it filled
+    // this field with `"UPI"` — a payment method presented as a person. That is
+    // the wrong-value failure this whole reader exists to stop, so the
+    // ambiguous label is dropped rather than patched around.
+    receivedBy: readField(source, [
+      'issued by', 'in favour of', 'received on behalf of',
+    ], { pattern: '[A-Za-z][A-Za-z .&-]{2,50}' }),
+
+    // The tense a receipt is written in. `amount` last, because on its own it
+    // is the label most likely to appear beside something that is not the total.
+    amount: readAmount(source, [
+      'received the sum of rupees[^0-9]{0,80}', 'received a sum of', 'received the sum of',
+      'sum of', 'paid amount', 'amount paid', 'total paid', 'amount received',
+      'grand total', 'total', 'amount',
+    ]),
+
+    receiptDate: readLabelledDate(source, [
+      'receipt date', 'date of payment', 'payment date', 'dated', 'date',
+    ]),
+
+    receiptNumber: readField(source, [
+      'receipt (?:no|number)', 'reference (?:no|number)',
+    ]),
+
+    // What it was for, where the document says so plainly. Not inferred.
+    towards: readField(source, ['towards', 'being', 'on account of'],
+      { pattern: '[A-Za-z][A-Za-z .&-]{2,60}' }),
+  });
+}
+
 /** An insurance policy: who insures what, for how much, until when. */
 export function readPolicy(text) {
   const source = String(text ?? '');
@@ -266,8 +350,9 @@ export function readDocument(text) {
   const kind = detectKind(source);
 
   const fields = kind === 'policy' ? readPolicy(source)
-    : kind === 'bill' || kind === 'receipt' ? readBill(source)
-      : {};
+    : kind === 'receipt' ? readReceipt(source)
+      : kind === 'bill' ? readBill(source)
+        : {};
 
   return {
     kind,
