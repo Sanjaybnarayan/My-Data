@@ -10,7 +10,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   monthlyCost, subscriptionOutflow, duplicateCommitments, commitmentSummary,
-  subscriptionBills, describeCommitments,
+  subscriptionBills, describeCommitments, unrecordedCommitments,
 } from '../js/domain/commitments.js';
 import { upcomingBills, committed, committedMonthlyOutflow } from '../js/domain/finance.js';
 
@@ -341,5 +341,161 @@ describe('the floor the screen reports', () => {
 
   test('and the bills-and-EMIs half is unchanged for anything still reading it', () => {
     assert.equal(committedMonthlyOutflow(recurring, loans), 1_199_00 + 43_391_00);
+  });
+});
+
+/*
+ * The other direction: money that leaves and nothing records.
+ *
+ * `committedMonthlyOutflow` asks what the records add up to; the statement
+ * answers what actually left. Both are honest about their own inputs, and
+ * until now nothing put them side by side.
+ */
+describe('charges the ledger sees that no record explains', () => {
+  const charge = (name, amount, over = {}) => ({
+    key: name.toLowerCase(), name, amount, period: 'monthly', occurrences: 6,
+    spent: amount * 6, active: true, ...over,
+  });
+
+  const recorded = {
+    recurring: [{ id: 'r1', name: 'Rent', amount: 35_000_00, frequency: 'monthly', deletedAt: null }],
+    loans: [{ id: 'l1', name: 'Home loan', emiAmount: 18_500_00, deletedAt: null }],
+    subscriptions: [], digitalAssets: [],
+  };
+
+  test('a narration is matched to the record it belongs to, not to equality', () => {
+    // "Rent" is not "LANDLORD RENT" and "Home loan" is not "ACH DR HDFC HOME
+    // LOAN EMI". Requiring equality would report every real commitment as
+    // unaccounted, which is a wrong claim in the other direction.
+    const result = unrecordedCommitments([
+      charge('LANDLORD RENT', 35_000_00),
+      charge('ACH DR HDFC HOME LOAN EMI', 18_500_00),
+    ], recorded);
+
+    assert.length(result.accounted, 2);
+    assert.length(result.unaccounted, 0);
+    assert.equal(result.unaccountedPerMonth, 0);
+  });
+
+  test('a subscription nobody wrote down is named and priced', () => {
+    const result = unrecordedCommitments([
+      charge('LANDLORD RENT', 35_000_00),
+      charge('NETFLIX', 649_00),
+      charge('CLOUD BACKUP', 1_180_00),
+    ], recorded);
+
+    assert.length(result.unaccounted, 2);
+    assert.equal(result.unaccountedPerMonth, 649_00 + 1_180_00);
+  });
+
+  test('a stale record still accounts for the charge, and the gap is reported', () => {
+    // The record says ₹499 and ₹649 leaves. That is one commitment at a stale
+    // price, not two commitments — and the difference is the thing worth
+    // showing, so it is reported rather than used to reject the match.
+    const result = unrecordedCommitments([charge('NETFLIX', 649_00)], {
+      ...recorded,
+      subscriptions: [sub('s1', 'Netflix', 499_00)],
+    });
+
+    assert.length(result.accounted, 1);
+    assert.equal(result.accounted[0].differsBy, 150_00);
+    assert.equal(result.unaccountedPerMonth, 0);
+  });
+
+  test('two records that fit equally well are a question, not a match', () => {
+    const result = unrecordedCommitments([charge('AXIS BROADBAND', 1_199_00)], {
+      ...recorded,
+      recurring: [
+        { id: 'a', name: 'Broadband', amount: 1_199_00, frequency: 'monthly', deletedAt: null },
+        { id: 'b', name: 'Broadband', amount: 999_00, frequency: 'monthly', deletedAt: null },
+      ],
+    });
+
+    assert.length(result.uncertain, 1);
+    assert.equal(result.uncertain[0].record, null);
+    assert.length(result.accounted, 0);
+    // Excluded from the figure deliberately: a total that counted maybes would
+    // overstate, and the value of this number is that it can be believed.
+    assert.equal(result.unaccountedPerMonth, 0);
+  });
+
+  test('one shared word on otherwise unalike names is offered, not asserted', () => {
+    const result = unrecordedCommitments([charge('RENTAL CAR HIRE', 4_500_00)], {
+      ...recorded,
+      recurring: [{ id: 'r', name: 'Rental deposit box', amount: 4_500_00, frequency: 'monthly', deletedAt: null }],
+    });
+
+    assert.length(result.uncertain, 1);
+    assert.length(result.accounted, 0);
+  });
+
+  test('a record named for a common word does not swallow every narration', () => {
+    // Without the weak-word list, a record called "Card payment" shares both of
+    // its words with any card narration and would account for all of them.
+    const result = unrecordedCommitments([charge('POS CARD PAYMENT SWIGGY', 780_00)], {
+      ...recorded,
+      recurring: [{ id: 'r', name: 'Card payment', amount: 780_00, frequency: 'monthly', deletedAt: null }],
+    });
+
+    assert.length(result.accounted, 0);
+    assert.equal(result.unaccountedPerMonth, 780_00);
+  });
+
+  test('a charge with no record has no difference to report', () => {
+    // Not zero, and not the whole amount: there is nothing to differ from, and
+    // a screen printing "differs by ₹649" against no record would be nonsense.
+    const [row] = unrecordedCommitments([charge('NETFLIX', 649_00)], recorded).unaccounted;
+    assert.equal(row.differsBy, null);
+  });
+
+  test('a run that has stopped is not a commitment', () => {
+    const result = unrecordedCommitments([
+      charge('CANCELLED THING', 999_00, { active: false }),
+    ], recorded);
+
+    assert.length(result.unaccounted, 0);
+    assert.equal(result.unaccountedPerMonth, 0);
+  });
+
+  test('a cadence other than monthly is converted before it is totalled', () => {
+    const result = unrecordedCommitments([
+      charge('YEARLY DOMAIN', 1_200_00, { period: 'yearly' }),
+    ], recorded);
+
+    assert.equal(result.unaccountedPerMonth, 100_00);
+  });
+
+  test('the figure is reported beside the committed total, never inside it', () => {
+    const summary = commitmentSummary({
+      ...recorded,
+      base: committedMonthlyOutflow(recorded.recurring, recorded.loans),
+      detected: [charge('NETFLIX', 649_00)],
+    });
+
+    assert.equal(summary.total, 53_500_00);
+    assert.equal(summary.unaccounted, 649_00);
+    assert.length(summary.unaccountedRows, 1);
+  });
+
+  test('the sentence says where the money was read from', () => {
+    const summary = commitmentSummary({
+      ...recorded,
+      base: committedMonthlyOutflow(recorded.recurring, recorded.loans),
+      detected: [charge('NETFLIX', 649_00)],
+    });
+    const sentence = describeCommitments(summary, (n) => `₹${n / 100}`);
+
+    assert.includes(sentence, 'NETFLIX');
+    assert.includes(sentence, 'not added to the figure above');
+  });
+
+  test('no detected charges means the sentence is unchanged', () => {
+    const summary = commitmentSummary({
+      ...recorded,
+      base: committedMonthlyOutflow(recorded.recurring, recorded.loans),
+    });
+
+    assert.equal(summary.unaccounted, 0);
+    assert.not(describeCommitments(summary, (n) => `₹${n / 100}`).includes('no record here explains'));
   });
 });

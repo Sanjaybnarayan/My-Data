@@ -19,7 +19,7 @@ import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
 import * as fin from '../domain/finance.js';
 import { format, formatCompact } from '../core/money.js';
-import { formatDay, relativeDays } from '../core/dates.js';
+import { formatDay, relativeDays, today } from '../core/dates.js';
 import { entitiesOfModule } from '../data/schema.js';
 import { TransfersService } from '../services/transfers.js';
 import { CONFIDENCE } from '../domain/events.js';
@@ -27,6 +27,8 @@ import { settlementReport, describeSettlement } from '../domain/settlement.js';
 import { staleness, describeStaleness, emiBreakdown, describeEmi } from '../domain/amortise.js';
 import { spendByMember, describeSpendByMember, settleable } from '../domain/household.js';
 import { describeCommitments } from '../domain/commitments.js';
+import { fromRecords } from '../domain/ledger.js';
+import { recurring as recurringCharges } from '../domain/categorise.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -439,7 +441,16 @@ async function financeOverview() {
     // The sentence under this figure named subscriptions; the figure had never
     // seen one. Both halves are fixed here — the number includes them, and the
     // sentence now says what is in it.
-    const commitment = fin.committed({ recurring, loans, subscriptions, digitalAssets });
+    // The records say what the household meant to commit to. The statements
+    // say what actually leaves. Both are read here so the sentence can name the
+    // difference — a subscription nobody wrote down is the kind a household
+    // most wants to be told about, because it is the kind they forgot.
+    const detected = recurringCharges(
+      fromRecords(transactions, { holder: '' }), { asOf: today() },
+    );
+    const commitment = fin.committed({
+      recurring, loans, subscriptions, digitalAssets, detected,
+    });
 
     // Running balance across the year, so a downward drift is visible before
     // it becomes a problem.
