@@ -162,7 +162,8 @@ another caller to migrate.
 | OCR | **exists — Drive's own converter** | `file:apps-script/Drive.gs` |
 | Entity resolution | **partial** | `export:js/domain/categorise.js#resolveAliases` |
 | Knowledge graph | missing | `absent:grep:knowledgeGraph` |
-| Anomaly detection, forecasting | missing | `absent:grep:anomal` |
+| Anomaly detection | **exists** | `export:js/domain/unusual.js#unusualSpending` |
+| Forecasting | missing | `absent:grep:forecast|projection` |
 | AI privacy gate | **partial — outbound only** | `export:js/ai/mcp.js#describeSurface` |
 
 Two rows here were *missing* and are not: OCR had been implemented in

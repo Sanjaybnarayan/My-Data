@@ -113,3 +113,34 @@ breaking the repository to do it.
   currently uses plain words.
 - **Nothing checks the roadmap**, which is the other document that has gone
   stale nine times. The same probe idea would work there and is not done here.
+
+---
+
+## Postscript: the limitation bit one tranche later
+
+This document closed by recording that `absent:` probes are single terms and
+that a component nameable two ways needs two rows. That was written as a
+theoretical caveat. It became a real one immediately.
+
+The anomaly-detection tranche landed `js/domain/unusual.js`. The row said:
+
+```
+| Anomaly detection, forecasting | missing | `absent:grep:anomal` |
+```
+
+and it **still passed**, because the word *anomal* appears nowhere in the
+module. It is called `unusual.js`, its export is `unusualSpending`, and its
+docstring says *outlier*. Three synonyms, none of them the one probed.
+
+Two things followed:
+
+1. The row was split — anomaly detection now claims `exists` with an `export:`
+   probe, and forecasting keeps its own row and is genuinely still missing.
+2. The remaining `absent:` probes take a **regex with alternatives**
+   (`forecast|projection`), which the tool always supported and the document was
+   not using.
+
+The tool did what it promises: it never claimed to catch a row nobody edited
+*and* whose vocabulary it was not given. What this shows is the narrower lesson —
+**a probe is only as good as the words in it**, and the person adding a row is
+the person least likely to guess what a future implementer will call the thing.

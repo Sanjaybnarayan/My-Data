@@ -118,6 +118,7 @@ const SHELL = [
   './js/domain/statement.js',
   './js/domain/tabular.js',
   './js/domain/tree.js',
+  './js/domain/unusual.js',
 
   './js/ui/dom.js',
   './js/ui/icons.js',
