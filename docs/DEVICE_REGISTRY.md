@@ -66,14 +66,70 @@ Nothing here records what a device *did*, only that it called.
 an unknown device reported success — which would leave somebody believing a lost
 phone had been signed out.
 
+## Making it a feature rather than a capability
+
+The tranche above left two things recorded, and together they meant the registry
+**could not actually be used**: it was reachable over the API and nowhere else,
+and it answered in opaque ids. An owner facing three `dev_01M0…` could not tell
+which was the lost phone, and had no button to press even if they could.
+
+### A name, treated as the guess it is
+
+Each device reports a coarse label worked out from its user-agent — *iPhone ·
+Safari*, *Windows · Edge*. Deliberately coarse: platform and browser family,
+**no version, no screen size, no language**. Those are the ingredients of a
+fingerprint, and this only needs to tell a phone from a laptop. Two identical
+phones share a label and are told apart by their ids and first-seen dates, which
+is the right trade.
+
+It is a **guess**, and is handled as one everywhere:
+
+- the screen says the names were worked out from the browser and can be wrong;
+- any device can be renamed to something a person will recognise;
+- **a reported name never overwrites a typed one** — somebody who called their
+  old laptop *"the one in the study"* does not find it renamed *Mac · Safari*
+  the next time it syncs;
+- clearing a name lets the reported one come back.
+
+User-agent strings have been unreliable by design for twenty years. Ordering the
+checks is what keeps Android from reading as Linux and Edge from reading as
+Chrome, and each of those is pinned by a test.
+
+### The sentence under the list
+
+> Signing a device out stops it reaching this backup. It does not erase anything
+> already on it.
+
+Said under the button rather than in a tooltip, because it is what somebody most
+needs to know at the moment they press it. **A screen implying remote wipe would
+be the most dangerous kind of comfort — somebody would stop looking for the
+phone.** It also says to change the Google password, which is the thing that
+actually helps.
+
+The device being used has no sign-out button at all. The backend refuses it, and
+a button that always errors is worse than no button.
+
+### What the mutation testing caught
+
+**7 of 7**, after a first pass that caught 6. The survivor was the transport
+never sending the label — and it survived because **`AppsScriptTransport` had no
+tests at all**. `FakeTransport` was tested; the real one, whose request body is
+the contract with `apps-script/Code.gs`, was pinned nowhere. `tests/transport.test.mjs`
+exists because of that mutation.
+
+A second thing surfaced the same way: the device methods had been added to
+`FakeTransport` only, because the two classes carry the same method names and
+the edit landed in the wrong one. Nothing would have caught that either.
+
 ## Still not done
 
-- **No screen.** The registry is reachable over the API and nothing in the
-  browser lists devices or offers a revoke button. An owner would have to call
-  the endpoint themselves, which is not a feature a household has.
-- **Last-seen is not shown anywhere**, so "which of these is my old phone" is
-  answered by an opaque id.
 - **A revoked device keeps its local copy.** This refuses it the *backend*;
   records already on that device stay there, and only the lock screen stands
   between somebody and them. Remote wipe is not something a PWA can do, and
   claiming otherwise would be the kind of promise this project refuses to make.
+- **Nothing tells a person a new device signed in.** They find out by opening
+  this screen, which means an unrecognised device sits unnoticed until somebody
+  looks.
+- **The list is not browser-checked past rendering.** With no backend configured
+  there is nothing to list, so the check confirms the card appears and explains
+  itself; revoking and renaming are covered against the real backend in Node.

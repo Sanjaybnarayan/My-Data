@@ -1,5 +1,5 @@
 import { test, describe, assert, setSuite, fakeClock, fakeStorage } from './harness.mjs';
-import { newId, idTime, isId, deviceId } from '../js/core/ids.js';
+import { newId, idTime, isId, deviceId, deviceLabel } from '../js/core/ids.js';
 import { Bus } from '../js/core/bus.js';
 import * as d from '../js/core/dates.js';
 import * as m from '../js/core/money.js';
@@ -210,5 +210,58 @@ describe('errors', () => {
       { field: 'a', message: 'x' }, { field: 'b', message: 'y' },
     ]);
     assert.includes(many.userMessage, '2 fields');
+  });
+});
+
+/**
+ * Naming a device.
+ *
+ * The device registry listed opaque ids and asked an owner which was the phone
+ * they lost. A guess from the user-agent is worth having; it is treated as a
+ * guess everywhere, because user-agent strings have been unreliable by design
+ * for twenty years.
+ */
+describe('what to call the device this is running on', () => {
+  const UA = {
+    iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    android: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
+    edge: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 Edg/120.0',
+    mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+  };
+
+  test('a phone reads as a phone', () => {
+    assert.equal(deviceLabel(UA.iphone), 'iPhone · Safari');
+    assert.equal(deviceLabel(UA.android), 'Android · Chrome');
+  });
+
+  test('Android is not reported as Linux', () => {
+    // Every Android user-agent says Linux too, and the order of these checks is
+    // the only thing keeping a phone from being labelled a desktop.
+    assert.not(deviceLabel(UA.android).includes('Linux'), deviceLabel(UA.android));
+  });
+
+  test('Edge is not reported as Chrome', () => {
+    // Edge and Opera both carry "Chrome" in their strings.
+    assert.equal(deviceLabel(UA.edge), 'Windows · Edge');
+  });
+
+  test('Safari is not reported as Chrome', () => {
+    // Every Chrome string also contains "Safari".
+    assert.equal(deviceLabel(UA.mac), 'Mac · Safari');
+  });
+
+  test('nothing recognisable is said plainly rather than guessed at', () => {
+    assert.equal(deviceLabel(''), 'Unknown device');
+    assert.equal(deviceLabel('some-crawler/1.0'), 'Unknown device');
+  });
+
+  test('it carries no version, size or anything else fingerprintable', () => {
+    // Coarse on purpose: enough to tell a phone from a laptop, and no more.
+    // Two identical phones share a label and are told apart by id and date.
+    for (const ua of Object.values(UA)) {
+      const label = deviceLabel(ua);
+      assert.not(/\d/.test(label), `${label} carries a number`);
+      assert.ok(label.length < 32, label);
+    }
   });
 });

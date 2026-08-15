@@ -29,11 +29,13 @@ export class AppsScriptTransport {
   #fetch;
   #timeout;
   #deviceId;
+  #deviceLabel;
   #clientVersion;
 
   /**
    * @param {{url: string, getToken: () => Promise<string>, fetchImpl?: typeof fetch,
-   *          timeoutMs?: number, deviceId?: string, clientVersion?: string}} options
+   *          timeoutMs?: number, deviceId?: string, deviceLabel?: string,
+   *          clientVersion?: string}} options
    */
   constructor(options) {
     this.#url = options.url;
@@ -41,6 +43,10 @@ export class AppsScriptTransport {
     this.#fetch = options.fetchImpl ?? globalThis.fetch?.bind(globalThis);
     this.#timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#deviceId = options.deviceId ?? '';
+    // A guess from the user-agent, so an owner looking at the device registry
+    // sees "iPhone · Safari" rather than `dev_01M0…` and can tell which one is
+    // the phone they lost. Renameable, because the guess can be wrong.
+    this.#deviceLabel = options.deviceLabel ?? '';
     this.#clientVersion = options.clientVersion ?? '1.0.0';
   }
 
@@ -76,6 +82,7 @@ export class AppsScriptTransport {
           action,
           token,
           deviceId: this.#deviceId,
+          deviceLabel: this.#deviceLabel,
           clientVersion: this.#clientVersion,
           payload,
         }),
@@ -209,6 +216,29 @@ export class AppsScriptTransport {
     return this.call('members', emails ? { emails } : {});
   }
 
+  /**
+   * The devices this account has synced from.
+   *
+   * Your own unless you are the owner, who may name and sign out anybody's —
+   * the backend decides that, not this.
+   */
+  devices(email) {
+    return this.call('devices', { op: 'list', ...(email ? { email } : {}) });
+  }
+
+  revokeDevice(deviceId, email) {
+    return this.call('devices', { op: 'revoke', deviceId, ...(email ? { email } : {}) });
+  }
+
+  restoreDevice(deviceId, email) {
+    return this.call('devices', { op: 'restore', deviceId, ...(email ? { email } : {}) });
+  }
+
+  /** An empty label clears a chosen name and lets the reported one return. */
+  nameDevice(deviceId, label, email) {
+    return this.call('devices', { op: 'name', deviceId, label, ...(email ? { email } : {}) });
+  }
+
   /** Row counts per sheet, to verify a backup actually landed. */
   verify() {
     return this.call('verify', {});
@@ -248,5 +278,21 @@ export class FakeTransport {
   personFolders() { return this.call('folders', {}); }
   mail(query, limit) { return this.call('mail', { query, limit }); }
   members(emails) { return this.call('members', emails ? { emails } : {}); }
+
+  /** Devices this account has synced from. Yours unless you are the owner. */
+  devices(email) { return this.call('devices', { op: 'list', ...(email ? { email } : {}) }); }
+
+  revokeDevice(deviceId, email) {
+    return this.call('devices', { op: 'revoke', deviceId, ...(email ? { email } : {}) });
+  }
+
+  restoreDevice(deviceId, email) {
+    return this.call('devices', { op: 'restore', deviceId, ...(email ? { email } : {}) });
+  }
+
+  nameDevice(deviceId, label, email) {
+    return this.call('devices', { op: 'name', deviceId, label, ...(email ? { email } : {}) });
+  }
+
   verify() { return this.call('verify', {}); }
 }

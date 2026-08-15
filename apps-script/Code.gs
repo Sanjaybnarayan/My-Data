@@ -60,7 +60,8 @@ function doPost(e) {
     var deviceId = String(request.deviceId || '');
     // Checked before the action runs, not after. A revoked device that got its
     // write in and was refused the reply would still have written.
-    noteDevice(caller.email, deviceId, String(request.clientVersion || ''));
+    noteDevice(caller.email, deviceId, String(request.clientVersion || ''),
+      String(request.deviceLabel || ''));
 
     var data = dispatch(request.action, request.payload || {}, {
       email: caller.email,
@@ -179,7 +180,7 @@ function readDevices(email) {
  * denial of service dressed as a security improvement — the member list still
  * gates them, exactly as it did before this existed.
  */
-function noteDevice(email, deviceId, clientVersion) {
+function noteDevice(email, deviceId, clientVersion, deviceLabel) {
   if (!deviceId) return;
 
   var devices = readDevices(email);
@@ -200,12 +201,23 @@ function noteDevice(email, deviceId, clientVersion) {
   if (found) {
     found.lastSeenAt = now;
     found.clientVersion = clientVersion || found.clientVersion || '';
+    // The reported label refreshes, but never over a name a person typed.
+    // Somebody who called their old laptop "the one in the study" should not
+    // find it renamed "Mac · Safari" the next time it syncs.
+    if (!found.named) found.label = deviceLabel || found.label || '';
   } else {
     // Bounded: a client that minted a fresh id per request would otherwise
     // grow this without limit. The oldest are dropped, because the newest are
     // the ones somebody is holding.
     devices.push({
       id: deviceId,
+      // A guess from the user-agent, sent by the client. Worth having because
+      // the alternative was asking an owner which of several `dev_01M0…` was
+      // the phone they lost.
+      label: deviceLabel || '',
+      // Whether a person has since said what this device is. Once true, the
+      // reported label stops overwriting it.
+      named: false,
       firstSeenAt: now,
       lastSeenAt: now,
       clientVersion: clientVersion || '',
@@ -239,7 +251,7 @@ function manageDevices(payload, context) {
     return { email: subject, devices: readDevices(subject) };
   }
 
-  if (action !== 'revoke' && action !== 'restore') {
+  if (action !== 'revoke' && action !== 'restore' && action !== 'name') {
     throw fail('unknown device action: ' + action, 400);
   }
 
@@ -247,7 +259,8 @@ function manageDevices(payload, context) {
   if (!id) throw fail('which device?', 400);
 
   // Revoking the device you are asking from would lock you out of the reply to
-  // your own request. Refused, rather than half-applied.
+  // your own request. Refused, rather than half-applied. Naming it is fine —
+  // that is how somebody labels the device in front of them.
   if (action === 'revoke' && id === context.deviceId) {
     throw fail('that is the device you are using — sign out from it instead', 400);
   }
@@ -257,7 +270,15 @@ function manageDevices(payload, context) {
 
   for (var i = 0; i < devices.length; i++) {
     if (devices[i].id !== id) continue;
-    devices[i].revokedAt = action === 'revoke' ? new Date().toISOString() : '';
+    if (action === 'name') {
+      // Trimmed and bounded: this is shown in a list, and a label the length of
+      // a paragraph would push everything else off the screen.
+      devices[i].label = String(payload.label || '').trim().slice(0, 60);
+      // Marked, so the next sync does not overwrite what a person typed.
+      devices[i].named = Boolean(devices[i].label);
+    } else {
+      devices[i].revokedAt = action === 'revoke' ? new Date().toISOString() : '';
+    }
     changed = true;
   }
 
