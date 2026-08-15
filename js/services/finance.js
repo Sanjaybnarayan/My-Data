@@ -27,7 +27,7 @@
  * second directly, which is the entire point of moving it here.
  */
 
-import { Service } from './service.js';
+import { Service, TRANSACTION_LIMIT } from './service.js';
 import { TransfersService } from './transfers.js';
 import * as fin from '../domain/finance.js';
 import { settlementReport } from '../domain/settlement.js';
@@ -48,7 +48,7 @@ import { cashRunway } from '../domain/runway.js';
 /** @type {Record<string, import('./service.js').Load>} */
 export const FINANCE_OVERVIEW_LOAD = Object.freeze({
   accounts: ['account', { decrypt: false, limit: 500 }],
-  transactions: ['transaction', { decrypt: false, limit: 20_000 }],
+  transactions: ['transaction', { decrypt: false, limit: TRANSACTION_LIMIT }],
   budgets: ['budget', { decrypt: false }],
   recurring: ['recurringPayment', { decrypt: false }],
   loans: ['loan', { decrypt: false }],

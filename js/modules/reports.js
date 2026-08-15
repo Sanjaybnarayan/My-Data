@@ -24,6 +24,7 @@ import {
 } from '../domain/rentreceipt.js';
 import { userMessage } from '../core/errors.js';
 import { ACTIONS } from '../data/audit.js';
+import { TRANSACTION_LIMIT } from '../services/service.js';
 
 const PERIODS = [
   ['month', 'This month'],
@@ -70,7 +71,7 @@ function rentReceiptsCard() {
     const { db } = app();
     const [properties, transactions, people] = await Promise.all([
       db.repo('property').list({ decrypt: false, limit: 500 }),
-      db.repo('transaction').list({ decrypt: false, limit: 20_000 }),
+      db.repo('transaction').list({ decrypt: false, limit: TRANSACTION_LIMIT }),
       db.repo('person').list({ decrypt: false, limit: 200 }),
     ]);
 

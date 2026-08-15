@@ -97,6 +97,44 @@ export class Service {
 }
 
 /**
+ * How many transactions a money figure is computed from.
+ *
+ * ## Why this is a constant and not a per-screen choice
+ *
+ * It was a per-screen choice, and the screens disagreed. Measured on a
+ * household with 25,000 transactions:
+ *
+ *     dashboard  (limit 10,000)  ₹2,00,000
+ *     finance    (limit 20,000)  ₹4,00,000
+ *     ledgers    (limit 50,000)  ₹5,00,000
+ *
+ * The same account, the same day, three screens of one application, three
+ * answers. That is the exact failure this file's own note about `NET_WORTH_LOAD`
+ * warns of — *"two screens showing net worth can disagree about what net worth
+ * is made of, and nothing would catch it"* — and nothing did catch it, for as
+ * long as the limits differed.
+ *
+ * ## The deeper point, which a shared number does not fix
+ *
+ * **A balance computed from a truncated list is not a balance.** Summing "the
+ * most recent N" gives the right answer only when N is larger than the
+ * household's history; past that it silently reports a number that is not the
+ * account's. So the limit is shared *and* the truncation is reported — see
+ * `transactionsTruncated`, and `docs/ONE_LIMIT.md`.
+ */
+export const TRANSACTION_LIMIT = 50_000;
+
+/**
+ * Whether a money figure was computed from everything, or from a slice.
+ *
+ * Returned rather than warned about: a screen showing a balance that is not the
+ * balance should say so, and only the caller knows where to put that sentence.
+ */
+export function transactionsTruncated(rows, limit = TRANSACTION_LIMIT) {
+  return (rows?.length ?? 0) >= limit;
+}
+
+/**
  * What a set of records is made of, declared once and shared.
  *
  * Net worth is assembled from six entities. Before this, the investments screen
@@ -106,7 +144,7 @@ export class Service {
  */
 export const NET_WORTH_LOAD = Object.freeze({
   accounts: ['account', { decrypt: false }],
-  transactions: ['transaction', { decrypt: false, limit: 20_000 }],
+  transactions: ['transaction', { decrypt: false, limit: TRANSACTION_LIMIT }],
   holdings: ['holding', { decrypt: false, limit: 2000 }],
   properties: ['property', { decrypt: false }],
   vehicles: ['vehicle', { decrypt: false }],

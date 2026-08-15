@@ -29,6 +29,7 @@ import { recentActivity, describe as describeAudit } from '../data/audit.js';
 import { formatCompact, format } from '../core/money.js';
 import { formatDay, relativeDays, today } from '../core/dates.js';
 import { summarise } from '../ai/summary.js';
+import { TRANSACTION_LIMIT } from '../services/service.js';
 
 const WIDGET_KEY = 'dashboard.widgets';
 
@@ -78,7 +79,7 @@ async function loadAll(db) {
   const byEntity = {};
   for (const name of names) {
     try {
-      byEntity[name] = await db.repo(name).list({ decrypt: false, limit: 10_000 });
+      byEntity[name] = await db.repo(name).list({ decrypt: false, limit: TRANSACTION_LIMIT });
     } catch {
       // A role without read access simply has no data for that widget.
       byEntity[name] = [];

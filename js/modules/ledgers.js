@@ -30,6 +30,7 @@ import {
   CATEGORIES, categoryLabel, peopleLedger, lendingLedger, insights, summarise,
 } from '../domain/categorise.js';
 import { format } from '../core/money.js';
+import { TRANSACTION_LIMIT } from '../services/service.js';
 
 /** Where corrections are kept. Shared with the statement importer. */
 const OVERRIDES = 'finance.overrides';
@@ -47,7 +48,7 @@ export async function render(view = 'people') {
   const people = await db.repo('person').list({ decrypt: false, limit: 200 });
   const holder = people.find((person) => person.role === 'owner')?.name ?? '';
 
-  const records = await db.repo('transaction').list({ decrypt: false, limit: 50_000 });
+  const records = await db.repo('transaction').list({ decrypt: false, limit: TRANSACTION_LIMIT });
   let rows = [];
 
   recompute();

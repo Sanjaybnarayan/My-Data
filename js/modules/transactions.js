@@ -43,6 +43,7 @@ import { entity } from '../data/schema.js';
 import { format } from '../core/money.js';
 import { formatDay, formatInstant, today, addMonths } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
+import { TRANSACTION_LIMIT } from '../services/service.js';
 
 /** Periods worth one press. Anything finer is what the date boxes are for. */
 const PERIODS = [
@@ -69,7 +70,7 @@ export async function render() {
   const body = h('div', {});
 
   const [records, accounts, people, receipts, statements] = await Promise.all([
-    db.repo('transaction').list({ decrypt: false, limit: 50_000 }),
+    db.repo('transaction').list({ decrypt: false, limit: TRANSACTION_LIMIT }),
     db.repo('account').list({ decrypt: false, limit: 500 }),
     db.repo('person').list({ decrypt: false, limit: 200 }),
     db.repo('receipt').list({ decrypt: false, limit: 20_000 }),
