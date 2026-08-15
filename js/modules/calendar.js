@@ -21,10 +21,10 @@ import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
 import { datesInRange, upcomingDates } from '../domain/reminders.js';
-import { upcomingBills } from '../domain/finance.js';
+import { billsInRange } from '../domain/finance.js';
 import { format } from '../core/money.js';
 import {
-  today, addMonths, startOfMonth, endOfMonth, addDays, daysBetween, formatDay,
+  today, addMonths, startOfMonth, endOfMonth, addDays, formatDay,
   fromDay, toDay,
 } from '../core/dates.js';
 
@@ -61,7 +61,13 @@ export async function render(route) {
     const end = endOfMonth(month);
     // The window the grid is about to draw, so a month reached by paging is
     // gathered as fully as the one the screen opened on.
-    const entries = await collect(db, { from: start, to: end });
+    const { entries, cardBillsStopAt } = await collect(db, { from: start, to: end });
+
+    // A month drawn entirely past the last cycle a card bill can be worked out
+    // from. The squares are not empty because nothing is due — they are empty
+    // because the statement has not happened yet, and those are different
+    // facts to be looking at.
+    const cardsUnknown = Boolean(cardBillsStopAt) && start >= cardBillsStopAt;
 
     const visible = entries.filter((entry) => !hidden.has(entry.source));
     const byDay = new Map();
@@ -113,6 +119,14 @@ export async function render(route) {
             h('span', { class: 'legend-swatch', style: { background: source.colour } }),
             source.label,
           ]))),
+
+        // Said before the grid rather than after it, because it changes how
+        // the empty squares below should be read.
+        cardsUnknown
+          ? h('p', { class: 'small faint', style: { marginBottom: 'var(--space-4)' } },
+            'Credit card bills are not shown this far ahead — a bill is the balance on a '
+            + 'statement, and these cycles have not closed yet. Everything else is here.')
+          : null,
 
         monthGrid(start, end, byDay),
       ]),
@@ -247,7 +261,14 @@ export async function render(route) {
  * showed almost nothing. `datesInRange` answers the question a calendar is
  * actually asking — see `domain/reminders.js`.
  *
+ * `cardBillsStopAt` comes back beside the entries rather than being dropped
+ * here. Past that day the grid genuinely cannot say what a card bill will be —
+ * the cycle has not closed — and a household looking at an empty December
+ * square deserves to be told which of the two it is: nothing due, or nothing
+ * knowable.
+ *
  * @param {{from?: string, to?: string}} [window]
+ * @returns {Promise<{entries: object[], cardBillsStopAt: string|null}>}
  */
 export async function collect(db, { from = addMonths(today(), -13), to = addMonths(today(), 13) } = {}) {
   const read = async (name) => {
@@ -314,9 +335,15 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
   // loan's payment day. Neither has a date field, so neither had ever appeared
   // on a calendar square. The home loan EMI is usually the largest single
   // amount a household pays.
-  const bills = upcomingBills(data.recurringPayment, data.loan, {
+  //
+  // `billsInRange` rather than `upcomingBills`, because the two answer
+  // different questions and only one of them is the calendar's. `upcomingBills`
+  // gives the *next* rent, which is right for a dashboard and wrong here:
+  // measured on a household paying ₹80,239 a month, this grid drew all of it in
+  // September and left the other eleven months of the year empty.
+  const { bills, cardBillsStopAt } = billsInRange(data.recurringPayment, data.loan, {
     from,
-    days: Math.max(0, daysBetween(from, to)),
+    to,
     accounts: data.account,
     transactions: data.transaction,
     subscriptions: data.subscription,
@@ -367,7 +394,10 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
     });
   }
 
-  return entries.filter((entry) => entry.date).sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    entries: entries.filter((entry) => entry.date).sort((a, b) => a.date.localeCompare(b.date)),
+    cardBillsStopAt,
+  };
 }
 
 /** Which screen a bill's record lives on. Subscriptions are filed under Digital. */
