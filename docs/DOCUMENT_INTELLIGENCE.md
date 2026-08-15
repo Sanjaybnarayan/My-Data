@@ -222,10 +222,71 @@ line. Stated in the code rather than tested.
 
 ## Still not done
 
-- **Nothing files a receipt against the payment it records.** The amount and
-  date are read; no transaction is matched to them, so a receipt for ₹48,500 and
-  the ₹48,500 that left the account are still two unconnected facts.
+- ~~Nothing files a receipt against the payment it records.~~ **Done** — see
+  below.
 - **DOCX** remains unread, as before.
 - **No receipt names its payee reliably.** Indian receipts put the issuing
   organisation in the letterhead rather than against a label, and reading a
   letterhead is guessing.
+
+
+# Filing a receipt against the payment it records
+
+The tranche above read a receipt's amount and date. The importer records the
+payment that left the account. **Both facts sat in the database and nothing
+connected them** — a household with a ₹48,500 school-fee receipt and a ₹48,500
+debit had two unrelated rows and a filing job to do by hand.
+
+The place for the answer already existed: `transaction.documents`. Nothing ever
+proposed what belonged in it.
+
+## The rules are the transfer-matching rules
+
+Deliberately. This is the same shape of problem — two records that may be one
+fact — so it takes the same answers rather than inventing softer ones:
+
+- **Exact amount only.** "Close" attaches a receipt to the wrong payment, and a
+  wrongly filed receipt is worse than an unfiled one: it is evidence pointing at
+  the wrong transaction.
+- **Ambiguity is not a match.** Two payments of the same amount in the window is
+  a question. **Rent is the ordinary case** — twelve identical debits a year, and
+  July's receipt must not land on June. The nearer one is not quietly promoted.
+- **Both halves or nothing.** A receipt with an amount and no date is not
+  matched on the amount alone, and one with a date and no amount is not matched
+  at all: every household has several payments in any five-day window, and the
+  one that matched would be a coincidence presented as evidence.
+- **Nothing is written.** Attaching is a person's act.
+
+## The window is lopsided on purpose
+
+A receipt is dated when the money was *received*, which is on or after the day
+it left the payer's account — cheques clear, transfers settle overnight, a clerk
+stamps the receipt when they get to it. So the search runs five days **before**
+the receipt date and only one after: a payment made a week *after* its receipt
+was written is not that receipt's payment.
+
+## Worked out when somebody looks, not at upload
+
+`receiptMatchesIn` follows `identifiersIn` exactly: it re-reads on demand and
+stores nothing. That is not tidiness. **The statement carrying the payment is
+very often imported weeks after the receipt is filed**, so a match made at upload
+time would freeze an answer taken before the evidence arrived — and the honest
+answer at that moment is *"no payment of this amount is recorded near this date
+— the statement it is on may not have been imported yet"*, which is a more
+useful thing to be told than silence.
+
+## What the mutation testing caught
+
+**10 of 10.** Among them: a near amount matched, a credit matched as a payment,
+the window ignored, the window made symmetric, two candidates called probable,
+an uncertain match attachable by a button, and — the one worth naming —
+**attaching a receipt replacing the document list rather than appending to it**,
+which would file the receipt by losing the invoice already there.
+
+## Still not done
+
+- **No screen offers the match yet.** `receiptMatchesIn` is reachable from the
+  document store and nothing calls it, which is the defect this repository keeps
+  finding; it is recorded here rather than left to be discovered.
+- **A part payment is never matched**, by design, so a receipt for a bill paid
+  in two instalments stays unfiled.
