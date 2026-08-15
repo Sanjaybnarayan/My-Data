@@ -260,3 +260,71 @@ helper treats a cancelled picker as success, so the check was reporting
 - **`event.endTime` and `event.remindMinutesBefore`** remain in the unread-field
   inventory: a two-hour event draws as a point, and the export has the same
   limitation for the same reason.
+
+
+# Google Calendar, actually
+
+The roadmap has recorded this as genuinely absent since Phase 4 opened — *no
+client, no Apps Script, no scope*. It exists now.
+
+## The narrowest scope Google offers
+
+`calendar.app.created`, and the choice matters more than the code does.
+
+That scope reaches **only calendars this application itself created**. A
+household's work calendar, their family calendar, the birthdays Google generates
+for them — none of it is readable or writable with this token. The application
+makes one secondary calendar of its own and cannot see past it.
+
+The obvious alternative, `calendar.events`, grants read and write over **every
+calendar the person owns**, to do a job that only ever touches one. `core/scopes.js`
+already carries the story of the last time this application asked for more than
+it used — `spreadsheets`, requested at every sign-in and never called — and a
+diary is not the place to repeat it.
+
+**The cost, stated plainly:** entries land on a separate calendar a household has
+to leave switched on, rather than merging into the one they already read. That is
+the price of not asking for their whole diary, and it is the right price.
+
+## Idempotent because the ids came first
+
+Google accepts a client-supplied event id, and the id sent is the one
+`modules/calendar.js` already mints. `PUT` rather than `POST`, so pushing twice
+**updates** rather than duplicating — and `POST` would return 409 on the second
+run, showing a household errors for entries that are already correct.
+
+Google's ids are base32hex — `a`–`v` and `0`–`9`, five to 1024 characters — and
+`expiry:policy:plc_01ABC:renewsOn` is none of those things. It is **encoded**,
+byte by byte, not sanitised: sanitising would map `event:abc` and `event-abc`
+onto one id, and two entries sharing an id is the duplicate-or-overwrite bug this
+exists to avoid. An id too long to send is refused rather than truncated, because
+a truncated id collides.
+
+## What is verified, and what is not
+
+**Verified here, without credentials:** the scope asked for, the requests built,
+the ids sent, the all-day shape, that one refused entry does not lose the rest,
+and that a 403 is not retried while a 429 is. **10 of 10 mutations caught**,
+including swapping the narrow scope for the wide one.
+
+**Not verified, and not claimed: that Google accepts any of it.** Nothing here
+has been run against the live API. That is exactly the position `sync/gmail.js`
+is in, and it is said rather than glossed.
+
+Two of my own assertions were passing on `undefined` — `retryable` is a property
+on `TransportError`, not in its `details` — so the refusal check was vacuous
+until the retry check failed and exposed it.
+
+## A side effect worth naming
+
+Giving `TransportError`'s options a JSDoc type dropped the typecheck budget
+**194 → 186**. Every caller passing `cause` or `body` had been producing a
+finding. Locked in rather than left as headroom.
+
+## Still not done
+
+- **One-way.** Nothing reads a household's own calendar, and nothing removes an
+  entry deleted here since. A push is a push.
+- **Manual.** There is a button; nothing syncs on a schedule.
+- **Not browser-checked.** The push needs a real Google sign-in, which the
+  browser suite has no way to perform.

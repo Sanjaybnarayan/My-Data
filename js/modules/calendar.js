@@ -23,8 +23,11 @@ import { Router } from '../ui/router.js';
 import { datesInRange, upcomingDates } from '../domain/reminders.js';
 import { billsInRange } from '../domain/finance.js';
 import { toICalendar, icalProblems, icalFilename } from '../domain/ical.js';
+import { CalendarClient, CALENDAR_SCOPES } from '../sync/calendar.js';
+import { GoogleAuth } from '../auth/google.js';
 import { download } from './reports.js';
 import { toast } from '../ui/components/toast.js';
+import { userMessage } from '../core/errors.js';
 import { format } from '../core/money.js';
 import {
   today, addMonths, startOfMonth, endOfMonth, addDays, formatDay,
@@ -84,6 +87,14 @@ export async function render(route) {
       pageHeader('Calendar', {
         subtitle: 'Events, tasks, appointments, money due and every renewal date',
         actions: [
+          // Its own sign-in, for its own permission, asked for only when
+          // somebody presses this — never at ordinary sign-in. The scope
+          // reaches only calendars this application made; see `sync/calendar.js`.
+          button('Sync to Google', {
+            variant: 'subtle',
+            iconName: 'refresh',
+            onClick: () => syncCalendar(),
+          }),
           // A year, not the month on screen: a household exporting their
           // calendar wants their renewals, not the four squares they happen to
           // be looking at.
@@ -178,6 +189,37 @@ export async function render(route) {
       ? `${problems.written} entries exported, ${dropped} skipped`
       : `${problems.written} entries exported — importing again updates them rather than duplicating`,
     { kind: 'success' });
+  }
+
+  /**
+   * Push the next twelve months to a calendar of this application's own.
+   *
+   * A real sync rather than the file above: pushing twice updates what is
+   * there, because every entry carries the id the identity tranche gave it.
+   * What it still is not is two-way — nothing here reads a household's own
+   * calendar, and nothing removes an entry deleted since.
+   */
+  async function syncCalendar() {
+    const from = today();
+    const { entries } = await collect(db, { from, to: addMonths(from, 12) });
+    if (!entries.length) {
+      toast('Nothing dated in the next twelve months to sync', { kind: 'info' });
+      return;
+    }
+
+    try {
+      const auth = new GoogleAuth({ scopes: CALENDAR_SCOPES });
+      const client = new CalendarClient({ getToken: () => auth.getToken() });
+      const { written, failed, skipped } = await client.push(entries);
+
+      const left = failed.length + skipped.length;
+      toast(left
+        ? `${written.length} sent to your calendar, ${left} could not be`
+        : `${written.length} sent to a calendar of its own — sync again to update them`,
+      { kind: left ? 'info' : 'success' });
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    }
   }
 
   function monthGrid(start, end, byDay) {
