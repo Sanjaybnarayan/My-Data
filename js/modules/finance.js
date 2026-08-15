@@ -19,16 +19,15 @@ import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
 import * as fin from '../domain/finance.js';
 import { format, formatCompact } from '../core/money.js';
-import { formatDay, relativeDays, today } from '../core/dates.js';
+import { formatDay, relativeDays } from '../core/dates.js';
 import { entitiesOfModule } from '../data/schema.js';
 import { TransfersService } from '../services/transfers.js';
+import { FinanceService } from '../services/finance.js';
 import { CONFIDENCE } from '../domain/events.js';
-import { settlementReport, describeSettlement } from '../domain/settlement.js';
-import { staleness, describeStaleness, emiBreakdown, describeEmi } from '../domain/amortise.js';
-import { spendByMember, describeSpendByMember, settleable } from '../domain/household.js';
+import { describeSettlement } from '../domain/settlement.js';
+import { staleness, describeStaleness, describeEmi } from '../domain/amortise.js';
+import { describeSpendByMember, settleable } from '../domain/household.js';
 import { describeCommitments } from '../domain/commitments.js';
-import { fromRecords } from '../domain/ledger.js';
-import { recurring as recurringCharges } from '../domain/categorise.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -391,74 +390,15 @@ async function financeOverview() {
   const host = h('div', {});
 
   async function paint() {
-    const [accounts, transactions, budgets, recurring, loans,
-      subscriptions, digitalAssets] = await Promise.all([
-      db.repo('account').list({ decrypt: false, limit: 500 }),
-      db.repo('transaction').list({ decrypt: false, limit: 20_000 }),
-      db.repo('budget').list({ decrypt: false }),
-      db.repo('recurringPayment').list({ decrypt: false }),
-      db.repo('loan').list({ decrypt: false }),
-      // Recorded under Digital, spent out of Finance. A subscription renewing
-      // is money leaving on a date, and neither screen was saying so.
-      db.repo('subscription').list({ decrypt: false }),
-      db.repo('digitalAsset').list({ decrypt: false }),
-    ]);
-
-    const transfers = await new TransfersService(db).pending();
-
-    // Paying a credit card is not spending — the spending happened when the
-    // card was used. Both rows are counted as expenses today, so a household
-    // that imports the card statement *and* the bank statement sees every
-    // rupee that went through the card twice.
-    const settlement = settlementReport(
-      fin.inPeriod(transactions, 'month'), accounts,
-    );
-
-    // The other half of the same question. A card bill is counted twice and is
-    // simply wrong; an EMI is counted once and is correct — it just conflates a
-    // cost with money that moved from cash into a smaller debt. The whole
-    // history is passed, because where a payment falls in the schedule decides
-    // the split, and only this month's rows are counted.
-    const thisMonth = new Set(fin.inPeriod(transactions, 'month').map((t) => t.id));
-    const emi = emiBreakdown(loans, transactions, (t) => thisMonth.has(t.id));
-
-    // `transaction.person` — the form calls it "Spent by" — has been recorded
-    // on every transaction since the schema was written, and read by nothing.
-    const people = await db.repo('person').list({ decrypt: false, limit: 500 });
-    const byMember = spendByMember(people, transactions, (t) => thisMonth.has(t.id));
-
-    const balances = fin.accountBalances(accounts, transactions);
-    const compare = fin.comparePeriods(transactions);
-    const series = fin.monthlySeries(transactions, 12);
-    const categories = fin.byCategory(fin.inPeriod(transactions, 'month'));
-    // `account.statementDay` and `account.dueDay` are on the account form and
-    // were read by nothing, so a card with money owed on it produced no
-    // warning at all. Passing the accounts and the rows brings them in.
-    const bills = fin.upcomingBills(recurring, loans, {
-      days: 30, accounts, transactions, subscriptions, digitalAssets,
-    });
-    const budgetRows = fin.budgetStatus(budgets, transactions);
-    // The sentence under this figure named subscriptions; the figure had never
-    // seen one. Both halves are fixed here — the number includes them, and the
-    // sentence now says what is in it.
-    // The records say what the household meant to commit to. The statements
-    // say what actually leaves. Both are read here so the sentence can name the
-    // difference — a subscription nobody wrote down is the kind a household
-    // most wants to be told about, because it is the kind they forgot.
-    const detected = recurringCharges(
-      fromRecords(transactions, { holder: '' }), { asOf: today() },
-    );
-    const commitment = fin.committed({
-      recurring, loans, subscriptions, digitalAssets, detected,
-    });
-
-    // Running balance across the year, so a downward drift is visible before
-    // it becomes a problem.
-    let running = 0;
-    const balanceSeries = series.map((month) => {
-      running += month.net;
-      return { label: month.label, value: running };
-    });
+    // The whole view model, assembled in `services/finance.js` where it can be
+    // tested without a browser. This screen used to build it inline from eight
+    // entities, which is the first of the two gaps the service layer exists to
+    // close — and the reason three silent wiring failures went unnoticed here.
+    const {
+      transactions, loans, balances, compare, series, balanceSeries,
+      categories, settlement, emi, byMember, bills, budgetRows, commitment,
+      transfers,
+    } = await new FinanceService(db).overview();
 
     replace(host, h('div', { class: 'grid grid--wide' }, [
       transfersCard(db, transfers, paint),

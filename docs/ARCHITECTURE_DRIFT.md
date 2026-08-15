@@ -144,3 +144,46 @@ The tool did what it promises: it never claimed to catch a row nobody edited
 *and* whose vocabulary it was not given. What this shows is the narrower lesson —
 **a probe is only as good as the words in it**, and the person adding a row is
 the person least likely to guess what a future implementer will call the thing.
+
+---
+
+## The ratchet moves: 71 → 63
+
+The first screen off the repository is the Finance overview, and it was chosen
+on evidence rather than on size.
+
+`financeOverview` loaded **eight entities** and built its whole view model
+inline — balances, this month's totals, the settlement report, the EMI split,
+spend by member, upcoming bills, budgets, the commitment figure and the running
+balance series. `services/service.js` names exactly this as the first of the two
+things the layer is for:
+
+> **Assembly has no home.** A screen loads eight entities, feeds them to pure
+> functions in `domain/`, and builds a view model inline — so the assembly can
+> only be tested through a browser.
+
+**That cost was paid three times in one tranche.** Wiring the unusual-spending
+findings into this screen family failed silently three times running — a month
+key read from a field that does not exist, an array that is grouped rather than
+sorted taken as sorted, and an import added by a replacement that matched
+nothing. Each produced no error, no output, and a green suite.
+
+`assembleOverview()` is now pure: records in, view model out, no database and no
+clock unless one is passed. Five tests exist that could not have been written
+before, including one pinning the seam that took two tranches to build — the
+detector runs on the ledger, the committed figure comes from the records, and
+the screen is where they meet.
+
+**The refactor introduced a bug and the type checker caught it.** The screen
+still draws `loansCard(loans, transactions)`, and the first version of the view
+model did not carry `loans` — a `ReferenceError` on a screen every browser check
+opens. `npm test` passed; `tsc` did not. It is now passed through deliberately,
+because a view model that withheld it would send the screen back to the
+repository, widening the very edge this narrows.
+
+Typecheck held at **181** throughout: six imports the assembly took with it were
+deleted rather than budgeted, and the load spec was annotated rather than
+excused.
+
+**63 of the original 71 remain**, across thirteen screens. `documents.js` is the
+next largest at twelve.

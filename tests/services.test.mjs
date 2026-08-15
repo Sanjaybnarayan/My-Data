@@ -20,6 +20,7 @@ import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 import { Service, NET_WORTH_LOAD } from '../js/services/service.js';
 import { PortfolioService } from '../js/services/portfolio.js';
 import { RecordsService } from '../js/services/records.js';
+import { FinanceService, assembleOverview } from '../js/services/finance.js';
 import { xirr } from '../js/domain/portfolio.js';
 
 setSuite('services');
@@ -356,5 +357,79 @@ describe('what deleting a record would break', () => {
     let threw = false;
     try { await new RecordsService(db).impactOfDeleting('nonsense', 'x'); } catch { threw = true; }
     assert.ok(threw, 'reporting "nothing refers to it" would be a licence to delete');
+  });
+});
+
+/*
+ * The Finance overview, which used to be assembled inline in the screen.
+ *
+ * None of these could be written before: the arithmetic lived in a closure
+ * inside a render function, reachable only by driving a browser. Wiring a new
+ * finding into that screen family failed three times in a row, silently, for
+ * exactly that reason.
+ */
+describe('the finance overview, assembled where it can be reached', () => {
+  const clock = () => Date.parse('2026-07-20T00:00:00Z');
+
+  const records = () => ({
+    accounts: [{ id: 'a1', name: 'HDFC', kind: 'savings', openingBalance: 50_000_00, deletedAt: null }],
+    transactions: [
+      { id: 't1', date: '2026-07-05', amount: 35_000_00, kind: 'expense', direction: 'out',
+        category: 'rent', account: 'a1', narration: 'UPI/DR/1/LANDLORD/ICIC/l@ok/Rent', deletedAt: null },
+      { id: 't2', date: '2026-07-02', amount: 120_000_00, kind: 'income', direction: 'in',
+        category: 'salary', account: 'a1', narration: 'NEFT CR ACME SALARY', deletedAt: null },
+    ],
+    budgets: [], recurring: [], loans: [], subscriptions: [], digitalAssets: [], people: [],
+  });
+
+  test('the balance is the opening figure plus what moved', () => {
+    const view = assembleOverview(records(), { clock });
+    assert.equal(view.balances[0].balance, 50_000_00 + 120_000_00 - 35_000_00);
+  });
+
+  test('this month is counted from the clock it is given, not the wall clock', () => {
+    // The screen never passed a clock, so every figure here silently used the
+    // real date and no test could pin any of them to a month.
+    const july = assembleOverview(records(), { clock });
+    const september = assembleOverview(records(), { clock: () => Date.parse('2026-09-20T00:00:00Z') });
+
+    assert.ok(july.categories.length > 0, 'July has spending, or this test proves nothing');
+    assert.equal(september.categories.length, 0, 'July is not September');
+  });
+
+  test('a missing entity yields an empty view rather than throwing', () => {
+    const view = assembleOverview({}, { clock });
+    assert.equal(view.balances.length, 0);
+    assert.equal(view.bills.length, 0);
+    assert.equal(view.commitment.total, 0);
+  });
+
+  test('the commitment figure carries what the statements show repeating', () => {
+    // The seam that took two tranches to build and had no test above the
+    // domain layer: the detector runs on the ledger, the figure comes from the
+    // records, and the screen is where they meet.
+    const data = records();
+    for (const m of ['03', '04', '05', '06', '07']) {
+      data.transactions.push({
+        id: `n${m}`, date: `2026-${m}-14`, amount: 649_00, kind: 'expense', direction: 'out',
+        category: 'subscription', account: 'a1',
+        narration: 'UPI/DR/412345678901/NETFLIX/HDFC/n@hdfcbank/Pay', deletedAt: null,
+      });
+    }
+    const view = assembleOverview(data, { clock });
+
+    assert.ok(view.detected.some((charge) => /NETFLIX/i.test(charge.name)),
+      'the ledger sees the repeating charge');
+    assert.equal(view.commitment.unaccounted, 649_00,
+      'and nothing records it, so it is named beside the committed figure');
+  });
+
+  test('the load names every entity the overview reads', async () => {
+    // A screen that quietly adds a ninth `db.repo` call is the drift this whole
+    // layer exists to stop, and the architecture ratchet counts it.
+    const db = await makeDb();
+    const view = await new FinanceService(db).overview({ clock });
+    assert.ok(Array.isArray(view.bills));
+    assert.ok(Array.isArray(view.transfers.proposals));
   });
 });
