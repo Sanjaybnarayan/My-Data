@@ -149,11 +149,20 @@ export function backend({
     'doPost', 'doGet', 'verifyToken', 'admit', 'members', 'memberFor',
     'manageMembers', 'dispatch', 'fail',
     'policyAllows', 'readableEntities', 'roleRank',
+    'manageDevices', 'noteDevice', 'readDevices',
   ]);
 
-  /** Call the backend the way the browser does: one POST, one JSON reply. */
-  api.post = (action, token, payload = {}) => JSON.parse(
-    api.doPost({ postData: { contents: JSON.stringify({ action, token, payload }) } }).getContent(),
+  /**
+   * Call the backend the way the browser does: one POST, one JSON reply.
+   *
+   * `deviceId` is part of that shape and always was — the browser has sent one
+   * since the first version. It is passed through here because the backend
+   * finally reads it.
+   */
+  api.post = (action, token, payload = {}, { deviceId = '', clientVersion = '' } = {}) => JSON.parse(
+    api.doPost({
+      postData: { contents: JSON.stringify({ action, token, payload, deviceId, clientVersion }) },
+    }).getContent(),
   );
 
   return Object.assign(api, { props, cache, fetched, logged, owner, driveFiles });

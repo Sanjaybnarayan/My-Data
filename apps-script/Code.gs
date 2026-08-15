@@ -57,11 +57,16 @@ function doPost(e) {
     var caller = verifyToken(request.token);
     enforceRateLimit(caller.email);
 
+    var deviceId = String(request.deviceId || '');
+    // Checked before the action runs, not after. A revoked device that got its
+    // write in and was refused the reply would still have written.
+    noteDevice(caller.email, deviceId, String(request.clientVersion || ''));
+
     var data = dispatch(request.action, request.payload || {}, {
       email: caller.email,
       owner: caller.owner,
       isOwner: caller.isOwner,
-      deviceId: String(request.deviceId || ''),
+      deviceId: deviceId,
       clientVersion: String(request.clientVersion || ''),
     });
 
@@ -112,11 +117,154 @@ function dispatch(action, payload, context) {
       }
       return gmailSearch(payload, context);
     case 'members':   return manageMembers(payload, context);
+    case 'devices':   return manageDevices(payload, context);
     case 'verify':    return { counts: sheetCounts(workbook()) };
     case 'ping':      return { ok: true, user: context.email, role: context.role, at: new Date().toISOString() };
     default:
       throw fail('unknown action: ' + action, 400);
   }
+}
+
+/* ---------------------------------------------------------------- devices */
+
+/**
+ * The device registry the gate asked for, and the field that was collected and
+ * never read.
+ *
+ * `deviceId` arrived on every request from the first version of this backend,
+ * was parsed on line 64, and was **never looked at again**. That is the same
+ * shape as every other defect this repository has turned up — a value present,
+ * structured and ignored — except that this one is in the layer that decides
+ * who may reach a household's records.
+ *
+ * ## What it is for
+ *
+ * A phone is lost. Today the only remedy is to remove the person from the
+ * member list, which also locks out the laptop they still have. A registry
+ * lets an owner revoke **one device** and leave the rest working.
+ *
+ * ## Why the check is here and not in `dispatch`
+ *
+ * A revoked device that was allowed to run its action and then refused the
+ * reply would still have written. The refusal has to come first.
+ *
+ * ## What it deliberately does not hold
+ *
+ * No household records, per the gate: an email, an opaque id the client
+ * generated, a version string and two timestamps. Nothing here says what the
+ * device did, only that it called.
+ */
+function deviceKey(email) {
+  return 'devices:' + String(email || '').toLowerCase();
+}
+
+function readDevices(email) {
+  var raw = PROP.getProperty(deviceKey(email));
+  if (!raw) return [];
+  try {
+    var parsed = JSON.parse(raw);
+    return Object.prototype.toString.call(parsed) === '[object Array]' ? parsed : [];
+  } catch (err) {
+    // A corrupt entry is not a reason to refuse everybody. It is a reason to
+    // start again from empty, which re-registers on the next request.
+    return [];
+  }
+}
+
+/**
+ * Record that a device called, and refuse it if it has been revoked.
+ *
+ * A request with no device id is allowed through and not registered. Older
+ * clients do not send one, and locking them out on an upgrade would be a
+ * denial of service dressed as a security improvement — the member list still
+ * gates them, exactly as it did before this existed.
+ */
+function noteDevice(email, deviceId, clientVersion) {
+  if (!deviceId) return;
+
+  var devices = readDevices(email);
+  var now = new Date().toISOString();
+  var found = null;
+
+  for (var i = 0; i < devices.length; i++) {
+    if (devices[i].id === deviceId) { found = devices[i]; break; }
+  }
+
+  if (found && found.revokedAt) {
+    // 403, not 401: the token is fine and signing in again will not help. The
+    // message says what to do rather than leaving somebody retrying.
+    throw fail('this device has been signed out by the household owner — '
+      + 'ask them to allow it again', 403);
+  }
+
+  if (found) {
+    found.lastSeenAt = now;
+    found.clientVersion = clientVersion || found.clientVersion || '';
+  } else {
+    // Bounded: a client that minted a fresh id per request would otherwise
+    // grow this without limit. The oldest are dropped, because the newest are
+    // the ones somebody is holding.
+    devices.push({
+      id: deviceId,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      clientVersion: clientVersion || '',
+      revokedAt: '',
+    });
+    devices.sort(function (a, b) {
+      return String(b.lastSeenAt).localeCompare(String(a.lastSeenAt));
+    });
+    devices = devices.slice(0, 20);
+  }
+
+  PROP.setProperty(deviceKey(email), JSON.stringify(devices));
+}
+
+/**
+ * List, revoke and restore devices.
+ *
+ * Anybody may list **their own**. Only the owner may see or revoke somebody
+ * else's, for the same reason only the owner may edit the member list: the
+ * ability to sign another person out is the ability to lock them out.
+ */
+function manageDevices(payload, context) {
+  var action = String(payload.op || 'list');
+  var subject = String(payload.email || context.email).toLowerCase();
+
+  if (subject !== String(context.email).toLowerCase() && !context.isOwner) {
+    throw fail('only the household owner may manage another person’s devices', 403);
+  }
+
+  if (action === 'list') {
+    return { email: subject, devices: readDevices(subject) };
+  }
+
+  if (action !== 'revoke' && action !== 'restore') {
+    throw fail('unknown device action: ' + action, 400);
+  }
+
+  var id = String(payload.deviceId || '');
+  if (!id) throw fail('which device?', 400);
+
+  // Revoking the device you are asking from would lock you out of the reply to
+  // your own request. Refused, rather than half-applied.
+  if (action === 'revoke' && id === context.deviceId) {
+    throw fail('that is the device you are using — sign out from it instead', 400);
+  }
+
+  var devices = readDevices(subject);
+  var changed = false;
+
+  for (var i = 0; i < devices.length; i++) {
+    if (devices[i].id !== id) continue;
+    devices[i].revokedAt = action === 'revoke' ? new Date().toISOString() : '';
+    changed = true;
+  }
+
+  if (!changed) throw fail('no such device', 404);
+
+  PROP.setProperty(deviceKey(subject), JSON.stringify(devices));
+  return { email: subject, devices: devices };
 }
 
 /* --------------------------------------------------------------- identity */

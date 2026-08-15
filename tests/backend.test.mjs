@@ -255,3 +255,167 @@ describe('the request contract', () => {
     assert.includes(text.message, 'POST');
   });
 });
+
+/**
+ * The device registry — the gate's last unbuilt piece, and a field that was
+ * collected and never read.
+ *
+ * `deviceId` has arrived on every request since the first version of this
+ * backend. It was parsed, put on the context, and **never looked at again** —
+ * the same shape as every other defect this repository has found, except that
+ * this one sits in the layer deciding who may reach a household's records.
+ *
+ * What it buys: a phone is lost, and today the only remedy is to remove the
+ * person from the member list, which also locks out the laptop they still have.
+ */
+describe('the devices a household has signed in from', () => {
+  const PHONE = 'dev_phone';
+  const LAPTOP = 'dev_laptop';
+
+  test('a device that calls is registered, with when it was first seen', () => {
+    const api = start();
+    api.post('ping', 'owner-token', {}, { deviceId: PHONE, clientVersion: '4.1' });
+
+    const { data } = api.post('devices', 'owner-token', { op: 'list' }, { deviceId: PHONE });
+    assert.length(data.devices, 1);
+    assert.equal(data.devices[0].id, PHONE);
+    assert.equal(data.devices[0].clientVersion, '4.1');
+    assert.ok(data.devices[0].firstSeenAt, 'no first-seen stamp');
+  });
+
+  test('calling again updates it rather than adding a second', () => {
+    const api = start();
+    api.post('ping', 'owner-token', {}, { deviceId: PHONE, clientVersion: '4.1' });
+    api.post('ping', 'owner-token', {}, { deviceId: PHONE, clientVersion: '4.2' });
+
+    const { data } = api.post('devices', 'owner-token', { op: 'list' }, { deviceId: PHONE });
+    assert.length(data.devices, 1);
+    assert.equal(data.devices[0].clientVersion, '4.2');
+  });
+
+  test('a revoked device is refused, and told what to do about it', () => {
+    const api = start();
+    api.post('ping', 'owner-token', {}, { deviceId: PHONE });
+    api.post('ping', 'owner-token', {}, { deviceId: LAPTOP });
+
+    api.post('devices', 'owner-token', { op: 'revoke', deviceId: PHONE }, { deviceId: LAPTOP });
+
+    const refused = api.post('ping', 'owner-token', {}, { deviceId: PHONE });
+    assert.not(refused.ok, 'a revoked device was served');
+    assert.includes(refused.error, 'signed out by the household owner');
+  });
+
+  test('and the other device keeps working, which is the whole point', () => {
+    const api = start();
+    api.post('ping', 'owner-token', {}, { deviceId: PHONE });
+    api.post('ping', 'owner-token', {}, { deviceId: LAPTOP });
+    api.post('devices', 'owner-token', { op: 'revoke', deviceId: PHONE }, { deviceId: LAPTOP });
+
+    assert.ok(api.post('ping', 'owner-token', {}, { deviceId: LAPTOP }).ok,
+      'revoking one device locked out the other');
+  });
+
+  test('a revoked device is refused before its action runs, not after', () => {
+    // A revoked device allowed to write and then refused the reply would still
+    // have written.
+    const api = start();
+    api.post('ping', 'owner-token', {}, { deviceId: PHONE });
+    api.post('ping', 'owner-token', {}, { deviceId: LAPTOP });
+    api.post('devices', 'owner-token', { op: 'revoke', deviceId: PHONE }, { deviceId: LAPTOP });
+
+    const before = api.props.getProperty('members');
+    const refused = api.post('members', 'owner-token',
+      { members: [{ email: SPOUSE, role: 'spouse' }] }, { deviceId: PHONE });
+
+    assert.not(refused.ok, 'a revoked device wrote');
+    assert.equal(api.props.getProperty('members'), before, 'the member list changed');
+  });
+
+  test('it can be restored', () => {
+    const api = start();
+    api.post('ping', 'owner-token', {}, { deviceId: PHONE });
+    api.post('ping', 'owner-token', {}, { deviceId: LAPTOP });
+    api.post('devices', 'owner-token', { op: 'revoke', deviceId: PHONE }, { deviceId: LAPTOP });
+    api.post('devices', 'owner-token', { op: 'restore', deviceId: PHONE }, { deviceId: LAPTOP });
+
+    assert.ok(api.post('ping', 'owner-token', {}, { deviceId: PHONE }).ok, 'restore did nothing');
+  });
+
+  test('you cannot revoke the device you are asking from', () => {
+    // It would lock you out of the reply to your own request.
+    const api = start();
+    api.post('ping', 'owner-token', {}, { deviceId: PHONE });
+    const refused = api.post('devices', 'owner-token',
+      { op: 'revoke', deviceId: PHONE }, { deviceId: PHONE });
+
+    assert.not(refused.ok, 'it revoked the calling device');
+    assert.includes(refused.error, 'sign out from it instead');
+  });
+
+  test('a person sees their own devices and not somebody else’s', () => {
+    const api = start({ members: JSON.stringify([{ email: SPOUSE, role: 'spouse' }]) });
+    api.post('ping', 'owner-token', {}, { deviceId: LAPTOP });
+    api.post('ping', 'spouse-token', {}, { deviceId: PHONE });
+
+    const mine = api.post('devices', 'spouse-token', { op: 'list' }, { deviceId: PHONE });
+    assert.length(mine.data.devices, 1);
+    assert.equal(mine.data.devices[0].id, PHONE);
+
+    const theirs = api.post('devices', 'spouse-token',
+      { op: 'list', email: OWNER }, { deviceId: PHONE });
+    assert.not(theirs.ok, 'a spouse read the owner’s devices');
+    assert.equal(theirs.status, 403);
+  });
+
+  test('only the owner may sign somebody else out', () => {
+    // The ability to sign another person out is the ability to lock them out.
+    const api = start({ members: JSON.stringify([{ email: SPOUSE, role: 'spouse' }]) });
+    api.post('ping', 'owner-token', {}, { deviceId: LAPTOP });
+
+    const refused = api.post('devices', 'spouse-token',
+      { op: 'revoke', email: OWNER, deviceId: LAPTOP }, { deviceId: PHONE });
+    assert.not(refused.ok, 'a spouse revoked the owner’s device');
+
+    assert.ok(api.post('ping', 'owner-token', {}, { deviceId: LAPTOP }).ok);
+  });
+
+  test('revoking a device that does not exist says so', () => {
+    // Silence would read as "done" and leave somebody believing they had
+    // signed out a phone they had not.
+    const api = start();
+    api.post('ping', 'owner-token', {}, { deviceId: LAPTOP });
+    const refused = api.post('devices', 'owner-token',
+      { op: 'revoke', deviceId: 'dev_never_seen' }, { deviceId: LAPTOP });
+
+    assert.not(refused.ok, 'revoking an unknown device reported success');
+    assert.equal(refused.status, 404);
+  });
+
+  test('a client that sends no device id still works', () => {
+    // Older clients do not send one, and locking them out on an upgrade would
+    // be a denial of service dressed as a security improvement.
+    const api = start();
+    assert.ok(api.post('ping', 'owner-token').ok, 'a client with no device id was refused');
+    assert.length(api.post('devices', 'owner-token', { op: 'list' }).data.devices, 0);
+  });
+
+  test('the registry cannot grow without limit', () => {
+    // A client minting a fresh id per request would otherwise fill the store.
+    const api = start();
+    for (let i = 0; i < 30; i += 1) {
+      api.post('ping', 'owner-token', {}, { deviceId: `dev_${i}` });
+    }
+    const { data } = api.post('devices', 'owner-token', { op: 'list' });
+    assert.ok(data.devices.length <= 20, `${data.devices.length} devices kept`);
+  });
+
+  test('it holds nothing about what the device did', () => {
+    // The gate: the policy server never holds household records.
+    const api = start();
+    api.post('ping', 'owner-token', {}, { deviceId: PHONE, clientVersion: '4.1' });
+    const { data } = api.post('devices', 'owner-token', { op: 'list' }, { deviceId: PHONE });
+
+    assert.deep(Object.keys(data.devices[0]).sort(),
+      ['clientVersion', 'firstSeenAt', 'id', 'lastSeenAt', 'revokedAt']);
+  });
+});
