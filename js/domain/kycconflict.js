@@ -102,11 +102,39 @@ const plain = (value) => String(value ?? '').trim();
 /** Case, spacing and punctuation off — the way a person compares two names. */
 const loose = (value) => plain(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-/** Initials and honorifics dropped, so `S N Rao` and `Sanjay Rao` can be near. */
-const words = (value) => loose(value)
+/** Honorifics dropped. Initials are kept — see `contradicts`. */
+const tokens = (value) => loose(value)
   .replace(/^(mr|mrs|ms|dr|shri|smt)\s+/, '')
   .split(' ')
-  .filter((word) => word.length > 1);
+  .filter(Boolean);
+
+const words = (value) => tokens(value).filter((word) => word.length > 1);
+const initials = (value) => tokens(value).filter((word) => word.length === 1);
+
+/**
+ * Does an initial on one side rule the other side out?
+ *
+ * Initials used to be dropped, and dropping them cost more than it saved. In a
+ * household where everybody shares a surname, `M Narayan` matched the surname
+ * of every single person and the application answered *"may be Sanjay or Meera
+ * or Aarav"* — which is not an answer. An initial that stands in for a name
+ * the other side spells out differently is evidence **against** the pair, and
+ * often the only evidence a short name carries.
+ *
+ * It contradicts only where there is something for it to stand in for. The
+ * first version of this asked merely whether any word began with the initial,
+ * and called `Sanjay B Narayan` against `Sanjay Narayan` a **conflict** —
+ * telling a household their bank holds the wrong name because one record
+ * carries a middle initial and the other does not. So the initial is tested
+ * against the words the other side has *left over*: where nothing is left over,
+ * the initial is extra detail, not a disagreement.
+ */
+const contradicts = (a, b) => {
+  const mine = words(a);
+  const leftover = words(b).filter((word) => !mine.includes(word));
+  if (!leftover.length) return false;
+  return initials(a).some((initial) => !leftover.some((word) => word.startsWith(initial)));
+};
 
 /**
  * How two values for one field agree.
@@ -120,14 +148,23 @@ export function compareValue(field, a, b) {
   if (loose(a) === loose(b)) return AGREEMENT.MATCH;
 
   if (field === 'name') {
+    // An initial naming a given name nobody on the other side has is a
+    // disagreement, however many surnames the two share.
+    if (contradicts(a, b) || contradicts(b, a)) return AGREEMENT.CONFLICT;
+
     const left = words(a);
     const right = words(b);
     const shared = left.filter((word) => right.includes(word));
     // A shared surname and a different given name is not a match, and it is
     // not nothing either — it is exactly the pair a person should look at.
-    if (shared.length && shared.length < Math.max(left.length, right.length)) {
-      return AGREEMENT.POSSIBLE_MATCH;
-    }
+    //
+    // This used to require `shared.length < Math.max(left, right)`, which made
+    // `Sanjay B Narayan` against `Sanjay Narayan` a **conflict**: every word is
+    // shared, the counts are equal, and the middle initial is not a word. A
+    // household would have been told a bank holds the wrong name because one
+    // record carries a middle initial. Any overlap at all is a possible match;
+    // `contradicts` above is what turns a short name into a disagreement.
+    if (shared.length) return AGREEMENT.POSSIBLE_MATCH;
     return AGREEMENT.CONFLICT;
   }
 

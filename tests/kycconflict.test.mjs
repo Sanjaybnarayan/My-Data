@@ -81,6 +81,27 @@ describe('how two values are compared', () => {
       AGREEMENT.POSSIBLE_MATCH);
   });
 
+  test('an initial that names nobody on the other side is a conflict', () => {
+    // Initials used to be dropped, and in a household where everybody shares a
+    // surname that made `M Narayan` a possible match for all three people —
+    // which is not an answer. Found while measuring nominations.
+    assert.equal(compareValue('name', 'M Narayan', 'Meera Narayan'),
+      AGREEMENT.POSSIBLE_MATCH);
+    assert.equal(compareValue('name', 'M Narayan', 'Sanjay Narayan'), AGREEMENT.CONFLICT);
+    assert.equal(compareValue('name', 'M Narayan', 'Aarav Narayan'), AGREEMENT.CONFLICT);
+  });
+
+  test('a middle initial on one side only is not a disagreement', () => {
+    // This was shipped reporting CONFLICT. Every word is shared, the counts are
+    // equal because an initial is not a word, and the old rule required
+    // `shared < max` — so a household was told a bank holds the wrong name
+    // because one record carries a middle initial and the other does not.
+    assert.equal(compareValue('name', 'Sanjay B Narayan', 'Sanjay Narayan'),
+      AGREEMENT.POSSIBLE_MATCH);
+    assert.equal(compareValue('name', 'S N Rao', 'Sanjay Narayan Rao'),
+      AGREEMENT.POSSIBLE_MATCH);
+  });
+
   test('an address written two ways is possible, not a conflict', () => {
     assert.equal(
       compareValue('address', '12 Residency Road, Bengaluru 560025',
