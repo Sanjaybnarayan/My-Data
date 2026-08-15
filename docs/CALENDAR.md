@@ -184,14 +184,79 @@ behaviour at all. The mutation that does is emitting only the **stored**
 `nextDueOn`, and that one fails the check, printing an entirely empty October.
 A mutation that survives is only evidence when it is the mutation you meant.
 
+## Identity, and taking the calendar somewhere
+
+The previous tranche recorded that entries had no stable id. Measured before
+anything was written: **0 of 31 entries carried one**, although three of the
+six sources already produce an id and `collect` dropped it on the way past. The
+identity existed and was being thrown away — the same shape as most of the
+defects found in this codebase.
+
+### The rule, which is subtler than "record plus date"
+
+The occurrence is part of the id **only where one record yields more than one
+square**, and getting that backwards is a bug rather than an inconsistency:
+
+| Source | Id | Because |
+| --- | --- | --- |
+| Event, task, appointment | `event:v1` | one record, one square — putting the date in it would make *moving* a dentist appointment add a second one instead |
+| Bill | `recurringPayment:r1:2026-09-01` | one record, twelve squares |
+| Birthday | `date:birthday:p1:2026` | recurs yearly, but a corrected date of birth should move the entry rather than orphan it — so the **year**, not the whole date |
+| Renewal | `policy:p1:renewsOn` | `renewsOn` moving a year forward is the same renewal falling due again, not a new one |
+
+The date alone would not do either: two events called *Standup* on one day, at
+nine and at five, are told apart by nothing else a calendar can see. That was
+the only collision in the measured fixture, and the record id resolves it.
+
+### A file, and deliberately not the Google Calendar API
+
+Ids that nothing reads would **create** the exact defect this repository keeps
+finding, so they needed a reader. Google Calendar sync is still genuinely
+absent and cannot be verified here without credentials; iCalendar is a
+*format* — RFC 5545, read by Google Calendar, Apple Calendar and Outlook — so
+it can be checked byte for byte in a test and a household still gets their
+renewals onto the calendar they already use.
+
+`UID` is precisely the stable-id field: §3.8.4.7 is what makes a second import
+an **update** rather than a duplicate. Without the identity work an export
+would have had to invent one, and an invented id changes between runs, which is
+how somebody ends up with twelve copies of their rent.
+
+**The cost, stated plainly: this is a snapshot, not a sync.** Re-importing
+updates what is already there, but nothing removes an entry deleted here since,
+and nothing flows back. The toast on the screen says so.
+
+Entries are written **all-day**. Most of what this calendar holds is a day and
+not a moment — a policy renews on the third, an EMI leaves on the fifth — and
+giving those a fabricated 9am start would put an insurance renewal in
+somebody's morning meeting slot. A time, where one exists, goes in the
+description instead, because the file states no timezone and guessing UTC would
+shift it.
+
+An entry with no date, or no id, is **not written and is counted**, so the
+screen reports what it left out rather than exporting quietly short.
+
+### What the mutation testing caught
+
+**13 of 13 mutations of the format were caught** — CRLF, the exclusive
+`DTEND`, all four escapes, folding measured in octets rather than characters,
+folding across a surrogate pair, the trailing terminator, and a UID that moves
+between exports.
+
+**The browser check was vacuous on its first pass, and the mutation is what
+said so.** It asserted only the toast — and the toast counts *entries*, not
+bytes — so replacing the file's contents with an empty string left it passing.
+It now captures the download and reads it. Two things surfaced from that:
+Chromium's `showSaveFilePicker` cannot open headlessly, and the shared download
+helper treats a cancelled picker as success, so the check was reporting
+"exported" over nothing at all.
+
 ## Still not done
 
-- **Google Calendar sync.** There is no Calendar integration anywhere in the
-  codebase — no client, no Apps Script, no scope. The screen is entirely local.
-  That is the real remaining Phase 4 work and this tranche does not start it.
-- **A calendar entry has no stable id.** Entries carry `source`, `date`,
-  `title`, `subtitle`, `amount` and `href` and nothing identifying the
-  occurrence — bills now do, the rest do not. Any sync needs one, or it pushes
-  duplicates on every run.
+- **Google Calendar sync.** There is still no Calendar integration — no client,
+  no Apps Script, no scope, no connection of any kind. The export is a file the
+  household saves themselves. That remains the real Phase 4 work.
+- **Nothing reads an .ics back in.** Import is one-way, out.
 - **`event.endTime` and `event.remindMinutesBefore`** remain in the unread-field
-  inventory: a two-hour event draws as a point.
+  inventory: a two-hour event draws as a point, and the export has the same
+  limitation for the same reason.

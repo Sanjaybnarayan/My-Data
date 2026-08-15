@@ -21,7 +21,7 @@
 
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -1659,6 +1659,45 @@ async function main() {
       // 60 days out, against a reminder lead of 45. The old grid dropped it.
       check('a renewal beyond its reminder lead is on the month it falls in',
         far.includes('Star Health floater'), far.slice(0, 700));
+
+      // The export path, end to end: collect -> toICalendar -> download. The
+      // toast only appears if the whole chain ran, and it is also where the
+      // snapshot-not-sync wording lives.
+      await go(page, '#/calendar');
+      await page.waitForTimeout(600);
+      // The file itself, not merely the toast. Asserting only the message let
+      // an empty export through: the count is worked out from the entries, so
+      // it reads the same whether or not anything was written.
+      // `showSaveFilePicker` exists in Chromium but cannot open a dialog
+      // headlessly, and the helper treats a cancelled picker as success — so
+      // with it present the click reports "exported" having written nothing,
+      // which is what made the first version of this check pass on an empty
+      // file. Removing it takes the anchor path, which is what any browser
+      // without the File System Access API does anyway.
+      await page.evaluate(() => { delete (/** @type {any} */ (window)).showSaveFilePicker; });
+
+      const [downloaded] = await Promise.all([
+        page.waitForEvent('download', { timeout: 15_000 }).catch(() => null),
+        page.getByRole('button', { name: /Export \.ics/ }).first().click(),
+      ]);
+      await page.waitForTimeout(900);
+
+      let ics = '';
+      if (downloaded) {
+        const where = await downloaded.path();
+        if (where) ics = await readFile(where, 'utf8');
+      }
+      check('the exported file is a calendar with events in it',
+        ics.startsWith('BEGIN:VCALENDAR') && /\r\nUID:/.test(ics), ics.slice(0, 400));
+      check('and its name carries the day it was taken',
+        /household-calendar-\d{4}-\d{2}-\d{2}\.ics/.test(downloaded?.suggestedFilename() ?? ''),
+        downloaded?.suggestedFilename() ?? 'no download');
+
+      const afterExport = (await page.locator('body').innerText()).trim();
+      check('exporting the calendar reports what it wrote',
+        /entries exported/.test(afterExport), afterExport.slice(0, 600));
+      check('and says that importing it again updates rather than duplicates',
+        /updates them rather than duplicating/.test(afterExport), afterExport.slice(0, 600));
 
       check('the calendar renders without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));

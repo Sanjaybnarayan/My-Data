@@ -22,6 +22,9 @@ import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
 import { datesInRange, upcomingDates } from '../domain/reminders.js';
 import { billsInRange } from '../domain/finance.js';
+import { toICalendar, icalProblems, icalFilename } from '../domain/ical.js';
+import { download } from './reports.js';
+import { toast } from '../ui/components/toast.js';
 import { format } from '../core/money.js';
 import {
   today, addMonths, startOfMonth, endOfMonth, addDays, formatDay,
@@ -80,11 +83,21 @@ export async function render(route) {
     replace(host, [
       pageHeader('Calendar', {
         subtitle: 'Events, tasks, appointments, money due and every renewal date',
-        actions: [button('Add event', {
-          variant: 'primary',
-          iconName: 'plus',
-          onClick: () => app().router.navigate({ module: 'calendar', entity: 'event', id: 'new' }),
-        })],
+        actions: [
+          // A year, not the month on screen: a household exporting their
+          // calendar wants their renewals, not the four squares they happen to
+          // be looking at.
+          button('Export .ics', {
+            variant: 'subtle',
+            iconName: 'download',
+            onClick: () => exportCalendar(),
+          }),
+          button('Add event', {
+            variant: 'primary',
+            iconName: 'plus',
+            onClick: () => app().router.navigate({ module: 'calendar', entity: 'event', id: 'new' }),
+          }),
+        ],
       }),
 
       card({}, [
@@ -133,6 +146,38 @@ export async function render(route) {
 
       dayPanel(byDay.get(selected) ?? [], selected),
     ]);
+  }
+
+  /**
+   * The next twelve months as a file.
+   *
+   * A snapshot and not a sync, and the toast says so. Every entry carries a
+   * stable UID, so importing this twice updates what is already there rather
+   * than doubling it — but nothing here removes an entry deleted since, and
+   * nothing comes back the other way.
+   */
+  async function exportCalendar() {
+    const from = today();
+    const { entries } = await collect(db, { from, to: addMonths(from, 12) });
+    const problems = icalProblems(entries);
+
+    if (!problems.written) {
+      toast('Nothing dated in the next twelve months to export', { kind: 'info' });
+      return;
+    }
+
+    await download({
+      blobParts: toICalendar(entries),
+      mime: 'text/calendar',
+      filename: icalFilename(from),
+    });
+
+    // Anything left out is said, rather than the file quietly being short.
+    const dropped = problems.undated + problems.unidentified;
+    toast(dropped
+      ? `${problems.written} entries exported, ${dropped} skipped`
+      : `${problems.written} entries exported — importing again updates them rather than duplicating`,
+    { kind: 'success' });
   }
 
   function monthGrid(start, end, byDay) {
@@ -288,6 +333,7 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
   for (const event of events) {
     entries.push({
       source: 'event',
+      id: entryId('event', event.id),
       date: event.date,
       time: event.allDay ? null : event.startTime,
       title: event.title,
@@ -300,6 +346,7 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
     if (!task.dueOn || task.status === 'done') continue;
     entries.push({
       source: 'task',
+      id: entryId('task', task.id),
       date: task.dueOn,
       time: task.dueTime,
       title: task.title,
@@ -312,6 +359,7 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
     if (appointment.status === 'cancelled') continue;
     entries.push({
       source: 'appointment',
+      id: entryId('appointment', appointment.id),
       date: appointment.date,
       time: appointment.time,
       title: appointment.title,
@@ -358,6 +406,9 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
   for (const bill of bills) {
     entries.push({
       source: 'money',
+      // Already unique per occurrence — `billsInRange` keys it that way so a
+      // rent due twelve times is twelve entries, not one.
+      id: bill.id,
       date: bill.dueOn,
       title: bill.name,
       subtitle: bill.amount === null
@@ -375,6 +426,7 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
     if (billed.has(`${dated.entity}:${dated.recordId}:${dated.date}`)) continue;
     entries.push({
       source: 'expiry',
+      id: dated.id,
       date: dated.date,
       title: dated.title,
       subtitle: dated.label ?? '',
@@ -387,6 +439,12 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
   for (const date of upcomingDates(data.person, data.importantDate, { days: 400, from })) {
     entries.push({
       source: 'date',
+      // `upcomingDates` ids the *record*, not the occurrence: a birthday
+      // recurs yearly under one id, so two years of it would collapse into a
+      // single entry. The **year**, not the whole date — a corrected birthday
+      // should move the entry it already has rather than orphan it and add a
+      // second.
+      id: entryId('date', date.id, date.date.slice(0, 4)),
       date: date.date,
       title: date.title,
       subtitle: date.turning ? `turning ${date.turning}` : (date.kind ?? ''),
@@ -398,6 +456,41 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
     entries: entries.filter((entry) => entry.date).sort((a, b) => a.date.localeCompare(b.date)),
     cardBillsStopAt,
   };
+}
+
+/**
+ * What identifies one square on the calendar.
+ *
+ * Measured before it was written: **0 of 31 entries carried an id**, though
+ * three of the six sources already produce one and `collect` dropped it on the
+ * way past. The identity existed and was being thrown away — the same shape as
+ * most of the other defects found in this codebase.
+ *
+ * The date alone is not enough. Two events called *Standup* on the same day, at
+ * nine and at five, are told apart by nothing else a calendar can see — that
+ * was the one collision in the measured fixture, and the record id resolves it.
+ *
+ * **The occurrence part is only added where one record yields more than one
+ * square, and getting that backwards is a real bug rather than an
+ * inconsistency.** An event, a task and an appointment are each one record and
+ * one date, so their id is the record alone: put the date in it and moving a
+ * dentist appointment changes its identity, so anything syncing these would
+ * add a second appointment rather than move the one that exists. A bill is the
+ * opposite — one record, twelve dates — so `billsInRange` keys each occurrence
+ * by its own date. A birthday sits between the two and is keyed by **year**,
+ * because it recurs annually but a corrected date of birth should move the
+ * entry rather than orphan it.
+ *
+ * A renewal keeps `datesInRange`'s `entity:record:field`, with no date at all,
+ * for the same reason: `renewsOn` moving a year forward is the same renewal
+ * falling due again, not a new one.
+ *
+ * @param {string} source
+ * @param {string} recordId
+ * @param {string} [occurrence] only where one record produces several squares
+ */
+export function entryId(source, recordId, occurrence) {
+  return occurrence ? `${source}:${recordId}:${occurrence}` : `${source}:${recordId}`;
 }
 
 /** Which screen a bill's record lives on. Subscriptions are filed under Digital. */
