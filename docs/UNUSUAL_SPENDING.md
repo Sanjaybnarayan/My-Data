@@ -95,12 +95,31 @@ kind of problem, which is the reason every survivor is read rather than counted:
 - field-coverage (83), policy drift, lint, architecture (48 claims) — clean
 - the service-worker precache ratchet caught the new module, as designed
 
-## Still not done
+## The browser check, and what it can and cannot catch
 
-- **No browser check.** The findings reach `insights()` and the Insights screen
-  renders `insights()`, but nothing drives six months of history through a real
-  browser to prove a household sees them. Given that the wiring failed silently
-  three times while being written, this is the gap most worth closing next.
+A real transaction goes through the real form and the Insights screen is read
+back. It asserts the category is named, the amount is beside it, and — scoped to
+that one sentence — that no multiple appears.
+
+**Mutating the wiring against it: 1 of 3 caught, and that is the right number.**
+
+| Mutation | Browser | Why |
+| --- | --- | --- |
+| the screen never asks for the findings | **caught** | exactly what a browser check is for: an absent panel and a silent one look identical from outside |
+| the month reverts to `.at(-1)` | survived | in the browser's own data the latest month *is* grouped last, so the defect does not surface there. The unit test catches it, which is the layer it belongs to |
+| a first occurrence is given `Infinity` | survived | the first-time sentence never renders `times`, so no screen can observe the field. The unit test asserts it directly |
+
+Two domain defects caught by domain tests and one wiring defect caught by the
+browser is the correct division. Trying to make the browser catch the other two
+would be testing the wrong layer, and a check that passes for the wrong reason
+is worse than no check.
+
+One assertion had to be corrected: it first scanned the *whole screen* for the
+word "times", which other findings legitimately contain. Scoped to the sentence
+making the claim, plus a separate check that no `Infinity` or `NaN` reaches the
+page anywhere.
+
+## Still not done
 - **Forecasting is still missing**, and keeps its own architecture row now that
   anomaly detection has one of its own.
 - **A category is compared only to itself.** A household whose whole spending
