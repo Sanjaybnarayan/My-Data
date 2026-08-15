@@ -155,6 +155,7 @@ const SHELL = [
 
   './js/ai/assistant.js',
   './js/ai/intents.js',
+  './js/ai/mcp.js',
   './js/ai/summary.js',
 
   './js/reports/csv.js',
