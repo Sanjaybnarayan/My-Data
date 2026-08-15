@@ -173,6 +173,10 @@ and is not counted. It tested nothing.
 ## What is still not built
 
 No screen, no will, no executor, no beneficiary, and no `Asset` entity of the
-kind Phase 12's scope names. This is the reading of what the application
+kind Phase 12's scope names.
+
+**The gaps reached the dashboard in the next tranche** —
+`docs/SEALED_VALUES.md`, which is mostly about what encrypting these three
+fields did to a screen that loads everything undecrypted. This is the reading of what the application
 already stores. Legal and estate documents — the rest of Phase 12 — remain
 untouched, and nothing here is legal advice or claims to be.

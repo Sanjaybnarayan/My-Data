@@ -205,6 +205,11 @@ async function main() {
     // the digits its mask leaves — `XXXXXXXX8177` has to find this account.
     await page.locator('#f-account-accountNumber').fill('50100128177');
     await page.locator('#f-account-openingBalance').fill('25000');
+    // Encrypted at rest, and the reason a browser check fills it: the
+    // nominations widget has to read this back through real AES-GCM. Loaded
+    // undecrypted it would be ciphertext, and the gap list — the whole answer
+    // — would come out empty with nothing on screen to say why.
+    await page.locator('#f-account-nominee').fill('Meera Narayan');
     check('the form offers an enabled submit button',
       await page.locator('.modal button[type="submit"]').isEnabled());
     await page.locator('#f-account-name').press('Enter');
@@ -2196,6 +2201,34 @@ async function main() {
       .first().innerText();
     check('the assistant answers a question from stored data',
       /net worth/i.test(answer), answer.slice(0, 120));
+
+    /* -------------------------------------------- nominations on the dashboard */
+
+    {
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(700);
+
+      const widget = page.locator('.nominations');
+      const said = (await widget.count()) ? await widget.innerText() : '';
+
+      check('the dashboard says which records have nobody nominated',
+        /Nobody nominated/i.test(said), said.slice(0, 300) || '(no nominations widget)');
+
+      // The claim the whole module is built around, on the screen rather than
+      // in a comment.
+      check('and says plainly that a nominee is not an heir',
+        /not who inherits/i.test(said), said.slice(0, 300));
+
+      // The failure this tranche exists to prevent. A sealed value passing as a
+      // name would put `enc:v1:…` on the dashboard and empty the gap list.
+      check('no ciphertext reaches the dashboard',
+        said.length > 0 && !/enc:v1:/.test(said), said.slice(0, 300));
+
+      // The account given a nominee through the form is not in the gap list;
+      // the ones without one are.
+      check('the record with a nominee is not listed as a gap',
+        !/HDFC Savings/.test(said), said.slice(0, 300));
+    }
 
     /* ------------------------------------------------------------ dark */
 

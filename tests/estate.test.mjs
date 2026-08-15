@@ -7,7 +7,7 @@
 
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
-  estate, nominations, nominationGaps, nomineeGroups, unnominable,
+  estate, nominations, nominationGaps, nomineeGroups, unnominable, unreadable,
   legacyInstructions, describeNomination, describeGap, NOMINEE_IS_NOT_HEIR,
 } from '../js/domain/estate.js';
 
@@ -200,5 +200,41 @@ describe('the one instruction the application already had', () => {
     assert.length(out.gaps, 0);
     assert.equal(out.atStake, 0);
     assert.equal(out.notice, NOMINEE_IS_NOT_HEIR);
+  });
+});
+
+describe('a sealed nominee is neither a name nor a gap', () => {
+  // All three nominee fields are encrypted, and the dashboard's bulk loader
+  // reads every entity with `decrypt: false`. A widget built from that data
+  // would see ciphertext where a name should be — and would report **no gaps
+  // at all**, because every record would look as though it carried a nominee.
+  // The screen built to say "nobody is named on these" would say nothing.
+  const sealedRow = {
+    id: 'a1', name: 'HDFC Savings', institution: 'HDFC', deletedAt: null,
+    nominee: 'enc:v1:AAAABBBB:CCCCDDDD',
+  };
+
+  test('it is not read as a nominee', () => {
+    assert.length(nominations({ people: [], accounts: [sealedRow] }), 0);
+  });
+
+  test('and it is not counted as a gap either', () => {
+    assert.length(nominationGaps({ accounts: [sealedRow] }), 0);
+  });
+
+  test('it is counted and named, because silence would look like good news', () => {
+    const out = estate({ accounts: [sealedRow] });
+    assert.equal(out.unreadable, 1);
+    assert.equal(unreadable({ accounts: [sealedRow] }), 1);
+    assert.length(out.gaps, 0);
+  });
+
+  test('an ordinary name that merely looks technical is still a nominee', () => {
+    // The guard is the envelope prefix, not "contains a colon".
+    const [row] = nominations({
+      people: [],
+      accounts: [{ ...sealedRow, nominee: 'enc: Meera Narayan' }],
+    });
+    assert.equal(row.nominee, 'enc: Meera Narayan');
   });
 });

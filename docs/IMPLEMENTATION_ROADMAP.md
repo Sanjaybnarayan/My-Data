@@ -181,7 +181,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 9 | Financial insights, forecast, goals, Family CFO, anomaly detection | **mostly done** — insights (`docs/STATEMENT_FORMATS.md`), anomaly detection with seasonality (`docs/UNUSUAL_SPENDING.md`), forecasting (`docs/CASH_RUNWAY.md`). **No goals, no Family CFO screen** |
 | 10 | Insurance, vehicles, fuel, property, tenants, purchases, warranty, subscriptions, travel | **entities exist, intelligence does not** — no fuel OCR, no warranty extraction, no tenant rent tracking |
 | 11 | Health, medical records, ABDM architecture | entities exist; **no ABDM connector** |
-| 12 | Legal, estate, digital life, crypto metadata | **started** — digital life existed; nominations, gaps and legacy instructions are now read across accounts, investments and policies, with the nominee-is-not-an-heir refusal on the screen (`docs/NOMINATIONS.md`). **No legal, estate, will, executor or beneficiary entities, and no screen** |
+| 12 | Legal, estate, digital life, crypto metadata | **started** — digital life existed; nominations, gaps and legacy instructions are now read across accounts, investments and policies, with the nominee-is-not-an-heir refusal, on the dashboard (`docs/NOMINATIONS.md`, `docs/SEALED_VALUES.md`). **No legal, estate, will, executor or beneficiary entities** |
 | 13 | Household staff | **not started** |
 | 14 | Family chat, media, sharing, E2EE | **not started** |
 | 15 | Location, safe zones, geofencing, SOS | **not started** — and correctly refused for a PWA |

@@ -26,7 +26,9 @@ import { FinanceService, assembleOverview } from '../js/services/finance.js';
 import { DocumentsService } from '../js/services/documents.js';
 import { MessagesService } from '../js/services/sms.js';
 import { IdentityService, assembleIdentityReview } from '../js/services/identity.js';
+import { EstateService, ESTATE_LOAD } from '../js/services/estate.js';
 import { xirr } from '../js/domain/portfolio.js';
+import { estate } from '../js/domain/estate.js';
 
 setSuite('services');
 
@@ -714,4 +716,52 @@ describe('identity review — what the household is told, worst first', () => {
     assert.not(review.any);
     assert.length(review.conflicts, 0);
   });
+});
+
+describe('nominations, read where they can be read', () => {
+  test('the three entities carrying a nominee are loaded decrypted', () => {
+    // Not a style point. All three nominee fields are encrypted; loaded any
+    // other way this service would hand the widget ciphertext, and the gap
+    // list — the whole answer — would come out empty.
+    for (const key of ['accounts', 'holdings', 'policies']) {
+      assert.equal(ESTATE_LOAD[key][1].decrypt, true, key);
+    }
+  });
+
+  test('a nominee survives the round trip through real encryption', async () => {
+    const db = await makeDb();
+    await db.repo('account').create({
+      name: 'HDFC Savings', kind: 'savings', institution: 'HDFC',
+      nominee: 'Meera Narayan',
+    });
+    await db.repo('account').create({
+      name: 'ICICI Salary', kind: 'savings', institution: 'ICICI',
+    });
+
+    const review = await new EstateService(db).review();
+
+    assert.equal(review.unreadable, 0, 'nothing came back sealed');
+    assert.length(review.nominations, 1);
+    assert.equal(review.nominations[0].nominee, 'Meera Narayan');
+    assert.length(review.gaps, 1);
+    assert.equal(review.gaps[0].name, 'ICICI Salary');
+  });
+
+  test('and reading the same rows undecrypted reports unreadable, not zero gaps',
+    async () => {
+      // The failure this guard exists for, reproduced through the real
+      // repository: sealed values must never pass as names.
+      const db = await makeDb();
+      await db.repo('account').create({
+        name: 'HDFC Savings', kind: 'savings', institution: 'HDFC',
+        nominee: 'Meera Narayan',
+      });
+
+      const accounts = await db.repo('account').list({ decrypt: false });
+      const review = estate({ accounts, people: [] });
+
+      assert.equal(review.unreadable, 1);
+      assert.length(review.nominations, 0);
+      assert.length(review.gaps, 0, 'a sealed nominee is not a missing one');
+    });
 });
