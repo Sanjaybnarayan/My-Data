@@ -186,3 +186,88 @@ describe('what is left loose', () => {
     assert.equal(total.moved, 0);
   });
 });
+
+/**
+ * A movement that landed in more than one piece, through the service.
+ *
+ * `events.test.mjs` covers the rules with plain objects. What only exists once
+ * records are stored is the part that matters here: the legs a set accounts for
+ * must come **off** the unmatched list, or the same three rows are reported both
+ * as "this is one movement" and as "we cannot see where this went".
+ */
+describe('a movement in pieces, against the database', () => {
+  test('the set is proposed, named, and counted once', async () => {
+    const db = await makeDb();
+    const { hdfc, icici } = await twoAccounts(db);
+    const sbi = await makeAccount(db, { name: 'SBI Savings' });
+
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 30_000_00 }));
+    await db.repo('transaction').create(legOf(sbi, 'in', { amount: 20_000_00 }));
+
+    const { sets, setsTotal } = await new TransfersService(db).pending();
+
+    assert.length(sets, 1);
+    assert.equal(sets[0].confidence, CONFIDENCE.PROBABLE);
+    assert.equal(sets[0].shape, 'split');
+    assert.equal(sets[0].anchorName, 'HDFC Savings');
+    assert.deep(sets[0].legNames.slice().sort(), ['ICICI Savings', 'SBI Savings']);
+    // Three statement rows, one economic event, ₹50,000 — not ₹100,000.
+    assert.deep(setsTotal, { movements: 1, moved: 50_000_00, awaiting: 0 });
+  });
+
+  test('and its legs stop being reported as having no partner', async () => {
+    const db = await makeDb();
+    const { hdfc, icici } = await twoAccounts(db);
+    const sbi = await makeAccount(db, { name: 'SBI Savings' });
+
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 30_000_00 }));
+    await db.repo('transaction').create(legOf(sbi, 'in', { amount: 20_000_00 }));
+
+    const { unmatched } = await new TransfersService(db).pending();
+    assert.length(unmatched, 0);
+  });
+
+  test('a leg that belongs to nothing is still reported as loose', async () => {
+    const db = await makeDb();
+    const { hdfc, icici } = await twoAccounts(db);
+    const sbi = await makeAccount(db, { name: 'SBI Savings' });
+
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 30_000_00 }));
+    await db.repo('transaction').create(legOf(sbi, 'in', { amount: 20_000_00 }));
+    // Nothing accounts for this one, and it must not be hidden by the set.
+    const axis = await makeAccount(db, { name: 'Axis Savings' });
+    await db.repo('transaction').create(legOf(axis, 'in', { amount: 7_000_00 }));
+
+    const { unmatched } = await new TransfersService(db).pending();
+    assert.length(unmatched, 1);
+    assert.equal(unmatched[0].accountName, 'Axis Savings');
+  });
+
+  test('an ambiguous set does not take its legs off the loose list', async () => {
+    // It is a question, not an answer. Hiding the rows behind a proposal
+    // nobody has agreed to would lose them.
+    const db = await makeDb();
+    const { hdfc, icici } = await twoAccounts(db);
+    const sbi = await makeAccount(db, { name: 'SBI Savings' });
+    const axis = await makeAccount(db, { name: 'Axis Savings' });
+    const kotak = await makeAccount(db, { name: 'Kotak Savings' });
+
+    await db.repo('transaction').create(legOf(hdfc, 'out', { amount: 50_000_00 }));
+    await db.repo('transaction').create(legOf(icici, 'in', { amount: 30_000_00 }));
+    await db.repo('transaction').create(legOf(sbi, 'in', { amount: 20_000_00 }));
+    await db.repo('transaction').create(legOf(axis, 'in', { amount: 25_000_00 }));
+    await db.repo('transaction').create(legOf(kotak, 'in', { amount: 25_000_00 }));
+
+    const { sets, setsTotal, unmatched } = await new TransfersService(db).pending();
+    assert.equal(sets[0].confidence, CONFIDENCE.POSSIBLE);
+    assert.equal(setsTotal.moved, 0);
+    // Every row, not merely "some" — the first version asserted `length > 0`,
+    // which the two spare ₹25,000 credits satisfied on their own, so the rule
+    // it was meant to pin went untested.
+    assert.deep(unmatched.map((leg) => leg.accountName).sort(),
+      ['Axis Savings', 'HDFC Savings', 'ICICI Savings', 'Kotak Savings', 'SBI Savings']);
+  });
+});

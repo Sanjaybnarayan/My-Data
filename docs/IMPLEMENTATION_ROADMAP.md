@@ -44,14 +44,18 @@ wrong number rather than a missing feature. The next one will probably look the
 same, so **measure before building** stays the rule: every tranche since Phase 5
 has begun by printing what the application actually reports.
 
-**A second shape has now appeared twice, both times on the calendar**: a
-function returning the right answer to a *different* question. `expiryReminders`
+**A second shape has now appeared three times**: a function returning the right
+answer to a *different* question. `expiryReminders`
 answers "how long before I am nagged?" and the grid asked it "what falls in
 September?"; `upcomingBills` answers "what is due soon?" and the grid asked it
 the same thing about money. Both were correct where they were written and wrong
 where they were called, and neither failed loudly — the screen simply drew less
 than it promised. The fix in both cases was a second function beside the first,
-with a test pinning the difference, rather than a change to either.
+with a test pinning the difference, rather than a change to either. Phase 5's
+`proposeTransfers` made it a third — it pairs one leg with one leg, which is the
+right answer to "which two rows are this movement?" and no answer at all to
+"which rows are", so a movement landing in three pieces was invisible
+(`docs/MULTI_LEG.md`).
 
 The rule applies to this document's own refusals too. Phase 6's first tranche
 declined to value recurring deposits because "the payment schedule is not
@@ -108,7 +112,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 2 | Family, identity, tree, CKYC 2.0 | **tree now reads the person form** (`docs/FAMILY_TREE.md`); **CKYC built as a local record, with no registry** (`docs/KYC.md`) |
 | 3 | Document intelligence, OCR, DOCX templates | **OCR already existed** (Drive's own, `apps-script/Drive.gs`) — that line was stale; extraction measured at **89% with zero wrong fields**; **the identifier a scan finds now reaches the encrypted field instead of being dropped** (`docs/DOCUMENT_INTELLIGENCE.md`). A receipt reader and DOCX remain |
 | 4 | Gmail, Drive, Calendar | Gmail + Drive exist; **a calendar screen already existed and drew 3 of 9 dated things** — its 400-day horizon was silently capped by each field's reminder lead, and money due never reached a square at all. **Bills then reached exactly one square each**: a household paying ₹80,239 a month saw it in September and read *nothing due* for the other eleven months of the year (`docs/CALENDAR.md`). **Calendar entries now carry a stable identity and export as RFC 5545 iCalendar**, which Google Calendar and Apple Calendar both read — a snapshot the household saves, not a sync. **Google Calendar sync itself is still genuinely absent** — no client, no Apps Script, no scope, no connection of any kind — and is the real remaining work |
-| 5 | Financial foundation, transfer matching, economic events | **the importer knew one bank** — real ICICI and Axis statements produced zero transactions from thousands of readable rows, and a statement with no opening balance was never checked at all (`docs/STATEMENT_FORMATS.md`). **A PhonePe export read as zero rows, and spans four accounts at once — a payment app's row is a bank row seen from the other side, linked by the UTR** (`docs/PAYMENT_APPS.md`). **all ten prompt tests pass**, locked in `tests/prompt.test.mjs` — see below. `EconomicEvent` still wanted for movements with more than two legs |
+| 5 | Financial foundation, transfer matching, economic events | **the importer knew one bank** — real ICICI and Axis statements produced zero transactions from thousands of readable rows, and a statement with no opening balance was never checked at all (`docs/STATEMENT_FORMATS.md`). **A PhonePe export read as zero rows, and spans four accounts at once — a payment app's row is a bank row seen from the other side, linked by the UTR** (`docs/PAYMENT_APPS.md`). **all ten prompt tests pass**, locked in `tests/prompt.test.mjs` — see below. **a movement landing in more than one piece is now proposed as one event** — ₹50,000 out arriving as ₹30,000 and ₹20,000 reported 0 proposals and 3 loose ends before it (`docs/MULTI_LEG.md`). `EconomicEvent` as an *entity* is still not built, and now for a sharper reason: a split has no single `toAccount` |
 | 6 | Cards, loans, EMI, FD/RD, family ledger | loans and EMI done in Phase 5; **FD and RD accrual done** (`docs/ACCRUAL.md`); **who-paid done, who-owes-whom refused for a stated reason** (`docs/HOUSEHOLD_LEDGER.md`); **card bills now due-dated from the statement, not the current balance** (`docs/CARD_BILLS.md`); **subscriptions are in the committed figure that had always named them** (`docs/COMMITMENTS.md`) |
 | 7 | Investments, brokers, MCP | investments exist and XIRR is right; **`holding.invested` never moved, so a fund fed a SIP reported 162% gain where its own transactions said 24.61%** (`docs/COST_BASIS.md`). Brokers still architecture-only; MCP not started |
 | 8–23 | Insights … internationalisation | not started |
