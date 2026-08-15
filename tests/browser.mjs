@@ -1397,6 +1397,53 @@ async function main() {
       // A PAN card with a real text layer, through the real capture path. The
       // number is read, kept out of the searchable field, and — until this
       // tranche — thrown away, while `identityDocument.number` stayed empty.
+      // A receipt, and the payment it records, end to end.
+      {
+        await go(page, '#/finance/transaction');
+        await page.waitForTimeout(400);
+        await page.getByRole('button', { name: /Add/ }).first().click();
+        await page.waitForSelector('.modal', { timeout: 5000 });
+        await page.locator('#f-transaction-date').fill('2026-07-10');
+        await page.locator('#f-transaction-kind').selectOption('expense');
+        await page.locator('#f-transaction-amount').fill('48500');
+        await page.locator('#f-transaction-payee').fill('Greenwood School');
+        await page.locator('#f-transaction-account').selectOption({ index: 1 });
+        await page.locator('#f-transaction-payee').press('Enter');
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+        await go(page, '#/documents');
+        await page.waitForTimeout(400);
+        await page.locator('input[type=file]:not([capture])').setInputFiles({
+          name: 'Fee receipt.pdf',
+          mimeType: 'application/pdf',
+          buffer: tinyPdf([
+            'GREENWOOD PUBLIC SCHOOL', 'Fee Receipt',
+            'Receipt No: GPS/2026/04412   Date: 12 Jul 2026',
+            'Amount: Rs. 48,500.00',
+          ]),
+        });
+        await page.waitForSelector('.modal', { timeout: 8000 });
+        await page.locator('#f-document-title').fill('School fee receipt');
+        await page.locator('#f-document-title').press('Enter');
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 8000 });
+        await page.getByRole('link', { name: /School fee receipt/ }).first().click()
+          .catch(() => page.locator('text=School fee receipt').first().click());
+        await page.waitForTimeout(1500);
+        const shown = (await page.locator('.app-content').innerText()).trim();
+
+        // `receiptMatchesIn` existed for a tranche with nothing calling it, and
+        // the first wiring hooked it inside `paintReading` — which returns
+        // early when a document's text was read and there are no identifiers to
+        // offer, which is exactly what a receipt is. It never ran, and the
+        // panel is silent when it has nothing to say, so only a check that
+        // drives a real receipt against a real payment could tell.
+        check('a receipt names the payment it is the receipt for',
+          /The payment this receipt is for/.test(shown), shown.slice(0, 1200));
+        check('and offers to file it against that payment',
+          (await page.getByRole('button', { name: /File it against this/ }).count()) >= 1,
+          shown.slice(0, 1200));
+      }
+
       const before = consoleErrors.length;
       const PAN = 'ABCDE1234F';
 
