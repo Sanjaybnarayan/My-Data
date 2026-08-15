@@ -641,6 +641,18 @@ async function main() {
       check('and inspecting names real entities',
         /sealed/.test(await page.locator('.app-content').innerText()));
 
+      // The device registry existed for a tranche with no way to reach it: an
+      // owner had to call the endpoint by hand to sign out a lost phone, which
+      // is a capability rather than a feature.
+      check('Settings lists the devices this household syncs from',
+        /Devices/.test(body) && /Where this household has signed in from/.test(body),
+        body.slice(0, 1200));
+
+      // With no backend configured there is nothing to list, and saying so is
+      // the honest answer — an empty card would read as "no devices".
+      check('and says why the list is empty rather than showing nothing',
+        /there are no devices to list|Nothing has synced yet/.test(body), body.slice(0, 1200));
+
       check('the privacy card loads without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 

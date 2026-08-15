@@ -159,9 +159,12 @@ export function backend({
    * since the first version. It is passed through here because the backend
    * finally reads it.
    */
-  api.post = (action, token, payload = {}, { deviceId = '', clientVersion = '' } = {}) => JSON.parse(
+  api.post = (action, token, payload = {},
+    { deviceId = '', deviceLabel = '', clientVersion = '' } = {}) => JSON.parse(
     api.doPost({
-      postData: { contents: JSON.stringify({ action, token, payload, deviceId, clientVersion }) },
+      postData: {
+        contents: JSON.stringify({ action, token, payload, deviceId, deviceLabel, clientVersion }),
+      },
     }).getContent(),
   );
 

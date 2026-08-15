@@ -14,6 +14,7 @@
  *     show data it already has.
  */
 
+import { deviceLabel } from './core/ids.js';
 import {
   loadConfig, loadStoredConfig, loadLocalOnly, config, isConfigured,
 } from './core/config.js';
@@ -126,6 +127,7 @@ async function start(db, limiter, googleSession = null) {
     url: config().apiUrl,
     getToken: () => auth.getToken(),
     deviceId: db.deviceId,
+    deviceLabel: deviceLabel(),
   });
   const sync = new SyncEngine({
     db, transport, batchSize: config().syncBatchSize,

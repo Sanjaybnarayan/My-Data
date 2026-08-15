@@ -98,3 +98,51 @@ export function deviceId(storage) {
   }
   return id;
 }
+
+/**
+ * A short, human-readable name for the device this is running on.
+ *
+ * ## Why this exists
+ *
+ * The device registry gave an owner a list of opaque ids — `dev_01M0…` — and
+ * asked them which one was the lost phone. That is not a question anybody can
+ * answer, so the capability existed and the feature did not.
+ *
+ * ## What it is, and what it is not
+ *
+ * It is a **guess**, from the user-agent string, and it is treated as one
+ * everywhere: the owner can rename any device, and the screen says the name
+ * was worked out rather than told. User-agent strings are unreliable by design
+ * — browsers have spent twenty years lying in them for compatibility — so a
+ * name derived from one is a hint, not a fact.
+ *
+ * It is deliberately **coarse**. Platform and browser family, nothing else: no
+ * version, no screen size, no font list, no language. Those are the ingredients
+ * of a fingerprint, and this only needs to be enough to tell a phone from a
+ * laptop. Two identical phones produce the same label and are told apart by
+ * their ids and their first-seen dates, which is the right trade.
+ */
+export function deviceLabel(agent = globalThis.navigator?.userAgent ?? '') {
+  const ua = String(agent);
+  if (!ua) return 'Unknown device';
+
+  // Order matters: an iPad reports "Macintosh" in desktop mode, and Edge and
+  // Opera both carry "Chrome" in their strings.
+  const platform = /iPhone/i.test(ua) ? 'iPhone'
+    : /iPad/i.test(ua) ? 'iPad'
+      : /Android/i.test(ua) ? 'Android'
+        : /Windows/i.test(ua) ? 'Windows'
+          : /Mac OS X|Macintosh/i.test(ua) ? 'Mac'
+            : /Linux/i.test(ua) ? 'Linux'
+              : '';
+
+  const browser = /Edg\//i.test(ua) ? 'Edge'
+    : /OPR\//i.test(ua) ? 'Opera'
+      : /Firefox\//i.test(ua) ? 'Firefox'
+        : /Chrome\//i.test(ua) ? 'Chrome'
+          : /Safari\//i.test(ua) ? 'Safari'
+            : '';
+
+  const parts = [platform, browser].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'Unknown device';
+}

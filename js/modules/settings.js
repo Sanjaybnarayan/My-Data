@@ -71,6 +71,7 @@ async function paint(host) {
       googleCard(auth, sync, status),
       permissionsCard(),
       householdCard(),
+      devicesCard(),
       syncCard(db, sync, status),
       securityCard(db, methods, () => paint(host)),
       appearanceCard(),
@@ -489,6 +490,149 @@ function describeRole(role) {
   if (!readable.length) return 'May sync, but is sent nothing';
   if (!writable.length) return `Can see ${readable.length} of ${Object.keys(entities).length} kinds of record, and change none`;
   return `Can see ${readable.length} and change ${writable.length} of ${Object.keys(entities).length} kinds of record`;
+}
+
+/**
+ * The devices this household has synced from, and signing one out.
+ *
+ * ## Why this screen exists
+ *
+ * The registry behind it worked and was **unusable**. It was reachable over the
+ * API and nowhere else, so signing out a lost phone meant calling an endpoint
+ * by hand — which is a capability, not a feature. And it answered in opaque
+ * ids, so an owner facing three `dev_01M0…` could not tell which was the phone.
+ *
+ * ## What it says plainly
+ *
+ * **Signing a device out stops it reaching the backup. It does not reach into
+ * the device and erase anything.** Records already synced to it stay there,
+ * behind its lock screen. A PWA cannot wipe a device it is not running on, and
+ * a screen that implied otherwise would be the most dangerous kind of comfort —
+ * somebody would stop looking for the phone.
+ */
+function devicesCard() {
+  const host = h('div', {});
+  const body = h('div', {}, h('p', { class: 'muted' }, 'Checking…'));
+  let devices = [];
+
+  replace(host, card({}, [
+    cardHeader('Devices', null, {
+      subtitle: 'Where this household has signed in from',
+      iconName: 'phone',
+    }),
+    body,
+  ]));
+
+  void load();
+  return host;
+
+  async function load() {
+    const { transport } = app();
+    if (!transport.configured) {
+      replace(body, h('p', { class: 'muted' },
+        'No backend is configured, so nothing syncs and there are no devices to list.'));
+      return;
+    }
+
+    try {
+      const result = await transport.devices();
+      devices = result.devices ?? [];
+      paint();
+    } catch (err) {
+      replace(body, [
+        h('p', { class: 'muted' }, userMessage(err)),
+        // An older deployment has no `devices` action at all, and saying so
+        // beats an error nobody can act on.
+        h('p', { class: 'small faint' },
+          'A backend deployed before this feature will not know the request. '
+          + 'Redeploy apps-script/ and this will fill itself in.'),
+      ]);
+    }
+  }
+
+  async function act(work, done) {
+    try {
+      const result = await work();
+      devices = result.devices ?? devices;
+      toast(done, { kind: 'success' });
+      paint();
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    }
+  }
+
+  function paint() {
+    const { transport, db } = app();
+
+    if (!devices.length) {
+      replace(body, h('p', { class: 'muted' },
+        'Nothing has synced yet. A device appears here the first time it reaches the backup.'));
+      return;
+    }
+
+    const row = (device) => {
+      const isThis = device.id === db.deviceId;
+      const revoked = Boolean(device.revokedAt);
+
+      return listItem({
+        // The id is still shown, shortened, because two identical phones report
+        // the same name and this is the only thing that tells them apart.
+        title: `${device.label || 'Unnamed device'}${isThis ? ' — this device' : ''}`,
+        subtitle: [
+          revoked ? `Signed out ${formatDay(device.revokedAt.slice(0, 10))}`
+            : `Last synced ${formatDay(device.lastSeenAt.slice(0, 10))}`,
+          `first seen ${formatDay(device.firstSeenAt.slice(0, 10))}`,
+          device.id.slice(0, 12),
+        ].filter(Boolean).join(' · '),
+        leading: revoked ? badge('signed out', 'warning') : null,
+        trailing: h('div', { class: 'row' }, [
+          button('Rename', {
+            variant: 'subtle',
+            onClick: async () => {
+              const label = await prompt({
+                title: 'Name this device',
+                label: 'Something you will recognise',
+                value: device.label ?? '',
+                confirmLabel: 'Save',
+              });
+              // Cancelled is not the same as cleared: `null` leaves it alone,
+              // an empty string deliberately clears the name back to reported.
+              if (label === null) return;
+              await act(() => transport.nameDevice(device.id, label), 'Renamed');
+            },
+          }),
+          // No control at all on the device being used. Signing yourself out
+          // from the thing you are holding would lock you out of the reply to
+          // your own request, and the backend refuses it — a button that always
+          // errors is worse than no button.
+          isThis ? null : button(revoked ? 'Allow again' : 'Sign out', {
+            variant: revoked ? 'subtle' : 'danger',
+            onClick: () => act(
+              () => (revoked ? transport.restoreDevice(device.id)
+                : transport.revokeDevice(device.id)),
+              revoked ? 'Allowed again' : 'Signed out — it can no longer reach the backup',
+            ),
+          }),
+        ].filter(Boolean)),
+      });
+    };
+
+    replace(body, [
+      h('div', { class: 'list' }, devices.map(row)),
+
+      // Said under the list rather than in a tooltip, because it is the thing
+      // somebody most needs to know at the moment they press the button.
+      h('p', { class: 'small faint', style: { marginTop: 'var(--space-3)' } },
+        'Signing a device out stops it reaching this backup. It does not erase '
+        + 'anything already on it — records synced there stay there, behind that '
+        + 'device’s own lock screen. If a phone is lost, sign it out here and '
+        + 'change your Google password too.'),
+
+      h('p', { class: 'small faint' },
+        'Names are worked out from the browser and can be wrong. Rename any of '
+        + 'them to something you will recognise.'),
+    ]);
+  }
 }
 
 function householdCard() {

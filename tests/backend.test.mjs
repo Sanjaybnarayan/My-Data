@@ -415,7 +415,110 @@ describe('the devices a household has signed in from', () => {
     api.post('ping', 'owner-token', {}, { deviceId: PHONE, clientVersion: '4.1' });
     const { data } = api.post('devices', 'owner-token', { op: 'list' }, { deviceId: PHONE });
 
+    // Updated deliberately when `label` and `named` were added — the point of
+    // asserting the exact list is that widening it is a decision somebody makes
+    // rather than something that happens. A label is a name for a device, not a
+    // record of what it did.
     assert.deep(Object.keys(data.devices[0]).sort(),
-      ['clientVersion', 'firstSeenAt', 'id', 'lastSeenAt', 'revokedAt']);
+      ['clientVersion', 'firstSeenAt', 'id', 'label', 'lastSeenAt', 'named', 'revokedAt']);
+  });
+});
+
+/**
+ * Telling one device from another.
+ *
+ * The registry worked and was unusable: it asked an owner which of several
+ * `dev_01M0…` was the phone they lost. A capability nobody can act on is not a
+ * feature.
+ */
+describe('naming the devices', () => {
+  const PHONE = 'dev_phone';
+  const LAPTOP = 'dev_laptop';
+  const seen = (api, id, label) =>
+    api.post('ping', 'owner-token', {}, { deviceId: id, deviceLabel: label });
+
+  test('a device is listed under the name it reported', () => {
+    const api = start();
+    seen(api, PHONE, 'iPhone · Safari');
+
+    const { data } = api.post('devices', 'owner-token', { op: 'list' }, { deviceId: PHONE });
+    assert.equal(data.devices[0].label, 'iPhone · Safari');
+    assert.not(data.devices[0].named, 'a reported label is not a chosen one');
+  });
+
+  test('the reported name refreshes while nobody has chosen one', () => {
+    const api = start();
+    seen(api, PHONE, 'iPhone · Safari');
+    seen(api, PHONE, 'iPhone · Chrome');
+
+    const { data } = api.post('devices', 'owner-token', { op: 'list' }, { deviceId: PHONE });
+    assert.equal(data.devices[0].label, 'iPhone · Chrome');
+  });
+
+  test('but never over a name a person typed', () => {
+    // Somebody who called their old laptop "the one in the study" should not
+    // find it renamed "Mac · Safari" the next time it syncs.
+    const api = start();
+    seen(api, LAPTOP, 'Mac · Safari');
+    api.post('devices', 'owner-token',
+      { op: 'name', deviceId: LAPTOP, label: 'the one in the study' }, { deviceId: PHONE });
+    seen(api, LAPTOP, 'Mac · Safari');
+
+    const { data } = api.post('devices', 'owner-token', { op: 'list' }, { deviceId: PHONE });
+    const laptop = data.devices.find((d) => d.id === LAPTOP);
+    assert.equal(laptop.label, 'the one in the study');
+    assert.ok(laptop.named);
+  });
+
+  test('you may name the device you are using', () => {
+    // Unlike revoking it, which would lock you out of your own reply.
+    const api = start();
+    seen(api, PHONE, 'iPhone · Safari');
+    const named = api.post('devices', 'owner-token',
+      { op: 'name', deviceId: PHONE, label: 'my phone' }, { deviceId: PHONE });
+
+    assert.ok(named.ok, named.error);
+    assert.equal(named.data.devices[0].label, 'my phone');
+  });
+
+  test('a name is trimmed and bounded', () => {
+    // This is shown in a list; a label the length of a paragraph would push
+    // everything else off the screen.
+    const api = start();
+    seen(api, PHONE, 'iPhone · Safari');
+    const named = api.post('devices', 'owner-token',
+      { op: 'name', deviceId: PHONE, label: `  ${'x'.repeat(200)}  ` }, { deviceId: PHONE });
+
+    assert.equal(named.data.devices[0].label.length, 60);
+  });
+
+  test('clearing the name lets the reported one come back', () => {
+    const api = start();
+    seen(api, PHONE, 'iPhone · Safari');
+    api.post('devices', 'owner-token',
+      { op: 'name', deviceId: PHONE, label: 'mine' }, { deviceId: PHONE });
+    api.post('devices', 'owner-token',
+      { op: 'name', deviceId: PHONE, label: '' }, { deviceId: PHONE });
+    seen(api, PHONE, 'iPhone · Chrome');
+
+    const { data } = api.post('devices', 'owner-token', { op: 'list' }, { deviceId: PHONE });
+    assert.equal(data.devices[0].label, 'iPhone · Chrome');
+  });
+
+  test('only the owner may rename somebody else’s device', () => {
+    const api = start({ members: JSON.stringify([{ email: SPOUSE, role: 'spouse' }]) });
+    seen(api, LAPTOP, 'Mac · Safari');
+
+    const refused = api.post('devices', 'spouse-token',
+      { op: 'name', email: OWNER, deviceId: LAPTOP, label: 'nope' }, { deviceId: PHONE });
+    assert.not(refused.ok, 'a spouse renamed the owner’s device');
+  });
+
+  test('a device that reports no name is still listed', () => {
+    const api = start();
+    api.post('ping', 'owner-token', {}, { deviceId: PHONE });
+    const { data } = api.post('devices', 'owner-token', { op: 'list' }, { deviceId: PHONE });
+    assert.length(data.devices, 1);
+    assert.equal(data.devices[0].label, '');
   });
 });
