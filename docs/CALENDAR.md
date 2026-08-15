@@ -112,13 +112,86 @@ shapes, and reading `.entity` and `.label` off it produced four findings in
 `calendar.js`. `datesInRange` returns one shape, so they went away. Locked in
 rather than left as headroom.
 
+## Recurrence — the second half of the same defect
+
+The tranche above fixed the **renewals** half of this grid and recorded
+recurrence as still open. The **money** half had the same defect for a
+different reason, and it was larger.
+
+`upcomingBills` answers *"what is due soon?"*, so it returns the **next**
+occurrence of each bill. That is exactly right for a dashboard — a household
+does not want the next twelve rents on it — and exactly wrong for a calendar,
+which asks *"what falls in November?"*. The rent is due in November whether or
+not it is the next one.
+
+Measured on a household paying **₹80,239 every month** — rent, a home loan
+EMI, broadband and one subscription — over a full year the calendar drew:
+
+```
+  2026-09   ₹80,239
+  2026-10   — nothing due
+  2026-11   — nothing due
+  ... eleven of twelve months, all reading nothing due
+```
+
+Every one of those squares was wrong, under a subtitle that promises money due.
+
+`billsInRange` is the money-side counterpart of `datesInRange`, and the two are
+kept apart for the same reason `datesInRange` was kept apart from
+`expiryReminders`: **both behaviours are correct for their own question**, and a
+test pins the difference so neither drifts into the other.
+
+### Indexed from the anchor, not stepped
+
+`addMonths` clamps to the end of a short month. Stepping one result into the
+next walks a rent due on the 31st down to 28 February and **leaves it there for
+ever** — every later month reads 28, because the 31 has been thrown away. Each
+occurrence is therefore computed from the original anchor, which is what
+`nextEmiDate` and the card cycle already do by recomputing from the day number.
+Pinned by a test that runs a 31st across February and back out again.
+
+### What recurs, and what deliberately does not
+
+| Source | Recurs? | Why |
+| --- | --- | --- |
+| Recurring payment | yes | it carries a frequency and a next-due date |
+| Loan EMI | yes | an EMI day, and an end date that stops it |
+| Subscription, `autoRenew` | yes | it will charge again |
+| Subscription, not auto-renewing | **no** | it *stops* on that date; twelve renewals would invent eleven charges |
+| Digital asset | **no** | it has no `autoRenew` field at all — the same reading of the same absence that `commitments.js` takes |
+| Credit card bill | **no** | see below |
+
+**The card refusal.** A card bill is the statement balance, derived from the
+rows that landed inside a cycle that has **closed**. Next month's cycle has not
+happened, so there is no balance to state, and projecting one would put a figure
+on a calendar square that nothing supports. So the next bill appears and the
+ones after it do not — and `cardBillsStopAt` reports where that boundary falls,
+so the screen can say *"credit card bills are not shown this far ahead"* rather
+than leaving a household to read an empty square as "nothing due". The
+difference between *nothing due* and *nothing knowable* is the whole point.
+
+### What the mutation testing caught here
+
+**11 of 12 mutations of the rules were caught by the node suite.** The twelfth
+was the screen's notice, which no node test can reach, and it is now a browser
+check.
+
+**One mutation of my own was wrong, and that mattered.** Making the loop emit
+only its first occurrence *survived* the browser suite — because `collect` is
+called once per month with that month's window, so "first occurrence in the
+window" still lands one entry on each month. It does not reproduce the old
+behaviour at all. The mutation that does is emitting only the **stored**
+`nextDueOn`, and that one fails the check, printing an entirely empty October.
+A mutation that survives is only evidence when it is the mutation you meant.
+
 ## Still not done
 
 - **Google Calendar sync.** There is no Calendar integration anywhere in the
   codebase — no client, no Apps Script, no scope. The screen is entirely local.
   That is the real remaining Phase 4 work and this tranche does not start it.
-- **Recurrence.** A monthly rent shows on its `nextDueOn` and nowhere else, so
-  a month paged forward shows the payment once its date has advanced, not as a
-  standing monthly entry. `advanceRecurring` exists and is not used for this.
+- **A calendar entry has no stable id.** Entries carry `source`, `date`,
+  `title`, `subtitle`, `amount` and `href` and nothing identifying the
+  occurrence — bills now do, the rest do not. Any sync needs one, or it pushes
+  duplicates on every run.
 - **`event.endTime` and `event.remindMinutesBefore`** remain in the unread-field
   inventory: a two-hour event draws as a point.

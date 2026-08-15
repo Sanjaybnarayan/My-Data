@@ -1599,6 +1599,33 @@ async function main() {
       check('the day it was selected on is the day it falls on',
         panel.includes(dueLabel), panel.slice(-700));
 
+      // Recurrence, on the screen. Everything above passes whether a monthly
+      // bill is drawn once or twelve times, which is exactly how the money
+      // half of this grid stayed wrong through the tranche that fixed the
+      // renewals half: `upcomingBills` gives the *next* rent, so a household
+      // paying every month saw it on one square a year.
+      await page.getByRole('button', { name: 'Next month' }).click();
+      await page.waitForTimeout(500);
+      const nextMonth = (await page.locator('.app-content').innerText()).trim();
+      check('a monthly payment is on next month’s grid as well',
+        nextMonth.includes('Sinking fund'), nextMonth.slice(0, 700));
+
+      // Far enough ahead that no card cycle has closed. The squares are empty
+      // either way; the difference is whether the screen says why.
+      for (let i = 0; i < 4; i++) {
+        await page.getByRole('button', { name: 'Next month' }).click();
+        await page.waitForTimeout(350);
+      }
+      const farOut = (await page.locator('.app-content').innerText()).trim();
+      check('and a month past the last closed statement says why no card bill is on it',
+        /Credit card bills are not shown this far ahead/.test(farOut), farOut.slice(0, 700));
+
+      // Back to where the rest of this block expects to be.
+      for (let i = 0; i < 5; i++) {
+        await page.getByRole('button', { name: 'Previous month' }).click();
+        await page.waitForTimeout(350);
+      }
+
       // A policy renewal is not a bill, so it can only reach the grid through
       // `datesInRange`. Without one of these the money path alone satisfies
       // the checks above and the renewal fix goes unverified — which is

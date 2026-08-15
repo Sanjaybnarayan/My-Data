@@ -15,7 +15,7 @@ import { cardBills } from './cards.js';
 import { subscriptionBills, commitmentSummary } from './commitments.js';
 import {
   today, range, withinRange, startOfMonth, addMonths, endOfMonth, addDays,
-  daysUntil, formatDay,
+  daysUntil, daysBetween, formatDay,
 } from '../core/dates.js';
 
 /** Transactions inside an inclusive day range, deleted ones excluded. */
@@ -300,6 +300,211 @@ export function upcomingBills(recurring, loans, {
   }
 
   return out.sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+}
+
+/** How many months one step of each frequency is worth. Weekly is not months. */
+const MONTHS_PER_STEP = {
+  monthly: 1, quarterly: 3, 'half-yearly': 6, yearly: 12,
+};
+
+/**
+ * The `n`th occurrence after an anchor date, counted **from the anchor**.
+ *
+ * Indexed rather than iterated, and that is the whole point. `addMonths`
+ * clamps to the end of a short month, so stepping one result into the next
+ * walks a rent due on the 31st down to the 28th in February and leaves it
+ * there for ever after — every later month reads 28, because the 31 has been
+ * thrown away. Going back to the anchor each time keeps the intended day and
+ * clamps only where the month is genuinely short, which is what `nextEmiDate`
+ * and the card cycle already do by recomputing from the day number.
+ */
+function occurrence(anchor, frequency, n) {
+  if (frequency === 'weekly') return addDays(anchor, n * 7);
+  const months = MONTHS_PER_STEP[frequency];
+  return months ? addMonths(anchor, n * months) : null;
+}
+
+/**
+ * Every bill falling inside a window, not merely the next one of each.
+ *
+ * ## Why this is not `upcomingBills`
+ *
+ * The same distinction `datesInRange` drew against `expiryReminders`, and for
+ * the same reason. `upcomingBills` answers *"what is due soon?"*, so one
+ * occurrence per bill is exactly right: a household does not want the next
+ * twelve rents on the dashboard. A calendar asks *"what falls in November?"*,
+ * and there the answer is different — the rent is due in November whether or
+ * not it is the next one.
+ *
+ * Measured on a household paying ₹80,239 every month — rent, a home loan EMI,
+ * broadband and one subscription — the calendar drew all four in September and
+ * **eleven of the twelve months read as nothing due**. Every one of those
+ * squares was wrong, and the grid's own subtitle promises money due.
+ *
+ * ## What recurs, and what deliberately does not
+ *
+ * **Recurring payments and EMIs recur.** Both carry the schedule that says so
+ * — a frequency and a next-due date, an EMI day and an end date.
+ *
+ * **A subscription recurs only if it renews itself.** `autoRenew` is the
+ * field that distinguishes a Netflix that will charge again next month from a
+ * domain that simply stops on its date, and drawing twelve renewals for
+ * something that lapses after the first would invent eleven charges nobody is
+ * going to be asked for. A `digitalAsset` has no `autoRenew` at all, so it
+ * lapses — the same reading `commitments.js` already takes of the same absence.
+ *
+ * **A card bill does not recur, and this is a refusal rather than an
+ * omission.** A card bill is the statement balance, derived from the rows that
+ * landed inside a cycle that has closed. Next month's cycle has not happened,
+ * so there is no balance to state; projecting one would put a figure on a
+ * calendar square that nothing supports. The next bill appears, the ones after
+ * it do not, and `cardBillsStopAt` says where that boundary falls so a caller
+ * can tell a household why rather than leaving a silent hole.
+ *
+ * @param {object[]} recurring
+ * @param {object[]} loans
+ * @param {{from: string, to: string, accounts?: object[]|null,
+ *          transactions?: object[]|null, subscriptions?: object[]|null,
+ *          digitalAssets?: object[]|null}} window inclusive, in calendar days
+ * @returns {{bills: object[], cardBillsStopAt: string|null}}
+ */
+// No default for the window: `from` and `to` are the question, and a bill
+// range with no bounds is not a smaller version of one.
+export function billsInRange(recurring, loans, {
+  from, to, accounts = null, transactions = null,
+  subscriptions = null, digitalAssets = null,
+}) {
+  const out = [];
+  // 500 steps is a weekly bill running for nine years; a window that long is
+  // not a calendar. The guard exists so a frequency this does not understand
+  // cannot spin, not because any real schedule approaches it.
+  const LIMIT = 500;
+
+  const emit = (bill) => out.push(asBill({
+    ...bill,
+    // Keyed on the occurrence rather than the record, because a calendar draws
+    // twelve of these and a screen that de-duplicates by id would keep one.
+    id: `${bill.entity}:${bill.recordId}:${bill.dueOn}`,
+  }));
+
+  for (const r of recurring ?? []) {
+    if (r.deletedAt || r.active === false || !r.nextDueOn) continue;
+
+    for (let n = 0; n < LIMIT; n += 1) {
+      const dueOn = occurrence(r.nextDueOn, r.frequency, n);
+      // A frequency with no step is a one-off: it is due on its date and never
+      // again, so it belongs in the window once rather than not at all.
+      if (!dueOn) {
+        if (n === 0 && r.nextDueOn >= from && r.nextDueOn <= to) {
+          emit({
+            source: 'recurringPayment',
+            entity: 'recurringPayment',
+            recordId: r.id,
+            name: r.name,
+            kind: r.kind,
+            amount: r.amount ?? 0,
+            dueOn: r.nextDueOn,
+            overdue: r.nextDueOn < from,
+            autoDebit: Boolean(r.autoDebit),
+          });
+        }
+        break;
+      }
+      if (dueOn > to) break;
+      // A payment that has ended stops being due, however far the window runs.
+      if (r.endsOn && dueOn > r.endsOn) break;
+      if (dueOn < from) continue;
+
+      emit({
+        source: 'recurringPayment',
+        entity: 'recurringPayment',
+        recordId: r.id,
+        name: r.name,
+        kind: r.kind,
+        amount: r.amount ?? 0,
+        dueOn,
+        overdue: dueOn < today(),
+        autoDebit: Boolean(r.autoDebit),
+      });
+    }
+  }
+
+  for (const loan of loans ?? []) {
+    if (loan.deletedAt || !loan.emiAmount || !loan.emiDay) continue;
+
+    let due = nextEmiDate(loan.emiDay, from);
+    for (let n = 0; n < LIMIT && due <= to; n += 1) {
+      if (loan.endsOn && due > loan.endsOn) break;
+      emit({
+        source: 'loan',
+        entity: 'loan',
+        recordId: loan.id,
+        name: `${loan.name} EMI`,
+        kind: 'EMI',
+        amount: loan.emiAmount,
+        dueOn: due,
+        overdue: false,
+        autoDebit: true,
+      });
+      // Recomputed from the day number, not stepped off the last result, so a
+      // 31st clamped to February does not stay clamped in March.
+      due = nextEmiDate(loan.emiDay, addDays(due, 1));
+    }
+  }
+
+  // Subscriptions, from the same rows the committed figure is built on, so the
+  // calendar and that figure cannot disagree about what renews.
+  const renewals = subscriptionBills(subscriptions, digitalAssets, {
+    from,
+    days: Math.max(0, daysBetween(from, to)),
+  });
+
+  for (const bill of renewals) {
+    // The first renewal is a fact on the record either way.
+    emit({ ...bill, source: 'subscription' });
+    if (!bill.autoDebit) continue;
+
+    const row = (subscriptions ?? []).find((s) => s.id === bill.recordId);
+    for (let n = 1; n < LIMIT; n += 1) {
+      const dueOn = occurrence(bill.dueOn, row?.frequency ?? 'monthly', n);
+      if (!dueOn || dueOn > to) break;
+      if (row?.endsOn && dueOn > row.endsOn) break;
+      emit({ ...bill, source: 'subscription', dueOn, days: null, overdue: false });
+    }
+  }
+
+  // Only the next one — see the refusal above.
+  const cards = cardBills(accounts, transactions, {
+    from,
+    days: Math.max(0, daysBetween(from, to)),
+  });
+
+  for (const bill of cards) {
+    emit({
+      source: 'card',
+      entity: 'account',
+      recordId: bill.account,
+      name: `${bill.name} bill`,
+      kind: 'credit card',
+      amount: bill.amount,
+      dueOn: bill.dueOn,
+      days: bill.days,
+      overdue: bill.overdue,
+      autoDebit: false,
+      account: bill.account,
+      statement: bill.statement,
+      why: bill.why,
+    });
+  }
+
+  return {
+    bills: out.sort((a, b) => a.dueOn.localeCompare(b.dueOn)),
+    // The day after the last card bill this can honestly state. Null when
+    // there are no cards to be silent about.
+    cardBillsStopAt: cards.length
+      ? addDays(cards.reduce((last, b) => (b.dueOn > last ? b.dueOn : last), cards[0].dueOn), 1)
+      : null,
+  };
 }
 
 /**

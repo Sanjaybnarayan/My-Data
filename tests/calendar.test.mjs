@@ -14,6 +14,7 @@
 
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { datesInRange, expiryReminders } from '../js/domain/reminders.js';
+import { billsInRange, upcomingBills } from '../js/domain/finance.js';
 
 setSuite('calendar');
 
@@ -134,5 +135,183 @@ describe('what each entry carries', () => {
     const nagged = expiryReminders(data, { clock: () => Date.UTC(2026, 7, 14) });
     assert.length(nagged, 2);
     assert.notEqual(nagged[0].id, nagged[1].id);
+  });
+});
+
+/**
+ * Money recurs, because money recurs.
+ *
+ * `datesInRange` fixed the renewals half of this grid and never touched the
+ * money half, which had the same defect for a different reason. `upcomingBills`
+ * returns the *next* occurrence of each bill — right for a dashboard, wrong for
+ * a calendar — so measured on a household paying ₹80,239 every month, the year
+ * drew all of it in September and eleven months read as nothing due.
+ */
+const RECURRING = [
+  { id: 'r1', name: 'Rent', kind: 'rent', amount: 35_000_00, frequency: 'monthly', nextDueOn: '2026-09-01', active: true, deletedAt: null },
+];
+const LOANS = [
+  { id: 'l1', name: 'Home loan', kind: 'home', emiAmount: 43_391_00, emiDay: 5, deletedAt: null },
+];
+
+const YEAR = { from: '2026-08-14', to: '2027-08-13' };
+const monthsIn = (bills, recordId) =>
+  bills.filter((b) => b.recordId === recordId).map((b) => b.dueOn.slice(0, 7));
+
+describe('every occurrence in the window, not merely the next one', () => {
+  test('a monthly rent falls in all twelve months', () => {
+    const { bills } = billsInRange(RECURRING, [], YEAR);
+    assert.length(bills, 12);
+    assert.equal(bills[0].dueOn, '2026-09-01');
+    assert.equal(bills[11].dueOn, '2027-08-01');
+  });
+
+  test('and a monthly EMI does too', () => {
+    const { bills } = billsInRange([], LOANS, YEAR);
+    assert.length(bills, 12);
+    assert.deep(monthsIn(bills, 'l1').slice(0, 3), ['2026-09', '2026-10', '2026-11']);
+  });
+
+  test('the dashboard question still gets the dashboard answer', () => {
+    // Both are right for their own question, and this pins the difference so
+    // neither drifts into the other. A household does not want the next twelve
+    // rents on the dashboard.
+    const soon = upcomingBills(RECURRING, LOANS, { from: YEAR.from, days: 365 });
+    assert.length(soon, 2);
+  });
+
+  test('each occurrence is its own entry, so a screen cannot fold them into one', () => {
+    const { bills } = billsInRange(RECURRING, LOANS, YEAR);
+    assert.equal(new Set(bills.map((b) => b.id)).size, bills.length);
+  });
+
+  test('nothing falls outside the window at either end', () => {
+    const { bills } = billsInRange(RECURRING, LOANS, { from: '2026-10-02', to: '2026-11-04' });
+    // Rent on 1 Nov, EMI on 5 Oct and 5 Nov — but 5 Nov is past the 4th, and
+    // 1 Oct is before the 2nd.
+    assert.deep(bills.map((b) => b.dueOn), ['2026-10-05', '2026-11-01']);
+  });
+});
+
+describe('a day of the month that some months do not have', () => {
+  test('the 31st clamps in February and comes back in March', () => {
+    // The hazard is stepping one result into the next: `addMonths` clamps, so
+    // 31 Jan becomes 28 Feb and every later month reads 28 because the 31 has
+    // been thrown away. Indexed from the anchor instead.
+    const rent = [{ id: 'r9', name: 'Rent', kind: 'rent', amount: 1000, frequency: 'monthly', nextDueOn: '2026-12-31', active: true, deletedAt: null }];
+    const { bills } = billsInRange(rent, [], { from: '2026-12-01', to: '2027-05-31' });
+
+    assert.deep(bills.map((b) => b.dueOn),
+      ['2026-12-31', '2027-01-31', '2027-02-28', '2027-03-31', '2027-04-30', '2027-05-31']);
+  });
+
+  test('an EMI on the 31st does the same', () => {
+    const loan = [{ id: 'l9', name: 'Car loan', emiAmount: 5000, emiDay: 31, deletedAt: null }];
+    const { bills } = billsInRange([], loan, { from: '2027-01-01', to: '2027-04-30' });
+
+    assert.deep(bills.map((b) => b.dueOn),
+      ['2027-01-31', '2027-02-28', '2027-03-31', '2027-04-30']);
+  });
+});
+
+describe('what stops, stops', () => {
+  test('a payment past its end date is not still due', () => {
+    const ending = [{ ...RECURRING[0], endsOn: '2026-11-30' }];
+    const { bills } = billsInRange(ending, [], YEAR);
+    assert.deep(bills.map((b) => b.dueOn), ['2026-09-01', '2026-10-01', '2026-11-01']);
+  });
+
+  test('and neither is an EMI on a loan that has run its term', () => {
+    const ending = [{ ...LOANS[0], endsOn: '2026-10-31' }];
+    const { bills } = billsInRange([], ending, YEAR);
+    assert.deep(bills.map((b) => b.dueOn), ['2026-09-05', '2026-10-05']);
+  });
+
+  test('a cancelled payment is not due at all', () => {
+    assert.length(billsInRange([{ ...RECURRING[0], active: false }], [], YEAR).bills, 0);
+  });
+
+  test('a weekly payment steps by seven days', () => {
+    const weekly = [{ id: 'r7', name: 'Milk', kind: 'bill', amount: 300_00, frequency: 'weekly', nextDueOn: '2026-09-01', active: true, deletedAt: null }];
+    const { bills } = billsInRange(weekly, [], { from: '2026-09-01', to: '2026-09-30' });
+    assert.deep(bills.map((b) => b.dueOn),
+      ['2026-09-01', '2026-09-08', '2026-09-15', '2026-09-22', '2026-09-29']);
+  });
+});
+
+describe('renewals recur only when they renew themselves', () => {
+  const netflix = { id: 's1', name: 'Netflix', amount: 649_00, frequency: 'monthly', renewsOn: '2026-09-17', active: true, autoRenew: true, deletedAt: null };
+
+  test('a subscription that renews itself is due every month', () => {
+    const { bills } = billsInRange([], [], { ...YEAR, subscriptions: [netflix] });
+    // Eleven, not twelve: renewing on the 17th, the last one inside a window
+    // ending on 13 August is July's.
+    assert.length(bills, 11);
+    assert.equal(bills[0].dueOn, '2026-09-17');
+    assert.equal(bills[10].dueOn, '2027-07-17');
+  });
+
+  test('one that lapses is due once, on the day it lapses', () => {
+    // Twelve renewals for something that stops after the first would invent
+    // eleven charges nobody is going to be asked for.
+    const { bills } = billsInRange([], [], {
+      ...YEAR, subscriptions: [{ ...netflix, autoRenew: false }],
+    });
+    assert.length(bills, 1);
+    assert.equal(bills[0].dueOn, '2026-09-17');
+  });
+
+  test('a digital asset has no autoRenew, so it lapses too', () => {
+    // The same reading of the same absence that `commitments.js` takes. Putting
+    // a yearly domain on twelve squares would be worse than leaving it off.
+    const { bills } = billsInRange([], [], {
+      ...YEAR,
+      digitalAssets: [{ id: 'd1', name: 'example.in', annualCost: 899_00, renewsOn: '2026-10-01', active: true, deletedAt: null }],
+    });
+    assert.length(bills, 1);
+  });
+
+  test('a yearly subscription recurs yearly, not monthly', () => {
+    const { bills } = billsInRange([], [], {
+      ...YEAR,
+      subscriptions: [{ ...netflix, frequency: 'yearly', renewsOn: '2026-09-17' }],
+    });
+    assert.length(bills, 1);
+  });
+});
+
+describe('the card bill this refuses to guess', () => {
+  const card = {
+    id: 'a1', name: 'HDFC Regalia', kind: 'credit card', active: true,
+    statementDay: 18, dueDay: 5, deletedAt: null,
+  };
+  const spend = [{
+    // Inside the cycle that has closed — 18 June to 18 July, billed on 5
+    // August. Dated after the statement instead, the balance is zero and the
+    // bill is skipped, which made an earlier draft of these two checks pass
+    // for a reason that had nothing to do with recurrence.
+    id: 't1', account: 'a1', date: '2026-07-01', amount: 4_000_00,
+    kind: 'expense', deletedAt: null,
+  }];
+
+  test('the next bill is stated, and the ones after it are not', () => {
+    const { bills } = billsInRange([], [], { ...YEAR, accounts: [card], transactions: spend });
+    const cards = bills.filter((b) => b.source === 'card');
+    // A statement balance is the rows inside a cycle that has closed. Next
+    // year's cycles have not happened, so there is no balance to state.
+    assert.length(cards, 1);
+  });
+
+  test('and the day it stops being knowable is reported, not left silent', () => {
+    const { bills, cardBillsStopAt } = billsInRange([], [], {
+      ...YEAR, accounts: [card], transactions: spend,
+    });
+    const last = bills.filter((b) => b.source === 'card').at(-1);
+    assert.equal(cardBillsStopAt, '2026-08-06');
+    assert.equal(last.dueOn, '2026-08-05');
+  });
+
+  test('with no card there is no boundary to report', () => {
+    assert.equal(billsInRange(RECURRING, [], YEAR).cardBillsStopAt, null);
   });
 });
