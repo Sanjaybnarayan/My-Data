@@ -289,7 +289,7 @@ const account = {
 };
 
 const transaction = {
-  name: 'transaction', module: 'finance', sheet: 'Transactions', version: 3,
+  name: 'transaction', module: 'finance', sheet: 'Transactions', version: 4,
   labels: { one: 'Transaction', many: 'Transactions' }, icon: 'receipt',
   acl: restricted,
   sort: '-date',
@@ -343,6 +343,26 @@ const transaction = {
     // this application is to drop in every statement once a month and not
     // remember which ones went in last time.
     text('importKey', { hidden: true }),
+
+    /* Written by a confirmation, and only by one. */
+    // Which economic event this row is one leg of.
+    //
+    // `toAccount` records a movement with exactly two legs, and cannot record
+    // anything else: a ₹50,000 debit arriving as ₹30,000 and ₹20,000 has one
+    // source and *two* destinations, so there is no single account to name.
+    // Those movements were being proposed with nothing a confirmation could
+    // write, which is why the split had no confirm control at all.
+    //
+    // A shared id on every leg records it without inventing a direction: the
+    // rows that carry the same one are the same event. Both bank rows survive
+    // untouched apart from this, as everywhere else here — each is a bank's own
+    // record of one side, and tidying the total by merging them would destroy
+    // the evidence for it.
+    //
+    // This is deliberately **not** the `EconomicEvent` entity the prompt asks
+    // for. See `docs/MULTI_LEG.md` for what that would additionally need and
+    // why it is not built on the strength of this.
+    text('movement', { label: 'Part of movement', hidden: true }),
   ],
 };
 

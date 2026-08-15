@@ -190,3 +190,69 @@ tests rather than the code:
   same `EconomicEvent` shortfall as the split above, from a different direction.
 - **The screen shows the sentence, not the row.** A household reads that a
   charge accounts for the difference; they cannot click through to it.
+
+
+# Recording it: what a confirmation can write
+
+The tranche above could only **show** a split. `linkFor` writes `toAccount` —
+*this money went there* — and a split has one source and several destinations,
+so there was no single account to name and no button that could honestly be
+offered. That is why the row carried no control at all.
+
+## A thread, not an entity
+
+Every leg is patched with the same `movement` id. The rows carrying the same one
+are the same economic event; it works for two legs and for five, and it says
+nothing about direction that the rows do not already say themselves. Both — here
+all — of the bank's rows survive untouched apart from that one field.
+
+**This is deliberately not the `EconomicEvent` entity the prompt asks for**, and
+the difference is worth stating rather than glossing:
+
+| A thread on the rows | An entity |
+| --- | --- |
+| groups legs | groups legs |
+| — | a kind of its own: *salary split*, *card settlement*, *purchase with fee* |
+| — | a narrative, a note, a person who confirmed it |
+| — | somewhere to record that a **fee row** explains a movement, which is still nowhere |
+| costs one hidden field | costs a sheet, an ACL, a generated policy entry, screens and a migration |
+
+The entity is not built on the strength of this. What it would buy is real —
+the fee link from the previous tranche still has nowhere to live — but a new
+entity wired to nothing would be the "collected and never read" defect this
+repository keeps finding, at a larger scale than any field.
+
+## The bug the tests found
+
+`isLooseLeg` gates on `toAccount` and did not know about `movement`, so a
+confirmed split **stayed loose**: it was proposed again on the next paint, and
+confirming twice minted a second id over the first. The function's own docstring
+already stated the rule it was breaking — *"proposing it again would offer to
+redo a decision that has been made"*.
+
+## Read, not just written
+
+`recordedMovements` groups the threaded rows back up and the service returns
+them, because a field written by a confirmation that nothing ever looks at again
+is exactly the pattern found everywhere else in this codebase. The amount is the
+larger of the two sides rather than the sum of every leg — summing would report
+a ₹50,000 movement as ₹100,000, which is the distinction `domain/events.js`
+exists to hold.
+
+## What the mutation testing caught
+
+**6 of 7.** The survivor is the `deletedAt` guard in `recordedMovements`, which
+is unreachable through the service because the repository drops soft-deleted
+rows before they arrive. It stays because the function takes a plain array, and
+the test that looked like it covered it has been re-commented to say what it
+actually pins.
+
+## Still not done
+
+- **`EconomicEvent` as an entity** — see the table above for what it would buy.
+- **The fee link still has nowhere to live.** A charge that explains a
+  near-match is named in a sentence and carried on the proposal; nothing records
+  it. Threading it onto the movement is the obvious use of this field and is not
+  done, because a near-match is `possible` and never gets confirmed at all.
+- **The confirm control is not browser-checked**, for the same reason as before:
+  a loose leg is an import-only state that no form will create.

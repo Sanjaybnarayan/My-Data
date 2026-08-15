@@ -163,6 +163,16 @@ function transfersCard(db, transfers, repaint) {
   const probable = proposals.filter((p) => p.confidence === CONFIDENCE.PROBABLE);
   const questions = proposals.filter((p) => p.confidence === CONFIDENCE.POSSIBLE);
 
+  async function confirmSet(set) {
+    try {
+      await new TransfersService(db).confirmSet(set);
+      toast('Recorded as one movement — every statement row is kept', { kind: 'success' });
+      await repaint();
+    } catch (err) {
+      toast(userMessage(err), { kind: 'error' });
+    }
+  }
+
   async function confirm(proposal) {
     try {
       await new TransfersService(db).confirm(proposal);
@@ -223,11 +233,13 @@ function transfersCard(db, transfers, repaint) {
           value: format(set.amount),
           leading: badge(set.confidence,
             set.confidence === CONFIDENCE.PROBABLE ? 'info' : 'warning'),
-          // No confirm control. `linkFor` writes one `toAccount`, and a split
-          // has several — so there is nothing here that could be applied
-          // without inventing a shape the schema does not have. Said in the
-          // docs rather than mimed with a button that would do the wrong thing.
-          trailing: null,
+          // There is now something a confirmation can write: a shared id on
+          // every leg. `linkFor` could not express this — `toAccount` names one
+          // destination and a split has several — which is why this row used to
+          // carry no control at all.
+          trailing: set.confidence === CONFIDENCE.PROBABLE
+            ? button('One movement', { variant: 'subtle', onClick: () => confirmSet(set) })
+            : null,
         }))),
         setsTotal?.movements
           ? h('p', { class: 'small faint' },
