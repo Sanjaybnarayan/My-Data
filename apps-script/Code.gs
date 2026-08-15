@@ -120,7 +120,14 @@ function dispatch(action, payload, context) {
     case 'members':   return manageMembers(payload, context);
     case 'devices':   return manageDevices(payload, context);
     case 'verify':    return { counts: sheetCounts(workbook()) };
-    case 'ping':      return { ok: true, user: context.email, role: context.role, at: new Date().toISOString() };
+    case 'ping':      return {
+      ok: true, user: context.email, role: context.role, at: new Date().toISOString(),
+      // Devices this person has never said they recognise, not counting the one
+      // they are holding. Answered here rather than from its own request
+      // because `ping` is already made and a household should not have to go
+      // looking for this.
+      unrecognisedDevices: unrecognisedDevices(context.email, context.deviceId),
+    };
     default:
       throw fail('unknown action: ' + action, 400);
   }
@@ -218,6 +225,11 @@ function noteDevice(email, deviceId, clientVersion, deviceLabel) {
       // Whether a person has since said what this device is. Once true, the
       // reported label stops overwriting it.
       named: false,
+      // Empty until somebody says they recognise it. A device that appears and
+      // is never mentioned is exactly the one worth mentioning: the registry
+      // could be read, but nothing ever said "something new signed in", so an
+      // unrecognised device sat unnoticed until a person happened to look.
+      acknowledgedAt: '',
       firstSeenAt: now,
       lastSeenAt: now,
       clientVersion: clientVersion || '',
@@ -233,7 +245,29 @@ function noteDevice(email, deviceId, clientVersion, deviceLabel) {
 }
 
 /**
- * List, revoke and restore devices.
+ * How many devices this person has never said they recognise.
+ *
+ * The one being used is excluded: it acknowledges itself by being the thing in
+ * their hand, and counting it would mean every household is warned about
+ * themselves on the day they install this.
+ *
+ * A revoked device is excluded too — it has already been dealt with, and
+ * nagging about it afterwards teaches people to dismiss the notice.
+ */
+function unrecognisedDevices(email, currentDeviceId) {
+  var devices = readDevices(email);
+  var count = 0;
+  for (var i = 0; i < devices.length; i++) {
+    if (devices[i].id === currentDeviceId) continue;
+    if (devices[i].revokedAt) continue;
+    if (devices[i].acknowledgedAt) continue;
+    count++;
+  }
+  return count;
+}
+
+/**
+ * List, revoke, restore, name and acknowledge devices.
  *
  * Anybody may list **their own**. Only the owner may see or revoke somebody
  * else's, for the same reason only the owner may edit the member list: the
@@ -251,7 +285,8 @@ function manageDevices(payload, context) {
     return { email: subject, devices: readDevices(subject) };
   }
 
-  if (action !== 'revoke' && action !== 'restore' && action !== 'name') {
+  if (action !== 'revoke' && action !== 'restore' && action !== 'name'
+      && action !== 'acknowledge') {
     throw fail('unknown device action: ' + action, 400);
   }
 
@@ -270,7 +305,9 @@ function manageDevices(payload, context) {
 
   for (var i = 0; i < devices.length; i++) {
     if (devices[i].id !== id) continue;
-    if (action === 'name') {
+    if (action === 'acknowledge') {
+      devices[i].acknowledgedAt = new Date().toISOString();
+    } else if (action === 'name') {
       // Trimmed and bounded: this is shown in a list, and a label the length of
       // a paragraph would push everything else off the screen.
       devices[i].label = String(payload.label || '').trim().slice(0, 60);

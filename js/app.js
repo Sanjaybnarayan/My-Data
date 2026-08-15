@@ -171,6 +171,12 @@ async function start(db, limiter, googleSession = null) {
       .then((token) => (token ? sync.run() : null))
       .catch(() => {});
     sync.schedule({ everyMinutes: config().autoSyncMinutes });
+    // Said once, at the point somebody opens the application, because the
+    // alternative was that an unrecognised device sat in the registry until
+    // they happened to look at a settings screen. Failures are swallowed: this
+    // is a courtesy on top of a sync that has its own error handling, and a
+    // household should not meet an error about a check they did not ask for.
+    void warnAboutNewDevices(transport, shell.router);
   }
 
   // Catch-up work: recurring payments moved on, repeating tasks recreated,
@@ -179,6 +185,51 @@ async function start(db, limiter, googleSession = null) {
   runAutomations(db).catch((err) => console.warn('automations failed', err));
 
   bus.emit(TOPIC.authState, { signedIn: auth.isSignedIn });
+}
+
+/**
+ * Tell somebody if a device they have never vouched for has synced.
+ *
+ * ## Why this is here and not on a screen
+ *
+ * The registry could be read and never *spoke*. Everything it holds was
+ * reachable from Settings, which means the one fact on it that matters —
+ * *something you do not recognise has your household's data* — waited for
+ * somebody to go looking. Nobody goes looking.
+ *
+ * A PWA cannot push a notification when it is closed, so the honest moment is
+ * the next time the application is opened. That is later than one would like
+ * and it is said plainly rather than dressed up as an alert.
+ *
+ * ## Why it rides on `ping`
+ *
+ * The count comes back from a request the client already makes, so noticing
+ * costs no extra round trip. The device being used is never counted, or every
+ * household would be warned about themselves on the day they installed this and
+ * would learn to dismiss the notice before it ever mattered.
+ */
+async function warnAboutNewDevices(transport, router) {
+  try {
+    if (!transport?.configured) return;
+    const { unrecognisedDevices = 0 } = (await transport.ping()) ?? {};
+    if (!unrecognisedDevices) return;
+
+    bus.emit(TOPIC.toast, {
+      message: unrecognisedDevices === 1
+        ? 'A device you have not recognised has synced with this household'
+        : `${unrecognisedDevices} devices you have not recognised have synced`,
+      kind: 'warning',
+      // No timer: this is the one message worth making somebody dismiss.
+      ms: 0,
+      action: {
+        label: 'Show me',
+        onClick: () => router.navigate({ module: 'settings' }),
+      },
+    });
+  } catch {
+    // A backend that has not been redeployed does not know the action, and an
+    // error about a check nobody asked for helps nobody.
+  }
 }
 
 /* ------------------------------------------------------------ google entry */

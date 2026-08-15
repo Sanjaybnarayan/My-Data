@@ -420,7 +420,8 @@ describe('the devices a household has signed in from', () => {
     // rather than something that happens. A label is a name for a device, not a
     // record of what it did.
     assert.deep(Object.keys(data.devices[0]).sort(),
-      ['clientVersion', 'firstSeenAt', 'id', 'label', 'lastSeenAt', 'named', 'revokedAt']);
+      ['acknowledgedAt', 'clientVersion', 'firstSeenAt', 'id', 'label',
+        'lastSeenAt', 'named', 'revokedAt']);
   });
 });
 
@@ -520,5 +521,76 @@ describe('naming the devices', () => {
     const { data } = api.post('devices', 'owner-token', { op: 'list' }, { deviceId: PHONE });
     assert.length(data.devices, 1);
     assert.equal(data.devices[0].label, '');
+  });
+});
+
+/**
+ * Saying that something new signed in.
+ *
+ * The registry could be *read* and never *spoke*. An unrecognised device sat in
+ * it until somebody happened to open the screen — which, for the one thing on
+ * that screen that matters, is too late to be useful.
+ */
+describe('a device nobody has vouched for', () => {
+  const MINE = 'dev_mine';
+  const OTHER = 'dev_other';
+  const seen = (api, id) => api.post('ping', 'owner-token', {}, { deviceId: id });
+
+  test('the device in your hand is never counted against you', () => {
+    // Otherwise every household is warned about themselves on the day they
+    // install this, and learns to ignore the notice before it ever matters.
+    const api = start();
+    const { data } = seen(api, MINE);
+    assert.equal(data.unrecognisedDevices, 0);
+  });
+
+  test('a second device is counted, on the next ping from the first', () => {
+    const api = start();
+    seen(api, MINE);
+    seen(api, OTHER);
+    assert.equal(seen(api, MINE).data.unrecognisedDevices, 1);
+  });
+
+  test('saying you recognise it stops the count', () => {
+    const api = start();
+    seen(api, MINE);
+    seen(api, OTHER);
+    api.post('devices', 'owner-token', { op: 'acknowledge', deviceId: OTHER },
+      { deviceId: MINE });
+
+    assert.equal(seen(api, MINE).data.unrecognisedDevices, 0);
+  });
+
+  test('and so does signing it out', () => {
+    // It has been dealt with. Nagging afterwards teaches people to dismiss the
+    // notice, which is the opposite of what it is for.
+    const api = start();
+    seen(api, MINE);
+    seen(api, OTHER);
+    api.post('devices', 'owner-token', { op: 'revoke', deviceId: OTHER }, { deviceId: MINE });
+
+    assert.equal(seen(api, MINE).data.unrecognisedDevices, 0);
+  });
+
+  test('acknowledging is recorded, so the screen can show which are new', () => {
+    const api = start();
+    seen(api, MINE);
+    seen(api, OTHER);
+    const after = api.post('devices', 'owner-token',
+      { op: 'acknowledge', deviceId: OTHER }, { deviceId: MINE });
+
+    const other = after.data.devices.find((d) => d.id === OTHER);
+    assert.ok(other.acknowledgedAt, 'nothing was recorded');
+  });
+
+  test('each person is counted their own devices, not the household’s', () => {
+    // A spouse signing in on a new phone is not something the owner is warned
+    // about here — it is the spouse's own list, and the owner has the member
+    // list for the question of who may sync at all.
+    const api = start({ members: JSON.stringify([{ email: SPOUSE, role: 'spouse' }]) });
+    seen(api, MINE);
+    api.post('ping', 'spouse-token', {}, { deviceId: OTHER });
+
+    assert.equal(seen(api, MINE).data.unrecognisedDevices, 0);
   });
 });
