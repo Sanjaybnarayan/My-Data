@@ -208,3 +208,183 @@ export function linkFor(proposal) {
     keeps: proposal.in.id,
   };
 }
+
+/**
+ * A movement with more than two legs.
+ *
+ * ## What was measured
+ *
+ * The prompt's `EconomicEvent` was deferred four times as *"still wanted for
+ * movements with more than two legs"*, and nobody had printed what those
+ * movements currently do. They do nothing at all:
+ *
+ *     split — ₹50,000 out of HDFC, ₹30,000 and ₹20,000 in
+ *       proposals 0   unmatched 3   moved ₹0
+ *
+ *     sweep — ₹30,000 and ₹20,000 out, ₹50,000 in
+ *       proposals 0   unmatched 3   moved ₹0
+ *
+ * The household moved ₹50,000 and the application reports nothing moved and
+ * three loose ends. `proposeTransfers` pairs one leg with one leg, so a
+ * movement that lands in two pieces is invisible to it — not mis-stated, which
+ * is something, but not seen either.
+ *
+ * ## Why this is a separate function
+ *
+ * The same reason `datesInRange` sits beside `expiryReminders`: the pairwise
+ * question is correct and this is a different one. This runs only on legs
+ * `proposeTransfers` left **unmatched**, so a plain two-leg transfer is never
+ * offered twice, and a set is only ever proposed where the pairing found
+ * nothing.
+ *
+ * ## The rules, which are the pairwise rules
+ *
+ *   - **Exact only.** A set is proposed when its legs sum to the counterpart
+ *     *exactly*. There is no near-miss version: subset-sums are numerous
+ *     enough that an approximate one would find a coincidence in any statement.
+ *   - **Ambiguity is not a match.** If two different sets close the same
+ *     amount, neither is probable — the same rule, for the same reason, as one
+ *     debit matching two credits equally well.
+ *   - **Bounded, and honest when it gives up.** Subset-sum is exponential, so
+ *     the candidate pool is capped. Past the cap the answer is *"too many
+ *     candidates to be sure"*, reported as such — a search that quietly
+ *     stopped early would report "no movement" for a movement that is there.
+ *   - **Nothing is written.** As with everything else in this file, a proposal
+ *     is an opinion about a coincidence of amounts and dates.
+ *
+ * @param {object[]} transactions
+ * @param {{windowDays?: number, maxLegs?: number, maxCandidates?: number}} [options]
+ * @returns {{proposals: object[], undecided: object[]}}
+ */
+export function proposeMultiLeg(transactions, {
+  windowDays = 3, maxLegs = 4, maxCandidates = 12,
+} = {}) {
+  // Only what the pairwise pass could not account for. Running over everything
+  // would re-offer transfers that already have a two-leg proposal.
+  const { unmatched } = proposeTransfers(transactions, { windowDays });
+
+  const proposals = [];
+  const undecided = [];
+  const used = new Set();
+
+  // One side is the whole amount, the other is the pieces — and it works the
+  // same either way round, so a split and a sweep are one piece of code.
+  for (const direction of ['out', 'in']) {
+    const whole = unmatched.filter((leg) => leg.direction === direction);
+    const pieces = unmatched.filter((leg) => leg.direction !== direction);
+
+    for (const anchor of whole) {
+      if (used.has(anchor.id)) continue;
+
+      const pool = pieces.filter((leg) => {
+        if (used.has(leg.id)) return false;
+        if (leg.account && anchor.account && leg.account === anchor.account) return false;
+        const days = daysBetween(anchor.date, leg.date);
+        return days !== null && days <= windowDays;
+      });
+
+      // Two legs is the pairwise case, which has already had its turn.
+      //
+      // Belt and braces, and worth naming as such: mutation testing shows this
+      // guard and the `chosen.length >= 2` below can both be removed without
+      // failing anything, because neither is reachable. A single counterpart of
+      // exactly the right amount differs by nought, which is inside
+      // `nearWindow`, so `proposeTransfers` always makes it a candidate and it
+      // is never left unmatched. Both stay because the rule they state — a set
+      // is at least two rows — is a property of the answer rather than an
+      // accident of what the pairwise pass happens to catch.
+      if (pool.length < 2) continue;
+
+      if (pool.length > maxCandidates) {
+        undecided.push({
+          anchor,
+          candidates: pool.length,
+          why: `${pool.length} rows within ${windowDays} days could be part of this `
+            + 'movement. Working through every combination of them would take longer '
+            + 'than it is worth, and guessing at one would be worse.',
+        });
+        continue;
+      }
+
+      const sets = subsetsSummingTo(pool, anchor.amount, maxLegs);
+      if (!sets.length) continue;
+
+      const legs = sets[0];
+      const ambiguous = sets.length > 1;
+
+      proposals.push({
+        anchor,
+        legs,
+        amount: anchor.amount,
+        // The direction of the *anchor*: 'out' is one debit arriving in
+        // several places, 'in' is several debits funding one credit.
+        shape: direction === 'out' ? 'split' : 'sweep',
+        confidence: ambiguous ? CONFIDENCE.POSSIBLE : CONFIDENCE.PROBABLE,
+        ambiguous,
+        why: ambiguous
+          ? `${sets.length} different groups of rows add up to this amount. Picking `
+            + 'one would be a guess, and a guess that rearranged a ledger.'
+          : `${legs.length} rows add up to exactly this amount, within `
+            + `${windowDays} days, on other accounts of yours.`,
+      });
+
+      // A leg belongs to one movement. Claiming it twice would let the same
+      // ₹20,000 close two different sets.
+      if (!ambiguous) {
+        used.add(anchor.id);
+        for (const leg of legs) used.add(leg.id);
+      }
+    }
+  }
+
+  return { proposals, undecided };
+}
+
+/**
+ * Every group of at least two legs summing to `target` exactly.
+ *
+ * Depth-first over a pool already capped by the caller, and it stops at two
+ * distinct answers because that is all the caller needs to know: one is a
+ * proposal, two or more is ambiguous, and the exact count past that changes
+ * nothing.
+ */
+function subsetsSummingTo(pool, target, maxLegs) {
+  const found = [];
+
+  const walk = (start, chosen, total) => {
+    // Two is enough to know it is ambiguous; counting further is wasted work.
+    // Purely a performance bound — with three sets or thirty the verdict is the
+    // same, which is why moving this threshold fails no test.
+    if (found.length >= 2) return;
+    if (total === target && chosen.length >= 2) {
+      found.push([...chosen]);
+      return;
+    }
+    if (total >= target || chosen.length >= maxLegs) return;
+
+    for (let i = start; i < pool.length; i += 1) {
+      chosen.push(pool[i]);
+      walk(i + 1, chosen, total + pool[i].amount);
+      chosen.pop();
+    }
+  };
+
+  walk(0, [], 0);
+  return found;
+}
+
+/**
+ * What the multi-leg proposals add to the movement total.
+ *
+ * Kept apart from `movementTotal` deliberately. That figure answers "how much
+ * did we move" from pairings; folding a different kind of proposal into it
+ * silently would change what the number means without changing its name.
+ */
+export function multiLegTotal(proposals) {
+  const confident = (proposals ?? []).filter((p) => p.confidence === CONFIDENCE.PROBABLE);
+  return {
+    movements: confident.length,
+    moved: confident.reduce((sum, p) => sum + p.amount, 0),
+    awaiting: (proposals ?? []).filter((p) => p.confidence === CONFIDENCE.POSSIBLE).length,
+  };
+}

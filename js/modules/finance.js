@@ -157,8 +157,8 @@ export async function render(route) {
  * would move the deciding from the person to the click.
  */
 function transfersCard(db, transfers, repaint) {
-  const { proposals, total, unmatched } = transfers;
-  if (!proposals.length && !unmatched.length) return null;
+  const { proposals, total, unmatched, sets = [], setsTotal, undecided = [] } = transfers;
+  if (!proposals.length && !unmatched.length && !sets.length && !undecided.length) return null;
 
   const probable = proposals.filter((p) => p.confidence === CONFIDENCE.PROBABLE);
   const questions = proposals.filter((p) => p.confidence === CONFIDENCE.POSSIBLE);
@@ -204,6 +204,45 @@ function transfersCard(db, transfers, repaint) {
         h('summary', {}, `${questions.length} that nobody can decide from the figures`),
         h('div', { class: 'list' }, questions.map(line)),
       ])
+      : null,
+
+    // A movement that landed in more than one piece. Measured: ₹50,000 out of
+    // one account arriving as ₹30,000 and ₹20,000 in two others produced no
+    // proposal at all, so all three rows sat under the "no partner" line below
+    // with nothing to say they add up to something.
+    sets.length
+      ? h('div', {}, [
+        h('p', { class: 'small muted' },
+          'These moved in more than one piece — one row on one side, several on the other. '
+          + 'The amount is counted once, not once per row.'),
+        h('div', { class: 'list' }, sets.map((set) => listItem({
+          title: set.shape === 'split'
+            ? `${set.anchorName} → ${set.legNames.join(', ')}`
+            : `${set.legNames.join(', ')} → ${set.anchorName}`,
+          subtitle: `${formatDay(set.anchor.date)} · ${set.why}`,
+          value: format(set.amount),
+          leading: badge(set.confidence,
+            set.confidence === CONFIDENCE.PROBABLE ? 'info' : 'warning'),
+          // No confirm control. `linkFor` writes one `toAccount`, and a split
+          // has several — so there is nothing here that could be applied
+          // without inventing a shape the schema does not have. Said in the
+          // docs rather than mimed with a button that would do the wrong thing.
+          trailing: null,
+        }))),
+        setsTotal?.movements
+          ? h('p', { class: 'small faint' },
+            `${format(setsTotal.moved)} across ${setsTotal.movements} `
+            + `${setsTotal.movements === 1 ? 'movement' : 'movements'} in pieces`)
+          : null,
+      ].filter(Boolean))
+      : null,
+
+    // Where the search stopped rather than guessed. Saying nothing here would
+    // read as "there is nothing", which is a different claim.
+    undecided.length
+      ? h('p', { class: 'small faint' },
+        `${undecided.length} ${undecided.length === 1 ? 'row has' : 'rows have'} too many `
+        + 'possible partners to work out — ' + undecided[0].why)
       : null,
 
     unmatched.length

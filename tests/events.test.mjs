@@ -9,7 +9,7 @@
 
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
-  proposeTransfers, movementTotal, linkFor, isLooseLeg, CONFIDENCE,
+  proposeTransfers, movementTotal, linkFor, isLooseLeg, CONFIDENCE, proposeMultiLeg, multiLegTotal,
 } from '../js/domain/events.js';
 
 setSuite('events');
@@ -226,5 +226,165 @@ describe('what is left over', () => {
     // false — which is the right answer reached by accident, so it is pinned.
     const { proposals } = proposeTransfers([out({ date: 'whenever' }), inn()]);
     assert.length(proposals, 0);
+  });
+});
+
+/**
+ * A movement with more than two legs.
+ *
+ * The prompt's `EconomicEvent` was deferred four times as "still wanted for
+ * movements with more than two legs", and nobody had printed what those
+ * movements did. Measured: ₹50,000 leaves HDFC, ₹30,000 and ₹20,000 arrive,
+ * and the application reports **0 proposals, 3 unmatched, ₹0 moved**. Not
+ * mis-stated — which is something — but not seen either.
+ */
+const looseLeg = (id, account, date, amount) => ({
+  id, account, date, amount, kind: 'transfer', deletedAt: null, narration: id,
+  direction: id.startsWith('out') ? 'out' : 'in', toAccount: null,
+});
+
+const SPLIT = [
+  looseLeg('out-50k', 'hdfc', '2026-08-10', 50_000_00),
+  looseLeg('in-30k', 'icici', '2026-08-10', 30_000_00),
+  looseLeg('in-20k', 'sbi', '2026-08-10', 20_000_00),
+];
+
+describe('a movement that lands in more than one piece', () => {
+  test('one debit arriving as two credits is one movement', () => {
+    const { proposals } = proposeMultiLeg(SPLIT);
+    assert.length(proposals, 1);
+    assert.equal(proposals[0].confidence, 'probable');
+    assert.equal(proposals[0].shape, 'split');
+    assert.equal(proposals[0].amount, 50_000_00);
+    assert.deep(proposals[0].legs.map((l) => l.id).sort(), ['in-20k', 'in-30k']);
+  });
+
+  test('and two debits funding one credit is the same thing the other way up', () => {
+    const { proposals } = proposeMultiLeg([
+      looseLeg('out-30k', 'hdfc', '2026-08-10', 30_000_00),
+      looseLeg('out-20k', 'sbi', '2026-08-10', 20_000_00),
+      looseLeg('in-50k', 'icici', '2026-08-10', 50_000_00),
+    ]);
+    assert.length(proposals, 1);
+    assert.equal(proposals[0].shape, 'sweep');
+    assert.equal(proposals[0].amount, 50_000_00);
+  });
+
+  test('the amount is counted once, not once per leg', () => {
+    // The whole point of the distinction this file holds: three statement
+    // lines, one economic event, ₹50,000 — not ₹100,000.
+    assert.deep(multiLegTotal(proposeMultiLeg(SPLIT).proposals),
+      { movements: 1, moved: 50_000_00, awaiting: 0 });
+  });
+
+  test('a plain two-leg transfer is not offered a second time', () => {
+    // It already has a pairwise proposal. Offering a set as well would ask a
+    // household to confirm the same movement twice.
+    const { proposals } = proposeMultiLeg([
+      looseLeg('out-50k', 'hdfc', '2026-08-10', 50_000_00),
+      looseLeg('in-50k', 'icici', '2026-08-10', 50_000_00),
+    ]);
+    assert.length(proposals, 0);
+  });
+
+  test('legs that do not add up to anything are left alone', () => {
+    const { proposals } = proposeMultiLeg([
+      looseLeg('out-50k', 'hdfc', '2026-08-10', 50_000_00),
+      looseLeg('in-10k', 'icici', '2026-08-10', 10_000_00),
+      looseLeg('in-20k', 'sbi', '2026-08-10', 20_000_00),
+    ]);
+    assert.length(proposals, 0);
+  });
+});
+
+describe('what a set is not allowed to guess', () => {
+  test('two groups closing the same amount is not a match', () => {
+    // The same rule as one debit matching two credits equally well.
+    const { proposals } = proposeMultiLeg([
+      ...SPLIT,
+      looseLeg('in-25a', 'axis', '2026-08-10', 25_000_00),
+      looseLeg('in-25b', 'kotak', '2026-08-10', 25_000_00),
+    ]);
+    assert.equal(proposals[0].confidence, 'possible');
+    assert.ok(proposals[0].ambiguous, JSON.stringify(proposals[0].why));
+    // And an ambiguous set is a question, so it is not in the total.
+    assert.equal(multiLegTotal(proposals).moved, 0);
+    assert.equal(multiLegTotal(proposals).awaiting, 1);
+  });
+
+  test('a leg is spent once, so two movements cannot claim the same row', () => {
+    // ₹20,000 closes the first set (30 + 20 = 50). Left available it would
+    // also close the second (20 + 15 = 35), and the same money would be
+    // reported as moved twice. The first version of this check used amounts
+    // where no second set existed at all, so it passed without the rule.
+    const { proposals } = proposeMultiLeg([
+      looseLeg('out-50k', 'hdfc', '2026-08-10', 50_000_00),
+      looseLeg('out-35k', 'axis', '2026-08-10', 35_000_00),
+      looseLeg('in-30k', 'icici', '2026-08-10', 30_000_00),
+      looseLeg('in-20k', 'sbi', '2026-08-10', 20_000_00),
+      looseLeg('in-15k', 'kotak', '2026-08-10', 15_000_00),
+    ]);
+
+    assert.length(proposals, 1);
+    const claimed = proposals.flatMap((p) => [p.anchor.id, ...p.legs.map((l) => l.id)]);
+    assert.equal(new Set(claimed).size, claimed.length, claimed.join(','));
+  });
+
+  test('a leg already accounted for pairwise is not pulled into a set', () => {
+    // ₹50,000 out and ₹50,000 in are one movement, and the pairwise pass says
+    // so. Searching every loose leg instead of the unmatched ones would find
+    // 30 + 20 = 50 as well and contradict it — proposing that the same debit
+    // went somewhere else entirely.
+    const { proposals } = proposeMultiLeg([
+      looseLeg('out-50k', 'hdfc', '2026-08-10', 50_000_00),
+      looseLeg('in-50k', 'icici', '2026-08-10', 50_000_00),
+      looseLeg('in-30k', 'sbi', '2026-08-10', 30_000_00),
+      looseLeg('in-20k', 'axis', '2026-08-10', 20_000_00),
+    ]);
+    assert.length(proposals, 0);
+  });
+
+  test('a leg outside the window is not part of the movement', () => {
+    const { proposals } = proposeMultiLeg([
+      looseLeg('out-50k', 'hdfc', '2026-08-10', 50_000_00),
+      looseLeg('in-30k', 'icici', '2026-08-10', 30_000_00),
+      looseLeg('in-20k', 'sbi', '2026-08-20', 20_000_00),
+    ]);
+    assert.length(proposals, 0);
+  });
+
+  test('the same account paying itself is a statement quirk, not a movement', () => {
+    const { proposals } = proposeMultiLeg([
+      looseLeg('out-50k', 'hdfc', '2026-08-10', 50_000_00),
+      looseLeg('in-30k', 'hdfc', '2026-08-10', 30_000_00),
+      looseLeg('in-20k', 'hdfc', '2026-08-10', 20_000_00),
+    ]);
+    assert.length(proposals, 0);
+  });
+
+  test('too many candidates is reported, not silently abandoned', () => {
+    // Subset-sum is exponential. A search that quietly stopped early would
+    // report "no movement" for a movement that is there.
+    const many = [looseLeg('out-50k', 'hdfc', '2026-08-10', 50_000_00)];
+    for (let i = 0; i < 14; i += 1) {
+      many.push(looseLeg(`in-${i}`, `acct${i}`, '2026-08-10', 1000 * (i + 1)));
+    }
+    const { proposals, undecided } = proposeMultiLeg(many);
+    assert.length(proposals, 0);
+    assert.length(undecided, 1);
+    assert.equal(undecided[0].candidates, 14);
+    assert.ok(/could be part of this movement/.test(undecided[0].why), undecided[0].why);
+  });
+
+  test('a set longer than maxLegs is not found by splitting it further', () => {
+    const four = [
+      looseLeg('out-40k', 'hdfc', '2026-08-10', 40_000_00),
+      looseLeg('in-a', 'icici', '2026-08-10', 10_000_00),
+      looseLeg('in-b', 'sbi', '2026-08-10', 10_000_00),
+      looseLeg('in-c', 'axis', '2026-08-10', 10_000_00),
+      looseLeg('in-d', 'kotak', '2026-08-10', 10_000_00),
+    ];
+    assert.length(proposeMultiLeg(four, { maxLegs: 3 }).proposals, 0);
+    assert.length(proposeMultiLeg(four, { maxLegs: 4 }).proposals, 1);
   });
 });
