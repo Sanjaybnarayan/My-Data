@@ -100,7 +100,9 @@ A `Source` typedef says what the array actually holds. Typecheck holds at 181.
 ## What is still not built
 
 No screen. `evidenceSummary` is a function with tests, and the orphan finding —
-the most useful thing here — reaches nobody yet. The Gmail half of the
+the most useful thing here — reaches nobody yet. **The next tranche put it above
+the Messages list** (`docs/MESSAGES_SCREEN.md`); this paragraph stays as written,
+because the gap and its answer are worth seeing in consecutive documents. The Gmail half of the
 three-way link is `receipt.messageId`, which names a message this application
 cannot re-open; `data/lineage.js` already says so and this does not pretend
 otherwise.
