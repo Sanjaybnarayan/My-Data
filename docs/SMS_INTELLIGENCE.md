@@ -124,11 +124,34 @@ A vacuous test of mine was caught by the type checker rather than by me: it
 asserted `nativeStatus()` is not `CONNECTED`, which returns a literal and so
 could never fail.
 
-## Still not done
+## On the screen, in the same tranche
 
-- **No screen.** Nothing pastes a message in or shows a conflict. The domain is
-  built and unwired, which is the gap this repository keeps finding — recorded
-  here rather than discovered later.
+Recorded as a gap and closed rather than left. The Import screen — where
+ingestion already lives — takes a pasted message, says what it read, and says
+whether an imported statement agrees.
+
+It carries the refusals, not just the reading:
+
+- **rule 51 on the page**, not only in the data: *"a message is a notification
+  about a transaction, not the transaction. Nothing here is recorded from it."*
+- **a credential is refused and the box is cleared**, so the code does not sit
+  on screen after the message is rejected.
+
+**Six browser checks**, and the wiring mutated. Removing the screen's refusal
+fails two of them — but **not** the check that the OTP's amount never appears,
+because `domain/sms.js` had already declined to parse it. Two independent
+layers, and the checks tell them apart: the domain refuses to read a credential,
+the screen refuses to display one, and neither depends on the other being right.
+
+### The ratchet caught this change
+
+The first version read transactions straight from the screen and took the
+forbidden-edge count from **61 to 62**. The budget may only fall, so the read
+moved into `services/sms.js` instead — where it belonged anyway, since
+reconciling a message against every transaction is exactly the cross-entity
+question that layer exists for. A credential never reaches the database call at
+all: not because a query would leak it, but because there is no reason to run
+one, and the shortest path a secret can travel is the safest.
 - **No entities.** `SMSMessage`, `SMSEvent`, `SMSSource` and
   `SMSProcessingRecord` are in the prompt's list and not in the schema, so
   nothing is stored and the three storage modes do not exist.

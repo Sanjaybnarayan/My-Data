@@ -138,6 +138,7 @@ const SHELL = [
   './js/services/documents.js',
   './js/services/finance.js',
   './js/services/portfolio.js',
+  './js/services/sms.js',
   './js/services/records.js',
   './js/services/transfers.js',
 

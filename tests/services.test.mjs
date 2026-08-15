@@ -24,6 +24,7 @@ import { PortfolioService } from '../js/services/portfolio.js';
 import { RecordsService } from '../js/services/records.js';
 import { FinanceService, assembleOverview } from '../js/services/finance.js';
 import { DocumentsService } from '../js/services/documents.js';
+import { MessagesService } from '../js/services/sms.js';
 import { xirr } from '../js/domain/portfolio.js';
 
 setSuite('services');
@@ -575,5 +576,48 @@ describe('one limit for every money figure', () => {
     assert.not(transactionsTruncated(new Array(TRANSACTION_LIMIT - 1).fill({})));
     assert.not(transactionsTruncated([]));
     assert.not(transactionsTruncated(null));
+  });
+});
+
+/*
+ * A message against the statements, which is a cross-entity question and so
+ * belongs here rather than in the screen. The architecture ratchet is what said
+ * so: two lines in the Import screen took the forbidden-edge count from 61 to
+ * 62, and the number may only fall.
+ */
+describe('reading a bank message against what was imported', () => {
+  test('a message matching a statement row is linked to it', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    await db.repo('transaction').create({
+      date: '2026-08-15', amount: 50_000_00, kind: 'expense', direction: 'out',
+      account: account.id, reference: 'UPI/412345678901',
+    });
+
+    const { reading, result } = await new MessagesService(db).readAndReconcile({
+      text: 'Rs 50,000.00 debited from a/c XX8963 on 15-08-26 UPI Ref 412345678901',
+    });
+
+    assert.equal(reading.amount, 50_000_00);
+    assert.equal(result.agreement, 'linked');
+  });
+
+  test('a credential is refused without the database being asked at all', async () => {
+    // Not because a query would leak it — because there is no reason to run
+    // one, and the shortest path a secret can travel is the safest.
+    let asked = false;
+    const db = await makeDb();
+    const service = new MessagesService(db);
+    const original = service.repo.bind(service);
+    service.repo = (name) => { asked = true; return original(name); };
+
+    const { reading, result } = await service.readAndReconcile({
+      text: '123456 is your OTP for Rs 50,000. Do not share it.',
+    });
+
+    assert.ok(reading.secret);
+    assert.equal(reading.amount, null);
+    assert.equal(result.agreement, 'none');
+    assert.not(asked, 'no repository call was made for a credential');
   });
 });
