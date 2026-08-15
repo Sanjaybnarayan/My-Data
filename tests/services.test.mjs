@@ -21,6 +21,7 @@ import { Service, NET_WORTH_LOAD } from '../js/services/service.js';
 import { PortfolioService } from '../js/services/portfolio.js';
 import { RecordsService } from '../js/services/records.js';
 import { FinanceService, assembleOverview } from '../js/services/finance.js';
+import { DocumentsService } from '../js/services/documents.js';
 import { xirr } from '../js/domain/portfolio.js';
 
 setSuite('services');
@@ -431,5 +432,92 @@ describe('the finance overview, assembled where it can be reached', () => {
     const view = await new FinanceService(db).overview({ clock });
     assert.ok(Array.isArray(view.bills));
     assert.ok(Array.isArray(view.transfers.proposals));
+  });
+});
+
+/*
+ * What a document does to the records around it.
+ *
+ * Both of these begin with a document and end by changing a *different*
+ * entity, which is the second thing `services/service.js` says this layer is
+ * for. Neither could be exercised without a browser before, and both are
+ * writes where being wrong matters: one files evidence against a payment, the
+ * other creates a record holding a document number.
+ */
+describe('cross-entity writes a document causes', () => {
+  const probable = (transaction) => ({
+    transaction, confidence: 'probable', days: 0, ambiguous: false, why: '',
+  });
+
+  test('a clear match files the receipt against the payment', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    const txn = await db.repo('transaction').create({
+      date: '2026-07-05', amount: 48_500_00, kind: 'expense', direction: 'out',
+      account: account.id, payee: 'School',
+    });
+
+    const result = await new DocumentsService(db).fileReceipt(probable(txn), 'doc-1');
+    assert.ok(result.filed);
+
+    const after = await db.repo('transaction').get(txn.id);
+    assert.equal((after.documents ?? []).join(), 'doc-1');
+  });
+
+  test('a receipt is appended, never substituted for what is already filed', async () => {
+    // A transaction may have a receipt and an invoice and a warranty. Filing
+    // one by losing the others would be worse than not filing at all.
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    const txn = await db.repo('transaction').create({
+      date: '2026-07-05', amount: 48_500_00, kind: 'expense', direction: 'out',
+      account: account.id, documents: ['invoice-9'],
+    });
+
+    await new DocumentsService(db).fileReceipt(probable(txn), 'doc-1');
+    const after = await db.repo('transaction').get(txn.id);
+    assert.equal((after.documents ?? []).sort().join(), 'doc-1,invoice-9');
+  });
+
+  test('an uncertain match is an answer, not an exception, and writes nothing', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    const txn = await db.repo('transaction').create({
+      date: '2026-07-05', amount: 48_500_00, kind: 'expense', direction: 'out',
+      account: account.id,
+    });
+
+    const result = await new DocumentsService(db).fileReceipt(
+      { transaction: txn, confidence: 'possible', ambiguous: true }, 'doc-1',
+    );
+
+    assert.not(result.filed);
+    assert.includes(result.why, 'clear match');
+    const after = await db.repo('transaction').get(txn.id);
+    assert.equal((after.documents ?? []).length, 0, 'an uncertain match writes nothing at all');
+  });
+
+  test('filing the same receipt twice does not list it twice', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    const txn = await db.repo('transaction').create({
+      date: '2026-07-05', amount: 48_500_00, kind: 'expense', direction: 'out',
+      account: account.id, documents: ['doc-1'],
+    });
+
+    const result = await new DocumentsService(db).fileReceipt(probable(txn), 'doc-1');
+    assert.not(result.filed, 'a decision already made is not offered again');
+  });
+
+  test('an identifier a scan found is written as its own record', async () => {
+    const db = await makeDb();
+    const person = await makePerson(db);
+    const created = await new DocumentsService(db).recordIdentifier({
+      kind: 'PAN', number: 'ABCDE1234F', person: person.id,
+    });
+
+    assert.ok(created.id);
+    const back = await db.repo('identityDocument').get(created.id);
+    assert.equal(back.kind, 'PAN');
   });
 });

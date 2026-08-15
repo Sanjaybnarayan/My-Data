@@ -133,6 +133,7 @@ const SHELL = [
   './js/ui/components/toast.js',
 
   './js/services/service.js',
+  './js/services/documents.js',
   './js/services/finance.js',
   './js/services/portfolio.js',
   './js/services/records.js',

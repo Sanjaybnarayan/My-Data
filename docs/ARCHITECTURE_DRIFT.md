@@ -185,5 +185,32 @@ Typecheck held at **181** throughout: six imports the assembly took with it were
 deleted rather than budgeted, and the load spec was annotated rather than
 excused.
 
-**63 of the original 71 remain**, across thirteen screens. `documents.js` is the
-next largest at twelve.
+## And again: 63 → 61
+
+`documents.js` was the next largest at twelve calls, but it was migrated on
+*kind* rather than count. Two of its calls are the second thing the service
+layer is for:
+
+> **Cross-entity operations have no home.** `Repository.referencedBy` throws
+> `wrong-layer` on purpose. Anything spanning entities has nowhere to live but a
+> screen.
+
+Both begin with a document and end by changing a different entity — filing a
+receipt writes a `transaction`, recording a scanned identifier writes an
+`identityDocument`. Both are writes where being wrong matters: one files
+evidence against a payment, the other creates a record holding a document
+number, and neither could be exercised without a browser.
+
+**The refusals did not move.** `attachmentFor` still decides what counts as a
+match; the service asks it rather than re-deciding, because a second place
+deciding is a second place to be wrong. Only the writing moved, and with it the
+knowledge of which repository the write lands in.
+
+Five tests now cover ground that had none: that a receipt is **appended** rather
+than substituted for what is already filed, that an uncertain match returns an
+answer instead of throwing and **writes nothing at all**, and that filing the
+same receipt twice is declined as a decision already made.
+
+**61 of the original 71 remain**, across thirteen screens. Ten of `documents.js`
+are ordinary reads and belong in a load spec, which is the same shape as the
+Finance migration rather than a new one.
