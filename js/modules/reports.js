@@ -23,6 +23,8 @@ import {
   rentReceived, rentYear, rentReceiptBlocks, rentReceiptFilename,
 } from '../domain/rentreceipt.js';
 import { userMessage } from '../core/errors.js';
+import { readTemplate, generate, generatedName } from '../domain/docxtemplate.js';
+import { inflate } from '../data/pdf-read.js';
 import { ACTIONS } from '../data/audit.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
 
@@ -159,6 +161,8 @@ export async function render() {
     ]))),
 
     rentReceiptsCard(),
+
+    templateCard(),
 
     card({ class: 'card--quiet', style: { marginTop: 'var(--space-5)' } }, [
       cardHeader('Export raw data', null, { iconName: 'download' }),
@@ -297,6 +301,103 @@ async function exportOne(db, entityName, format, includeEncrypted) {
  * Hand the file to the browser. `showSaveFilePicker` where it exists, so the
  * user chooses where it goes; an anchor everywhere else.
  */
+/**
+ * A DOCX template, uploaded, filled in and generated.
+ *
+ * Phase 3's engine reads the file and finds its fields; this is the half a
+ * household can reach. It lives on Reports because that is where documents are
+ * produced, beside the rent receipts that already generate `.docx`.
+ */
+function templateCard() {
+  const host = h('div', {});
+  /** @type {{parts: object, fields: string[], name: string}|null} */
+  let template = null;
+
+  const input = h('input', {
+    type: 'file',
+    accept: '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    class: 'sr-only',
+    id: 'docx-template',
+    onChange: async (event) => {
+      const [file] = [...(event.target.files ?? [])];
+      event.target.value = '';
+      if (!file) return;
+
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const read = await readTemplate(bytes, inflate);
+        if (read.why) {
+          template = null;
+          paint(read.why);
+          return;
+        }
+        template = { parts: read.parts, fields: read.fields, name: file.name };
+        paint(null);
+      } catch (err) {
+        template = null;
+        paint(userMessage(err));
+      }
+    },
+  });
+
+  paint(null);
+  return h('div', {}, [
+    card({}, [
+      cardHeader('Fill in a document template', [
+        button('Choose a .docx', { variant: 'subtle', onClick: () => input.click() }),
+      ], {
+        subtitle: 'Mark the editable places {{like this}} — the original is never changed',
+        iconName: 'file',
+      }),
+      input,
+      host,
+    ]),
+  ]);
+
+  function paint(why) {
+    if (why) {
+      replace(host, h('p', { class: 'small money--negative' }, why));
+      return;
+    }
+    if (!template) {
+      replace(host, null);
+      return;
+    }
+
+    const inputs = template.fields.map((field) => h('label', { class: 'field' }, [
+      h('span', { class: 'field__label' }, field),
+      h('input', { class: 'input', id: `docx-field-${field.replace(/\W+/g, '-')}`, value: '' }),
+    ]));
+
+    replace(host, [
+      h('p', { class: 'small faint' },
+        `${template.fields.length} field${template.fields.length === 1 ? '' : 's'} found in `
+        + `${template.name}. A field left empty keeps its marker, so you can see which.`),
+      ...inputs,
+      button('Generate', {
+        variant: 'primary',
+        onClick: async () => {
+          const values = {};
+          for (const field of template.fields) {
+            const box = host.querySelector(`#docx-field-${field.replace(/\W+/g, '-')}`);
+            if (box && box.value) values[field] = box.value;
+          }
+          try {
+            await download({
+              blobParts: [generate(template.parts, values)],
+              mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              filename: generatedName(template.name),
+            });
+            toast('Generated — your template is untouched', { kind: 'success' });
+          } catch (err) {
+            toast(userMessage(err), { kind: 'error' });
+          }
+        },
+      }),
+    ]);
+  }
+}
+
 export async function download({ blobParts, mime, filename }) {
   const blob = new Blob([blobParts], { type: mime });
 

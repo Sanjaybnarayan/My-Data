@@ -24,6 +24,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { zip } from '../js/reports/xlsx.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8247;
@@ -1535,6 +1536,59 @@ async function main() {
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
       if (SHOTS) await shot(page, 'finance-unaccounted');
+    }
+
+    /* ------------------------------ a docx template, through the real input */
+
+    {
+      // Phase 3's engine reads a .docx; this proves a household can reach it.
+      const before = consoleErrors.length;
+
+      await go(page, '#/reports');
+      await page.waitForTimeout(600);
+
+      // Built here rather than inside the page: the same `zip` the application
+      // ships, so this exercises the reader rather than a fixture the reader
+      // was written around — and importing it in Node keeps the type checker
+      // able to resolve it, which a `page.evaluate` import does not.
+      const enc = (text) => new TextEncoder().encode(text);
+      // A placeholder split across runs, which is what Word actually writes
+      // once a person has edited the sentence.
+      const templateXml = '<w:document><w:body><w:p>'
+        + '<w:r><w:t>Received from </w:t></w:r>'
+        + '<w:r><w:t>{{Ten</w:t></w:r><w:r><w:t>ant}}</w:t></w:r>'
+        + '<w:r><w:t> the sum of {{Amount}}.</w:t></w:r>'
+        + '</w:p></w:body></w:document>';
+      const bytes = zip([
+        { name: '[Content_Types].xml', data: enc('<Types/>') },
+        { name: 'word/document.xml', data: enc(templateXml) },
+      ]);
+
+      await page.locator('#docx-template').setInputFiles({
+        name: 'rent-agreement.docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        buffer: Buffer.from(bytes),
+      });
+      await page.waitForTimeout(600);
+
+      const said = (await page.locator('.app-content').innerText()).trim();
+
+      check('a .docx template is read and its fields listed',
+        /2 fields found/.test(said) && /rent-agreement\.docx/.test(said), said.slice(0, 700));
+
+      // The split placeholder is the whole difficulty. A naive reader finds
+      // neither field and reports an empty template as read.
+      check('and a placeholder Word split across runs is one of them',
+        (await page.locator('#docx-field-Tenant').count()) === 1,
+        said.slice(0, 700));
+
+      check('the screen says an empty field keeps its marker',
+        /keeps its marker/.test(said), said.slice(0, 700));
+
+      check('reading a template raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'reports-template');
     }
 
     /* ------------------------------------------------------- documents */

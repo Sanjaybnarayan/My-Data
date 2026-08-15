@@ -66,12 +66,27 @@ hand with a local extra field.
 
 `npm test` 1563, browser 259, typecheck 181/181, architecture 49 claims, UI→database 61/61.
 
+## On the screen, in the same tranche
+
+Recorded as a gap and closed rather than left. The Reports screen — where
+documents are already produced, beside the rent receipts that generate `.docx` —
+takes an uploaded template, lists the fields it found, and generates the filled
+document.
+
+The screen carries the refusal too: *"a field left empty keeps its marker, so
+you can see which"*.
+
+**Four browser checks**, driving a real `.docx` through the real file input,
+including one that asserts the **run-split placeholder** appears as a field —
+which is the entire difficulty, and the case a naive reader silently misses. The
+fixture is built with the application's own `zip`, so the check exercises the
+reader rather than a fixture the reader was written around.
+
+The wiring was mutated: removing the card from the screen fails the suite.
+
 ## Still not done
 
-- **No screen.** Nothing uploads a template or shows its fields — the domain is
-  built and unwired, recorded here rather than discovered later.
-- **No versioning, no PDF, no Drive upload**, all of which the prompt asks for
-  and all of which need the screen first.
+- **No versioning, no PDF, no Drive upload**, all of which the prompt asks for.
 - **Only `{{field}}` markers.** Word content controls and `MERGEFIELD` are the
   other two conventions and neither is read.
 - **No `DocumentTemplate` or `DocumentField` entity**, so a template cannot be
