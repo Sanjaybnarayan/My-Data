@@ -131,8 +131,12 @@ export function channelOf(description) {
  * back to the leading words, which is usually the payee anyway.
  */
 const PARTIES = [
-  // UPI/<name>/<ref>/<note> and UPI/<name> <ref>
-  { match: /^upi[/:]([^/]+?)(?:\/|\s+UPI-|\s*$)/i, take: 1 },
+  // UPI, whose fields are *not* in a fixed order across banks — see `upiParty`.
+  // The fallback groups every unreadable UPI narration together, which is the
+  // same merge `DR` used to make by accident. The difference is the whole point:
+  // this one is labelled as unnamed, so a household reading "UPI payment ×12"
+  // is told the payee is missing rather than shown a stranger's name.
+  { match: /^upi[-/:]/i, resolve: upiParty, fallback: 'UPI payment' },
   { match: /^erupee\/([^/]+)/i, take: 1 },
   // Recd:IMPS/<ref>/<name>/<bank>/<masked account>
   { match: /^recd:imps\/\d+\/([^/]+)/i, take: 1 },
@@ -179,12 +183,104 @@ export function counterpartyOf(description) {
     const match = party.match.exec(text);
     if (!match) continue;
     if (party.literal) return party.literal;
+    // A resolver owns the narration it matched: either its answer, or the
+    // fallback that says it could not read one. Never a fall-through — the
+    // patterns below belong to other rails, and letting one of them answer for
+    // this narration is how a reference number became a counterparty.
+    if (party.resolve) return party.resolve(text) || party.fallback || 'Unknown';
     const value = party.raw ? String(match[party.take] ?? '').trim() : tidy(match[party.take] ?? '');
     if (value) return (party.prefix ?? '') + value;
     if (party.fallback) return party.fallback;
   }
 
   return tidy(text.split(/\s{2,}|\s+(?=[A-Z]{2,}-?\d{6,})/)[0] ?? text) || 'Unknown';
+}
+
+/**
+ * The payee in a UPI narration, wherever the bank happened to put it.
+ *
+ * ## Why this is not a field index
+ *
+ * This used to take the second field — `UPI/<name>/<ref>/<note>` — and **every
+ * UPI fixture in this repository is that shape**, so the suite agreed. Two
+ * layouts that are at least as common are not:
+ *
+ *   - `UPI/DR/<reference>/<name>/<bank>/<vpa>/<note>` — the second field is a
+ *     direction indicator. Every debit read as a counterparty called `DR` and
+ *     every credit as `CR`, and since `counterpartyKey` drops fragments that
+ *     short, both collapsed to the single bucket `unknown`. A household on such
+ *     a statement had *one* counterparty for all of its UPI activity.
+ *   - `UPI/<reference>/Payment from Ph/<name>/<bank>` — the second field is the
+ *     reference number, so each payment became its own counterparty, keyed by a
+ *     twelve-digit number that never repeats. The opposite failure, from the
+ *     same assumption.
+ *
+ * Neither failed loudly. They fed `peopleLedger`, `lendingLedger`, `recurring`
+ * and the Insights screen, all of which group by counterparty — so one produced
+ * a single bucket holding everybody and the other a bucket per payment, and
+ * both rendered as confident sentences about the household's own money.
+ *
+ * ## What it does instead
+ *
+ * Walks the fields and takes the first that could be somebody's name. What
+ * cannot be one is specific and checkable rather than clever: a direction
+ * indicator, a bare reference, and a field that is nothing but the words a
+ * narration uses to describe itself once `NOISE` is removed.
+ *
+ * When no field reads as a name it returns nothing rather than the least-bad
+ * field. **A wrong name is a claim; a missing one is a gap** — the rule the
+ * receipt reader was built on, and the same one applies here, because a wrong
+ * counterparty does not merely fail to group, it groups two strangers together.
+ */
+function upiParty(text) {
+  const [, separator, body] = /^upi([-/:])\s*(.*)$/is.exec(text) ?? [];
+  if (!body) return null;
+
+  // The separator the narration actually used. `UPI-NETFLIX ENTERTAINMENT-...`
+  // packs its fields with dashes and `UPI/DR/...` with slashes; splitting on
+  // both would cut a hyphenated handle in half.
+  const fields = body.split(separator === '-' ? '-' : '/');
+
+  for (const field of fields) {
+    const name = upiName(field);
+    if (name) return name;
+  }
+
+  // Nothing that reads as a name. A VPA is the last thing in the narration that
+  // identifies anybody — `netflix.payu@hdfcbank` is not a name, but its local
+  // part is what the payee calls itself, and it groups correctly across months.
+  for (const field of fields) {
+    const [, handle] = /^([a-z0-9][a-z0-9._-]*)@[a-z]/i.exec(String(field).trim()) ?? [];
+    // A phone number with a suffix — `8861975785-3@axl` — is a VPA whose local
+    // part is an account, not a name. It would group correctly and read as
+    // nonsense, so it is left for the fallback that says so.
+    if (handle && !/^\d+$/.test(handle.replace(/[._-]/g, ''))) {
+      return tidy(handle.replace(/[._]/g, ' '));
+    }
+  }
+
+  return null;
+}
+
+/** One UPI field, if it could be somebody's name. */
+function upiName(field) {
+  const raw = String(field ?? '').trim();
+  if (!raw) return null;
+  // A direction, not a payee.
+  if (/^[dc]r$/i.test(raw)) return null;
+  // A reference number. Not `tidy`'s job: it keeps a bare id deliberately,
+  // because a NACH mandate is only an id and that id is the biller.
+  if (/^[\d\s-]+$/.test(raw)) return null;
+  // A VPA is considered only after every field has failed to be a name.
+  if (raw.includes('@')) return null;
+
+  const value = tidy(raw);
+  if (!value) return null;
+  // A field that is only the narration describing itself — "Payment from Ph",
+  // "Collect", "Transfer" — is not a name. `NOISE` already lists those words
+  // because `counterpartyKey` has to ignore them when grouping; a field made of
+  // nothing else is the same judgement, one step earlier.
+  return value.replace(NOISE, ' ').replace(/[^a-z0-9]+/gi, ' ').trim() ? value : null;
 }
 
 function tidy(value) {
@@ -638,7 +734,10 @@ export function businessLedger(transactions) {
  * only kind worth surfacing.
  *
  * @param {object[]} transactions
- * @param {{minimumOccurrences?: number, tolerance?: number}} [options]
+ * @param {{minimumOccurrences?: number, tolerance?: number, asOf?: string|null}} [options]
+ *   `asOf` is the day to judge `active` against. Omitted, the run reports
+ *   `active: null` rather than guessing from the clock — a report built for a
+ *   past period should not call a charge live because today is a Tuesday.
  */
 export function recurring(transactions, options = {}) {
   const { minimumOccurrences = 3, tolerance = 0.2, asOf = null } = options;

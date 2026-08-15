@@ -269,6 +269,55 @@ describe('counterparties', () => {
     assert.equal(counterpartyOf('NACH-10-DR-5550001- 000000ABCDEFGH 00'), '5550001');
   });
 
+  /*
+   * The payee is not at a fixed position in a UPI narration, and every fixture
+   * in this repository used to be the one shape where it is second. These pin
+   * the shapes that are not.
+   */
+  test('a direction indicator is not a counterparty', () => {
+    assert.equal(counterpartyOf('UPI/DR/305012345678/Amazon/UTIB/amazon@axis/UPI'), 'Amazon');
+    assert.equal(counterpartyOf('UPI/CR/218765432109/SANJAY NARAYAN/ICIC/sanjay@okicici/UPI'), 'SANJAY NARAYAN');
+  });
+
+  test('a reference number is not a counterparty', () => {
+    assert.equal(counterpartyOf('UPI/052012345678/Payment from Ph/SANJAY/HDFC BANK'), 'SANJAY');
+  });
+
+  test('a narration that packs its fields with dashes is read too', () => {
+    assert.equal(
+      counterpartyOf('UPI-NETFLIX ENTERTAINMENT-NETFLIX@HDFCBANK-HDFC0000060-412345678901-PAYMENT'),
+      'NETFLIX ENTERTAINMENT',
+    );
+  });
+
+  test('a VPA names the payee when no field does', () => {
+    assert.equal(counterpartyOf('UPI/DR/412345678901/netflix.payu@hdfcbank/Payment'), 'netflix payu');
+  });
+
+  test('a narration naming nobody says so rather than inventing a name', () => {
+    // A phone-number VPA identifies an account, not a person.
+    assert.equal(counterpartyOf('UPI/DR/412345678901/9876543210-2@ybl/Payment'), 'UPI payment');
+    assert.equal(counterpartyOf('UPI/DR/412345678901/Payment'), 'UPI payment');
+  });
+
+  test('the whole narration is never returned as a name', () => {
+    const name = counterpartyOf('UPI/DR/412345678901/Payment');
+    assert.not(/\d{6,}/.test(name), 'a reference number is not part of a counterparty');
+  });
+
+  test('two ICICI payees group apart, and one payee groups together', () => {
+    // The bug this replaces: both of these read as `DR`, and `counterpartyKey`
+    // reduced that to `unknown` — so every UPI payment on the statement, in
+    // both directions, was one counterparty.
+    const netflix = counterpartyKey(counterpartyOf('UPI/DR/412345678901/NETFLIX/HDFC/n@hdfcbank/Pay'));
+    const swiggy = counterpartyKey(counterpartyOf('UPI/DR/512345678901/SWIGGY/YESB/swiggy@ybl/Food'));
+    const netflixAgain = counterpartyKey(counterpartyOf('UPI/DR/999999999999/NETFLIX/HDFC/n@hdfcbank/Pay'));
+
+    assert.not(netflix === swiggy, 'two different payees are not one counterparty');
+    assert.equal(netflix, netflixAgain);
+    assert.not(netflix === 'unknown', 'a named payee is not grouped as unknown');
+  });
+
   test('a name is grouped the same however its initials are written', () => {
     assert.equal(counterpartyKey('PRIYA D S'), counterpartyKey('PRIYA DS'));
     assert.equal(counterpartyKey('ZOMATO'), counterpartyKey('Zomato Ltd'));
@@ -450,6 +499,32 @@ describe('summaries', () => {
     assert.equal(found.occurrences, 4);
     assert.equal(found.amount, 29_900);
     assert.ok(found.active, 'the last one was within a cycle');
+  });
+
+  test('three payees on one statement are three subscriptions, not one', () => {
+    // What this looked like before the payee was read from the right field: all
+    // nine rows keyed on `DR`, reported as a single charge of the median amount
+    // on a cadence made of the *gaps between different payees* — nine payments
+    // ten days apart read as weekly, and the largest of the three vanished into
+    // a figure that described none of them.
+    const months = ['04', '05', '06'];
+    const rows = categorise(months.flatMap((m) => [
+      t(`UPI/DR/30501111222${m}/LANDLORD RENT/ICIC/landlord@okicici/Rent`, 'out',
+        { amount: 35_000_00, date: `2026-${m}-05` }),
+      t(`UPI/DR/41234567890${m}/NETFLIX/HDFC/netflix.payu@hdfcbank/Pay`, 'out',
+        { amount: 649_00, date: `2026-${m}-14` }),
+      t(`UPI/DR/51234567890${m}/CLOUD BACKUP/UTIB/backup@axis/Plan`, 'out',
+        { amount: 1_180_00, date: `2026-${m}-18` }),
+    ]));
+
+    const found = recurring(rows, { asOf: '2026-06-30' });
+    assert.length(found, 3);
+    assert.equal(found.map((r) => r.amount).sort((a, b) => b - a).join(),
+      [35_000_00, 1_180_00, 649_00].join());
+    for (const charge of found) {
+      assert.equal(charge.period, 'monthly', `${charge.name} repeats monthly`);
+      assert.equal(charge.occurrences, 3);
+    }
   });
 
   test('a run that stopped long ago is not called active', () => {
