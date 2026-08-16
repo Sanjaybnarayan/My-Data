@@ -490,6 +490,41 @@ created by making a document readable.
 
 It is not harmful as it stands: `readBill` finds an account number on them and
 **no due date and no amount**, so nothing generates a reminder from one. But
-it is a real gap, recorded rather than smoothed over: there is no kind for a
-letter from a bank confirming a loan is closed, and the money words in one are
-enough to make it look like a bill.
+it is a real gap, and it is closed below.
+
+## A `noDues` kind, and the marketing footer that caused the problem
+
+A lender's letter saying a loan is closed is the document a household keeps as
+**proof a debt is settled**, and the field that matters is the closing date.
+
+The three letters now read as `noDues` and yield a reference number, a loan
+account number, the loan type, and the start and closing dates.
+
+The interesting part is *why* they looked like a statement and a bill. It was
+not the body — it was a **marketing strip at the foot of the page**:
+
+> SMS to … to get your latest **Statement of Account** via SMS
+> Get Rewards & Cashbacks on **Bill payments**, UPI transactions, Wallet
+
+Two phrases in an advertisement, on a document that is neither. So `noDues` is
+matched **first**, ahead of `statement` — and this time that ordering is
+genuinely load-bearing rather than decoration. The mutation moving it below
+`statement` fails two tests.
+
+It only fails them because **the fixture carries the footer**. The first
+version of the test did not, so the mutation passed and the ordering claim in
+the comment was unproven — the same failure as the `certificate` rule two
+tranches earlier, caught the same way, by mutating rather than by reading.
+
+### What is fitted to one issuer, said plainly
+
+All three letters are the **same lender's format**. The *kind* is matched on
+phrasing every Indian lender uses (`no dues certificate`, `no outstanding
+dues` beside a loan account), but the **reader's labels are one issuer's**. A
+no-dues letter from another lender will very likely be named correctly and
+yield no fields. That is written in the code rather than left to be discovered.
+
+The phrase alone is not enough to claim a document, either: fine print on a
+statement can say a customer has no outstanding dues, so the phrase is paired
+with the loan account such a letter is *about*. A test asserts a statement
+saying it stays a statement.
