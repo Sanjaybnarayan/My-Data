@@ -31,6 +31,37 @@ import { summariseHistory } from '../data/audit.js';
 
 export class RecordsService extends Service {
   /**
+   * The household's staff, for a screen that wants to say who works here now.
+   *
+   * A read behind a service rather than a module reaching the repository: the
+   * architecture document holds that edge to a budget that may only narrow,
+   * and adding one more would have widened it.
+   */
+  /**
+   * The documents belonging to the person a staff record points at.
+   *
+   * There is no `document.staff` reference and there should not be: a
+   * document filed against the person would not appear on the role, and one
+   * filed against the role would not appear on the person. The link already
+   * exists — `document.person` — and this reads it rather than adding a
+   * second path to the same thing.
+   */
+  async documentsForStaff(staffId) {
+    const record = await this.db.repo('staff').get(staffId, { decrypt: false });
+    if (!record?.person) return { person: null, documents: [] };
+
+    const all = await this.db.repo('document').list({ decrypt: false, limit: 500 });
+    return {
+      person: record.person,
+      documents: all.filter((row) => row.person === record.person),
+    };
+  }
+
+  async staff({ limit = 500 } = {}) {
+    return this.db.repo('staff').list({ decrypt: false, limit });
+  }
+
+  /**
    * What deleting this record would leave pointing at nothing.
    *
    * @returns {Promise<{total: number, breaking: number, byEntity: object[]}>}

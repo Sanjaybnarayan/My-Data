@@ -1241,6 +1241,47 @@ const smsMessage = {
 
 /* ---------------------------------------------------------------- registry */
 
+
+/* --------------------------------------------------- 12. Household staff */
+
+/**
+ * Somebody the household employs — a cook, a driver, a helper.
+ *
+ * **This is a role, not a person.** `person` is a reference, and every name,
+ * phone number and identity document belongs on that record like anybody
+ * else's. Giving staff their own name and ID fields would create a second
+ * identity record for a human being, which is the failure the CKYC rules
+ * exist to prevent: a person is a person, and what they do for this household
+ * is a fact *about* them.
+ *
+ * It follows that the same person can hold two roles over time — a driver who
+ * later cooks is two `staff` records and one `person`, and their history is
+ * not split in half.
+ *
+ * **`monthlyPay` is what was agreed, not what was paid.** Wages actually paid
+ * are economic events like any other money leaving the household, recorded
+ * through the ledger where they can be reconciled and explained under rule 57.
+ * A figure stored here that nothing reconciles would be a second, parallel
+ * money path — a household would have wages that never appear in the ledger.
+ */
+const staff = {
+  name: 'staff', module: 'family', sheet: 'Staff', version: 1,
+  labels: { one: 'Staff member', many: 'Staff' }, icon: 'users',
+  acl: restricted,
+  title: (r) => r.role,
+  fields: [
+    ref('person', 'person', { required: true, list: true }),
+    text('role', { required: true, list: true, search: true }),
+    day('startedOn', { list: true }),
+    // Absent while they still work here. A leaving date is what makes a
+    // record history rather than a deletion.
+    day('endedOn', { list: true }),
+    money('monthlyPay', { label: 'Agreed monthly pay', list: true }),
+    pick('paidEvery', ['month', 'week', 'day', 'task'], { default: 'month' }),
+    note(),
+  ],
+};
+
 export const entities = Object.freeze(Object.fromEntries(
   [person, relationship, identityDocument, kycRecord, employment, importantDate,
     account, transaction, economicEvent, bankStatement, receipt, budget,
@@ -1251,6 +1292,7 @@ export const entities = Object.freeze(Object.fromEntries(
     policy, property, education, certificate,
     project, task, event, noteEntity, vaultItem,
     digitalAsset, subscription, emergencyContact, smsMessage,
+    staff,
   ].map((e) => [e.name, normalise(e)]),
 ));
 

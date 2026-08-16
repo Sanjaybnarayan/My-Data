@@ -17,6 +17,7 @@ import {
 } from '../ui/components/basics.js';
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
+import { RecordsService } from '../services/records.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
 import {
@@ -29,11 +30,16 @@ const TABS = [
   { id: 'tree', label: 'Tree' },
   { id: 'relationship', label: 'Relationships' },
   { id: 'importantDate', label: 'Important dates' },
+  // Staff are people the household employs, and the record is the role — the
+  // person it points at is an ordinary person record, not a second identity.
+  { id: 'staff', label: 'Staff' },
 ];
 
 export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity) {
-    return recordDetail(route.entity, route.id);
+    return recordDetail(route.entity, route.id, route.entity === 'staff'
+      ? { extra: staffDocuments }
+      : {});
   }
 
   const active = route.entity ?? 'tree';
@@ -70,8 +76,75 @@ export async function render(route) {
   }
 
   section = await listSection(active, { autoOpenNew: route.id === 'new' });
-  replace(body, section.node);
+
+  // `staff.endedOn` is what makes a record history rather than a deletion, and
+  // a list that does not use it shows a cook who left in 2019 beside the one
+  // who comes tomorrow. This is the whole of what the field is for.
+  const line = active === 'staff' ? await staffStanding() : null;
+  replace(body, line ? h('div', {}, [line, section.node]) : section.node);
   return { node: host, destroy: section.destroy };
+}
+
+
+
+/**
+ * The documents belonging to the person this staff record points at.
+ *
+ * A view over `document.person`, not a new reference. Somebody the household
+ * employs has their papers filed against them like anybody else, and the
+ * staff record is where a person looks for them.
+ */
+async function staffDocuments(id) {
+  const { documents, person } = await new RecordsService(app().db).documentsForStaff(id);
+  if (!person) return null;
+
+  return card({}, [
+    cardHeader('Their documents', badge(String(documents.length), 'muted')),
+    documents.length
+      ? h('div', { class: 'list' }, documents.slice(0, 10).map((document) => listItem({
+        title: document.title || document.fileName || 'Untitled',
+        subtitle: document.category ?? null,
+        href: Router.href({ module: 'documents', entity: 'document', id: document.id }),
+      })))
+      : h('p', { class: 'small muted' },
+        'Nothing filed against them yet. Documents are attached to the person, '
+        + 'not to the job, so they follow them between roles.'),
+  ]);
+}
+
+/**
+ * Who works here now, and who used to.
+ *
+ * The only rule worth stating: **a leaving date in the future is somebody
+ * still working here**, on notice. Counting them as former would drop a
+ * person off the list while they are still turning up.
+ *
+ * @param {Array<{endedOn?: string}>} rows
+ * @param {string} [today] injectable, so the boundary can be tested
+ */
+export function standing(rows, today = new Date().toISOString().slice(0, 10)) {
+  const left = rows.filter((row) => row.endedOn && row.endedOn <= today);
+  return {
+    current: rows.length - left.length,
+    former: left.length,
+    onNotice: rows.some((row) => row.endedOn && row.endedOn > today),
+  };
+}
+
+/** How many people work here now, and how many used to. */
+async function staffStanding() {
+  const rows = await new RecordsService(app().db).staff();
+  if (!rows.length) return null;
+
+  const { current, former, onNotice } = standing(rows);
+
+  return card({ class: 'card--quiet' }, h('div', { class: 'row' }, [
+    icon('users', { size: 18 }),
+    h('span', { class: 'small' },
+      `${current} working here now`
+      + (former ? `, ${former} who used to` : '')
+      + (onNotice ? ' — including somebody on notice' : '')),
+  ]));
 }
 
 /* ------------------------------------------------------------------ tree */
