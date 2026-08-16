@@ -727,6 +727,17 @@ export function suggestions(read, existing = {}) {
   // was filed here.
   if (read.fields.issuedOn && !existing.issuedOn) out.issuedOn = read.fields.issuedOn;
 
+  // Where the document gave more than one expiry, the dates it gave are
+  // carried onto the record rather than dropped. Without this, a policy whose
+  // expiry is ambiguous is simply absent from the Expiring list — which reads
+  // exactly like a policy with nothing to renew.
+  //
+  // Not written over a date a person already set: once somebody has decided,
+  // the disagreement is settled and saying so again is noise.
+  if (read.fields.expiryConflict?.length && !existing.expiresOn) {
+    out.expiryConflict = read.fields.expiryConflict.join(', ');
+  }
+
   const CATEGORY = {
     policy: 'insurance',
     bill: 'financial',

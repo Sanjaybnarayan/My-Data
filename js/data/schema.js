@@ -600,6 +600,15 @@ const document = {
     ref('person', 'person', { list: true }),
     day('issuedOn'),
     day('expiresOn', { list: true, expiry: true, expiryLead: 60 }),
+    // The expiry dates a document gave when it gave more than one.
+    //
+    // A motor policy schedule states `Date of Expiry` twice — once for its own
+    // cover and once for the third-party policy it sits beside — and nothing
+    // in the text says which is which. `domain/extract.js` refuses to choose,
+    // which leaves `expiresOn` empty and the document invisible to the
+    // Expiring list. This is what stops that silence: the dates it did give,
+    // so somebody can open it and set one.
+    text('expiryConflict', { label: 'Expiry stated more than once', hidden: true }),
     tags(),
     text('driveFileId', { hidden: true }),
     text('driveFolderId', { hidden: true }),

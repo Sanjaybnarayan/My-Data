@@ -105,6 +105,31 @@ one PDF. A missing concept, not a missing pattern.
 **Spacing.** `con rm ation` still. Needs glyph widths this reader does not
 parse.
 
-**Nothing reads `expiryConflict` yet.** It is returned and tested and no screen
-shows it, which is precisely the "headless engine" pattern this stack has
-found four times. It is named here so it is not discovered again as a surprise.
+`expiryConflict` **is now on screen** — see the section below, written after
+this and in answer to the paragraph that used to be here.
+
+## The conflict had to reach a screen, or it was not worth computing
+
+`expiryConflict` was returned by `readPolicy`, asserted by tests, and read by
+nothing. That is the headless-engine pattern this repository has found five
+times now, and it matters more here than usual: a policy whose expiry is
+ambiguous has no `expiresOn`, so it is **absent from the documents screen's
+Expiring list** — which reads exactly like a policy with nothing to renew.
+Refusing to guess had made the document quieter than guessing would have.
+
+Three pieces close it:
+
+- `document.expiryConflict` on the schema, hidden from the form. Hidden
+  because it is not a field anybody fills in; it is a note the reader left.
+- `suggestions` carries the dates onto the record — but **never over a date a
+  person already set**. Once somebody has decided, the disagreement is settled,
+  and repeating it on their own record is noise. A test asserts it, and the
+  mutation removing the guard fails.
+- An **Expiry unclear** card on the documents screen, beside Expiring, naming
+  the dates the document gave: *"states 2026-07-09, 2027-07-05"*, with a line
+  saying to open it and set the one it should renew on.
+
+The architecture document gained `wired:js/modules/documents.js#expiryConflict`,
+verified by deleting the render and watching it fail with the row named —
+because twice before a screen panel was built and nothing in the repository
+would have noticed its absence.

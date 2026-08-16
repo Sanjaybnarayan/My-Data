@@ -791,3 +791,36 @@ describe('when a policy expires, and when it will not say', () => {
     assert.equal(read.expiryConflict, undefined);
   });
 });
+
+/**
+ * A conflict that reaches the record, and therefore the screen.
+ *
+ * `expiryConflict` was returned by `readPolicy`, asserted by tests, and read
+ * by nothing — the headless-engine pattern this repository has now found five
+ * times. A policy whose expiry is ambiguous has no `expiresOn`, so it is
+ * absent from the documents screen's Expiring list, which reads exactly like a
+ * policy with nothing to renew.
+ */
+describe('an ambiguous expiry reaches the record', () => {
+  const TWO = 'Policy Number X\nSum assured 1,00,000\n'
+    + 'Date of Expiry: 09/07/2026\nDate of Expiry: 05/07/2027';
+
+  test('the dates the document gave are carried onto the document', () => {
+    const out = suggestions(readDocument(TWO));
+    assert.equal(out.expiryConflict, '2026-07-09, 2027-07-05');
+    assert.equal(out.expiresOn, undefined, 'one of the two was chosen after all');
+  });
+
+  test('an unambiguous policy carries no conflict', () => {
+    const out = suggestions(readDocument('Policy Number X\nDate of Expiry: 09/07/2026'));
+    assert.equal(out.expiresOn, '2026-07-09');
+    assert.equal(out.expiryConflict, undefined);
+  });
+
+  test('a date a person already set is not argued with', () => {
+    // Once somebody has decided, the disagreement is settled, and repeating it
+    // on their own record is noise.
+    const out = suggestions(readDocument(TWO), { expiresOn: '2027-07-05' });
+    assert.equal(out.expiryConflict, undefined);
+  });
+});
