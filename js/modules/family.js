@@ -29,6 +29,9 @@ const TABS = [
   { id: 'tree', label: 'Tree' },
   { id: 'relationship', label: 'Relationships' },
   { id: 'importantDate', label: 'Important dates' },
+  // Staff are people the household employs, and the record is the role — the
+  // person it points at is an ordinary person record, not a second identity.
+  { id: 'staff', label: 'Staff' },
 ];
 
 export async function render(route) {

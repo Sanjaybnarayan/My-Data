@@ -596,3 +596,38 @@ describe('a field name in a comment is not a field being read', () => {
     assert.includes(withoutComments('const u = "https://example.test/x";'), 'example.test');
   });
 });
+
+/**
+ * A staff member is a role, not a second person.
+ *
+ * Phase 13's first constraint, and the one that would be expensive to
+ * discover later: giving staff their own name, phone and identity fields
+ * would create a second identity record for a human being, which is the
+ * failure the CKYC rules exist to prevent. A person is a person, and what
+ * they do for this household is a fact *about* them.
+ */
+describe('household staff', () => {
+  test('it points at a person rather than describing one', () => {
+    const fields = Object.fromEntries(
+      Object.values(entities.staff.fields).map((f) => [f.key, f]),
+    );
+
+    assert.equal(fields.person.type, 'ref');
+    assert.equal(fields.person.ref, 'person');
+    assert.ok(fields.person.required, 'a staff record with no person is a role nobody holds');
+  });
+
+  test('it declares no identity of its own', () => {
+    // The whole point. If any of these ever appears here, the household has
+    // two records for one human being and nothing keeps them in step.
+    const keys = Object.values(entities.staff.fields).map((f) => f.key);
+    for (const forbidden of ['name', 'phone', 'email', 'aadhaar', 'pan', 'address', 'dob']) {
+      assert.not(keys.includes(forbidden), `staff must not carry its own ${forbidden}`);
+    }
+  });
+
+  test('a leaving date exists, so history is not a deletion', () => {
+    const keys = Object.values(entities.staff.fields).map((f) => f.key);
+    assert.ok(keys.includes('endedOn'));
+  });
+});
