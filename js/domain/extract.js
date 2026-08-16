@@ -108,6 +108,49 @@ function readField(text, labels, { pattern = '[A-Za-z0-9/\\-]{3,40}' } = {}) {
   return null;
 }
 
+/**
+ * A labelled value where the label may sit on either side of it — and
+ * **nothing when the two readings disagree**.
+ *
+ * Two of the formats measured in `docs/DOCUMENT_FORMATS.md` put the value
+ * first: the Karnataka e-stamp header does it in three of four files and not
+ * in the fourth, and a registration certificate prints `SELTOS …` above the
+ * word `MODEL`.
+ *
+ * The first version of this preferred the label-first reading, and that is
+ * worse than useless. In a value-first document the label is followed by the
+ * *next* field's value, so preferring it does not fail — it answers
+ * confidently and wrongly. Measured on a real partnership deed it returned the
+ * two partners **the wrong way round**, and on a rental agreement it returned
+ * the string `"Second Party"` as the name of the first party.
+ *
+ * Orientation cannot be settled per document either: one deed measured here
+ * writes `Certificate No.` label-first, `Purchased by` value-first and
+ * `First Party` label-first, in the same header.
+ *
+ * So when both readings find a value and the values differ, the honest answer
+ * is that this document does not say — which is this file's rule, applied to
+ * its own new helper. It costs real fields: a party this reader could have
+ * named is left blank rather than guessed at. That is the trade named in the
+ * header, and it is the one worth making on a legal agreement.
+ */
+function readEitherSide(text, labels, { pattern = '[A-Za-z0-9/\\-]{3,40}' } = {}) {
+  for (const label of labels) {
+    const after = new RegExp(`${label}[^A-Za-z0-9]{0,12}(${pattern})`, 'i').exec(text);
+    const before = new RegExp(`(${pattern})[^A-Za-z0-9]{0,4}${label}`, 'i').exec(text);
+
+    const one = after?.[1].trim() ?? null;
+    const other = before?.[1].trim() ?? null;
+
+    if (one && other) {
+      if (one === other) return one;
+      continue; // Ambiguous: this label cannot say which is the value.
+    }
+    if (one || other) return one ?? other;
+  }
+  return null;
+}
+
 /** The date following a label. */
 function readLabelledDate(text, labels) {
   for (const label of labels) {
@@ -152,8 +195,37 @@ export const SENSITIVE = [
     kind: 'Card',
     // A card number needs no label: there is no benign reason for sixteen
     // digits in that shape to sit in a searchable field.
+    //
+    // Measured against a real statement, that is not quite true — a sixteen
+    // digit payment reference inside a UPI narration matches this, is redacted
+    // out of the household's own searchable text, and is handed back as though
+    // it were a card. See `docs/DOCUMENT_FORMATS.md`. Left as it stands
+    // deliberately: the failure is in the safe direction, and a Luhn check is
+    // the fix rather than a looser rule.
     near: /.?/,
     pattern: /\b(?:\d{4}[ -]?){3}\d{4}\b/g,
+  },
+
+  // The two below are anchored on their label rather than on their shape,
+  // through `at` rather than `near`+`pattern`. A chassis number is seventeen
+  // alphanumerics and an engine number is a dozen; so is a reference number, an
+  // order number and a policy number, and redacting every such token would do
+  // to a document what the note above warns about — only worse, because these
+  // appear on invoices full of part numbers.
+  //
+  // They are here because `vehicle.chassisNumber` and `vehicle.engineNumber`
+  // are `encrypted: true` in the schema. The application had decided these were
+  // sensitive and was writing them, in the clear, into `ocrText` — which is
+  // searchable, and therefore syncs to a cell in the household's Sheet. That is
+  // the failure this file's own header describes for a PAN card, on fields it
+  // had already made the decision about.
+  {
+    kind: 'Chassis',
+    at: /chassis[.\s]*(?:no|number)?[:.\s]+([A-Z0-9]{9,20})\b/gi,
+  },
+  {
+    kind: 'Engine',
+    at: /engine[.\s]*(?:no|number)?[:.\s]+([A-Z0-9]{6,20})\b/gi,
   },
 ];
 
@@ -166,11 +238,21 @@ export function readIdentifiers(text) {
   const source = String(text ?? '');
   const found = [];
 
+  const add = (kind, value) => {
+    if (value && !found.some((f) => f.value === value)) found.push({ kind, value });
+  };
+
   for (const rule of SENSITIVE) {
-    if (!rule.near.test(source)) continue;
-    for (const match of source.match(rule.pattern) ?? []) {
-      if (!found.some((f) => f.value === match)) found.push({ kind: rule.kind, value: match });
+    // `at` matches the label and its value together and keeps the value. A
+    // rule that gates on a nearby word and then matches on shape alone would
+    // redact every token of that shape in the document, which on a vehicle
+    // invoice is most of the part numbers.
+    if (rule.at) {
+      for (const match of source.matchAll(rule.at)) add(rule.kind, match[1]);
+      continue;
     }
+    if (!rule.near.test(source)) continue;
+    for (const match of source.match(rule.pattern) ?? []) add(rule.kind, match);
   }
   return found;
 }
@@ -196,6 +278,25 @@ const KIND_RULES = [
   { kind: 'statement', match: /account statement|statement of account|opening balance.{0,40}closing balance/i },
   { kind: 'policy', match: /policy (no|number)|sum assured|policy schedule|premium (due|paid|amount)/i },
   { kind: 'identity', match: /permanent account number|\bUIDAI\b|aadhaar|passport no|driving licence|voter/i },
+
+  // Before `receipt` and `bill`, and measured rather than guessed: a lease was
+  // read as a **bill** and a rent agreement as a **receipt**, because there was
+  // no agreement kind and an agreement falls through to whichever money-word
+  // appears in it first. A lease says "payable" and a rent agreement says
+  // "received", and that was the whole of the reasoning behind the answer.
+  //
+  // A bill classification is not inert — it is the kind whose due date feeds
+  // the reminder machinery, so a lease was one step from generating a bill
+  // reminder for itself.
+  {
+    kind: 'agreement',
+    match: /\b(deed of|this deed|lease deed|rental agreement|rent agreement|partnership deed)\b|witnesseth|hereinafter (called|referred)|india non[-\s]?judicial/i,
+  },
+
+  // Deliberately narrow: the two things only a registration certificate says.
+  // Matching on `chassis` instead would take the dealer's tax invoice with it,
+  // and an invoice for a car is a purchase, not a registration.
+  { kind: 'vehicle', match: /certificate of registration|\bFORM[-\s]?23A?\b/i },
   // Before `bill`, and the order is the whole point: a hospital receipt says
   // "Bill No: IP/2026/77812" at the top and was being read as a bill, so its
   // amount was looked for under "amount payable" — a phrase a receipt never
@@ -379,6 +480,90 @@ export function readPolicy(text) {
 }
 
 /**
+ * An agreement, read from the one part of it that is structured.
+ *
+ * The body of a deed is prose and is not parsed — a lease's rent, term and
+ * notice period are sentences, and reading them with patterns would produce
+ * exactly the confident wrong number this file exists to avoid. What *is*
+ * structured is the Karnataka e-stamp header, which is identical across
+ * leases, rental agreements and partnership deeds, and which is where the
+ * money is: the stamp duty is a real payment.
+ *
+ * The parties are read and the consideration is not. A consideration of zero
+ * is printed on every one of these as `(Zero)` beside a `0`, and a document
+ * that says what it is worth is not the same as a document that says nothing;
+ * telling those apart needs the body, which is prose.
+ */
+export function readAgreement(text) {
+  const source = String(text ?? '');
+
+  return prune({
+    // `IN-KA…` — the certificate's own number, and the thing that can be
+    // checked against the issuer's site. Either side of its label.
+    certificateNumber: readEitherSide(source, ['certificate\\s*(?:no|number)'], {
+      pattern: 'IN-[A-Z]{2}[0-9A-Z]{8,30}',
+    }),
+
+    issuedOn: readLabelledDate(source, ['certificate issued date', 'issued date', 'issued on']),
+
+    // `Article 40(A) Partnership` / `Article 5(J) Agreement` — what the state
+    // thinks this document is, which is more reliable than what the body of it
+    // calls itself.
+    documentType: readEitherSide(source, ['description of document'], {
+      pattern: 'Article[^\\n]{3,60}',
+    }),
+
+    stampDuty: readAmount(source, ['stamp duty amount', 'stamp duty paid']),
+
+    firstParty: stopAtLabel(readEitherSide(source, ['first party'], {
+      pattern: '[A-Za-z][A-Za-z .]{2,50}',
+    })),
+    secondParty: stopAtLabel(readEitherSide(source, ['second party'], {
+      pattern: '[A-Za-z][A-Za-z .]{2,50}',
+    })),
+  });
+}
+
+/**
+ * A registration certificate.
+ *
+ * Every field here already exists on the `vehicle` entity — this is a document
+ * the schema was ready for and the reader could not name. What is *not* here
+ * is the chassis and engine numbers: the schema holds both `encrypted: true`,
+ * so they belong in `identifiers`, where the caller puts them somewhere
+ * encrypted, rather than in `fields` beside the colour.
+ */
+export function readVehicle(text) {
+  const source = String(text ?? '');
+
+  return prune({
+    registrationNumber: readEitherSide(source, ['reg(?:n|istration)?[.\\s]*(?:no|number)'], {
+      pattern: '[A-Z]{2}[\\s-]?[0-9]{1,2}[\\s-]?[A-Z]{1,3}[\\s-]?[0-9]{1,4}',
+    }),
+    make: readEitherSide(source, ['\\bMFR\\b', 'manufacturer', '\\bmake\\b'], {
+      pattern: '[A-Za-z][A-Za-z .&-]{2,50}',
+    }),
+    model: readEitherSide(source, ['\\bmodel\\b'], { pattern: '[A-Z][A-Za-z0-9 ./-]{2,40}' }),
+    kind: readEitherSide(source, ['\\bclass\\b', 'vehicle class'], {
+      pattern: '[A-Za-z][A-Za-z ]{2,30}',
+    }),
+    // Enumerated rather than "the word beside FUEL". The card prints
+    // `PETROL STDG/SLPR` on one line and `FUEL` on the next, so the nearest
+    // word to the label is `SLPR` — seating type, read as a fuel. A fuel on an
+    // RC is a closed set, so it is written as one.
+    fuel: readEitherSide(source, ['\\bfuel\\b'], {
+      pattern: '(?:PETROL|DIESEL|CNG|LPG|ELECTRIC|HYBRID|PETROL/CNG|PETROL/LPG)',
+    }),
+    colour: readEitherSide(source, ['colou?r'], { pattern: '[A-Za-z][A-Za-z ]{2,30}' }),
+
+    registeredOn: readLabelledDate(source, ['reg[.\\s]*date', 'registration date', 'date of registration']),
+    // `REGFC UPTO` is what the card prints — fitness, and the date the
+    // registration stops being valid.
+    validTill: readLabelledDate(source, ['reg\\s*fc\\s*upto', 'valid (?:up ?to|till|until)', 'fitness upto']),
+  });
+}
+
+/**
  * Everything readable about a document, with the sensitive parts separated
  * from the part that is safe to index.
  *
@@ -389,10 +574,14 @@ export function readDocument(text) {
   const source = String(text ?? '');
   const kind = detectKind(source);
 
-  const fields = kind === 'policy' ? readPolicy(source)
-    : kind === 'receipt' ? readReceipt(source)
-      : kind === 'bill' ? readBill(source)
-        : {};
+  const READERS = {
+    policy: readPolicy,
+    receipt: readReceipt,
+    bill: readBill,
+    agreement: readAgreement,
+    vehicle: readVehicle,
+  };
+  const fields = READERS[kind]?.(source) ?? {};
 
   return {
     kind,
@@ -412,13 +601,31 @@ export function readDocument(text) {
  */
 export function suggestions(read, existing = {}) {
   const out = {};
-  const expiry = read.fields.expiresOn ?? read.fields.dueDate ?? null;
+  // `validTill` is a registration certificate's own expiry, and routing it
+  // here is the point of reading one: an RC that lapses unnoticed is a
+  // vehicle that cannot legally be driven.
+  const expiry = read.fields.expiresOn ?? read.fields.dueDate ?? read.fields.validTill ?? null;
 
   if (expiry && !existing.expiresOn) out.expiresOn = expiry;
-  if (read.kind === 'policy' && !existing.category) out.category = 'insurance';
-  if (read.kind === 'bill' && !existing.category) out.category = 'financial';
 
-  const name = read.fields.biller ?? read.fields.insurer;
+  // `document.issuedOn` exists on the schema and nothing had ever written it.
+  // An e-stamp's issue date is exactly that field: the date the state issued
+  // the paper, which is not the date the parties signed it and not the date it
+  // was filed here.
+  if (read.fields.issuedOn && !existing.issuedOn) out.issuedOn = read.fields.issuedOn;
+
+  const CATEGORY = {
+    policy: 'insurance',
+    bill: 'financial',
+    agreement: 'legal',
+    vehicle: 'vehicle',
+  };
+  const category = CATEGORY[read.kind];
+  if (category && !existing.category) out.category = category;
+
+  // Not the parties to an agreement: naming a document after one side of it is
+  // a judgement about whose document it is, and a deed belongs to both.
+  const name = read.fields.biller ?? read.fields.insurer ?? read.fields.registrationNumber;
   if (name && !existing.title) out.title = name;
 
   return out;

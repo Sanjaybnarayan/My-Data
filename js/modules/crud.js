@@ -19,7 +19,7 @@ import { entityForm } from '../ui/components/form.js';
 import { modal, confirm } from '../ui/components/modal.js';
 import { toast } from '../ui/components/toast.js';
 import {
-  card, cardHeader, button, badge, pageHeader, empty, reveal, dueBadge, chip,
+  card, cardHeader, button, badge, pageHeader, empty, reveal, dueBadge, chip, listItem,
 } from '../ui/components/basics.js';
 import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
@@ -30,6 +30,7 @@ import { isEncrypted } from '../security/crypto.js';
 import { maskable, mask, classify } from '../data/classification.js';
 import { RecordsService } from '../services/records.js';
 import { formatInstant } from '../core/dates.js';
+import { describe as describeAudit } from '../data/audit.js';
 
 /**
  * @param {{module: string, entity?: string, id?: string}} route
@@ -194,11 +195,17 @@ export async function listSection(entityName, {
 /**
  * @param {string} entityName
  * @param {string} id
- * @param {{onDelete?: (id: string) => Promise<string|void>}} [options]
+ * @param {{onDelete?: (id: string) => Promise<string|void>,
+ *          extra?: (record: object) => (Node|Node[]|null|Promise<Node|Node[]|null>)}} [options]
  *   `onDelete` replaces the record-only delete for entities that own more than
  *   a row — a document also owns bytes on this device and a file in Drive, and
  *   removing the row alone leaves both behind with nothing pointing at them.
  *   Return a string to say what actually happened.
+ *
+ *   `extra` renders below the fields, for an answer the fields cannot give. A
+ *   movement's own row says its amount and its kind; where that amount *came
+ *   from* is a walk back through the legs to the file they were parsed out of,
+ *   and no column can hold it.
  */
 export async function recordDetail(entityName, id, options = {}) {
   const def = entity(entityName);
@@ -326,6 +333,10 @@ export async function recordDetail(entityName, id, options = {}) {
         ]))),
     ]))),
 
+    options.extra ? (await options.extra(record)) ?? null : null,
+
+    await historyCard(entityName, id),
+
     // Any entity with a `documents` field gets file capture, without knowing
     // anything about Drive.
     def.fields.some((f) => f.type === 'files')
@@ -349,6 +360,44 @@ export async function recordDetail(entityName, id, options = {}) {
   ]);
 
   return { node: host };
+}
+
+/**
+ * What has happened to this record.
+ *
+ * Every record screen, not one. The log has recorded `recordId` on every entry
+ * since Phase 0.5 and nothing could ask it: `recentActivity` filters by entity
+ * *name*, so the application could say what happened to accounts and never
+ * what happened to **this** account — the question somebody looking at a record
+ * actually has.
+ *
+ * Kept short deliberately. A record edited weekly for a year has a long log and
+ * a screen is not an audit tool; the newest handful, with a sentence saying how
+ * many there are in total, is what a person reads.
+ */
+async function historyCard(entityName, id) {
+  const { entries, summary, nameOf } = await new RecordsService(app().db).history(id);
+  if (!entries.length) return null;
+
+  return card({ class: 'card--quiet record-history' }, [
+    cardHeader('What has happened to this', summary.changes
+      ? badge(`${summary.changes} change${summary.changes === 1 ? '' : 's'}`)
+      : null, { iconName: 'clock' }),
+
+    h('div', { class: 'list' }, entries.slice(0, 6).map((entry) => listItem({
+      title: describeAudit(entry, nameOf),
+      subtitle: formatInstant(entry.at),
+    }))),
+
+    entries.length > 6
+      ? h('p', { class: 'small faint' },
+        `${entries.length} entries in all. This is the household's own log — it `
+        + 'is never sent anywhere, and it records which fields changed rather '
+        + 'than what they changed to.')
+      : h('p', { class: 'small faint' },
+        'The household\'s own log. It records which fields changed rather than '
+        + 'what they changed to.'),
+  ]);
 }
 
 function detailValue(field, record, labels) {

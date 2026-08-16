@@ -607,6 +607,14 @@ const document = {
     text('mimeType', { hidden: true }),
     num('sizeBytes', { hidden: true }),
     num('versionCount', { default: 1, hidden: true }),
+    // The template this was produced from, by file name.
+    //
+    // Not a reference: a template is a `.docx` the household uploads each
+    // time, and there is no template record to point at. Naming the file is
+    // the whole of what can honestly be recorded, and it is worth recording —
+    // a generated document that cannot say what it was generated from is a
+    // document nobody can reproduce or check.
+    text('generatedFrom', { label: 'Generated from', list: true }),
     { key: 'ocrText', type: 'textarea', label: 'Extracted text', search: true, hidden: true },
     { key: 'confidential', type: 'boolean', default: false },
     note(),
@@ -982,7 +990,10 @@ const noteEntity = {
   name: 'note', module: 'notes', sheet: 'Notes', version: 1,
   labels: { one: 'Note', many: 'Notes' }, icon: 'note',
   acl: shared,
-  sort: '-updatedAt',
+  // Pinned first, then newest. `pinned` was on the form and read by nothing —
+  // a pin that moved nothing is a lie a screen tells — and it was invisible to
+  // the field-coverage ratchet because one unrelated comment used the word.
+  sort: '-pinned,-updatedAt',
   title: (r) => r.title,
   fields: [
     text('title', { required: true, list: true, search: true }),
@@ -1267,7 +1278,14 @@ export const systemStores = Object.freeze({
    * queued change, not per record.
    */
   shadow: { keyPath: 'id', indexes: [['byStore', 'store']] },
-  audit: { keyPath: 'id', indexes: [['byAt', 'at'], ['byEntity', 'entity']] },
+  // `byRecord` is what makes a single record's own history answerable. Without
+  // it the log can be asked what happened recently and what happened to
+  // *accounts*, and never what happened to **this** account — which is the
+  // question somebody looking at a record actually has.
+  audit: {
+    keyPath: 'id',
+    indexes: [['byAt', 'at'], ['byEntity', 'entity'], ['byRecord', 'recordId']],
+  },
   conflicts: { keyPath: 'id', indexes: [['byStore', 'store']] },
   meta: { keyPath: 'key', indexes: [] },
   blobs: { keyPath: 'id', indexes: [] },

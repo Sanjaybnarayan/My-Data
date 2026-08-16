@@ -22,6 +22,7 @@
  *
  *     | Consent engine | exists  | `file:js/data/consent.js`     |
  *     | MFA            | missing | `absent:grep:multi-factor`    |
+ *     | Movements      | on screen | `wired:js/modules/finance.js#ExplainService` |
  *
  *   - `file:<path>` — the path must exist. A row claiming something exists,
  *     pointing at a file that does not, is the stale direction everyone expects.
@@ -34,8 +35,13 @@
  *     then parses as nothing at all. A cell that looks like a probe and does
  *     not parse is reported rather than skipped, because that failure is silent
  *     and this document exists to stop silent failures.
+ *   - `wired:<path>#<term>` — that file must mention that term. The only probe
+ *     that can say **a screen calls the thing**: `file:` and `export:` assert
+ *     that an engine exists, and *"the engine exists and no screen calls it"*
+ *     is the finding this codebase has made more often than any other. A row
+ *     could assert the engine and stay green while nothing drew it.
  *
- * The last is the whole point. A document only drifts in the direction of
+ * The absent probe is half the point. A document only drifts in the direction of
  * understating what is built, because building is what people do.
  *
  * ## What this cannot check, said plainly
@@ -99,13 +105,13 @@ export function probesIn(markdown) {
     if (!line.startsWith('|')) return;
     const cells = line.split('|').map((cell) => cell.trim());
     const evidence = cells.at(-2) ?? '';
-    const match = /^`(file|export|absent):(.+)`$/.exec(evidence);
+    const match = /^`(file|export|absent|wired):(.+)`$/.exec(evidence);
     if (!match) {
       // A cell that *looks* like a probe and does not parse is the worst case:
       // it is silently not a claim, so the row can never fail. That is exactly
       // how `absent:grep:forecast|projection` sat in this document doing
       // nothing — a pipe inside a markdown table cell splits the cell.
-      if (/`?(file|export|absent):/.test(line)) {
+      if (/`?(file|export|absent|wired):/.test(line)) {
         out.push({
           line: index + 1,
           component: cells[1] ?? '',
@@ -155,6 +161,26 @@ export function checkProbe(probe, { sources = null, read = readFileSync } = {}) 
     const exported = new RegExp(`(export\\s+(async\\s+)?(function|const|class)\\s+${name}\\b`
       + `|export\\s*\\{[^}]*\\b${name}\\b|function\\s+${name}\\s*\\()`);
     return exported.test(text) ? null : `cites ${path}#${name}, which it does not export`;
+  }
+
+  if (probe.kind === 'wired') {
+    // The one claim this file could not make until now: **that a screen calls
+    // the thing**. `file:` and `export:` say something exists, and "the engine
+    // exists and no screen calls it" is the finding this codebase has made
+    // more often than any other — a row could assert the engine and stay green
+    // while nothing drew it.
+    const [path, term] = probe.target.split('#');
+    if (!existsSync(join(ROOT, path))) {
+      return `cites ${path}, which does not exist`;
+    }
+    const text = String(read(join(ROOT, path), 'utf8'));
+    // Escaped: a term like `options.extra` carries a dot, and an unescaped dot
+    // matches any character — a probe that goes green on `optionsXextra` is a
+    // probe with a hole in it.
+    const literal = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`\\b${literal}\\b`).test(text) ? null
+      : `says "${probe.state}" and cites ${path}, which does not mention ${term} — `
+        + 'the wiring this row claims is not there';
   }
 
   if (probe.kind === 'malformed') {

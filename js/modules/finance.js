@@ -32,6 +32,8 @@ import { describeRunway } from '../domain/runway.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
 import { EvidenceService } from '../services/evidence.js';
 import { describeOrphan } from '../domain/evidence.js';
+import { ExplainService } from '../services/explain.js';
+import { describeExplanation } from '../domain/explain.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
 
@@ -48,6 +50,7 @@ const TABS = [
   { id: 'budget', label: 'Budgets' },
   { id: 'recurringPayment', label: 'Recurring' },
   { id: 'loan', label: 'Loans' },
+  { id: 'economicEvent', label: 'Movements' },
   { id: 'smsMessage', label: 'Messages' },
 ];
 
@@ -55,12 +58,20 @@ const TABS = [
 // `smsMessage` is here because a message record comes from a message. Offering
 // a blank form for one would invite a household to type what a bank said,
 // which is the opposite of evidence.
+//
+// `economicEvent` is here for the same shape of reason. A movement is made of
+// the rows it is made of, and it is created by confirming a match between
+// them. A blank form would produce a movement with no legs — which
+// `domain/explain.js` reports as the worst thing it can find, and which this
+// screen would then have invited.
 const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights', 'transaction',
-  'bankStatement', 'smsMessage']);
+  'bankStatement', 'smsMessage', 'economicEvent']);
 
 export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity) {
-    return recordDetail(route.entity, route.id);
+    return recordDetail(route.entity, route.id, route.entity === 'economicEvent'
+      ? { extra: movementEvidence }
+      : {});
   }
 
   const active = route.entity ?? 'overview';
@@ -150,7 +161,9 @@ export async function render(route) {
 
   section = await listSection(active, {
     autoOpenNew: route.id === 'new',
-    banner: active === 'smsMessage' ? evidenceBanner : undefined,
+    banner: active === 'smsMessage' ? evidenceBanner
+      : active === 'economicEvent' ? explainBanner
+      : undefined,
   });
   replace(body, section.node);
   return { node: host, destroy: section.destroy };
@@ -204,6 +217,88 @@ async function evidenceBanner() {
   }
 
   return cards.length ? cards : null;
+}
+
+/**
+ * How much of the ledger of movements can be explained at all.
+ *
+ * The count is the point, the way provenance coverage is: *"every financial
+ * event is explainable"* is not a property a household has until the ones that
+ * are not can be named.
+ */
+async function explainBanner() {
+  const review = await new ExplainService(app().db).review();
+  if (!review.total) return null;
+
+  const cards = [];
+
+  if (review.problems.length) {
+    cards.push(card({ class: 'explain-problems' }, [
+      cardHeader('Movements with something wrong behind them',
+        badge(String(review.problems.length), 'warning'), { iconName: 'alert' }),
+      h('div', { class: 'list' }, review.problems.slice(0, 8).map((row) => listItem({
+        title: row.title,
+        subtitle: `${row.problem[0].toUpperCase()}${row.problem.slice(1)}.`,
+        href: Router.href({ module: 'finance', entity: 'economicEvent', id: row.event }),
+      }))),
+      h('p', { class: 'small faint' },
+        'Nothing here has been changed. A figure recorded on a movement is what '
+        + 'somebody confirmed; the rows are what they say now, and both are kept.'),
+    ]));
+  }
+
+  cards.push(card({ class: 'card--quiet explain-count' }, [
+    h('p', { class: 'small muted', style: { margin: 0 } },
+      `${review.documented} of ${review.total} movements are made only of rows `
+      + `parsed from a statement. ${review.partlyTyped} include a row somebody `
+      + `typed, and ${review.unexplained} have no rows behind them at all. `
+      + 'None of this was checked by a person.'),
+  ]));
+
+  return cards;
+}
+
+/**
+ * Where one movement came from, under its own fields.
+ *
+ * The fields say what the movement is. This says what it is made of, and how
+ * far back each piece can be followed — which is rule 57 and is not a column.
+ */
+async function movementEvidence(record) {
+  const explanation = await new ExplainService(app().db).forEvent(record.id);
+  if (!explanation) return null;
+
+  const { amount, chains, problems } = explanation;
+
+  return card({ class: 'explain-detail' }, [
+    cardHeader('Where this came from', null, { iconName: 'info' }),
+
+    h('p', { class: 'small' }, describeExplanation(explanation)),
+
+    // Both figures, side by side, when the rows no longer add up to the one on
+    // the record. Neither is corrected and neither is hidden.
+    amount.agrees === false
+      ? h('div', { class: 'row row--between' }, [
+        h('span', { class: 'small muted' }, 'Recorded here'),
+        money(amount.recorded),
+        h('span', { class: 'small muted' }, 'The rows now say'),
+        money(amount.fromLegs),
+      ])
+      : null,
+
+    chains.length
+      ? h('div', { class: 'list' }, chains.map((chain) => listItem({
+        title: chain.direction === 'out' ? 'Out' : chain.direction === 'in' ? 'In' : 'A leg',
+        subtitle: chain.story,
+        value: chain.amount === null ? '—' : format(chain.amount),
+        href: Router.href({ module: 'finance', entity: 'transaction', id: chain.transaction }),
+      })))
+      : null,
+
+    problems.length
+      ? h('ul', { class: 'small faint' }, problems.map((problem) => h('li', {}, problem)))
+      : null,
+  ]);
 }
 
 /* --------------------------------------------------------------- overview */

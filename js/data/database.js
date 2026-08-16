@@ -11,7 +11,7 @@ import { openDatabase } from './migrations.js';
 import { Repository } from './repository.js';
 import { entities, entity } from './schema.js';
 import { searchIndex, indexEntry } from './search.js';
-import { auditEntry, ACTIONS } from './audit.js';
+import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
 import { Keyring } from '../security/keyring.js';
 import { deviceId as resolveDeviceId } from '../core/ids.js';
 import { memoryStorage } from '../security/session.js';
@@ -105,6 +105,29 @@ export class Database {
   async setMeta(key, value) {
     await this.adapter.write('meta', { key, value, updatedAt: new Date().toISOString() });
     return value;
+  }
+
+  /* ----------------------------------------------------------------- audit */
+
+  /**
+   * What has happened to one record.
+   *
+   * Here rather than in a service because a service may not touch
+   * `db.adapter` — the rule that keeps every row read through the permission
+   * check — and the audit log has no repository to read it through: it is not
+   * an entity and carries no per-row ACL. So the one place system stores are
+   * reached stays this class, and the rule stays absolute.
+   *
+   * A caller has already been permitted to read the record itself; these are
+   * entries about that record and nothing else.
+   */
+  async history(recordId, options) {
+    return historyOf(this.adapter, recordId, options);
+  }
+
+  /** Recent entries across every record, for the activity feed. */
+  async activity(options) {
+    return recentActivity(this.adapter, options);
   }
 
   /* ---------------------------------------------------------------- search */

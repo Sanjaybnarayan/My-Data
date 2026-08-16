@@ -27,6 +27,7 @@ import { readTemplate, generate, generatedName } from '../domain/docxtemplate.js
 import { inflate } from '../data/pdf-read.js';
 import { ACTIONS } from '../data/audit.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
+import { documentStore } from './documents.js';
 
 const PERIODS = [
   ['month', 'This month'],
@@ -383,12 +384,28 @@ function templateCard() {
             if (box && box.value) values[field] = box.value;
           }
           try {
-            await download({
-              blobParts: [generate(template.parts, values)],
-              mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-              filename: generatedName(template.name),
-            });
-            toast('Generated — your template is untouched', { kind: 'success' });
+            const bytes = generate(template.parts, values);
+            const filename = generatedName(template.name);
+            const mime = 'application/vnd.openxmlformats-officedocument'
+              + '.wordprocessingml.document';
+
+            await download({ blobParts: [bytes], mime, filename });
+
+            // Downloaded *and* filed. A generated document that exists only in
+            // a downloads folder is one this application cannot say it
+            // produced: no record of what it came from, no version history,
+            // and nothing in the household's own Drive. Filing it goes through
+            // the same path a scanned file takes, so it gets the same
+            // encryption at rest, the same upload queue and the same Drive
+            // revisions that `versionCount` already reads.
+            const filed = await documentStore().capture(
+              new File([bytes], filename, { type: mime }),
+              { title: filename, category: 'other', generatedFrom: template.name },
+            );
+
+            toast(filed
+              ? 'Generated and filed — your template is untouched'
+              : 'Generated — your template is untouched', { kind: 'success' });
           } catch (err) {
             toast(userMessage(err), { kind: 'error' });
           }

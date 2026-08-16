@@ -6,6 +6,8 @@
  */
 
 import { test, describe, assert, setSuite } from './harness.mjs';
+import { makeDb } from './fixture.mjs';
+import { DocumentStore } from '../js/sync/drive.js';
 import {
   entriesIn, unzip, textRuns, fieldsIn, fill, readTemplate, generate, generatedName,
 } from '../js/domain/docxtemplate.js';
@@ -168,5 +170,146 @@ describe('reading the zip itself', () => {
     const runs = textRuns(SPLIT);
     assert.equal(runs.map((one) => one.text).join('|'), 'Dear |{{Na|me}}|, your rent is {{Amount}}.');
     assert.ok(runs[0].at < runs[1].at);
+  });
+});
+
+describe("the fields Word's own UI writes", () => {
+  // Measured before any of this existed: all three shapes reported no fields
+  // at all — honestly, and uselessly. A template built the way Word documents
+  // it carries no `{{placeholders}}` anywhere.
+  const simple = '<w:p><w:r><w:t>Dear </w:t></w:r>'
+    + '<w:fldSimple w:instr=" MERGEFIELD Tenant \\* MERGEFORMAT ">'
+    + '<w:r><w:t>«Tenant»</w:t></w:r></w:fldSimple>'
+    + '<w:r><w:t>,</w:t></w:r></w:p>';
+
+  const complex = '<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r>'
+    + '<w:r><w:instrText xml:space="preserve"> MERGEFIELD Amount </w:instrText></w:r>'
+    + '<w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+    + '<w:r><w:t>«Amount»</w:t></w:r>'
+    + '<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>';
+
+  const control = '<w:p><w:sdt><w:sdtPr><w:alias w:val="Landlord name"/>'
+    + '<w:tag w:val="landlord"/></w:sdtPr>'
+    + '<w:sdtContent><w:r><w:t>Click to enter</w:t></w:r></w:sdtContent></w:sdt></w:p>';
+
+  test('a simple MERGEFIELD is found and filled', () => {
+    assert.deep(fieldsIn(simple), ['Tenant']);
+    const out = fill(simple, { Tenant: 'Meera Narayan' });
+    assert.includes(out, 'Meera Narayan');
+    assert.not(out.includes('fldSimple'), 'the field survived into the document');
+    assert.not(out.includes('«Tenant»'), "Word's own placeholder text survived");
+    // The words around it are untouched.
+    assert.includes(out, '<w:t>Dear </w:t>');
+    assert.includes(out, '<w:t>,</w:t>');
+  });
+
+  test('the five-run complex form is one field, not five', () => {
+    assert.deep(fieldsIn(complex), ['Amount']);
+    const out = fill(complex, { Amount: '18,500' });
+    assert.includes(out, '18,500');
+    assert.not(out.includes('fldChar'), 'the field machinery survived');
+    assert.not(out.includes('MERGEFIELD'), 'the instruction survived into the document');
+  });
+
+  test('a content control is named by its tag and replaced by plain text', () => {
+    assert.deep(fieldsIn(control), ['landlord']);
+    const out = fill(control, { landlord: 'S Narayan & Co' });
+    // Escaped, like every other value this writes.
+    assert.includes(out, 'S Narayan &amp; Co');
+    assert.not(out.includes('<w:sdt'), 'the control survived, so the output is still a form');
+    assert.not(out.includes('Click to enter'));
+  });
+
+  test('an alias stands in when a control carries no tag', () => {
+    const aliasOnly = '<w:sdt><w:sdtPr><w:alias w:val="Witness"/></w:sdtPr>'
+      + '<w:sdtContent><w:r><w:t>…</w:t></w:r></w:sdtContent></w:sdt>';
+    assert.deep(fieldsIn(aliasOnly), ['Witness']);
+  });
+
+  test('a template with both kinds reports both, in document order', () => {
+    // Somebody edited a Word-built template by hand. Both are real.
+    const mixed = `${simple}<w:p><w:r><w:t>{{Date}}</w:t></w:r></w:p>`;
+    assert.deep(fieldsIn(mixed), ['Tenant', 'Date']);
+
+    const out = fill(mixed, { Tenant: 'Meera Narayan', Date: '16 August 2026' });
+    assert.includes(out, 'Meera Narayan');
+    assert.includes(out, '16 August 2026');
+  });
+
+  test('an unfilled Word field keeps its placeholder, as a brace field does', () => {
+    const out = fill(simple, { Somebody: 'else' });
+    assert.includes(out, 'fldSimple', 'the field was blanked rather than left');
+    assert.includes(out, '«Tenant»');
+  });
+
+  test('a field with no MERGEFIELD instruction is not one of ours', () => {
+    // ` PAGE ` and ` DATE ` are Word fields too, and filling them would be
+    // this application overwriting page numbers.
+    const page = '<w:p><w:fldSimple w:instr=" PAGE \\* MERGEFORMAT ">'
+      + '<w:r><w:t>1</w:t></w:r></w:fldSimple></w:p>';
+    assert.length(fieldsIn(page), 0);
+    assert.equal(fill(page, { PAGE: '99' }), page);
+  });
+
+  test('two fields in one paragraph are both replaced, and neither eats the other',
+    () => {
+      const two = '<w:p>'
+        + '<w:fldSimple w:instr=" MERGEFIELD A "><w:r><w:t>«A»</w:t></w:r></w:fldSimple>'
+        + '<w:r><w:t> and </w:t></w:r>'
+        + '<w:fldSimple w:instr=" MERGEFIELD B "><w:r><w:t>«B»</w:t></w:r></w:fldSimple>'
+        + '</w:p>';
+      const out = fill(two, { A: 'first', B: 'second' });
+      assert.includes(out, 'first');
+      assert.includes(out, 'second');
+      assert.includes(out, '<w:t> and </w:t>');
+      assert.not(out.includes('fldSimple'));
+    });
+});
+
+describe('a generated document is filed, not only downloaded', () => {
+  const asFile = (bytes, { name, type }) => ({
+    name,
+    type,
+    size: bytes.length,
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength),
+  });
+
+  test('it is recorded, and says which template it came from', async () => {
+    // Generating used to download and nothing else, which left the household
+    // with a file in a downloads folder and this application unable to say it
+    // had produced anything: no record, no version history, nothing in Drive.
+    const db = await makeDb();
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+
+    const { document } = await new DocumentStore({ db, transport: null }).capture(
+      asFile(bytes, {
+        name: 'rent-receipt-2026-08-16.docx',
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }),
+      { title: 'rent-receipt-2026-08-16.docx', category: 'other',
+        generatedFrom: 'rent-receipt.docx' },
+    );
+
+    const saved = await db.repo('document').get(document.id);
+    assert.equal(saved.generatedFrom, 'rent-receipt.docx');
+    assert.equal(saved.fileName, 'rent-receipt-2026-08-16.docx');
+    // The same path a scan takes: a version count Drive will maintain, and an
+    // encrypted blob queued for upload.
+    assert.equal(saved.versionCount, 1);
+    const blobs = await db.adapter.query('blobs', {});
+    assert.length(blobs.filter((blob) => blob.documentId === document.id), 1);
+  });
+
+  test('a scanned file says it came from nowhere, because it did', async () => {
+    // The field is absent rather than defaulted to something. "Generated from
+    // a scan" would be a claim about a file somebody photographed.
+    const db = await makeDb();
+    const { document } = await new DocumentStore({ db, transport: null }).capture(
+      asFile(new Uint8Array([9, 9]), { name: 'bill.pdf', type: 'application/pdf' }),
+      { category: 'other' },
+    );
+
+    assert.not((await db.repo('document').get(document.id)).generatedFrom);
   });
 });

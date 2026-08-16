@@ -157,6 +157,50 @@ describe('the one forbidden edge that is open', () => {
     assert.includes(problem, 'may only narrow');
   });
 
+  test('a wired probe fails when the screen does not call the thing', () => {
+    // The claim `file:` and `export:` cannot make. "The engine exists and no
+    // screen calls it" is the finding this codebase makes most often, and a
+    // row asserting only the engine stays green through it.
+    const drawn = checkProbe(
+      { kind: 'wired', target: 'js/modules/finance.js#ExplainService', state: 'exists' },
+      { read: () => 'import { ExplainService } from "../services/explain.js";' },
+    );
+    assert.equal(drawn, null);
+
+    const headless = checkProbe(
+      { kind: 'wired', target: 'js/modules/finance.js#ExplainService', state: 'exists' },
+      { read: () => 'import { FinanceService } from "../services/finance.js";' },
+    );
+    assert.ok(headless);
+    assert.includes(headless, 'the wiring this row claims is not there');
+  });
+
+  test('and a wired probe pointing at nothing says so', () => {
+    assert.includes(
+      checkProbe({ kind: 'wired', target: 'js/modules/gone.js#Thing', state: 'exists' }),
+      'does not exist',
+    );
+  });
+
+  test('a name that only appears as part of a longer one does not count', () => {
+    // `\b` on both sides: `ExplainServiceOld` is not `ExplainService`, and a
+    // probe that matched loosely would go green on a rename it should catch.
+    const problem = checkProbe(
+      { kind: 'wired', target: 'js/modules/finance.js#ExplainService', state: 'exists' },
+      { read: () => 'import { ExplainServiceOld } from "./old.js";' },
+    );
+    assert.ok(problem, 'a substring passed as a match');
+  });
+
+  test('a term carrying regex punctuation is matched literally', () => {
+    // `options.extra` has a dot in it, and an unescaped dot matches anything.
+    // A probe that goes green on `optionsXextra` is a probe with a hole in it.
+    assert.ok(checkProbe(
+      { kind: 'wired', target: 'js/modules/crud.js#options.extra', state: 'exists' },
+      { read: () => 'optionsXextra' },
+    ));
+  });
+
   test('a screen with no direct calls is not listed at all', () => {
     const { count, byFile } = uiDatabaseCalls({
       files: ['/x/clean.js'], read: () => 'import { thing } from "./service.js";',

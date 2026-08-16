@@ -9,6 +9,7 @@ import { tokenize, prefixes } from '../js/data/search.js';
 import { changedFields } from '../js/data/audit.js';
 import { isEncrypted } from '../js/security/crypto.js';
 import { sortBy } from '../js/data/repository.js';
+import { withoutComments } from '../tools/field-coverage.mjs';
 
 setSuite('data');
 
@@ -539,5 +540,59 @@ describe('repository', () => {
     assert.equal(stats.person.total, 2);
     assert.equal(stats.person.live, 1);
     assert.equal(stats._outbox.pending, 3);
+  });
+});
+
+describe('sorting by more than one key', () => {
+  test('pinned first, then newest', () => {
+    // One key was enough until a `pinned` flag had to survive a date sort. A
+    // screen sorting by pin alone puts a note pinned in March above one edited
+    // this morning.
+    const rows = [
+      { id: 'a', pinned: false, updatedAt: '2026-08-16' },
+      { id: 'b', pinned: true, updatedAt: '2026-03-01' },
+      { id: 'c', pinned: true, updatedAt: '2026-08-15' },
+      { id: 'd', pinned: false, updatedAt: '2026-08-10' },
+    ];
+    assert.deep(sortBy(rows, '-pinned,-updatedAt').map((r) => r.id), ['c', 'b', 'a', 'd']);
+  });
+
+  test('a blank sorts last whichever way the key runs', () => {
+    // "No date" is not "the earliest date", and flipping it would put every
+    // blank at the top of a descending list.
+    const rows = [{ id: 'a', at: '' }, { id: 'b', at: '2026-01-01' }];
+    assert.deep(sortBy(rows, 'at').map((r) => r.id), ['b', 'a']);
+    assert.deep(sortBy(rows, '-at').map((r) => r.id), ['b', 'a']);
+  });
+
+  test('a single key still behaves as it always did', () => {
+    const rows = [{ id: 'a', n: 2 }, { id: 'b', n: 1 }];
+    assert.deep(sortBy(rows, 'n').map((r) => r.id), ['b', 'a']);
+    assert.deep(sortBy(rows, '-n').map((r) => r.id), ['a', 'b']);
+  });
+});
+
+describe('a field name in a comment is not a field being read', () => {
+  test('prose cannot silence the coverage ratchet', () => {
+    // It could, and did: a doc comment quoting an activity feed — "changed
+    // upiId on an account" — took `account.upiId` off the unread list without
+    // a line of code touching it.
+    assert.equal(withoutComments('// upiId here').trim(), '');
+    assert.equal(withoutComments('const x = 1; // upiId').trim(), 'const x = 1;');
+    assert.not(withoutComments('/** upiId */').includes('upiId'));
+  });
+
+  test('and a wildcard inside a string does not open a comment', () => {
+    // The first version matched block comments with a regex, so a file-picker
+    // `accept` string paired with a close two hundred lines later and swallowed
+    // the only line that read `document.confidential`.
+    const source = "const accept = 'image/*,application/pdf';\nconst keep = document.confidential;";
+    const out = withoutComments(source);
+    assert.includes(out, 'confidential');
+    assert.includes(out, 'image/');
+  });
+
+  test('a comment marker inside a string survives', () => {
+    assert.includes(withoutComments('const u = "https://example.test/x";'), 'example.test');
   });
 });

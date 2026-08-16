@@ -25,6 +25,13 @@
  * Rows are reassembled from the Y coordinate, because a table in a PDF is not
  * a table — it is a few hundred independent runs that happen to line up.
  *
+ * Finding the fonts is most of the work of `Tf`, and a page can hide them in
+ * several places: written into the page, referred to by object number, or
+ * both at once with the font dictionary itself inline. All of those are
+ * followed, because the difference between them is the difference between a
+ * scanned bill and 2,718 characters of mojibake — see
+ * `docs/DOCUMENT_FORMATS.md`.
+ *
  * ## What it does not do
  *
  * No shaping, no ligature resolution, no right-to-left. Encrypted PDFs are
@@ -179,12 +186,42 @@ function parseToUnicode(cmap) {
   return { map, twoByte: width >= 2 };
 }
 
+/**
+ * Typographic ligatures, as the letters a person typed.
+ *
+ * A subset font maps its `ﬁ` glyph to U+FB01, which is correct and unhelpful:
+ * `beneﬁts` does not match a search for `benefits`, and no label pattern in
+ * `domain/extract.js` containing `fi` will ever match a document that uses
+ * them. Measured on a real motor policy, which is full of them.
+ *
+ * This is the one place a reader is allowed to change what the document said,
+ * because it is not changing it — U+FB01 *is* `fi`, written as one glyph for
+ * the typesetter's benefit.
+ */
+const LIGATURES = new Map(Object.entries({
+  'ﬀ': 'ff', 'ﬁ': 'fi', 'ﬂ': 'fl',
+  'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬅ': 'st', 'ﬆ': 'st',
+}));
+
+const unligature = (text) => (/[ﬀ-ﬆ]/.test(text)
+  ? [...text].map((ch) => LIGATURES.get(ch) ?? ch).join('')
+  : text);
+
 function utf16beToString(hex) {
   let out = '';
   for (let i = 0; i < hex.length; i += 4) {
-    out += String.fromCharCode(parseInt(hex.slice(i, i + 4).padEnd(4, '0'), 16));
+    const code = parseInt(hex.slice(i, i + 4).padEnd(4, '0'), 16);
+    // A CMap entry of U+0000 is a font saying *this glyph has no Unicode* —
+    // subset fonts write it for ligatures and ornaments they could not map.
+    // Emitting it puts a NUL inside a word: measured on a real policy, the
+    // reader produced `Certi<NUL>cate`, which is invisible on screen, does
+    // not match a search for `certificate`, and would be written into a cell
+    // in the household's Sheet. Dropping it leaves `Certicate` — wrong, but
+    // wrong in a way somebody can see.
+    if (code === 0) continue;
+    out += String.fromCharCode(code);
   }
-  return out;
+  return unligature(out);
 }
 
 /* ------------------------------------------------------ content streams */
@@ -463,29 +500,84 @@ function contentStreams(number, objects) {
   return nested.length ? nested : [number];
 }
 
+/**
+ * The `<< … >>` starting at `open`, counting nesting.
+ *
+ * A dictionary cannot be found with `<<([^>]*)>>`: the first `>` inside it
+ * ends the match, so `/Font<</Ft0<</BaseFont/Times-Roman>>>>` reads as far as
+ * the inner font and stops. Depth-counting is the only way to get the whole
+ * of a dictionary that contains one.
+ */
+function balancedDict(source, open) {
+  let depth = 0;
+  for (let i = open; i < source.length - 1; i++) {
+    if (source[i] === '<' && source[i + 1] === '<') { depth++; i++; continue; }
+    if (source[i] === '>' && source[i + 1] === '>') {
+      depth--;
+      if (!depth) return source.slice(open, i + 2);
+      i++;
+    }
+  }
+  return null;
+}
+
+/**
+ * The dictionary at `/key`, whether it is written out or referred to.
+ *
+ * `/Resources << /Font … >>` and `/Resources 3620 0 R` are the same thing
+ * said two ways, and a page is free to use either. Adobe Scan uses the
+ * second — so does most of what a household will actually scan a bill with —
+ * and a reader that only knows the first finds no fonts on the page at all.
+ */
+function dictValue(body, key, objects) {
+  const at = new RegExp(`/${key}\\s*(<<|\\d+\\s+\\d+\\s+R)`).exec(body ?? '');
+  if (!at) return null;
+
+  if (at[1] === '<<') return balancedDict(body, at.index + at[0].length - 2);
+
+  const target = objects.get(Number(/(\d+)/.exec(at[1])[1]))?.body;
+  const open = target?.indexOf('<<') ?? -1;
+  return open === -1 ? null : balancedDict(target, open);
+}
+
+/**
+ * A PDF name, as written after its slash.
+ *
+ * `C0_0` is a name a real producer uses, and `[A-Za-z0-9]+` does not match
+ * it — it matches `C0` and then fails on the underscore, so the font is
+ * skipped and its text comes out undecoded. Everything that is not a
+ * delimiter or whitespace is part of the name.
+ */
+const NAME = '[^\\s/<>\\[\\]()]+';
+
 export function build({ objects, text, encrypted }, inflated) {
   expandObjectStreams(objects, inflated);
   const streamData = (number) => inflated.get(number) ?? null;
 
   if (encrypted) {
-    return { pages: [], encrypted: true, reason: 'the PDF is encrypted' };
+    return { pages: [], encrypted: true, pageCount: 0, reason: 'the PDF is encrypted' };
   }
 
-  // Fonts by object number, each with its ToUnicode map where it has one.
-  const fontsByNumber = new Map();
-  for (const [number, object] of objects) {
-    if (!/\/Type\s*\/Font/.test(object.body)) continue;
-    const reference = /\/ToUnicode\s+(\d+)\s+\d+\s+R/.exec(object.body);
+  /** What a font dictionary says about turning its bytes into text. */
+  const readFont = (body) => {
+    const reference = /\/ToUnicode\s+(\d+)\s+\d+\s+R/.exec(body);
     let toUnicode = null;
     if (reference) {
       const data = streamData(Number(reference[1]));
       if (data) toUnicode = parseToUnicode(data);
     }
-    fontsByNumber.set(number, {
+    return {
       toUnicode: toUnicode?.map ?? null,
       // A composite font is two-byte even when its CMap forgot to say so.
-      twoByte: toUnicode?.twoByte ?? /\/Subtype\s*\/Type0/.test(object.body),
-    });
+      twoByte: toUnicode?.twoByte ?? /\/Subtype\s*\/Type0/.test(body),
+    };
+  };
+
+  // Fonts by object number, each with its ToUnicode map where it has one.
+  const fontsByNumber = new Map();
+  for (const [number, object] of objects) {
+    if (!/\/Type\s*\/Font/.test(object.body)) continue;
+    fontsByNumber.set(number, readFont(object.body));
   }
 
   // Pages, in the order the page tree gives them. Resolving each page's own
@@ -498,13 +590,28 @@ export function build({ objects, text, encrypted }, inflated) {
 
   for (const [, page] of pageObjects) {
     const fonts = new Map();
-    const resources = /\/Font\s*<<([^>]*)>>/.exec(page.body);
-    if (resources) {
-      const entries = resources[1].match(/\/([A-Za-z0-9]+)\s+(\d+)\s+\d+\s+R/g) ?? [];
-      for (const entry of entries) {
-        const [, name, number] = /\/([A-Za-z0-9]+)\s+(\d+)\s+\d+\s+R/.exec(entry);
+    const resources = dictValue(page.body, 'Resources', objects);
+    const fontDict = dictValue(resources, 'Font', objects);
+
+    if (fontDict) {
+      // `/F1 5 0 R` — the font is an object of its own.
+      for (const entry of fontDict.match(
+        new RegExp(`/(${NAME})\\s+(\\d+)\\s+\\d+\\s+R`, 'g')) ?? []) {
+        const [, name, number] = new RegExp(`/(${NAME})\\s+(\\d+)\\s+\\d+\\s+R`).exec(entry);
         const font = fontsByNumber.get(Number(number));
         if (font) fonts.set(name, font);
+      }
+
+      // `/Ft0 << /BaseFont … >>` — the font is written into the page's own
+      // resources. A simple font written this way has no ToUnicode and needs
+      // none; reading it matters because a page whose fonts are all inline
+      // would otherwise bind nothing and report every run as raw bytes.
+      const inline = new RegExp(`/(${NAME})\\s*<<`, 'g');
+      for (let m = inline.exec(fontDict); m; m = inline.exec(fontDict)) {
+        const body = balancedDict(fontDict, m.index + m[0].length - 2);
+        if (!body) continue;
+        if (!fonts.has(m[1])) fonts.set(m[1], readFont(body));
+        inline.lastIndex = m.index + m[0].length - 2 + body.length;
       }
     }
 
@@ -526,7 +633,26 @@ export function build({ objects, text, encrypted }, inflated) {
     if (items.length) pages.push({ items, rows: toRows(items), lines: toLines(items) });
   }
 
-  return { pages, encrypted: false };
+  // A page with no text is not kept — a blank page in the middle of a
+  // statement would shift every row a caller counts on. But the *count* is
+  // kept, because without it these three are the same answer:
+  //
+  //   - these bytes are not a PDF
+  //   - this is a PDF and I could not parse it
+  //   - this is a PDF of photographs, and there is no text in it to find
+  //
+  // Measured: two of eight real documents — a warranty booklet and a scanned
+  // certificate — returned `pages: []` with `encrypted: false`, byte for byte
+  // what this returns for a JPEG renamed to `.pdf`. A household scanning a
+  // warranty card would be told nothing at all, when the true answer is
+  // "this needs OCR", which is a thing they can act on.
+  return {
+    pages,
+    encrypted: false,
+    pageCount: pageObjects.length,
+    reason: pages.length || !pageObjects.length ? undefined
+      : 'the PDF has pages but no text in them — it is a scan, and needs OCR',
+  };
 }
 
 /**
@@ -630,12 +756,20 @@ export async function inflateAll(bytes, { streams }, decompress = inflate) {
  *
  * @param {Uint8Array|ArrayBuffer} input
  * @param {{decompress?: (raw: Uint8Array) => Promise<Uint8Array|null>}} [options]
- * @returns {Promise<{pages: Array<{items, rows, lines}>, encrypted: boolean, reason?: string}>}
+ * `pageCount` is how many pages the file has; `pages` is how many carried
+ * text. They differ for a scan with no text layer, and `reason` says so.
+ *
+ * @returns {Promise<{pages: Array<{items, rows, lines}>, encrypted: boolean,
+ *   pageCount: number, reason?: string}>}
  */
 export async function extract(input, { decompress = inflate } = {}) {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   const scanned = scan(bytes);
-  if (scanned.encrypted) return { pages: [], encrypted: true, reason: 'the PDF is encrypted' };
+  // `pageCount: 0` rather than absent: every path out of here answers the
+  // same three questions, so a caller never has to test which shape it got.
+  if (scanned.encrypted) {
+    return { pages: [], encrypted: true, pageCount: 0, reason: 'the PDF is encrypted' };
+  }
   return build(scanned, await inflateAll(bytes, scanned, decompress));
 }
 

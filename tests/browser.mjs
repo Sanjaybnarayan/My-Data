@@ -533,15 +533,30 @@ async function main() {
         check('nothing is said to have been kept for the one-time code',
           !/Kept, so the link/i.test(otp), otp.slice(0, 600));
 
-        // The kept message, reachable. A record stored and never listed is a
-        // record a household cannot check, which is the whole objection to
-        // keeping it in the first place.
+        // A record's own history, on the record screen. The log has carried
+        // `recordId` since Phase 0.5 and nothing could ask it.
+        await go(page, '#/finance/account');
+        await page.waitForTimeout(900);
+        await page.locator('text=HDFC Savings').first().click();
+        await page.waitForTimeout(1200);
+        const detail = (await page.locator('.app-content').innerText()).trim();
+
+        check('a record says what has happened to it',
+          /What has happened to this/i.test(detail), detail.slice(0, 500));
+        check('and names the change rather than what it changed to',
+          /records which fields changed rather than what they changed to/i.test(detail),
+          detail.slice(0, 500));
+
         await go(page, '#/finance/smsMessage');
         // Longer than the usual pause: the banner reads three entities before
         // the table paints.
         await page.waitForTimeout(1500);
         const list = (await page.locator('.app-content').innerText()).trim();
 
+        // The kept message, reachable. A record stored and never listed is a
+        // record a household cannot check, which is the whole objection to
+        // keeping it in the first place.
+        //
         // `pasted`, not `HDFCBK`: the Import screen is where this message came
         // from and it says so. Asserting the bank's short code would have been
         // asserting something the screen never claimed.
@@ -553,6 +568,22 @@ async function main() {
         // invite a household to type what a bank said.
         check('and there is no form offering to invent one',
           (await page.getByRole('button', { name: /^Add$/ }).count()) === 0, list.slice(0, 200));
+
+        // Movements, reachable for the first time. `economicEvent` has existed
+        // since Phase 5 and no tab has ever linked to it — the same gap the
+        // Messages tab closed one tranche earlier.
+        await go(page, '#/finance/economicEvent');
+        await page.waitForTimeout(1500);
+        const movements = (await page.locator('.app-content').innerText()).trim();
+
+        check('Movements is reachable from Finance',
+          /Movements/.test(movements), movements.slice(0, 300));
+        // A movement is made of the rows it is made of. A blank form would
+        // produce one with no legs — the worst thing `domain/explain.js` can
+        // find, invited by the screen meant to report it.
+        check('and offers no form for inventing one',
+          (await page.getByRole('button', { name: /^Add$/ }).count()) === 0,
+          movements.slice(0, 200));
 
         // Back to Import: the next block reaches for the file input on this
         // screen, and leaving the page on Messages made it time out.
@@ -2269,6 +2300,39 @@ async function main() {
       // the ones without one are.
       check('the record with a nominee is not listed as a gap',
         !/HDFC Savings/.test(said), said.slice(0, 300));
+    }
+
+    /* ------------------------------------------- what has been happening */
+
+    {
+      // The activity feed, as things rather than log lines. It used to be the
+      // last eight audit entries, and not one of them said *which* record had
+      // changed — an audit entry carries an id, and `describe` could only
+      // reach the entity's label.
+      await go(page, '#/dashboard');
+      // The dashboard now resolves a title per story, so it paints later than
+      // it used to. Waiting on a card rather than on a guessed number of
+      // milliseconds, and reading `#app` — `.app-content` is replaced during
+      // the paint, and reading it too early returns the header alone.
+      await page.waitForSelector('.app-content .card', { timeout: 10_000 });
+      await page.waitForTimeout(1200);
+      const feed = (await page.locator('#app').innerText()).trim();
+
+      // The KYC records are the newest things this run created, so they are
+      // what the feed is about. Asserting a record created early would be
+      // asserting that a CSV import of a hundred rows had not happened since —
+      // which is how the first version of this check failed.
+      check('the activity feed names the record it is about',
+        /Axis Bank|HDFC Bank|Zerodha/.test(feed), feed.slice(-900));
+      // One sitting is one line. Three KYC records added in a row must not
+      // read as one line per field.
+      //
+      // Word-bounded: `kin` without them matches "banking" and "kind", and the
+      // first version of this failed on the word "Investments" — the same
+      // mistake the `wired:` probe was given boundaries to avoid, repeated one
+      // file along.
+      check('and does not repeat one record once per field changed',
+        !/\b(kin|heldAddress|recordedOn)\b/.test(feed), feed.slice(-900));
     }
 
     /* ------------------------------------------------------------ dark */

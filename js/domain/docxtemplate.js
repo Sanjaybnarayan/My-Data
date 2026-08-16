@@ -143,6 +143,99 @@ export function textRuns(xml) {
   return out;
 }
 
+/* --------------------------------------------- what Word's own UI produces */
+
+/**
+ * A `{{placeholder}}` is what a person types. It is not what Word's field UI
+ * writes, and a template built the way Word documents it carries none.
+ *
+ * Three shapes, all measured against this file before any of this was written,
+ * and all three reported **no fields at all** — honestly, and uselessly:
+ *
+ *   - `<w:fldSimple w:instr=" MERGEFIELD Tenant ">` — one element.
+ *   - The same field in its **complex** form: a run holding a `begin`
+ *     `fldChar`, a run holding the `instrText`, a `separate`, the text Word
+ *     shows, and an `end`. Five runs for one field.
+ *   - A **content control** — `<w:sdt>` — with a `w:tag` naming it and a
+ *     `w:sdtContent` holding whatever the author left in the box.
+ *
+ * ## What filling one produces
+ *
+ * **Static text.** A filled field is replaced by an ordinary run, so the field
+ * is gone from the output and will not re-merge against anything. That is what
+ * generating a document means here: the template is untouched — this returns
+ * new bytes — and the thing produced is a document rather than another
+ * template. A `<w:sdt>` that kept its control would be a document Word offers
+ * to edit as a form, which is a different artefact from the one asked for.
+ *
+ * ## The one structural assumption
+ *
+ * A complex field's `begin` and `end` `fldChar` elements each sit as the first
+ * child of their own run. That is what Word writes, and what every template
+ * this has been tested against carries. A field nested some other way is not
+ * matched — so it keeps its placeholder and is visible, rather than being
+ * half-replaced.
+ */
+const MERGEFIELD = /MERGEFIELD\s+"?([^"\\\s]+)"?/i;
+
+/** `<w:fldSimple w:instr="…">…</w:fldSimple>`, one element per field. */
+function simpleFieldSpans(xml) {
+  const out = [];
+  const pattern = /<w:fldSimple\b[^>]*w:instr="([^"]*)"[^>]*>[\s\S]*?<\/w:fldSimple>/g;
+  let found = pattern.exec(xml);
+  while (found) {
+    const name = MERGEFIELD.exec(found[1])?.[1];
+    if (name) out.push({ from: found.index, to: found.index + found[0].length, name });
+    found = pattern.exec(xml);
+  }
+  return out;
+}
+
+/** The five-run form: begin, instruction, separate, shown text, end. */
+function complexFieldSpans(xml) {
+  const out = [];
+  const pattern = /<w:r\b[^>]*>\s*<w:fldChar\b[^>]*fldCharType="begin"[\s\S]*?fldCharType="end"[^>]*\/>\s*<\/w:r>/g;
+  let found = pattern.exec(xml);
+  while (found) {
+    const instruction = /<w:instrText\b[^>]*>([\s\S]*?)<\/w:instrText>/.exec(found[0]);
+    const name = instruction ? MERGEFIELD.exec(instruction[1])?.[1] : null;
+    if (name) out.push({ from: found.index, to: found.index + found[0].length, name });
+    found = pattern.exec(xml);
+  }
+  return out;
+}
+
+/**
+ * A content control, named by its tag.
+ *
+ * `w:tag` is the machine name and `w:alias` is what the author sees in Word.
+ * The tag is preferred and the alias is the fallback, because a template whose
+ * controls carry only an alias is still a template somebody built on purpose.
+ */
+function contentControlSpans(xml) {
+  const out = [];
+  const pattern = /<w:sdt\b[^>]*>[\s\S]*?<\/w:sdt>/g;
+  let found = pattern.exec(xml);
+  while (found) {
+    const tag = /<w:tag\b[^>]*w:val="([^"]*)"/.exec(found[0])?.[1];
+    const alias = /<w:alias\b[^>]*w:val="([^"]*)"/.exec(found[0])?.[1];
+    const name = tag || alias;
+    if (name) out.push({ from: found.index, to: found.index + found[0].length, name });
+    found = pattern.exec(xml);
+  }
+  return out;
+}
+
+/** Every field Word's own UI can produce, in document order. */
+export function wordFieldSpans(xml) {
+  const text = String(xml ?? '');
+  return [
+    ...simpleFieldSpans(text),
+    ...complexFieldSpans(text),
+    ...contentControlSpans(text),
+  ].sort((a, b) => a.from - b.from);
+}
+
 /**
  * The placeholders in a document, however Word split them.
  *
@@ -151,9 +244,17 @@ export function textRuns(xml) {
  * with no fields.
  */
 export function fieldsIn(xml) {
-  const runs = textRuns(String(xml ?? ''));
-  const joined = runs.map((run) => run.text).join('');
+  const text = String(xml ?? '');
   const names = [];
+
+  // Word's own fields first, in document order, because a template that has
+  // both is a template somebody edited by hand on top of one Word built.
+  for (const span of wordFieldSpans(text)) {
+    if (!names.includes(span.name)) names.push(span.name);
+  }
+
+  const runs = textRuns(text);
+  const joined = runs.map((run) => run.text).join('');
 
   FIELD.lastIndex = 0;
   let found = FIELD.exec(joined);
@@ -173,7 +274,22 @@ export function fieldsIn(xml) {
  * looks like corruption rather than an omission.
  */
 export function fill(xml, values = {}) {
-  const source = String(xml ?? '');
+  // Word's fields are replaced whole, before anything looks at runs — a
+  // complex field *is* five runs, and joining their text would produce a
+  // string containing the field's own instruction.
+  //
+  // Back to front, so an earlier span's offsets stay valid.
+  let source = String(xml ?? '');
+  for (const span of wordFieldSpans(source).reverse()) {
+    // An unknown field keeps its placeholder, as `{{fields}}` do: a household
+    // reading the document can see which one was not filled.
+    if (!Object.prototype.hasOwnProperty.call(values, span.name)) continue;
+    const value = escapeXml(String(values[span.name] ?? ''));
+    source = source.slice(0, span.from)
+      + `<w:r><w:t xml:space="preserve">${value}</w:t></w:r>`
+      + source.slice(span.to);
+  }
+
   const runs = textRuns(source);
   if (!runs.length) return source;
 

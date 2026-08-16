@@ -27,6 +27,7 @@
 
 import { Service } from './service.js';
 import { entities, entity } from '../data/schema.js';
+import { summariseHistory } from '../data/audit.js';
 
 export class RecordsService extends Service {
   /**
@@ -87,6 +88,29 @@ export class RecordsService extends Service {
    * the part that has to stay true when the numbers change — "1 records refer"
    * is the classic way this goes wrong.
    */
+  /**
+   * What has happened to one record, with the names to say it with.
+   *
+   * The service exists for the second half: `describe` takes a `nameOf`, and a
+   * screen that resolved actor ids itself would be a screen reaching for the
+   * person table — the edge `tools/architecture.mjs` counts and which may only
+   * narrow.
+   */
+  async history(recordId, { limit = 50 } = {}) {
+    const entries = await this.db.history(recordId, { limit });
+    const people = await this.repo('person').list({ decrypt: false, limit: 500 })
+      .catch(() => []);
+    const byId = new Map(people.map((person) => [person.id, person.name]));
+
+    return {
+      entries,
+      summary: summariseHistory(entries),
+      // An id rather than a blank for somebody no longer in the household: a
+      // record changed by a person since removed still changed.
+      nameOf: (id) => byId.get(id) ?? id,
+    };
+  }
+
   describeImpact(impact) {
     if (!impact.total) return 'Nothing else refers to this record.';
 

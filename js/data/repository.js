@@ -388,18 +388,32 @@ function prefixFor(entityName) {
 
 /** `'-date'` sorts descending; `'date'` ascending. Blank values sort last. */
 export function sortBy(rows, spec) {
-  const desc = spec.startsWith('-');
-  const key = desc ? spec.slice(1) : spec;
+  // Comma-separated keys, in order of precedence: `-pinned,-updatedAt` is
+  // "pinned first, then newest". One key was enough until a `pinned` flag
+  // needed to survive a date sort, and a screen that sorted by pin alone would
+  // put a note pinned in March above one edited this morning.
+  const keys = String(spec ?? '').split(',').map((one) => one.trim()).filter(Boolean);
+
   return [...rows].sort((a, b) => {
-    const x = a[key];
-    const y = b[key];
-    const xEmpty = x === undefined || x === null || x === '';
-    const yEmpty = y === undefined || y === null || y === '';
-    if (xEmpty && yEmpty) return 0;
-    if (xEmpty) return 1;
-    if (yEmpty) return -1;
-    const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y));
-    return desc ? -c : c;
+    for (const one of keys) {
+      const desc = one.startsWith('-');
+      const key = desc ? one.slice(1) : one;
+      const x = a[key];
+      const y = b[key];
+      const xEmpty = x === undefined || x === null || x === '';
+      const yEmpty = y === undefined || y === null || y === '';
+      if (xEmpty && yEmpty) continue;
+      // An empty value sorts last whichever direction the key runs: "no date"
+      // is not "the earliest date", and flipping it would put every blank at
+      // the top of a descending list.
+      if (xEmpty) return 1;
+      if (yEmpty) return -1;
+      const c = typeof x === 'number' && typeof y === 'number'
+        ? x - y
+        : String(x).localeCompare(String(y));
+      if (c !== 0) return desc ? -c : c;
+    }
+    return 0;
   });
 }
 

@@ -52,8 +52,18 @@ export class DocumentStore {
    * Take a file from an input or a camera, store it locally, and create the
    * document record. The upload is deliberately *not* awaited by the caller's
    * happy path — see `flush`.
+   *
+   * @param {{name: string, type: string, size: number,
+   *          arrayBuffer: () => Promise<ArrayBuffer>}} file
+   * @param {{title?: string, category?: string, person?: string, tags?: string[],
+   *          expiresOn?: string, generatedFrom?: string}} [options]
+   *   `generatedFrom` names the template a document was produced from, and is
+   *   absent for anything scanned or photographed — "generated from a scan"
+   *   would be a claim about a file somebody pointed a camera at.
    */
-  async capture(file, { title, category = 'other', person, tags = [], expiresOn } = {}) {
+  async capture(file, {
+    title, category = 'other', person, tags = [], expiresOn, generatedFrom,
+  } = {}) {
     if (file.size > MAX_UPLOAD_BYTES) {
       throw new AppError(
         `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is `
@@ -75,6 +85,10 @@ export class DocumentStore {
       mimeType: file.type || 'application/octet-stream',
       sizeBytes: file.size,
       versionCount: 1,
+      // Absent for a scan, present for something this application produced.
+      // A document that cannot say what it was generated from is one nobody
+      // can reproduce or check.
+      generatedFrom,
     });
 
     const sealed = await encryptBytes(
