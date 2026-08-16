@@ -25,7 +25,7 @@
  * genuinely wants a record gone. It tells them which kind they are doing.
  */
 
-import { Service } from './service.js';
+import { Service, TRANSACTION_LIMIT } from './service.js';
 import { entities, entity } from '../data/schema.js';
 import { summariseHistory } from '../data/audit.js';
 
@@ -37,6 +37,30 @@ export class RecordsService extends Service {
    * architecture document holds that edge to a budget that may only narrow,
    * and adding one more would have widened it.
    */
+  /**
+   * What has actually been paid to the person a staff record points at.
+   *
+   * `transaction.person` is the link and it already exists — a wage is not an
+   * `economicEvent`, whose kinds only ever describe money moving between the
+   * household's own accounts. See `docs/HOUSEHOLD_STAFF.md`.
+   *
+   * `agreed` is what the staff record says was agreed; it is returned beside
+   * the payments rather than instead of them, so a screen can show that a
+   * payment does not match without either figure standing in for the other.
+   */
+  async paymentsForStaff(staffId, { limit = 200 } = {}) {
+    const record = await this.db.repo('staff').get(staffId, { decrypt: false });
+    if (!record?.person) return { payments: [], agreed: null };
+
+    const all = await this.db.repo('transaction').list({ decrypt: false, limit: TRANSACTION_LIMIT });
+    const payments = all
+      .filter((row) => row.person === record.person)
+      .sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))
+      .slice(0, limit);
+
+    return { payments, agreed: record.monthlyPay ?? null };
+  }
+
   /**
    * The documents belonging to the person a staff record points at.
    *

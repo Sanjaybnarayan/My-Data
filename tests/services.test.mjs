@@ -1119,3 +1119,59 @@ describe("a staff member's documents", () => {
     assert.length(out.documents, 0);
   });
 });
+
+/**
+ * What has actually been paid to a staff member.
+ *
+ * A wage is not an `economicEvent` — those kinds only ever describe money
+ * moving between the household's own accounts. The link is
+ * `transaction.person`, and it already existed; this reads it for the first
+ * time. See `docs/HOUSEHOLD_STAFF.md`.
+ */
+describe('what a staff member has been paid', () => {
+  test('payments are the transactions naming that person', async () => {
+    const db = await makeDb();
+    const cook = await makePerson(db, { name: 'A Kumar' });
+    const other = await makePerson(db, { name: 'B Rao' });
+    const account = await makeAccount(db, { name: 'HDFC Savings' });
+    const role = await db.repo('staff').create({
+      person: cook.id, role: 'Cook', monthlyPay: 12_000_00,
+    });
+
+    await db.repo('transaction').create({
+      account: account.id, person: cook.id, kind: 'expense', amount: 12_000_00, date: '2026-07-01',
+    });
+    await db.repo('transaction').create({
+      account: account.id, person: other.id, kind: 'expense', amount: 9_000_00, date: '2026-07-02',
+    });
+
+    const out = await new RecordsService(db).paymentsForStaff(role.id);
+
+    assert.length(out.payments, 1, "somebody else's payment leaked in");
+    assert.equal(out.payments[0].amount, 12_000_00);
+  });
+
+  test('what was agreed is returned beside the payments, never instead', async () => {
+    // A staff record showing `monthlyPay` alone would tell a household what it
+    // expected to happen and call it what happened.
+    const db = await makeDb();
+    const cook = await makePerson(db, { name: 'A Kumar' });
+    const role = await db.repo('staff').create({
+      person: cook.id, role: 'Cook', monthlyPay: 12_000_00,
+    });
+
+    const out = await new RecordsService(db).paymentsForStaff(role.id);
+    assert.equal(out.agreed, 12_000_00);
+    assert.length(out.payments, 0, 'an agreed figure became a payment');
+  });
+
+  test('a role pointing at nobody returns nothing rather than everything', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db, { name: 'HDFC Savings' });
+    await db.repo('transaction').create({ account: account.id, kind: 'expense', amount: 100, date: '2026-07-01' });
+
+    const out = await new RecordsService(db).paymentsForStaff('staff_missing');
+    assert.length(out.payments, 0);
+    assert.equal(out.agreed, null);
+  });
+});

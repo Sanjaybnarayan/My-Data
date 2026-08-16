@@ -38,8 +38,7 @@ own ledger, and `explainEvent` would know nothing about them. `monthlyPay` is
 therefore the *agreement* — useful for noticing that a payment does not match
 it, and never a substitute for the payment.
 
-**This is the piece that is not built**, and it is the one that makes the
-phase real.
+**This is now built** — as a view, per the correction below.
 
 ### The design question I posed was the wrong one
 
@@ -114,7 +113,7 @@ again rather than raised.
 
 ## What is still not built
 
-**Wages** — section 2. Not a schema change: a view over `transaction.person`, plus a comparison against `monthlyPay`.
+**A comparison** — the staff record shows what was paid beside what was agreed, and does not yet say when they disagree.
 
 **Attendance and leave.** Not started, and not obviously a separate entity: a
 day off is a fact about a date, and this schema already has entities that

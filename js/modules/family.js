@@ -25,6 +25,7 @@ import {
 } from '../domain/tree.js';
 import { upcomingDates } from '../domain/reminders.js';
 import { formatDay, ageOn, today, relativeDays } from '../core/dates.js';
+import { format as formatMoney } from '../core/money.js';
 
 const TABS = [
   { id: 'tree', label: 'Tree' },
@@ -95,10 +96,13 @@ export async function render(route) {
  * staff record is where a person looks for them.
  */
 async function staffDocuments(id) {
-  const { documents, person } = await new RecordsService(app().db).documentsForStaff(id);
+  const service = new RecordsService(app().db);
+  const { documents, person } = await service.documentsForStaff(id);
   if (!person) return null;
 
-  return card({}, [
+  const pay = await service.paymentsForStaff(id);
+
+  return h('div', {}, [staffPay(pay), card({}, [
     cardHeader('Their documents', badge(String(documents.length), 'muted')),
     documents.length
       ? h('div', { class: 'list' }, documents.slice(0, 10).map((document) => listItem({
@@ -109,6 +113,30 @@ async function staffDocuments(id) {
       : h('p', { class: 'small muted' },
         'Nothing filed against them yet. Documents are attached to the person, '
         + 'not to the job, so they follow them between roles.'),
+  ])]);
+}
+
+/**
+ * What has actually been paid, beside what was agreed.
+ *
+ * The agreed figure is never shown *instead of* the payments. A staff record
+ * that displayed `monthlyPay` alone would be telling a household what it
+ * expected to happen and calling it what happened — the parallel money path
+ * `docs/HOUSEHOLD_STAFF.md` forbids.
+ */
+function staffPay({ payments, agreed }) {
+  return card({ class: 'card--quiet' }, [
+    cardHeader('What has been paid', badge(String(payments.length), 'muted')),
+    payments.length
+      ? h('div', { class: 'list' }, payments.slice(0, 6).map((row) => listItem({
+        title: formatMoney(Math.abs(row.amount ?? 0)),
+        subtitle: formatDay(row.date),
+      })))
+      : h('p', { class: 'small muted' },
+        agreed
+          ? `Nothing recorded yet. ${formatMoney(agreed)} a month is what was agreed, `
+            + 'which is not the same as what was paid.'
+          : 'Nothing recorded yet. Wages show here once a transaction names them.'),
   ]);
 }
 
