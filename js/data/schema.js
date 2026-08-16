@@ -1275,7 +1275,14 @@ export const systemStores = Object.freeze({
    * queued change, not per record.
    */
   shadow: { keyPath: 'id', indexes: [['byStore', 'store']] },
-  audit: { keyPath: 'id', indexes: [['byAt', 'at'], ['byEntity', 'entity']] },
+  // `byRecord` is what makes a single record's own history answerable. Without
+  // it the log can be asked what happened recently and what happened to
+  // *accounts*, and never what happened to **this** account — which is the
+  // question somebody looking at a record actually has.
+  audit: {
+    keyPath: 'id',
+    indexes: [['byAt', 'at'], ['byEntity', 'entity'], ['byRecord', 'recordId']],
+  },
   conflicts: { keyPath: 'id', indexes: [['byStore', 'store']] },
   meta: { keyPath: 'key', indexes: [] },
   blobs: { keyPath: 'id', indexes: [] },

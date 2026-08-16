@@ -533,15 +533,30 @@ async function main() {
         check('nothing is said to have been kept for the one-time code',
           !/Kept, so the link/i.test(otp), otp.slice(0, 600));
 
-        // The kept message, reachable. A record stored and never listed is a
-        // record a household cannot check, which is the whole objection to
-        // keeping it in the first place.
+        // A record's own history, on the record screen. The log has carried
+        // `recordId` since Phase 0.5 and nothing could ask it.
+        await go(page, '#/finance/account');
+        await page.waitForTimeout(900);
+        await page.locator('text=HDFC Savings').first().click();
+        await page.waitForTimeout(1200);
+        const detail = (await page.locator('.app-content').innerText()).trim();
+
+        check('a record says what has happened to it',
+          /What has happened to this/i.test(detail), detail.slice(0, 500));
+        check('and names the change rather than what it changed to',
+          /records which fields changed rather than what they changed to/i.test(detail),
+          detail.slice(0, 500));
+
         await go(page, '#/finance/smsMessage');
         // Longer than the usual pause: the banner reads three entities before
         // the table paints.
         await page.waitForTimeout(1500);
         const list = (await page.locator('.app-content').innerText()).trim();
 
+        // The kept message, reachable. A record stored and never listed is a
+        // record a household cannot check, which is the whole objection to
+        // keeping it in the first place.
+        //
         // `pasted`, not `HDFCBK`: the Import screen is where this message came
         // from and it says so. Asserting the bank's short code would have been
         // asserting something the screen never claimed.

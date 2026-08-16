@@ -721,6 +721,69 @@ describe('identity review — what the household is told, worst first', () => {
   });
 });
 
+describe("a record's own history", () => {
+  test('what happened to this record, and not to its neighbours', async () => {
+    // The log has recorded `recordId` on every entry since Phase 0.5 and
+    // nothing could ask it: `recentActivity` filters by entity *name*, so the
+    // application could say what happened to accounts and never what happened
+    // to **this** account.
+    const db = await makeDb();
+    const mine = await makeAccount(db, { name: 'HDFC Savings' });
+    const other = await makeAccount(db, { name: 'ICICI Salary' });
+
+    await db.repo('account').update(mine.id, { name: 'HDFC Savings (joint)' });
+    await db.repo('account').update(other.id, { name: 'ICICI — closed' });
+
+    const { entries, summary } = await new RecordsService(db).history(mine.id);
+
+    assert.length(entries, 2, 'the other account leaked in');
+    assert.equal(summary.changes, 1);
+    assert.ok(summary.created);
+    assert.equal(entries[0].action, 'update', 'newest first');
+  });
+
+  test('an actor still in the household is named, and one who left is an id',
+    async () => {
+      // A record changed by somebody since removed still changed. A blank
+      // there would read as "nobody", which is the one thing it was not.
+      //
+      // The first version of this test built its own lookup and asserted
+      // against that, so the mutation blanking the service's `nameOf` passed
+      // it — a vacuous test, caught by mutating the thing it claimed to cover.
+      const db = await makeDb();
+      const person = await makePerson(db, { name: 'Sanjay Narayan' });
+      db.setActor({ personId: person.id, role: 'owner' });
+
+      const account = await makeAccount(db, { name: 'HDFC Savings' });
+      const { nameOf } = await new RecordsService(db).history(account.id);
+
+      assert.equal(nameOf(person.id), 'Sanjay Narayan');
+      assert.equal(nameOf('per_gone'), 'per_gone', 'somebody who left became nobody');
+    });
+
+  test('a read is counted apart from a change', async () => {
+    // An entry saying somebody *opened* a vault item is the whole reason reads
+    // are logged for it. Folding it into "changes" would overstate the edits
+    // and hide the reads.
+    const db = await makeDb();
+    const item = await db.repo('vaultItem').create({ name: 'Email', kind: 'login' });
+    await db.repo('vaultItem').get(item.id);
+
+    const { summary } = await new RecordsService(db).history(item.id);
+    assert.equal(summary.changes, 0);
+    assert.ok(summary.reads > 0, 'opening a vault item was not recorded');
+  });
+
+  test('a record nothing has happened to has no history rather than a crash',
+    async () => {
+      const db = await makeDb();
+      const { entries, summary } = await new RecordsService(db).history('acc_nothing');
+      assert.length(entries, 0);
+      assert.equal(summary.changes, 0);
+      assert.equal(summary.created, null);
+    });
+});
+
 describe('nominations, read where they can be read', () => {
   test('the three entities carrying a nominee are loaded decrypted', () => {
     // Not a style point. All three nominee fields are encrypted; loaded any
