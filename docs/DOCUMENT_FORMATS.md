@@ -394,10 +394,47 @@ This is the failure this reader's own header warns about, in its worst form:
 not an empty document, and not obvious mojibake, but something that **looks
 like prose** and would go into `ocrText` as searchable rubbish.
 
-It is **not fixed here.** Lowering the tolerance would split genuine rows that
-carry superscripts or mixed font sizes, and the honest fix is different: two
-runs at different Y that **overlap in X** cannot be on the same line, and a
-merged row can be split on that. That is a real rule with a real test, and it
-is a piece of work rather than a constant to tune — recorded with the
-measurement so the next tranche starts from the numbers rather than from the
-symptom.
+It is **not fixed**, and the next section is why — the fix proposed here was
+built, measured, and thrown away.
+
+## The fix I proposed for it does not work, and the measurement says why
+
+The plan above was: two runs at different Y that **overlap in X** cannot be on
+the same line, so a merged row can be split on that. It was built. On the
+documents to hand the discriminator looked perfect — every woven row overlaps
+**1.00**, and all twenty-six legitimate multi-Y rows overlap **0.00**, with
+nothing in between.
+
+It barely changed the output.
+
+The reason is upstream of row grouping. That page carries **850 items across
+seven distinct Y values**, for a page of many more than seven visual lines —
+and the text of a *single* Y value is itself woven:
+
+```
+y=12   (275 items)
+"DRTSXLLPLLDNoooooAreXaoeo,aaaafNtaXtdnnnneeerXJu     r::ATSCSA e c1y2ticY…"
+```
+
+Several lines share one Y. So the information needed to separate them **is not
+in Y**, and no row-splitting rule — this one or any other — can recover it.
+The reader's Y is wrong for this producer, not merely coarse.
+
+Two things were also wrong in the first diagnosis, and are corrected here
+rather than left standing:
+
+- The alternation rate was reported as **369 of 562**. The real figures are
+  **0.24 and 0.12** for the woven rows and **0.75** for a legitimate one — the
+  wrong way round, so the threshold that measurement would have justified was
+  backwards. It came from a script that mixed rows across pages.
+- "Three adjacent pairs 1, 1.18 and 2 points apart" is true and is not the
+  cause. Merging those pairs is a symptom of the same wrong Y, not the origin
+  of the interleaving.
+
+The real work is in how `extractRuns` tracks the text matrix for this
+producer — `TD`, `T*` and `TL` leading, which is where a line's Y comes from.
+That is a reader fix rather than a grouping fix, and it is not started.
+
+Nothing was shipped for this. A change that alters output without fixing the
+problem is worse than no change, because the next person reads the code and
+believes the case is handled.
