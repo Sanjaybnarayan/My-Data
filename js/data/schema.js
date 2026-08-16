@@ -990,7 +990,10 @@ const noteEntity = {
   name: 'note', module: 'notes', sheet: 'Notes', version: 1,
   labels: { one: 'Note', many: 'Notes' }, icon: 'note',
   acl: shared,
-  sort: '-updatedAt',
+  // Pinned first, then newest. `pinned` was on the form and read by nothing —
+  // a pin that moved nothing is a lie a screen tells — and it was invisible to
+  // the field-coverage ratchet because one unrelated comment used the word.
+  sort: '-pinned,-updatedAt',
   title: (r) => r.title,
   fields: [
     text('title', { required: true, list: true, search: true }),

@@ -2302,6 +2302,39 @@ async function main() {
         !/HDFC Savings/.test(said), said.slice(0, 300));
     }
 
+    /* ------------------------------------------- what has been happening */
+
+    {
+      // The activity feed, as things rather than log lines. It used to be the
+      // last eight audit entries, and not one of them said *which* record had
+      // changed — an audit entry carries an id, and `describe` could only
+      // reach the entity's label.
+      await go(page, '#/dashboard');
+      // The dashboard now resolves a title per story, so it paints later than
+      // it used to. Waiting on a card rather than on a guessed number of
+      // milliseconds, and reading `#app` — `.app-content` is replaced during
+      // the paint, and reading it too early returns the header alone.
+      await page.waitForSelector('.app-content .card', { timeout: 10_000 });
+      await page.waitForTimeout(1200);
+      const feed = (await page.locator('#app').innerText()).trim();
+
+      // The KYC records are the newest things this run created, so they are
+      // what the feed is about. Asserting a record created early would be
+      // asserting that a CSV import of a hundred rows had not happened since —
+      // which is how the first version of this check failed.
+      check('the activity feed names the record it is about',
+        /Axis Bank|HDFC Bank|Zerodha/.test(feed), feed.slice(-900));
+      // One sitting is one line. Three KYC records added in a row must not
+      // read as one line per field.
+      //
+      // Word-bounded: `kin` without them matches "banking" and "kind", and the
+      // first version of this failed on the word "Investments" — the same
+      // mistake the `wired:` probe was given boundaries to avoid, repeated one
+      // file along.
+      check('and does not repeat one record once per field changed',
+        !/\b(kin|heldAddress|recordedOn)\b/.test(feed), feed.slice(-900));
+    }
+
     /* ------------------------------------------------------------ dark */
 
     await page.emulateMedia({ colorScheme: 'dark' });

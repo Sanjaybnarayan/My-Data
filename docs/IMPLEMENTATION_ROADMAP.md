@@ -191,7 +191,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 14 | Family chat, media, sharing, E2EE | **not started** |
 | 15 | Location, safe zones, geofencing, SOS | **not started** — and correctly refused for a PWA |
 | **16** | **Notifications, tasks, reminders, automation** | **already built** — `runAutomations` runs on every launch, and money now reaches a notification (`docs/NOTIFICATIONS.md`) |
-| 17 | Knowledge graph, universal search, family timeline, what changed | search exists; every record now says what has happened to it (`docs/RECORD_HISTORY.md`). **No knowledge graph, no household timeline, no "what changed since I last looked"** |
+| 17 | Knowledge graph, universal search, family timeline, what changed | search exists; every record says what has happened to it (`docs/RECORD_HISTORY.md`), and the activity feed groups the log into things that happened, names the record and marks what is new (`docs/ACTIVITY_STORIES.md`). **No knowledge graph, and no timeline screen of its own — the feed is a dashboard widget eight stories deep** |
 | 18 | AI family assistant, AI governance, AI privacy | assistant exists; **governance and the AI Privacy Gate are one outbound pattern check** |
 | 19 | Advanced analytics, Family CFO, forecasting, risk detection | forecasting done; **no Family CFO, no risk detection** |
 | 20 | Security hardening, privacy hardening, compliance evidence | **not started** — and no compliance documents exist at all |

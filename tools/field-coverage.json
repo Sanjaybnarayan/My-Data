@@ -5,7 +5,6 @@
     "account.upiId",
     "certificate.credentialUrl",
     "certificate.issuedBy",
-    "certificate.issuedOn",
     "certificate.skills",
     "digitalAsset.accountIdentifier",
     "digitalAsset.licenceKey",

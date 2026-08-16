@@ -11,7 +11,7 @@ import { openDatabase } from './migrations.js';
 import { Repository } from './repository.js';
 import { entities, entity } from './schema.js';
 import { searchIndex, indexEntry } from './search.js';
-import { auditEntry, ACTIONS, historyOf } from './audit.js';
+import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
 import { Keyring } from '../security/keyring.js';
 import { deviceId as resolveDeviceId } from '../core/ids.js';
 import { memoryStorage } from '../security/session.js';
@@ -123,6 +123,11 @@ export class Database {
    */
   async history(recordId, options) {
     return historyOf(this.adapter, recordId, options);
+  }
+
+  /** Recent entries across every record, for the activity feed. */
+  async activity(options) {
+    return recentActivity(this.adapter, options);
   }
 
   /* ---------------------------------------------------------------- search */

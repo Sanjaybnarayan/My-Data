@@ -25,7 +25,8 @@ import { netWorth } from '../domain/networth.js';
 import * as fin from '../domain/finance.js';
 import { portfolioSummary, allocation } from '../domain/portfolio.js';
 import { allReminders } from '../domain/reminders.js';
-import { recentActivity, describe as describeAudit } from '../data/audit.js';
+import { TimelineService } from '../services/timeline.js';
+import { entity } from '../data/schema.js';
 import { formatCompact, format } from '../core/money.js';
 import { formatDay, relativeDays, today } from '../core/dates.js';
 import { summarise } from '../ai/summary.js';
@@ -60,6 +61,12 @@ export async function render() {
   }
 
   await paint();
+
+  // After the paint, never before. The widget shows what happened since the
+  // last visit, and marking it seen while answering would clear the answer in
+  // the act of asking for it.
+  await new TimelineService(db).markSeen();
+
   const off = bus.on(TOPIC.dataChanged, () => paint());
 
   return { node: host, destroy: off };
@@ -115,7 +122,10 @@ async function loadAll(db) {
       subscriptions: byEntity.subscription,
       digitalAssets: byEntity.digitalAsset,
     }),
-    activity: await recentActivity(db.adapter, { limit: 8 }),
+    // Grouped, named and marked against the last visit. The mark is written
+    // after the paint, never here: writing it while answering would clear the
+    // answer in the act of asking for it.
+    timeline: await new TimelineService(db).recent(),
     // Assembled by its own service rather than from `byEntity` above, and the
     // reason is not tidiness: the three nominee fields are encrypted, this
     // loader reads everything with `decrypt: false`, and a nominations widget
@@ -399,13 +409,29 @@ const WIDGETS = {
     ]);
   },
 
+  /**
+   * What has been happening, as things rather than log lines.
+   *
+   * This used to be the last eight audit entries, which on an ordinary
+   * afternoon of tidying meant seven lines about one record — none of which
+   * said *which* record, because an audit entry carries an id and `describe`
+   * could only reach the entity's label.
+   */
   activity: (data) => card({ class: 'card--flush' }, [
     h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
-      cardHeader('Recent activity', null, { iconName: 'clock' })),
-    data.activity.length
-      ? h('div', { class: 'list' }, data.activity.map((entry) => listItem({
-        title: describeAudit(entry, (id) => data.people[id] ?? 'Someone'),
-        subtitle: relativeDays(entry.at.slice(0, 10)),
+      cardHeader(data.timeline.unseen ? 'Since you last looked' : 'Recent activity',
+        null, { iconName: 'clock' })),
+    data.timeline.stories.length
+      ? h('div', { class: 'list' }, data.timeline.stories.slice(0, 8).map((story) => listItem({
+        title: data.timeline.describe(story),
+        subtitle: relativeDays(String(story.at).slice(0, 10)),
+        href: story.entity && story.recordId
+          ? Router.href({
+            module: entity(story.entity).module,
+            entity: story.entity,
+            id: story.recordId,
+          })
+          : undefined,
       })))
       : empty({ title: 'Nothing yet', iconName: 'clock' }),
   ]),

@@ -68,6 +68,74 @@ const HOUSEKEEPING = new Set([
   'id', 'createdAt', 'updatedAt', 'deletedAt', 'version', 'documents', 'notes', 'tags',
 ]);
 
+/**
+ * Source with its comments removed.
+ *
+ * The search below is a text search, and a text search over comments is a
+ * ratchet prose can silence. It was: a doc comment in `domain/timeline.js`
+ * quoted an activity feed reading *"changed upiId on an account"*, and
+ * `account.upiId` came off the unread list without a line of code touching it.
+ *
+ * A field name in a comment is a field name in a sentence. Only code counts.
+ *
+ * One left-to-right scan that tracks strings and comments together, rather than
+ * two regexes. The first version matched block comments with a regex, and a
+ * file-picker `accept` string containing an image wildcard opens a block
+ * comment as far as that regex is concerned — it paired with a close two
+ * hundred lines later and swallowed the code between, including the only line
+ * that reads `document.confidential`. A scanner that knows it is inside a
+ * string cannot make that mistake.
+ *
+ * Regex literals are still not tracked. A comment opener inside one would
+ * mis-strip, and the failure would be a field reported unread when code names
+ * it — loud, and unlike the failure this replaces, which was silent.
+ *
+ * This comment cannot spell out the sequence it is about, for the same reason.
+ */
+export function withoutComments(source) {
+  const text = String(source ?? '');
+  let out = '';
+  let quote = null;
+  let i = 0;
+
+  while (i < text.length) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (quote) {
+      if (ch === '\\') { out += ch + (next ?? ''); i += 2; continue; }
+      if (ch === quote) quote = null;
+      out += ch;
+      i += 1;
+      continue;
+    }
+
+    if (ch === "'" || ch === '"' || ch === '`') { quote = ch; out += ch; i += 1; continue; }
+
+    if (ch === '/' && next === '/') {
+      while (i < text.length && text[i] !== '\n') i += 1;
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) {
+        // Newlines are kept so a stripped file still has the shape of the one
+        // it came from, which matters the day somebody prints a line number.
+        if (text[i] === '\n') out += '\n';
+        i += 1;
+      }
+      i += 2;
+      continue;
+    }
+
+    out += ch;
+    i += 1;
+  }
+
+  return out;
+}
+
 function walk(dir) {
   const out = [];
   for (const name of readdirSync(dir)) {
@@ -76,6 +144,13 @@ function walk(dir) {
     else if (name.endsWith('.js')) out.push(path);
   }
   return out;
+}
+
+/** The keys an entity's list is ordered by, without their direction. */
+function sortKeys(def) {
+  return String(def?.sort ?? '').split(',')
+    .map((one) => one.trim().replace(/^-/, ''))
+    .filter(Boolean);
 }
 
 /** Every field key that nothing names, as `entity.key`, sorted. */
@@ -90,7 +165,7 @@ export function unreadFields() {
     try { sources.push(readFileSync(join(ROOT, extra), 'utf8')); } catch { /* absent is fine */ }
   }
 
-  const haystack = sources.join('\n');
+  const haystack = sources.map(withoutComments).join('\n');
   const found = [];
 
   for (const name of entityNames()) {
@@ -100,6 +175,11 @@ export function unreadFields() {
       // `upcomingDates` iterate the fields looking for these, so the value does
       // reach a derivation even though no code names the key.
       if (field.expiry || field.anniversary) continue;
+
+      // The same shape, one flag along: an entity's `sort` names its keys in a
+      // string, and `sortBy` reads them generically. A field a list is ordered
+      // by is read on every screen that draws the list.
+      if (sortKeys(entities[name]).includes(field.key)) continue;
 
       const escaped = field.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       if (!new RegExp(`\\b${escaped}\\b`).test(haystack)) found.push(`${name}.${field.key}`);

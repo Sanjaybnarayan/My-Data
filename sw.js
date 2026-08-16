@@ -124,6 +124,7 @@ const SHELL = [
   './js/domain/runway.js',
   './js/domain/statement.js',
   './js/domain/tabular.js',
+  './js/domain/timeline.js',
   './js/domain/tree.js',
   './js/domain/unusual.js',
 
@@ -148,6 +149,7 @@ const SHELL = [
   './js/services/finance.js',
   './js/services/portfolio.js',
   './js/services/sms.js',
+  './js/services/timeline.js',
   './js/services/records.js',
   './js/services/transfers.js',
 
