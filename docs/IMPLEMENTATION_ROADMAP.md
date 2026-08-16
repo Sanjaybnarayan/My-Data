@@ -125,6 +125,11 @@ sentence of regret — it has only ever moved down, and moving it down is what
 `--update` is for. See `docs/ARCHITECTURE_DRIFT.md`. This roadmap has no such
 check, which is the obvious next thing to want.
 
+**And that document can now claim a screen calls a thing**, not merely that the
+thing exists — `wired:<path>#<term>`, added because *"the engine exists and no
+screen calls it"* is the finding this repository makes most often and no probe
+could catch it. See `docs/MOVEMENTS_SCREEN.md`.
+
 **This application collects more than it reads.** Nine fields were filled in on
 a form and read by nothing downstream — `transaction.category`,
 `person.relationship`, `transaction.person`, `importantDate.remindDaysBefore`,

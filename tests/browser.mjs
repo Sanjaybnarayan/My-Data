@@ -554,6 +554,22 @@ async function main() {
         check('and there is no form offering to invent one',
           (await page.getByRole('button', { name: /^Add$/ }).count()) === 0, list.slice(0, 200));
 
+        // Movements, reachable for the first time. `economicEvent` has existed
+        // since Phase 5 and no tab has ever linked to it — the same gap the
+        // Messages tab closed one tranche earlier.
+        await go(page, '#/finance/economicEvent');
+        await page.waitForTimeout(1500);
+        const movements = (await page.locator('.app-content').innerText()).trim();
+
+        check('Movements is reachable from Finance',
+          /Movements/.test(movements), movements.slice(0, 300));
+        // A movement is made of the rows it is made of. A blank form would
+        // produce one with no legs — the worst thing `domain/explain.js` can
+        // find, invited by the screen meant to report it.
+        check('and offers no form for inventing one',
+          (await page.getByRole('button', { name: /^Add$/ }).count()) === 0,
+          movements.slice(0, 200));
+
         // Back to Import: the next block reaches for the file input on this
         // screen, and leaving the page on Messages made it time out.
         await go(page, '#/finance/import');

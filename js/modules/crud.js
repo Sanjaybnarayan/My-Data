@@ -194,11 +194,17 @@ export async function listSection(entityName, {
 /**
  * @param {string} entityName
  * @param {string} id
- * @param {{onDelete?: (id: string) => Promise<string|void>}} [options]
+ * @param {{onDelete?: (id: string) => Promise<string|void>,
+ *          extra?: (record: object) => (Node|Node[]|null|Promise<Node|Node[]|null>)}} [options]
  *   `onDelete` replaces the record-only delete for entities that own more than
  *   a row — a document also owns bytes on this device and a file in Drive, and
  *   removing the row alone leaves both behind with nothing pointing at them.
  *   Return a string to say what actually happened.
+ *
+ *   `extra` renders below the fields, for an answer the fields cannot give. A
+ *   movement's own row says its amount and its kind; where that amount *came
+ *   from* is a walk back through the legs to the file they were parsed out of,
+ *   and no column can hold it.
  */
 export async function recordDetail(entityName, id, options = {}) {
   const def = entity(entityName);
@@ -325,6 +331,8 @@ export async function recordDetail(entityName, id, options = {}) {
           h('dd', { style: { margin: 0, textAlign: 'right' } }, detailValue(field, record, labels)),
         ]))),
     ]))),
+
+    options.extra ? (await options.extra(record)) ?? null : null,
 
     // Any entity with a `documents` field gets file capture, without knowing
     // anything about Drive.

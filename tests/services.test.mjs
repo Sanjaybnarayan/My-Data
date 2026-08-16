@@ -28,6 +28,7 @@ import { MessagesService } from '../js/services/sms.js';
 import { IdentityService, assembleIdentityReview } from '../js/services/identity.js';
 import { EstateService, ESTATE_LOAD } from '../js/services/estate.js';
 import { EvidenceService, EVIDENCE_LOAD } from '../js/services/evidence.js';
+import { ExplainService } from '../js/services/explain.js';
 import { xirr } from '../js/domain/portfolio.js';
 import { estate } from '../js/domain/estate.js';
 import { entities } from '../js/data/schema.js';
@@ -955,4 +956,66 @@ describe('what the sources say, through a real database', () => {
     // The trap `docs/SEALED_VALUES.md` records, one entity along.
     assert.equal(EVIDENCE_LOAD.messages[1].decrypt, true);
   });
+});
+
+describe('explaining a movement, through the service a screen uses', () => {
+  async function household() {
+    const db = await makeDb();
+    const hdfc = await makeAccount(db, { name: 'HDFC Savings' });
+    const broker = await makeAccount(db, { name: 'Zerodha' });
+    const statement = await db.repo('bankStatement').create({
+      account: hdfc.id, periodFrom: '2026-07-01', periodTo: '2026-07-31',
+      fileName: 'hdfc-jul-2026.pdf', reconciled: true,
+    });
+    return { db, hdfc, broker, statement };
+  }
+
+  test('a well-formed movement reaches the file its legs came from', async () => {
+    const { db, hdfc, broker, statement } = await household();
+    const event = await db.repo('economicEvent').create({
+      date: '2026-07-15', kind: 'transfer', amount: 50_000_00,
+      why: 'a debit and a credit of the same amount one day apart',
+    });
+    for (const [account, direction] of [[hdfc.id, 'out'], [broker.id, 'in']]) {
+      await db.repo('transaction').create({
+        date: '2026-07-15', kind: direction === 'out' ? 'expense' : 'income',
+        amount: 50_000_00, account, statement: statement.id,
+        movement: event.id, movementRole: 'leg', direction,
+      });
+    }
+
+    const out = await new ExplainService(db).forEvent(event.id);
+    assert.ok(out.fullyDocumented);
+    assert.length(out.chains, 2);
+    assert.includes(out.chains[0].story, 'hdfc-jul-2026.pdf');
+  });
+
+  test('the household count separates documented, typed and empty', async () => {
+    const { db, hdfc, broker, statement } = await household();
+
+    const documented = await db.repo('economicEvent').create({
+      date: '2026-07-15', kind: 'transfer', amount: 50_000_00,
+    });
+    for (const [account, direction] of [[hdfc.id, 'out'], [broker.id, 'in']]) {
+      await db.repo('transaction').create({
+        date: '2026-07-15', kind: 'expense', amount: 50_000_00, account,
+        statement: statement.id, movement: documented.id, movementRole: 'leg', direction,
+      });
+    }
+    await db.repo('economicEvent').create({
+      date: '2026-05-01', kind: 'transfer', amount: 10_000_00, title: 'Orphan',
+    });
+
+    const review = await new ExplainService(db).review();
+    assert.equal(review.total, 2);
+    assert.equal(review.documented, 1);
+    assert.equal(review.unexplained, 1);
+    assert.ok(review.problems.some((row) => row.title === 'Orphan'));
+  });
+
+  test('a movement that does not exist explains nothing rather than throwing',
+    async () => {
+      const { db } = await household();
+      assert.equal(await new ExplainService(db).forEvent('cnm_nothing'), null);
+    });
 });

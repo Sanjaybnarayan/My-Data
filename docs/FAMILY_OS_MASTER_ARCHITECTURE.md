@@ -194,6 +194,9 @@ prose — see `docs/PROMPT_TESTS.md` and `docs/MULTI_LEG.md`.
 | --- | --- | --- |
 | Schema as single source of truth | **exists** | `export:js/data/schema.js#entities` |
 | Economic events | **exists** | `export:js/domain/events.js#proposeMultiLeg` |
+| Economic events, on a screen | **exists** | `wired:js/modules/finance.js#ExplainService` |
+| Rule 57 — every financial event explainable | **exists** | `export:js/domain/explain.js#explainEvent` |
+| A record screen can carry an answer its fields cannot | **exists** | `wired:js/modules/crud.js#options.extra` |
 | Transfer matching, explicit confidence | **exists** | `export:js/domain/events.js#proposeTransfers` |
 | Six-level classification | **exists** | `export:js/data/classification.js#MEANING` |
 | Referential integrity | **partial — checked before delete** | `file:js/services/records.js` |
