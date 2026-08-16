@@ -839,6 +839,33 @@ describe('a certificate that awards is not one that registers', () => {
     assert.equal(detectKind('Certificate of Apyreciation\nPresented to\nMr B N'), 'certificate');
   });
 
+  test('a certificate that attests is named by what it opens with', () => {
+    // The first version of this rule paired `certificate` with `presented to`,
+    // built against the single award certificate then available. Nine more
+    // certificates later it matched **none of them**. `this is to certify
+    // that` is what an Indian certificate actually opens with.
+    assert.equal(detectKind('STUDY CERTIFICATE\nThis is to certify that A B has studied'), 'certificate');
+    assert.equal(detectKind('MIGRATION CERTIFICATE\nThis is to certify that A B\nRoll No. 1'), 'certificate');
+  });
+
+  test("a tax invoice's certify boilerplate does not make it a certificate", () => {
+    // Measured on a real dealer invoice: *"We hereby certify that our
+    // Registration Certificate GST Under Act, 2017 is in force"*. The rule is
+    // ordered last precisely so the kinds above win.
+    assert.equal(
+      detectKind('GST - TAX INVOICE\nReceipt date 01-Feb-2021\n'
+        + 'We hereby certify that our Registration Certificate GST is in force'),
+      'receipt',
+    );
+  });
+
+  test('a policy that certifies is still a policy', () => {
+    assert.equal(
+      detectKind('Policy Number X\nSum Assured 500000\nThis is to certify that cover is in force'),
+      'policy',
+    );
+  });
+
   test('a registration certificate stays a vehicle document', () => {
     // Ordering is the whole of it: `vehicle` is matched first.
     assert.equal(detectKind('CERTIFICATE OF REGISTRATION\nREG NO: KA99XX1111\nFORM-23A'), 'vehicle');

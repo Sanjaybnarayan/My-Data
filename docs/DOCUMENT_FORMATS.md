@@ -307,3 +307,97 @@ and `Vehicle Class`. So it would read little of this one, and that is stated
 rather than assumed: no OCR text exists for it here to measure against, and a
 claim about how well a reader handles a document nobody has run it on is
 exactly the kind this repository does not make.
+
+---
+
+# A Third Batch: Sixteen Certificates, And A Rule Fitted To One
+
+Sixteen more documents, most of them certificates, put through the same
+reader and extractor. **None of their values are in this repository.**
+
+This batch is mostly a verdict on the previous one.
+
+## The `certificate` kind was fitted to a single document
+
+`docs/ONE_FILE_TWO_DOCUMENTS.md` added a `certificate` kind built against the
+one award certificate then available, pairing the word `certificate` with
+`presented to`. That document argued the rule was principled because both
+tokens survived OCR where `Appreciation` had not.
+
+Nine more certificates arrived. **The rule matched none of them.**
+
+| Certificate | Read as, before |
+| --- | --- |
+| Bonafide / study certificate | `unknown` |
+| Migration certificate (CBSE) | `unknown` |
+| No-dues certificate ×3 | `unknown` |
+| Degree / marks statement | `unknown` |
+
+A rule verified against one example is a rule fitted to one example, and the
+care taken over *which tokens* survived OCR did nothing about the fact that
+there was only ever one document to check against.
+
+What an Indian certificate actually opens with is **`This is to certify
+that`** — the bonafide certificate, the migration certificate and the study
+certificate all say it. Adding it names three certificates where one was named
+before.
+
+### And the ordering is now load-bearing, where before it was decoration
+
+The previous document recorded, honestly, that moving `certificate` above
+`vehicle` broke no test because the two rules were disjoint. With the
+attestation phrase that is no longer true. Measured across thirty-eight
+documents, `hereby certify that` appears on:
+
+- a dealer's **GST tax invoice** — *"We hereby certify that our Registration
+  Certificate GST Under Act, 2017 is in force"*
+- **two motor policies** and **two 80D tax certificates**
+
+All five are better named by the kinds above, so `certificate` is now matched
+**last**. Two tests assert it, and the mutation that moves the rule first
+fails both.
+
+## What the reader made of the rest
+
+**Six of sixteen are scans with no text layer** — a Guvi certification, two
+e-quiz certificates, a webinar certificate, a certificate letter and a policy
+certificate. Each now reports *"the PDF has pages but no text in them — it is
+a scan, and needs OCR"*, which is the work from the previous batch doing
+exactly what it was built for, on six documents at once.
+
+**The digital RC for `KA51MW7792`** — the same vehicle whose printed card was
+measured earlier — yields **32 characters**. It is a DigiLocker-issued PDF
+whose content is drawn as an image.
+
+**The two 80D certificates read as `policy`**, and each yields a policy number
+and a premium. That is not wrong: an 80D certificate is issued by an insurer
+and states the premium paid. It is worth naming as a near-miss rather than a
+success, because what the household actually wants from one is a **tax**
+document for a financial year, and nothing here knows that.
+
+## The sharpest finding: text that is scrambled letter by letter
+
+The three no-dues certificates have a text layer, and it is unusable:
+
+```
+Zsbauipmrceeoa duheas: sw 5bi6teh0ei0nn9 c31l0o steod 4 i0n doauyr sb.ooks.
+```
+
+Two lines interleaved character by character. Diagnosed rather than guessed:
+the page draws **one item per character** — 850 of them — and has only **seven
+distinct Y values**, three adjacent pairs of which are **1, 1.18 and 2 points
+apart**. `toRows` and `toLines` group by Y with a fixed tolerance of **2.2**,
+so those three pairs merge into single rows and their characters are then
+ordered by X — which weaves them together.
+
+This is the failure this reader's own header warns about, in its worst form:
+not an empty document, and not obvious mojibake, but something that **looks
+like prose** and would go into `ocrText` as searchable rubbish.
+
+It is **not fixed here.** Lowering the tolerance would split genuine rows that
+carry superscripts or mixed font sizes, and the honest fix is different: two
+runs at different Y that **overlap in X** cannot be on the same line, and a
+merged row can be split on that. That is a real rule with a real test, and it
+is a piece of work rather than a constant to tune — recorded with the
+measurement so the next tranche starts from the numbers rather than from the
+symptom.

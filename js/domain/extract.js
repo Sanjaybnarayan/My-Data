@@ -342,28 +342,30 @@ const KIND_RULES = [
   // and an invoice for a car is a purchase, not a registration.
   { kind: 'vehicle', match: /certificate of registration|\bFORM[-\s]?23A?\b/i },
 
-  // A registration certificate is a certificate and is not this kind. What
-  // keeps them apart is **not** the ordering — mutation testing moved this
-  // rule above `vehicle` and every test still passed, because the two are
-  // disjoint: the rule pairs `certificate` with `presented to`, and a
-  // certificate that *registers* something never says that. It sits after
-  // `vehicle` as belt and braces, not as the mechanism.
-  //
-  // Measured across twenty-two real documents: this matches the one award
-  // certificate among them and nothing else. Both of its tokens survived OCR
-  // in a file where `Appreciation` came out `Apyreciation` and `donating` came
-  // out `ddnating` — which is why the rule is built on them rather than on the
-  // words a certificate is nominally about.
-  {
-    kind: 'certificate',
-    match: /\bcertificate\b[\s\S]{0,80}\bpresented to\b|\b(awarded to|conferred upon|in recognition of)\b/i,
-  },
   // Before `bill`, and the order is the whole point: a hospital receipt says
   // "Bill No: IP/2026/77812" at the top and was being read as a bill, so its
   // amount was looked for under "amount payable" — a phrase a receipt never
   // uses, because the money has already been paid.
   { kind: 'receipt', match: /\breceipt\b|paid successfully|payment received|thank you for your payment|received with thanks|received the sum of/i },
   { kind: 'bill', match: /\b(bill|invoice)\b|amount (payable|due)|due date|consumer (no|number)|units consumed|tax invoice/i },
+
+  // **Last**, and that ordering is now load-bearing. Measured across
+  // thirty-eight real documents: `this is to certify that` appears on a
+  // dealer's GST tax invoice (*"We hereby certify that our Registration
+  // Certificate GST…"*), on two motor policies and on two 80D tax
+  // certificates. All five are better named by the kinds above, so this must
+  // be the last thing tried rather than the first thing that matches.
+  //
+  // The first version of this rule paired `certificate` with `presented to`,
+  // built against the single award certificate then available. Nine more
+  // certificates later it matched **none of them** — a rule fitted to one
+  // document. `this is to certify that` is what an Indian certificate
+  // actually opens with, and it is what a bonafide certificate, a migration
+  // certificate and a study certificate all say.
+  {
+    kind: 'certificate',
+    match: /this is to certify that|hereby certif(?:y|ied) that|\bcertificate\b[\s\S]{0,80}\bpresented to\b|\b(?:awarded to|conferred upon|in recognition of)\b/i,
+  },
 ];
 
 /** What sort of document this is, or `unknown`. */
