@@ -824,3 +824,36 @@ describe('an ambiguous expiry reaches the record', () => {
     assert.equal(out.expiryConflict, undefined);
   });
 });
+
+/**
+ * A certificate that awards something, and one that registers something.
+ *
+ * The rule pairs `certificate` with `presented to` rather than matching what a
+ * certificate is nominally about. Measured on the one award certificate among
+ * twenty-two real documents, `Appreciation` came out of OCR as `Apyreciation`
+ * and `donating` as `ddnating` — a rule built on those words would be fitted
+ * to one file's typos, not reading.
+ */
+describe('a certificate that awards is not one that registers', () => {
+  test('an award certificate is named, through the OCR damage', () => {
+    assert.equal(detectKind('Certificate of Apyreciation\nPresented to\nMr B N'), 'certificate');
+  });
+
+  test('a registration certificate stays a vehicle document', () => {
+    // Ordering is the whole of it: `vehicle` is matched first.
+    assert.equal(detectKind('CERTIFICATE OF REGISTRATION\nREG NO: KA99XX1111\nFORM-23A'), 'vehicle');
+  });
+
+  test('an e-stamp certificate stays an agreement', () => {
+    assert.equal(
+      detectKind('INDIA NON JUDICIAL\nStamp Certificate\nDEED OF PARTNERSHIP\nwitnesseth'),
+      'agreement',
+    );
+  });
+
+  test('the word certificate alone is not enough', () => {
+    // A bill, an invoice and a policy all say "certificate" somewhere.
+    assert.not(detectKind('Certificate No. 12345\nAmount payable 100.00\nDue date 01/02/2026')
+      === 'certificate');
+  });
+});

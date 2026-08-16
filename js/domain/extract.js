@@ -341,6 +341,23 @@ const KIND_RULES = [
   // Matching on `chassis` instead would take the dealer's tax invoice with it,
   // and an invoice for a car is a purchase, not a registration.
   { kind: 'vehicle', match: /certificate of registration|\bFORM[-\s]?23A?\b/i },
+
+  // A registration certificate is a certificate and is not this kind. What
+  // keeps them apart is **not** the ordering — mutation testing moved this
+  // rule above `vehicle` and every test still passed, because the two are
+  // disjoint: the rule pairs `certificate` with `presented to`, and a
+  // certificate that *registers* something never says that. It sits after
+  // `vehicle` as belt and braces, not as the mechanism.
+  //
+  // Measured across twenty-two real documents: this matches the one award
+  // certificate among them and nothing else. Both of its tokens survived OCR
+  // in a file where `Appreciation` came out `Apyreciation` and `donating` came
+  // out `ddnating` — which is why the rule is built on them rather than on the
+  // words a certificate is nominally about.
+  {
+    kind: 'certificate',
+    match: /\bcertificate\b[\s\S]{0,80}\bpresented to\b|\b(awarded to|conferred upon|in recognition of)\b/i,
+  },
   // Before `bill`, and the order is the whole point: a hospital receipt says
   // "Bill No: IP/2026/77812" at the top and was being read as a bill, so its
   // amount was looked for under "amount payable" — a phrase a receipt never
