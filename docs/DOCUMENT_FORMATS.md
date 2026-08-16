@@ -373,7 +373,30 @@ whose content is drawn as an image.
 and a premium. That is not wrong: an 80D certificate is issued by an insurer
 and states the premium paid. It is worth naming as a near-miss rather than a
 success, because what the household actually wants from one is a **tax**
-document for a financial year, and nothing here knows that.
+document — **and that is now built**, see below.
+
+## A `taxCertificate` kind
+
+An 80D certificate is not a policy. It is what a household hands an
+accountant, and what matters on one is the deductible amount and the section,
+not cover. Both now read as `taxCertificate` and yield the section (`80D`),
+the deductible amount, the policy the premium was paid on, and the issue date.
+They are filed under `tax` rather than `insurance`.
+
+Matched **before** `policy`, because these carry a policy number and are
+issued by an insurer — which is exactly why they were read as policies. The
+mutation moving the rule below `policy` fails two tests.
+
+Checked against all forty-one documents to hand: the rule matches the two 80D
+certificates and **none of the five real insurance policies**. A policy
+schedule that mentions tax benefits in passing does not say `u/s 80D` beside a
+*deduction*.
+
+**No financial year is derived.** These do not state one, and inferring it
+from an issue date would be a claim about which year the premium falls in that
+the document does not make — a 13 July issue date is FY 2022-23 only if the
+premium was paid in the same year, which the certificate never says. A test
+asserts the field stays absent.
 
 ## The sharpest finding: text that is scrambled letter by letter
 

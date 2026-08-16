@@ -332,6 +332,19 @@ const KIND_RULES = [
     kind: 'noDues',
     match: /no[\s-]?dues certificate|no outstanding dues[\s\S]{0,400}loan account/i,
   },
+  // Before `policy`, and measured: both 80D certificates read as `policy`,
+  // because they carry a policy number and are issued by an insurer. They are
+  // not policies — they are what a household hands an accountant, and what
+  // matters on one is the deductible amount and the year, not cover.
+  //
+  // Checked against all forty-one documents to hand: this matches the two 80D
+  // certificates and nothing else, including the five real insurance policies.
+  // A policy schedule mentioning tax benefits in passing does not say
+  // `u/s 80D` beside a *deduction*.
+  {
+    kind: 'taxCertificate',
+    match: /\bu\/s\s*80[A-Z]{1,3}\b|under section 80[A-Z]{1,3}\b|eligibility of premium for deduction|\bform\s*(?:16|26AS)\b/i,
+  },
   { kind: 'statement', match: /account statement|statement of account|opening balance.{0,40}closing balance/i },
   { kind: 'policy', match: /policy (no|number)|sum assured|policy schedule|premium (due|paid|amount)/i },
   { kind: 'identity', match: /permanent account number|\bUIDAI\b|aadhaar|passport no|driving licence|voter/i },
@@ -652,6 +665,29 @@ export function readPolicy(text) {
  * than discovered later: a no-dues letter from a different lender will very
  * likely be named correctly and yield no fields.
  */
+/**
+ * A certificate for claiming a deduction.
+ *
+ * The document exists so somebody can put a number on a tax return, so the
+ * number and the section are what it is read for. The **date of issue** stands
+ * in for the year: these do not state a financial year, and deriving one from
+ * an issue date would be a claim about which year the premium falls in that
+ * the document does not make.
+ */
+export function readTaxCertificate(text) {
+  const source = String(text ?? '');
+  const section = /\b(?:u\/s|under section)\s*(80[A-Z]{1,3})\b/i.exec(source)
+    ?? /\b(form\s*(?:16|26AS))\b/i.exec(source);
+
+  return prune({
+    section: section ? section[1].toUpperCase().replace(/\s+/g, ' ') : null,
+    policyNumber: readField(source, ['policy (?:no|number)']),
+    // `has received an amount of Rs. 442/-` — the deductible sum.
+    amount: readAmount(source, ['has received an amount of', 'amount of', 'premium paid', 'total premium']),
+    issuedOn: readLabelledDate(source, ['date of issue', 'issue date', 'dated']),
+  });
+}
+
 export function readNoDues(text) {
   const source = String(text ?? '');
 
@@ -752,6 +788,7 @@ export function readDocument(text) {
     agreement: readAgreement,
     vehicle: readVehicle,
     noDues: readNoDues,
+    taxCertificate: readTaxCertificate,
   };
   const fields = READERS[kind]?.(source) ?? {};
 
@@ -803,6 +840,7 @@ export function suggestions(read, existing = {}) {
     agreement: 'legal',
     vehicle: 'vehicle',
     noDues: 'financial',
+    taxCertificate: 'tax',
   };
   const category = CATEGORY[read.kind];
   if (category && !existing.category) out.category = category;
