@@ -161,6 +161,7 @@ another caller to migrate.
 | Agreement reading — the e-stamp header only; a deed's body is prose | **partial** | `export:js/domain/extract.js#readAgreement` |
 | Registration certificate reading | **exists** | `export:js/domain/extract.js#readVehicle` |
 | A chassis or engine number never reaches searchable text | **exists** | `wired:js/domain/extract.js#Chassis` |
+| A document that gave two expiry dates says so on screen | **exists** | `wired:js/modules/documents.js#expiryConflict` |
 | Local assistant | **exists** | `export:js/ai/assistant.js#Assistant` |
 | OCR | **exists — Drive's own converter** | `file:apps-script/Drive.gs` |
 | DOCX template engine | **exists** | `export:js/domain/docxtemplate.js#readTemplate` |

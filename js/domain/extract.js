@@ -166,6 +166,35 @@ function readLabelledDate(text, labels) {
 
 /* ------------------------------------------------------------ identifiers */
 
+/** How far either side of a match counts as "beside" it. */
+const CONTEXT = 40;
+
+/** Words that mean the digits beside them are a card, whatever they add to. */
+const CARD_WORD = /\b(card|debit|credit|visa|mastercard|rupay|amex)\b/i;
+
+/**
+ * The check digit every payment card carries.
+ *
+ * Doubling every second digit from the right and summing must give a multiple
+ * of ten. This is not a security property and is not treated as one — it is
+ * how a card number tells itself apart from sixteen digits that are not one.
+ */
+function luhn(value) {
+  const digits = String(value).replace(/\D/g, '');
+  if (digits.length < 12) return false;
+
+  let sum = 0;
+  for (let i = 0; i < digits.length; i++) {
+    let d = Number(digits[digits.length - 1 - i]);
+    if (i % 2 === 1) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+
 /**
  * Identifiers that must never reach a searchable field.
  *
@@ -193,17 +222,25 @@ export const SENSITIVE = [
   },
   {
     kind: 'Card',
-    // A card number needs no label: there is no benign reason for sixteen
-    // digits in that shape to sit in a searchable field.
+    // A card number needs no label — but sixteen digits alone are not a card.
+    // Measured on a real statement, a Google Workspace payment reference
+    // inside a UPI narration matched this, was redacted out of the household's
+    // own searchable text, and was handed back as though it were a card.
     //
-    // Measured against a real statement, that is not quite true — a sixteen
-    // digit payment reference inside a UPI narration matches this, is redacted
-    // out of the household's own searchable text, and is handed back as though
-    // it were a card. See `docs/DOCUMENT_FORMATS.md`. Left as it stands
-    // deliberately: the failure is in the safe direction, and a Luhn check is
-    // the fix rather than a looser rule.
+    // So: if something *beside* the digits names a card, they go, whatever they
+    // add up to — a mis-scanned card number is still a card number, and that is
+    // not the case to be clever about. Otherwise they must pass Luhn, which
+    // every real card satisfies by construction and which roughly nine in ten
+    // arbitrary sixteen-digit strings fail.
+    //
+    // `nearby`, not the whole document: the first version of this asked
+    // whether the word "card" appeared anywhere in the text, and a bank
+    // statement always says it somewhere, so the Luhn check never ran and the
+    // false positive survived unchanged. Presence is not proximity — the same
+    // lesson the `at` rules below are built on.
     near: /.?/,
     pattern: /\b(?:\d{4}[ -]?){3}\d{4}\b/g,
+    keep: (value, nearby) => CARD_WORD.test(nearby) || luhn(value),
   },
 
   // The two below are anchored on their label rather than on their shape,
@@ -252,7 +289,14 @@ export function readIdentifiers(text) {
       continue;
     }
     if (!rule.near.test(source)) continue;
-    for (const match of source.match(rule.pattern) ?? []) add(rule.kind, match);
+    for (const match of source.matchAll(rule.pattern)) {
+      // A window around the match, so a `keep` rule reads what sits *beside*
+      // the digits rather than anywhere in the document.
+      const from = Math.max(0, match.index - CONTEXT);
+      const nearby = source.slice(from, match.index + match[0].length + CONTEXT);
+      if (rule.keep && !rule.keep(match[0], nearby)) continue;
+      add(rule.kind, match[0]);
+    }
   }
   return found;
 }
@@ -297,12 +341,31 @@ const KIND_RULES = [
   // Matching on `chassis` instead would take the dealer's tax invoice with it,
   // and an invoice for a car is a purchase, not a registration.
   { kind: 'vehicle', match: /certificate of registration|\bFORM[-\s]?23A?\b/i },
+
   // Before `bill`, and the order is the whole point: a hospital receipt says
   // "Bill No: IP/2026/77812" at the top and was being read as a bill, so its
   // amount was looked for under "amount payable" — a phrase a receipt never
   // uses, because the money has already been paid.
   { kind: 'receipt', match: /\breceipt\b|paid successfully|payment received|thank you for your payment|received with thanks|received the sum of/i },
   { kind: 'bill', match: /\b(bill|invoice)\b|amount (payable|due)|due date|consumer (no|number)|units consumed|tax invoice/i },
+
+  // **Last**, and that ordering is now load-bearing. Measured across
+  // thirty-eight real documents: `this is to certify that` appears on a
+  // dealer's GST tax invoice (*"We hereby certify that our Registration
+  // Certificate GST…"*), on two motor policies and on two 80D tax
+  // certificates. All five are better named by the kinds above, so this must
+  // be the last thing tried rather than the first thing that matches.
+  //
+  // The first version of this rule paired `certificate` with `presented to`,
+  // built against the single award certificate then available. Nine more
+  // certificates later it matched **none of them** — a rule fitted to one
+  // document. `this is to certify that` is what an Indian certificate
+  // actually opens with, and it is what a bonafide certificate, a migration
+  // certificate and a study certificate all say.
+  {
+    kind: 'certificate',
+    match: /this is to certify that|hereby certif(?:y|ied) that|\bcertificate\b[\s\S]{0,80}\bpresented to\b|\b(?:awarded to|conferred upon|in recognition of)\b/i,
+  },
 ];
 
 /** What sort of document this is, or `unknown`. */
@@ -466,6 +529,75 @@ export function readReceipt(text) {
 }
 
 /** An insurance policy: who insures what, for how much, until when. */
+/** A date, as `readLabelledDate` matches one. */
+const DATE_PATTERN = '(\\d{1,2}[\\s\\-/.][A-Za-z0-9]{2,9}[\\s\\-/.,]*\\d{2,4}|\\d{4}[\\-/.]\\d{1,2}[\\-/.]\\d{1,2})';
+
+/** Labels whose value *is* the expiry. */
+const EXPIRY_LABELS = [
+  'date of expiry', 'expiry date', 'expires on', 'valid (?:up ?to|till|until)',
+  'policy end date', 'renewal date',
+];
+
+/**
+ * Labels whose value is a *range*, where the expiry is the second date.
+ *
+ * `Period of Insurance: 18 May 25 to 17 May 26` is how a motor policy states
+ * it, and `readLabelledDate` returns the first date of a range — the day cover
+ * *started*. Filing that as the expiry would put a renewal reminder a year in
+ * the past.
+ */
+const PERIOD_LABELS = ['period of insurance', 'policy period', '(?:od |tp )?cover period'];
+
+/**
+ * When a policy expires — or nothing, when it says more than one thing.
+ *
+ * Measured on two real motor policies:
+ *
+ *  - One states `Date of Expiry` **twice, with different dates**: a standalone
+ *    own-damage policy that also prints the third-party cover it sits beside.
+ *    One of those two is not this policy's expiry, and nothing in the text
+ *    says which without understanding what OD and TP mean.
+ *  - The other's period reads `18 May 25 12:00 AM to 17` — the end date lost
+ *    to column interleaving in the PDF. A range with no second date is not a
+ *    range, and the start is not an expiry.
+ *
+ * So a single agreed date is returned, and two different ones are returned as
+ * a conflict for a person to settle. This is the rule `readEitherSide` already
+ * follows, on the field where guessing costs the most: a renewal reminder that
+ * fires on the wrong date stops anybody looking for the right one.
+ */
+function expiryOf(source) {
+  const found = new Set();
+
+  for (const label of EXPIRY_LABELS) {
+    const re = new RegExp(`${label}[^0-9]{0,20}${DATE_PATTERN}`, 'gi');
+    for (const m of source.matchAll(re)) {
+      const date = readDate(m[1]);
+      if (date) found.add(date);
+    }
+  }
+
+  for (const label of PERIOD_LABELS) {
+    // The second date only. A range missing its end is skipped rather than
+    // read as a point.
+    const re = new RegExp(
+      `${label}[^0-9]{0,20}${DATE_PATTERN}[^0-9]{0,24}(?:to|until|–|—)[^0-9]{0,24}${DATE_PATTERN}`,
+      'gi',
+    );
+    for (const m of source.matchAll(re)) {
+      const date = readDate(m[2]);
+      if (date) found.add(date);
+    }
+  }
+
+  const dates = [...found].sort();
+  if (dates.length === 1) return { expiresOn: dates[0] };
+  // Absent rather than guessed, and the disagreement is handed back so a
+  // screen can say *which* dates the document gave rather than going quiet.
+  if (dates.length > 1) return { expiresOn: null, expiryConflict: dates };
+  return {};
+}
+
 export function readPolicy(text) {
   const source = String(text ?? '');
 
@@ -474,7 +606,7 @@ export function readPolicy(text) {
     insurer: readField(source, ['insurer', 'insurance company', 'issued by'], { pattern: '[A-Za-z][A-Za-z .&-]{2,50}' }),
     premium: readAmount(source, ['premium amount', 'total premium', 'premium payable', 'premium']),
     sumAssured: readAmount(source, ['sum assured', 'sum insured', 'coverage amount', 'cover amount']),
-    expiresOn: readLabelledDate(source, ['valid (?:up ?to|till|until)', 'expiry date', 'expires on', 'policy end date', 'renewal date']),
+    ...expiryOf(source),
     startsOn: readLabelledDate(source, ['policy start date', 'commencement date', 'valid from', 'date of commencement']),
   });
 }
@@ -613,6 +745,17 @@ export function suggestions(read, existing = {}) {
   // the paper, which is not the date the parties signed it and not the date it
   // was filed here.
   if (read.fields.issuedOn && !existing.issuedOn) out.issuedOn = read.fields.issuedOn;
+
+  // Where the document gave more than one expiry, the dates it gave are
+  // carried onto the record rather than dropped. Without this, a policy whose
+  // expiry is ambiguous is simply absent from the Expiring list — which reads
+  // exactly like a policy with nothing to renew.
+  //
+  // Not written over a date a person already set: once somebody has decided,
+  // the disagreement is settled and saying so again is noise.
+  if (read.fields.expiryConflict?.length && !existing.expiresOn) {
+    out.expiryConflict = read.fields.expiryConflict.join(', ');
+  }
 
   const CATEGORY = {
     policy: 'insurance',

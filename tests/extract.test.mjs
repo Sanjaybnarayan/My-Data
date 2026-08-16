@@ -706,3 +706,181 @@ describe('when the label may be on either side of its value', () => {
     assert.equal(suggestions(readDocument(ESTAMP_LABEL_FIRST)).issuedOn, '2021-02-04');
   });
 });
+
+/**
+ * Sixteen digits that are not a card, and a policy that states two expiries.
+ *
+ * Both measured on real documents, and both are the same failure in different
+ * clothes: a rule that is confident where the document is not.
+ */
+describe('sixteen digits are not automatically a card', () => {
+  // Passes Luhn. Every real card does, by construction.
+  const REAL = '4111 1111 1111 1111';
+  // Does not. A payment reference of the shape a UPI narration carries.
+  const REFERENCE = '8861975785123456';
+
+  test('a number that passes Luhn is redacted with no label at all', () => {
+    assert.equal(readIdentifiers(`Paid with ${REAL} on Tuesday`)[0].kind, 'Card');
+  });
+
+  test('a number that fails Luhn and has nothing naming it is left alone', () => {
+    // Measured: a Google Workspace payment reference inside a UPI narration
+    // was redacted out of the household's own searchable text and handed back
+    // as though it were a card.
+    assert.length(readIdentifiers(`PCD/1234/GOOGLE WORKSPACE/${REFERENCE}/12:30`), 0);
+  });
+
+  test('a word beside it naming a card wins over Luhn', () => {
+    // A mis-scanned card number is still a card number. Where the document
+    // says card, the digits go whatever they add up to.
+    assert.equal(readIdentifiers(`Debit Card ${REFERENCE} used at shop`)[0].kind, 'Card');
+  });
+
+  test('the word must be beside it, not merely somewhere in the document', () => {
+    // The first version of this asked whether "card" appeared anywhere in the
+    // text. A bank statement always says it somewhere, so the Luhn check never
+    // ran and the false positive survived unchanged.
+    const far = `Card annual fee charged in April.${'\n'.repeat(30)}`
+      + `PCD/1234/GOOGLE WORKSPACE/${REFERENCE}/12:30`;
+    assert.length(readIdentifiers(far), 0, 'a word thirty lines away is not beside it');
+  });
+});
+
+describe('when a policy expires, and when it will not say', () => {
+  test('"Date of Expiry" is read, which is what an insurer actually writes', () => {
+    // Measured: `expiry date` was known and `date of expiry` was not, so two
+    // real motor policies yielded no expiry at all — the field the whole
+    // reminder machinery turns on.
+    assert.equal(readPolicy('Policy no X\nDate of Expiry: 09/07/2026').expiresOn, '2026-07-09');
+  });
+
+  test('a period is a range, and the expiry is its second date', () => {
+    // `readLabelledDate` returns the first date of a range — the day cover
+    // started. Filing that as the expiry puts a renewal reminder a year in the
+    // past.
+    const read = readPolicy('Policy no X\nPeriod of Insurance: 18 May 25 to 17 May 26');
+    assert.equal(read.expiresOn, '2026-05-17');
+  });
+
+  test('a range with its end missing is not read as a point', () => {
+    // Measured on a real policy, where column interleaving in the PDF left
+    // `18 May 25 12:00 AM to 17` — the end date lost to the next column.
+    const read = readPolicy('Policy no X\nPeriod of insurance 18 May 25 12:00 AM to 17 Name');
+    assert.equal(read.expiresOn ?? null, null, 'a start date was filed as an expiry');
+  });
+
+  test('two different expiry dates produce neither, and are handed back', () => {
+    // A standalone own-damage policy prints the third-party cover it sits
+    // beside, so the document states two. Nothing in the text says which is
+    // this policy's without knowing what OD and TP mean.
+    const read = readPolicy('Policy no X\nDate of Expiry: 09/07/2026\nDate of Expiry: 05/07/2027');
+
+    assert.equal(read.expiresOn ?? null, null, 'one of two expiry dates was chosen');
+    assert.deep(read.expiryConflict, ['2026-07-09', '2027-07-05']);
+  });
+
+  test('a conflict never becomes a reminder', () => {
+    const read = readDocument('Policy Number X\nSum assured 1,00,000\n'
+      + 'Date of Expiry: 09/07/2026\nDate of Expiry: 05/07/2027');
+    assert.equal(suggestions(read).expiresOn, undefined);
+  });
+
+  test('the same date said twice is not a conflict', () => {
+    const read = readPolicy('Policy no X\nDate of Expiry: 09/07/2026\nValid upto 09/07/2026');
+    assert.equal(read.expiresOn, '2026-07-09');
+    assert.equal(read.expiryConflict, undefined);
+  });
+});
+
+/**
+ * A conflict that reaches the record, and therefore the screen.
+ *
+ * `expiryConflict` was returned by `readPolicy`, asserted by tests, and read
+ * by nothing — the headless-engine pattern this repository has now found five
+ * times. A policy whose expiry is ambiguous has no `expiresOn`, so it is
+ * absent from the documents screen's Expiring list, which reads exactly like a
+ * policy with nothing to renew.
+ */
+describe('an ambiguous expiry reaches the record', () => {
+  const TWO = 'Policy Number X\nSum assured 1,00,000\n'
+    + 'Date of Expiry: 09/07/2026\nDate of Expiry: 05/07/2027';
+
+  test('the dates the document gave are carried onto the document', () => {
+    const out = suggestions(readDocument(TWO));
+    assert.equal(out.expiryConflict, '2026-07-09, 2027-07-05');
+    assert.equal(out.expiresOn, undefined, 'one of the two was chosen after all');
+  });
+
+  test('an unambiguous policy carries no conflict', () => {
+    const out = suggestions(readDocument('Policy Number X\nDate of Expiry: 09/07/2026'));
+    assert.equal(out.expiresOn, '2026-07-09');
+    assert.equal(out.expiryConflict, undefined);
+  });
+
+  test('a date a person already set is not argued with', () => {
+    // Once somebody has decided, the disagreement is settled, and repeating it
+    // on their own record is noise.
+    const out = suggestions(readDocument(TWO), { expiresOn: '2027-07-05' });
+    assert.equal(out.expiryConflict, undefined);
+  });
+});
+
+/**
+ * A certificate that awards something, and one that registers something.
+ *
+ * The rule pairs `certificate` with `presented to` rather than matching what a
+ * certificate is nominally about. Measured on the one award certificate among
+ * twenty-two real documents, `Appreciation` came out of OCR as `Apyreciation`
+ * and `donating` as `ddnating` — a rule built on those words would be fitted
+ * to one file's typos, not reading.
+ */
+describe('a certificate that awards is not one that registers', () => {
+  test('an award certificate is named, through the OCR damage', () => {
+    assert.equal(detectKind('Certificate of Apyreciation\nPresented to\nMr B N'), 'certificate');
+  });
+
+  test('a certificate that attests is named by what it opens with', () => {
+    // The first version of this rule paired `certificate` with `presented to`,
+    // built against the single award certificate then available. Nine more
+    // certificates later it matched **none of them**. `this is to certify
+    // that` is what an Indian certificate actually opens with.
+    assert.equal(detectKind('STUDY CERTIFICATE\nThis is to certify that A B has studied'), 'certificate');
+    assert.equal(detectKind('MIGRATION CERTIFICATE\nThis is to certify that A B\nRoll No. 1'), 'certificate');
+  });
+
+  test("a tax invoice's certify boilerplate does not make it a certificate", () => {
+    // Measured on a real dealer invoice: *"We hereby certify that our
+    // Registration Certificate GST Under Act, 2017 is in force"*. The rule is
+    // ordered last precisely so the kinds above win.
+    assert.equal(
+      detectKind('GST - TAX INVOICE\nReceipt date 01-Feb-2021\n'
+        + 'We hereby certify that our Registration Certificate GST is in force'),
+      'receipt',
+    );
+  });
+
+  test('a policy that certifies is still a policy', () => {
+    assert.equal(
+      detectKind('Policy Number X\nSum Assured 500000\nThis is to certify that cover is in force'),
+      'policy',
+    );
+  });
+
+  test('a registration certificate stays a vehicle document', () => {
+    // Ordering is the whole of it: `vehicle` is matched first.
+    assert.equal(detectKind('CERTIFICATE OF REGISTRATION\nREG NO: KA99XX1111\nFORM-23A'), 'vehicle');
+  });
+
+  test('an e-stamp certificate stays an agreement', () => {
+    assert.equal(
+      detectKind('INDIA NON JUDICIAL\nStamp Certificate\nDEED OF PARTNERSHIP\nwitnesseth'),
+      'agreement',
+    );
+  });
+
+  test('the word certificate alone is not enough', () => {
+    // A bill, an invoice and a policy all say "certificate" somewhere.
+    assert.not(detectKind('Certificate No. 12345\nAmount payable 100.00\nDue date 01/02/2026')
+      === 'certificate');
+  });
+});

@@ -307,3 +307,134 @@ and `Vehicle Class`. So it would read little of this one, and that is stated
 rather than assumed: no OCR text exists for it here to measure against, and a
 claim about how well a reader handles a document nobody has run it on is
 exactly the kind this repository does not make.
+
+---
+
+# A Third Batch: Sixteen Certificates, And A Rule Fitted To One
+
+Sixteen more documents, most of them certificates, put through the same
+reader and extractor. **None of their values are in this repository.**
+
+This batch is mostly a verdict on the previous one.
+
+## The `certificate` kind was fitted to a single document
+
+`docs/ONE_FILE_TWO_DOCUMENTS.md` added a `certificate` kind built against the
+one award certificate then available, pairing the word `certificate` with
+`presented to`. That document argued the rule was principled because both
+tokens survived OCR where `Appreciation` had not.
+
+Nine more certificates arrived. **The rule matched none of them.**
+
+| Certificate | Read as, before |
+| --- | --- |
+| Bonafide / study certificate | `unknown` |
+| Migration certificate (CBSE) | `unknown` |
+| No-dues certificate ×3 | `unknown` |
+| Degree / marks statement | `unknown` |
+
+A rule verified against one example is a rule fitted to one example, and the
+care taken over *which tokens* survived OCR did nothing about the fact that
+there was only ever one document to check against.
+
+What an Indian certificate actually opens with is **`This is to certify
+that`** — the bonafide certificate, the migration certificate and the study
+certificate all say it. Adding it names three certificates where one was named
+before.
+
+### And the ordering is now load-bearing, where before it was decoration
+
+The previous document recorded, honestly, that moving `certificate` above
+`vehicle` broke no test because the two rules were disjoint. With the
+attestation phrase that is no longer true. Measured across thirty-eight
+documents, `hereby certify that` appears on:
+
+- a dealer's **GST tax invoice** — *"We hereby certify that our Registration
+  Certificate GST Under Act, 2017 is in force"*
+- **two motor policies** and **two 80D tax certificates**
+
+All five are better named by the kinds above, so `certificate` is now matched
+**last**. Two tests assert it, and the mutation that moves the rule first
+fails both.
+
+## What the reader made of the rest
+
+**Six of sixteen are scans with no text layer** — a Guvi certification, two
+e-quiz certificates, a webinar certificate, a certificate letter and a policy
+certificate. Each now reports *"the PDF has pages but no text in them — it is
+a scan, and needs OCR"*, which is the work from the previous batch doing
+exactly what it was built for, on six documents at once.
+
+**The digital RC for `KA51MW7792`** — the same vehicle whose printed card was
+measured earlier — yields **32 characters**. It is a DigiLocker-issued PDF
+whose content is drawn as an image.
+
+**The two 80D certificates read as `policy`**, and each yields a policy number
+and a premium. That is not wrong: an 80D certificate is issued by an insurer
+and states the premium paid. It is worth naming as a near-miss rather than a
+success, because what the household actually wants from one is a **tax**
+document for a financial year, and nothing here knows that.
+
+## The sharpest finding: text that is scrambled letter by letter
+
+The three no-dues certificates have a text layer, and it is unusable:
+
+```
+Zsbauipmrceeoa duheas: sw 5bi6teh0ei0nn9 c31l0o steod 4 i0n doauyr sb.ooks.
+```
+
+Two lines interleaved character by character. Diagnosed rather than guessed:
+the page draws **one item per character** — 850 of them — and has only **seven
+distinct Y values**, three adjacent pairs of which are **1, 1.18 and 2 points
+apart**. `toRows` and `toLines` group by Y with a fixed tolerance of **2.2**,
+so those three pairs merge into single rows and their characters are then
+ordered by X — which weaves them together.
+
+This is the failure this reader's own header warns about, in its worst form:
+not an empty document, and not obvious mojibake, but something that **looks
+like prose** and would go into `ocrText` as searchable rubbish.
+
+It is **not fixed**, and the next section is why — the fix proposed here was
+built, measured, and thrown away.
+
+## The fix I proposed for it does not work, and the measurement says why
+
+The plan above was: two runs at different Y that **overlap in X** cannot be on
+the same line, so a merged row can be split on that. It was built. On the
+documents to hand the discriminator looked perfect — every woven row overlaps
+**1.00**, and all twenty-six legitimate multi-Y rows overlap **0.00**, with
+nothing in between.
+
+It barely changed the output.
+
+The reason is upstream of row grouping. That page carries **850 items across
+seven distinct Y values**, for a page of many more than seven visual lines —
+and the text of a *single* Y value is itself woven:
+
+```
+y=12   (275 items)
+"DRTSXLLPLLDNoooooAreXaoeo,aaaafNtaXtdnnnneeerXJu     r::ATSCSA e c1y2ticY…"
+```
+
+Several lines share one Y. So the information needed to separate them **is not
+in Y**, and no row-splitting rule — this one or any other — can recover it.
+The reader's Y is wrong for this producer, not merely coarse.
+
+Two things were also wrong in the first diagnosis, and are corrected here
+rather than left standing:
+
+- The alternation rate was reported as **369 of 562**. The real figures are
+  **0.24 and 0.12** for the woven rows and **0.75** for a legitimate one — the
+  wrong way round, so the threshold that measurement would have justified was
+  backwards. It came from a script that mixed rows across pages.
+- "Three adjacent pairs 1, 1.18 and 2 points apart" is true and is not the
+  cause. Merging those pairs is a symptom of the same wrong Y, not the origin
+  of the interleaving.
+
+The real work is in how `extractRuns` tracks the text matrix for this
+producer — `TD`, `T*` and `TL` leading, which is where a line's Y comes from.
+That is a reader fix rather than a grouping fix, and it is not started.
+
+Nothing was shipped for this. A change that alters output without fixing the
+problem is worse than no change, because the next person reads the code and
+believes the case is handled.

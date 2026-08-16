@@ -153,6 +153,12 @@ export async function render(route) {
       .filter((d) => d.expiresOn && daysUntil(d.expiresOn) <= 60)
       .sort((a, b) => a.expiresOn.localeCompare(b.expiresOn));
 
+    // Documents that named more than one expiry and so have none. They cannot
+    // appear above — nothing to sort by, nothing to count down — and without
+    // their own line they are indistinguishable from documents with nothing
+    // to renew.
+    const unclear = documents.filter((d) => d.expiryConflict && !d.expiresOn);
+
     const usage = await store.storageUsed();
     const writable = can(db.actor, 'write', 'document');
 
@@ -195,6 +201,23 @@ export async function render(route) {
             title: document.title,
             subtitle: `${document.category} · ${formatDay(document.expiresOn)}`,
             trailing: dueBadge(document.expiresOn, { leadDays: 60 }),
+            href: Router.href({ module: 'documents', entity: 'document', id: document.id }),
+          }))),
+        ])
+        : null,
+
+      unclear.length
+        ? card({ class: 'card--flush' }, [
+          h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
+            cardHeader('Expiry unclear', badge(String(unclear.length), 'warning'),
+              { iconName: 'alert' })),
+          h('div', { style: { padding: '0 var(--space-5)' } },
+            h('p', { class: 'small muted' },
+              'These gave more than one expiry date, so none was filed. '
+              + 'Open one to set the date it should renew on.')),
+          h('div', { class: 'list' }, unclear.slice(0, 5).map((document) => listItem({
+            title: document.title,
+            subtitle: `${document.category} · states ${document.expiryConflict}`,
             href: Router.href({ module: 'documents', entity: 'document', id: document.id }),
           }))),
         ])
