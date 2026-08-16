@@ -108,7 +108,7 @@ notes, vault, digital, emergency, reports, settings.
 | Module registry drives navigation | **exists** | `export:js/data/schema.js#modules` |
 | Assistant screen | **exists** | `file:js/modules/assistant-screen.js` |
 | Domain-service layer | **exists, barely adopted** | `file:js/services/service.js` |
-| People (distinct from family) | missing | `absent:grep:staffMember` |
+| Household staff (distinct from family) | **exists — the role, not a second identity** | `wired:js/services/records.js#documentsForStaff` |
 | Chat | missing | `absent:grep:chatMessage` |
 | Safety | missing | `absent:grep:geofence` |
 
@@ -162,6 +162,7 @@ another caller to migrate.
 | Registration certificate reading | **exists** | `export:js/domain/extract.js#readVehicle` |
 | A chassis or engine number never reaches searchable text | **exists** | `wired:js/domain/extract.js#Chassis` |
 | A document that gave two expiry dates says so on screen | **exists** | `wired:js/modules/documents.js#expiryConflict` |
+| A staff record shows the person's documents, without a second reference | **exists** | `wired:js/modules/family.js#documentsForStaff` |
 | Local assistant | **exists** | `export:js/ai/assistant.js#Assistant` |
 | OCR | **exists — Drive's own converter** | `file:apps-script/Drive.gs` |
 | DOCX template engine | **exists** | `export:js/domain/docxtemplate.js#readTemplate` |

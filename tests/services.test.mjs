@@ -1082,3 +1082,40 @@ describe('explaining a movement, through the service a screen uses', () => {
       assert.equal(await new ExplainService(db).forEvent('cnm_nothing'), null);
     });
 });
+
+/**
+ * A staff member's documents, through the reference that already exists.
+ *
+ * There is no `document.staff` and there should not be: a document filed
+ * against the person would not appear on the role, and one filed against the
+ * role would not appear on the person. Two paths to one thing fragment it.
+ */
+describe("a staff member's documents", () => {
+  test('they are the documents of the person the role points at', async () => {
+    const db = await makeDb();
+    const cook = await makePerson(db, { name: 'A Kumar' });
+    const other = await makePerson(db, { name: 'B Rao' });
+
+    const role = await db.repo('staff').create({ person: cook.id, role: 'Cook' });
+    await db.repo('document').create({ title: 'Aadhaar copy', person: cook.id });
+    await db.repo('document').create({ title: 'Someone else', person: other.id });
+
+    const out = await new RecordsService(db).documentsForStaff(role.id);
+
+    assert.equal(out.person, cook.id);
+    assert.length(out.documents, 1, "another person's document leaked in");
+    assert.equal(out.documents[0].title, 'Aadhaar copy');
+  });
+
+  test('a role pointing at nobody returns nothing rather than everything', async () => {
+    // The failure worth guarding: an empty person filter matching every row
+    // would show one household member the papers of all the others.
+    const db = await makeDb();
+    await makePerson(db, { name: 'A Kumar' });
+    await db.repo('document').create({ title: 'Private', person: null });
+
+    const out = await new RecordsService(db).documentsForStaff('staff_missing');
+    assert.equal(out.person, null);
+    assert.length(out.documents, 0);
+  });
+});

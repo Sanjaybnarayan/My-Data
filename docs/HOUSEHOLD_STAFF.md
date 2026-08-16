@@ -53,9 +53,15 @@ attached to them, through the same reference everybody else's are. **Adding a
 fragmenting one: a document filed against the person would not appear on the
 staff record, and one filed against the role would not appear on the person.
 
-Nothing is built for this, and nothing should be. What is missing is a *view*
-— a staff record cannot yet show the person's documents — and that is a screen
-reading an existing reference, not a new field.
+Nothing is built for this, and nothing should be. What was missing was a
+*view*, and that **is** built: a staff record now shows the person's
+documents, read through `RecordsService.documentsForStaff` — a screen reading
+an existing reference rather than a new field.
+
+Two tests, both mutation-verified. The second is the one that matters: a role
+pointing at nobody returns **nothing** rather than everything, because an
+empty person filter matching every row would show one household member the
+papers of all the others.
 
 ## What `endedOn` is for
 
@@ -83,5 +89,9 @@ again rather than raised.
 day off is a fact about a date, and this schema already has entities that
 model dates.
 
-**A staff record showing the person's documents** — a view over an existing
-reference, per section 3.
+The architecture document also carried a stale row — *People (distinct from
+family) | missing* — whose probe passed only because it grepped
+`staffMember`, a name nothing ever used. It now names what exists and cites
+something real. That is the ninth time this repository has caught its own
+roadmap or architecture document claiming something was missing after it was
+built.

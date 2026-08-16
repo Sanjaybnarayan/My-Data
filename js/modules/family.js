@@ -37,7 +37,9 @@ const TABS = [
 
 export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity) {
-    return recordDetail(route.entity, route.id);
+    return recordDetail(route.entity, route.id, route.entity === 'staff'
+      ? { extra: staffDocuments }
+      : {});
   }
 
   const active = route.entity ?? 'tree';
@@ -83,6 +85,32 @@ export async function render(route) {
   return { node: host, destroy: section.destroy };
 }
 
+
+
+/**
+ * The documents belonging to the person this staff record points at.
+ *
+ * A view over `document.person`, not a new reference. Somebody the household
+ * employs has their papers filed against them like anybody else, and the
+ * staff record is where a person looks for them.
+ */
+async function staffDocuments(id) {
+  const { documents, person } = await new RecordsService(app().db).documentsForStaff(id);
+  if (!person) return null;
+
+  return card({}, [
+    cardHeader('Their documents', badge(String(documents.length), 'muted')),
+    documents.length
+      ? h('div', { class: 'list' }, documents.slice(0, 10).map((document) => listItem({
+        title: document.title || document.fileName || 'Untitled',
+        subtitle: document.category ?? null,
+        href: Router.href({ module: 'documents', entity: 'document', id: document.id }),
+      })))
+      : h('p', { class: 'small muted' },
+        'Nothing filed against them yet. Documents are attached to the person, '
+        + 'not to the job, so they follow them between roles.'),
+  ]);
+}
 
 /**
  * Who works here now, and who used to.
