@@ -156,3 +156,48 @@ describe('since I last looked', () => {
     assert.includes(said, 'Sanjay Narayan');
   });
 });
+
+/**
+ * Two entries in the same millisecond.
+ *
+ * Not a rare case: a record created and corrected in one breath, or a CSV
+ * import writing a hundred rows, all land on one timestamp. Sorting on `at`
+ * alone left those in whatever order the index returned, which surfaced as a
+ * test in `tests/services.test.mjs` failing about half the time. The flake was
+ * the symptom; the defect is a record's history saying it was changed before
+ * it was added.
+ *
+ * These assert the tie-break itself. The test that found it now passes either
+ * way once its entries stop tying, and a check that only fails on unlucky days
+ * is not a check.
+ */
+describe('two entries in the same millisecond', () => {
+  const tied = (id, over = {}) => entry({ id, at: '2026-08-16T11:00:00Z', ...over });
+
+  test('the newer id is the newer entry, whichever order they arrive in', () => {
+    // ULIDs: within one millisecond the later write has the greater id.
+    const rows = [tied('aud_02'), tied('aud_03'), tied('aud_01')];
+    assert.equal(since(rows).map((row) => row.id).join(','), 'aud_03,aud_02,aud_01');
+  });
+
+  test('a create is not sorted above the updates that followed it', () => {
+    const rows = [
+      tied('aud_01', { action: 'create', fields: [] }),
+      tied('aud_02'),
+      tied('aud_03'),
+    ];
+    const [newest] = stories(rows);
+    assert.equal(newest.action, 'update', 'the record was changed before it was added');
+  });
+
+  test('a sitting is not split by a create landing in the middle of it', () => {
+    // With an unstable order the create can arrive between two updates, which
+    // ends one story and starts another — two lines for one afternoon.
+    const rows = [
+      tied('aud_02'),
+      tied('aud_01', { action: 'create', fields: [] }),
+      tied('aud_03'),
+    ];
+    assert.length(stories(rows), 2, 'one create and one sitting, not three lines');
+  });
+});

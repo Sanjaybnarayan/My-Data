@@ -13,6 +13,7 @@
 
 import { newId } from '../core/ids.js';
 import { entity } from './schema.js';
+import { newestFirst } from '../domain/timeline.js';
 
 export const ACTIONS = Object.freeze({
   create: 'create',
@@ -155,7 +156,10 @@ export async function historyOf(adapter, recordId, { limit = 50 } = {}) {
     range: { only: recordId },
     limit,
   });
-  return [...entries].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  // Ties are broken by id rather than left to the index — see `newestFirst`.
+  // A record created and corrected in one breath was showing the correction
+  // above the creation about half the time.
+  return [...entries].sort(newestFirst);
 }
 
 /**

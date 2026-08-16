@@ -25,6 +25,13 @@
  * Rows are reassembled from the Y coordinate, because a table in a PDF is not
  * a table — it is a few hundred independent runs that happen to line up.
  *
+ * Finding the fonts is most of the work of `Tf`, and a page can hide them in
+ * several places: written into the page, referred to by object number, or
+ * both at once with the font dictionary itself inline. All of those are
+ * followed, because the difference between them is the difference between a
+ * scanned bill and 2,718 characters of mojibake — see
+ * `docs/DOCUMENT_FORMATS.md`.
+ *
  * ## What it does not do
  *
  * No shaping, no ligature resolution, no right-to-left. Encrypted PDFs are
@@ -463,6 +470,56 @@ function contentStreams(number, objects) {
   return nested.length ? nested : [number];
 }
 
+/**
+ * The `<< … >>` starting at `open`, counting nesting.
+ *
+ * A dictionary cannot be found with `<<([^>]*)>>`: the first `>` inside it
+ * ends the match, so `/Font<</Ft0<</BaseFont/Times-Roman>>>>` reads as far as
+ * the inner font and stops. Depth-counting is the only way to get the whole
+ * of a dictionary that contains one.
+ */
+function balancedDict(source, open) {
+  let depth = 0;
+  for (let i = open; i < source.length - 1; i++) {
+    if (source[i] === '<' && source[i + 1] === '<') { depth++; i++; continue; }
+    if (source[i] === '>' && source[i + 1] === '>') {
+      depth--;
+      if (!depth) return source.slice(open, i + 2);
+      i++;
+    }
+  }
+  return null;
+}
+
+/**
+ * The dictionary at `/key`, whether it is written out or referred to.
+ *
+ * `/Resources << /Font … >>` and `/Resources 3620 0 R` are the same thing
+ * said two ways, and a page is free to use either. Adobe Scan uses the
+ * second — so does most of what a household will actually scan a bill with —
+ * and a reader that only knows the first finds no fonts on the page at all.
+ */
+function dictValue(body, key, objects) {
+  const at = new RegExp(`/${key}\\s*(<<|\\d+\\s+\\d+\\s+R)`).exec(body ?? '');
+  if (!at) return null;
+
+  if (at[1] === '<<') return balancedDict(body, at.index + at[0].length - 2);
+
+  const target = objects.get(Number(/(\d+)/.exec(at[1])[1]))?.body;
+  const open = target?.indexOf('<<') ?? -1;
+  return open === -1 ? null : balancedDict(target, open);
+}
+
+/**
+ * A PDF name, as written after its slash.
+ *
+ * `C0_0` is a name a real producer uses, and `[A-Za-z0-9]+` does not match
+ * it — it matches `C0` and then fails on the underscore, so the font is
+ * skipped and its text comes out undecoded. Everything that is not a
+ * delimiter or whitespace is part of the name.
+ */
+const NAME = '[^\\s/<>\\[\\]()]+';
+
 export function build({ objects, text, encrypted }, inflated) {
   expandObjectStreams(objects, inflated);
   const streamData = (number) => inflated.get(number) ?? null;
@@ -471,21 +528,26 @@ export function build({ objects, text, encrypted }, inflated) {
     return { pages: [], encrypted: true, reason: 'the PDF is encrypted' };
   }
 
-  // Fonts by object number, each with its ToUnicode map where it has one.
-  const fontsByNumber = new Map();
-  for (const [number, object] of objects) {
-    if (!/\/Type\s*\/Font/.test(object.body)) continue;
-    const reference = /\/ToUnicode\s+(\d+)\s+\d+\s+R/.exec(object.body);
+  /** What a font dictionary says about turning its bytes into text. */
+  const readFont = (body) => {
+    const reference = /\/ToUnicode\s+(\d+)\s+\d+\s+R/.exec(body);
     let toUnicode = null;
     if (reference) {
       const data = streamData(Number(reference[1]));
       if (data) toUnicode = parseToUnicode(data);
     }
-    fontsByNumber.set(number, {
+    return {
       toUnicode: toUnicode?.map ?? null,
       // A composite font is two-byte even when its CMap forgot to say so.
-      twoByte: toUnicode?.twoByte ?? /\/Subtype\s*\/Type0/.test(object.body),
-    });
+      twoByte: toUnicode?.twoByte ?? /\/Subtype\s*\/Type0/.test(body),
+    };
+  };
+
+  // Fonts by object number, each with its ToUnicode map where it has one.
+  const fontsByNumber = new Map();
+  for (const [number, object] of objects) {
+    if (!/\/Type\s*\/Font/.test(object.body)) continue;
+    fontsByNumber.set(number, readFont(object.body));
   }
 
   // Pages, in the order the page tree gives them. Resolving each page's own
@@ -498,13 +560,28 @@ export function build({ objects, text, encrypted }, inflated) {
 
   for (const [, page] of pageObjects) {
     const fonts = new Map();
-    const resources = /\/Font\s*<<([^>]*)>>/.exec(page.body);
-    if (resources) {
-      const entries = resources[1].match(/\/([A-Za-z0-9]+)\s+(\d+)\s+\d+\s+R/g) ?? [];
-      for (const entry of entries) {
-        const [, name, number] = /\/([A-Za-z0-9]+)\s+(\d+)\s+\d+\s+R/.exec(entry);
+    const resources = dictValue(page.body, 'Resources', objects);
+    const fontDict = dictValue(resources, 'Font', objects);
+
+    if (fontDict) {
+      // `/F1 5 0 R` — the font is an object of its own.
+      for (const entry of fontDict.match(
+        new RegExp(`/(${NAME})\\s+(\\d+)\\s+\\d+\\s+R`, 'g')) ?? []) {
+        const [, name, number] = new RegExp(`/(${NAME})\\s+(\\d+)\\s+\\d+\\s+R`).exec(entry);
         const font = fontsByNumber.get(Number(number));
         if (font) fonts.set(name, font);
+      }
+
+      // `/Ft0 << /BaseFont … >>` — the font is written into the page's own
+      // resources. A simple font written this way has no ToUnicode and needs
+      // none; reading it matters because a page whose fonts are all inline
+      // would otherwise bind nothing and report every run as raw bytes.
+      const inline = new RegExp(`/(${NAME})\\s*<<`, 'g');
+      for (let m = inline.exec(fontDict); m; m = inline.exec(fontDict)) {
+        const body = balancedDict(fontDict, m.index + m[0].length - 2);
+        if (!body) continue;
+        if (!fonts.has(m[1])) fonts.set(m[1], readFont(body));
+        inline.lastIndex = m.index + m[0].length - 2 + body.length;
       }
     }
 

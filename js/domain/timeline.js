@@ -50,6 +50,25 @@ export const SITTING_MINUTES = 30;
 const at = (entry) => Date.parse(entry?.at ?? '') || 0;
 
 /**
+ * Newest first, and never a coin toss.
+ *
+ * Two log entries share a timestamp constantly — a record created and
+ * corrected in the same breath, a CSV import writing a hundred rows inside one
+ * millisecond — and sorting on `at` alone leaves those in whatever order the
+ * index handed back. That showed up as a test failing about half the time,
+ * which is the polite version of the bug: on screen it is a record's history
+ * saying it was changed before it was added, and a sitting split in two
+ * because a `create` landed in the middle of its own `update`s.
+ *
+ * The tie-break is the entry's id, which is a ULID — inside one millisecond
+ * the later write has the greater id, by construction. So this is the real
+ * order, not an arbitrary one chosen to stop the flicker.
+ */
+export function newestFirst(a, b) {
+  return at(b) - at(a) || String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
+}
+
+/**
  * Entries after a mark, newest first.
  *
  * A missing mark returns everything rather than nothing: a household opening
@@ -57,7 +76,7 @@ const at = (entry) => Date.parse(entry?.at ?? '') || 0;
  * claiming nothing has happened.
  */
 export function since(entries, mark) {
-  const rows = [...(entries ?? [])].sort((a, b) => at(b) - at(a));
+  const rows = [...(entries ?? [])].sort(newestFirst);
   if (!mark) return rows;
   const from = Date.parse(mark) || 0;
   return rows.filter((entry) => at(entry) > from);
@@ -70,7 +89,7 @@ export function since(entries, mark) {
  * @param {{windowMinutes?: number}} [options]
  */
 export function stories(entries, { windowMinutes = SITTING_MINUTES } = {}) {
-  const rows = [...(entries ?? [])].sort((a, b) => at(b) - at(a));
+  const rows = [...(entries ?? [])].sort(newestFirst);
   const out = [];
 
   for (const entry of rows) {
