@@ -1,7 +1,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb } from './fixture.mjs';
 import {
-  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt, stopAtLabel, readAgreement, readVehicle,
+  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt, stopAtLabel, readAgreement, readVehicle, readNoDues,
 } from '../js/domain/extract.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
@@ -882,5 +882,58 @@ describe('a certificate that awards is not one that registers', () => {
     // A bill, an invoice and a policy all say "certificate" somewhere.
     assert.not(detectKind('Certificate No. 12345\nAmount payable 100.00\nDue date 01/02/2026')
       === 'certificate');
+  });
+});
+
+/**
+ * A lender's letter saying a loan is closed.
+ *
+ * Measured: once the reader could see these at all — they were unreadable
+ * until `js/data/pdf-read.js` learned to track the graphics matrix — two of
+ * three classified as `bill` and one as `statement`. A `bill` is the kind
+ * whose due date feeds reminders, so the wrong answer here was created by
+ * making a document readable.
+ */
+describe('a letter saying a loan is closed', () => {
+  const LETTER = [
+    'NO DUES CERTIFICATE',
+    'To whom soever it may concern',
+    'Date: 19/02/2025',
+    'Reference No.: 13669218',
+    'Loan Account No.: 404CDDIY472441',
+    'Loan Type: CONSUMER LOAN',
+    'Loan Start Date: 29/11/2022',
+    'Loan Closed Date: 04/12/2023',
+    'We are pleased to confirm that there are no outstanding dues towards the loan',
+    'and the same has been closed in our books.',
+    // The footer is why the ordering matters, and it is verbatim in shape from
+    // a real letter: a marketing strip that mentions a statement and a bill.
+    'SMS to 9227564444 to get your latest Statement of Account via SMS.',
+    'Get Rewards & Cashbacks on Bill payments, UPI transactions, Wallet.',
+  ].join('\n');
+
+  test('it is not a bill and not a statement', () => {
+    assert.equal(detectKind(LETTER), 'noDues');
+  });
+
+  test('the closing date is read, which is why the document is kept', () => {
+    const read = readNoDues(LETTER);
+    assert.equal(read.closedOn, '2023-12-04');
+    assert.equal(read.startedOn, '2022-11-29');
+    assert.equal(read.loanAccountNumber, '404CDDIY472441');
+  });
+
+  test('it is filed as financial', () => {
+    assert.equal(suggestions(readDocument(LETTER)).category, 'financial');
+  });
+
+  test('the phrase alone does not claim a statement is one', () => {
+    // Fine print on a statement can say a customer has no outstanding dues.
+    // The phrase is paired with the loan account such a letter is *about*.
+    assert.equal(
+      detectKind('Account Statement 01 Apr 2025 - 31 Mar 2026\n'
+        + 'Opening Balance 100\nNote: no outstanding dues on this account.'),
+      'statement',
+    );
   });
 });

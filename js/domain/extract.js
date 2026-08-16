@@ -319,6 +319,19 @@ export function redact(text) {
 /* ------------------------------------------------------------------ kinds */
 
 const KIND_RULES = [
+  // First, and it has to be: measured, two of these read as `bill` and one as
+  // `statement` once the reader could see them at all. A lender's letter
+  // saying a loan is closed is neither, and `bill` is the kind whose due date
+  // feeds reminders.
+  //
+  // The phrase alone is not enough — fine print on a statement can say a
+  // customer has no outstanding dues — so it is paired with the loan account
+  // that such a letter is *about*. Checked against all forty-one documents to
+  // hand: it matches the three no-dues letters and nothing else.
+  {
+    kind: 'noDues',
+    match: /no[\s-]?dues certificate|no outstanding dues[\s\S]{0,400}loan account/i,
+  },
   { kind: 'statement', match: /account statement|statement of account|opening balance.{0,40}closing balance/i },
   { kind: 'policy', match: /policy (no|number)|sum assured|policy schedule|premium (due|paid|amount)/i },
   { kind: 'identity', match: /permanent account number|\bUIDAI\b|aadhaar|passport no|driving licence|voter/i },
@@ -626,6 +639,32 @@ export function readPolicy(text) {
  * that says what it is worth is not the same as a document that says nothing;
  * telling those apart needs the body, which is prose.
  */
+/**
+ * A lender's letter saying a loan is closed.
+ *
+ * This is the document a household keeps as **proof a debt is settled**, and
+ * the field that matters is the closing date — the rest is what identifies
+ * which loan it was about.
+ *
+ * The labels are one lender's. All three examples measured are the same
+ * issuer's format, so this is a reader fitted to one layout even though the
+ * *kind* above is matched on phrasing every Indian lender uses. Stated rather
+ * than discovered later: a no-dues letter from a different lender will very
+ * likely be named correctly and yield no fields.
+ */
+export function readNoDues(text) {
+  const source = String(text ?? '');
+
+  return prune({
+    referenceNumber: readField(source, ['reference (?:no|number)']),
+    loanAccountNumber: readField(source, ['loan account (?:no|number)']),
+    loanType: readField(source, ['loan type'], { pattern: '[A-Za-z][A-Za-z ]{2,40}' }),
+    startedOn: readLabelledDate(source, ['loan start date']),
+    // The reason the document exists.
+    closedOn: readLabelledDate(source, ['loan closed date', 'closure date', 'date of closure']),
+  });
+}
+
 export function readAgreement(text) {
   const source = String(text ?? '');
 
@@ -712,6 +751,7 @@ export function readDocument(text) {
     bill: readBill,
     agreement: readAgreement,
     vehicle: readVehicle,
+    noDues: readNoDues,
   };
   const fields = READERS[kind]?.(source) ?? {};
 
@@ -762,6 +802,7 @@ export function suggestions(read, existing = {}) {
     bill: 'financial',
     agreement: 'legal',
     vehicle: 'vehicle',
+    noDues: 'financial',
   };
   const category = CATEGORY[read.kind];
   if (category && !existing.category) out.category = category;
