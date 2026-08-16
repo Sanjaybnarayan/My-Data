@@ -31,6 +31,17 @@ import { summariseHistory } from '../data/audit.js';
 
 export class RecordsService extends Service {
   /**
+   * The household's staff, for a screen that wants to say who works here now.
+   *
+   * A read behind a service rather than a module reaching the repository: the
+   * architecture document holds that edge to a budget that may only narrow,
+   * and adding one more would have widened it.
+   */
+  async staff({ limit = 500 } = {}) {
+    return this.db.repo('staff').list({ decrypt: false, limit });
+  }
+
+  /**
    * What deleting this record would leave pointing at nothing.
    *
    * @returns {Promise<{total: number, breaking: number, byEntity: object[]}>}

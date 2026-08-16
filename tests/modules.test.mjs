@@ -1,4 +1,5 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
+import { standing } from '../js/modules/family.js';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -189,5 +190,39 @@ describe('what ships to a browser', () => {
     // pattern here. A rule that fires on its own explanation is unusable.
     quiet('// never use eval( or innerHTML = here');
     quiet('/*\n * console.log is banned, see below\n */');
+  });
+});
+
+/**
+ * Who works here now, and who used to.
+ *
+ * `staff.endedOn` is what makes a record history rather than a deletion, and
+ * a list that ignores it shows a cook who left in 2019 beside the one who
+ * starts tomorrow.
+ */
+describe('household staff standing', () => {
+  const TODAY = '2026-08-16';
+
+  test('nobody with a leaving date is working here now', () => {
+    assert.deep(standing([{}, {}], TODAY), { current: 2, former: 0, onNotice: false });
+  });
+
+  test('somebody who left is counted apart', () => {
+    const out = standing([{}, { endedOn: '2019-01-01' }], TODAY);
+    assert.equal(out.current, 1);
+    assert.equal(out.former, 1);
+  });
+
+  test('a leaving date in the future is somebody still working here', () => {
+    // The rule worth stating. Counting them as former drops a person off the
+    // list while they are still turning up.
+    const out = standing([{ endedOn: '2026-09-01' }], TODAY);
+    assert.equal(out.current, 1);
+    assert.equal(out.former, 0);
+    assert.ok(out.onNotice);
+  });
+
+  test('the day they leave, they have left', () => {
+    assert.equal(standing([{ endedOn: TODAY }], TODAY).former, 1);
   });
 });

@@ -17,6 +17,7 @@ import {
 } from '../ui/components/basics.js';
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
+import { RecordsService } from '../services/records.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
 import {
@@ -73,8 +74,49 @@ export async function render(route) {
   }
 
   section = await listSection(active, { autoOpenNew: route.id === 'new' });
-  replace(body, section.node);
+
+  // `staff.endedOn` is what makes a record history rather than a deletion, and
+  // a list that does not use it shows a cook who left in 2019 beside the one
+  // who comes tomorrow. This is the whole of what the field is for.
+  const line = active === 'staff' ? await staffStanding() : null;
+  replace(body, line ? h('div', {}, [line, section.node]) : section.node);
   return { node: host, destroy: section.destroy };
+}
+
+
+/**
+ * Who works here now, and who used to.
+ *
+ * The only rule worth stating: **a leaving date in the future is somebody
+ * still working here**, on notice. Counting them as former would drop a
+ * person off the list while they are still turning up.
+ *
+ * @param {Array<{endedOn?: string}>} rows
+ * @param {string} [today] injectable, so the boundary can be tested
+ */
+export function standing(rows, today = new Date().toISOString().slice(0, 10)) {
+  const left = rows.filter((row) => row.endedOn && row.endedOn <= today);
+  return {
+    current: rows.length - left.length,
+    former: left.length,
+    onNotice: rows.some((row) => row.endedOn && row.endedOn > today),
+  };
+}
+
+/** How many people work here now, and how many used to. */
+async function staffStanding() {
+  const rows = await new RecordsService(app().db).staff();
+  if (!rows.length) return null;
+
+  const { current, former, onNotice } = standing(rows);
+
+  return card({ class: 'card--quiet' }, h('div', { class: 'row' }, [
+    icon('users', { size: 18 }),
+    h('span', { class: 'small' },
+      `${current} working here now`
+      + (former ? `, ${former} who used to` : '')
+      + (onNotice ? ' — including somebody on notice' : '')),
+  ]));
 }
 
 /* ------------------------------------------------------------------ tree */
