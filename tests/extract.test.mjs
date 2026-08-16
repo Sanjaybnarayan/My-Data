@@ -1,7 +1,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb } from './fixture.mjs';
 import {
-  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt, stopAtLabel, readAgreement, readVehicle, readNoDues,
+  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt, stopAtLabel, readAgreement, readVehicle, readNoDues, readTaxCertificate,
 } from '../js/domain/extract.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
@@ -935,5 +935,54 @@ describe('a letter saying a loan is closed', () => {
         + 'Opening Balance 100\nNote: no outstanding dues on this account.'),
       'statement',
     );
+  });
+});
+
+/**
+ * A certificate for claiming a deduction.
+ *
+ * Measured: both 80D certificates read as `policy`, because they carry a
+ * policy number and are issued by an insurer. They are not policies — they are
+ * what a household hands an accountant, and what matters on one is the
+ * deductible amount, not cover.
+ */
+describe('a tax certificate is not a policy', () => {
+  const CERT = [
+    'Eligibility of Premium for Deduction u/s 80D of the Income Tax Act, 1961',
+    'Policy Number: 44279899 Customer ID: 42885850',
+    'This is to certify that Care Health Insurance Ltd has received an amount of',
+    'Rs. 442/- from Mr A B toward payment of Health Insurance Premium.',
+    'Authorized Signatory Date of Issue: 13-Jul-2022 Place of Issue: Gurgaon',
+  ].join('\n');
+
+  test('it is read as a tax certificate, not as the policy it names', () => {
+    assert.equal(detectKind(CERT), 'taxCertificate');
+  });
+
+  test('the section and the deductible amount are read', () => {
+    const read = readTaxCertificate(CERT);
+    assert.equal(read.section, '80D');
+    assert.equal(read.amount, 442_00);
+    assert.equal(read.issuedOn, '2022-07-13');
+  });
+
+  test('it is filed as tax', () => {
+    assert.equal(suggestions(readDocument(CERT)).category, 'tax');
+  });
+
+  test('a real policy is still a policy', () => {
+    // Checked against all forty-one documents to hand: the rule matches the
+    // two 80D certificates and none of the five real insurance policies.
+    assert.equal(
+      detectKind('Policy Number: P/1\nSum Assured Rs. 5,00,000\nTotal Premium 12,450.00'),
+      'policy',
+    );
+  });
+
+  test('no financial year is invented from the issue date', () => {
+    // These do not state one, and deriving a year from an issue date would be
+    // a claim about which year the premium falls in that the document does not
+    // make.
+    assert.equal(readTaxCertificate(CERT).financialYear, undefined);
   });
 });
