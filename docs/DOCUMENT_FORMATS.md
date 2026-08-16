@@ -207,3 +207,103 @@ extractor was writing in the clear into searchable text.
 
 Still open from this page: a `certificate` kind, the Luhn check argued for
 above, and more than one document in one file.
+
+---
+
+# A Second Batch: Eight More, And Two Photographs
+
+Two motor insurance policies, a vehicle loan statement, a warranty booklet,
+four scanned documents, and photographs of a second vehicle's registration
+card. Same rule as above: **none of their values are in this repository.**
+
+## Three answers that used to be one
+
+`extract()` returned `{ pages: [], encrypted: false }` for all three of these,
+identically:
+
+- a file that is not a PDF
+- a PDF this reader could not parse
+- **a PDF of photographs, with no text layer at all**
+
+Two of the eight are the third case — a 60-page warranty booklet and a scanned
+certificate. A household scanning a warranty card would have been told nothing,
+when the true answer is *"this needs OCR"*, which is something they can act on.
+
+`pageCount` is now reported alongside `pages`, and a `reason` says which case
+it is. Blank pages are still not added to `pages`, because a blank page in the
+middle of a statement would shift every row a caller counts on.
+
+## A NUL inside a word
+
+The Tata AIG policy read `Certi<NUL>cate of Insurance`. Not a space — the byte
+`0x00`, invisible on screen.
+
+The font's CMap maps its `fi` ligature glyph to **U+0000**, which is a subset
+font's way of saying *this glyph has no Unicode*. The reader emitted it
+verbatim. That value would have gone into `ocrText` — searchable, and synced to
+a cell in the household's Sheet — where it does not match a search for
+`certificate` and looks to a reader like a spacing bug.
+
+It is dropped now. The result is `Certicate`: still wrong, because the font
+genuinely never said what that glyph was, but **wrong where somebody can see
+it**.
+
+## And a ligature that was mapped honestly
+
+A different font in the same document maps the same ligature to U+FB01, which
+is correct and equally unsearchable: `beneﬁts` does not match `benefits`, and
+no label pattern in `domain/extract.js` containing `fi` would ever match.
+
+Ligatures are decomposed to the letters they stand for. This is the one place
+this reader is allowed to change what a document said — and it is not changing
+it, because U+FB01 *is* `fi`, written as one glyph for the typesetter.
+
+## What is measured and still not fixed
+
+**Spacing.** The same policy still reads `con rm ation` for *confirmation* and
+`M otor` for *Motor*. That is a different fault from the two above: the run
+splitter inserts a space where a kerning adjustment is wide, and deciding
+correctly needs glyph widths, which this reader does not parse. Named here so
+the ligature fix is not read as having solved it.
+
+**Motor policy expiry.** Both policies are correctly detected as `policy`, and
+both yield a policy number, insurer and premium. **Neither yields an expiry
+date**, which is the field the whole reminder machinery turns on. The reason is
+a vocabulary gap: `readPolicy` looks for `valid upto`, `expiry date`, `policy
+end date`; a motor policy writes **`Period of insurance <date> to <date>`** — a
+range, where the expiry is the *second* date, and `readLabelledDate` returns
+the first. It needs range handling, not another label, so it is not a one-line
+change and is not made.
+
+A motor policy also has no *sum assured* — it has an **IDV**, the Insured
+Declared Value. One of the two yielded a `sumAssured` anyway, which is a label
+collision worth being suspicious of rather than pleased about.
+
+**A vehicle loan statement is a statement.** The TVS Credit document is
+correctly read as `statement`, and it is one — but of a loan, not a bank
+account. Nothing distinguishes the two, and the chassis and engine numbers on
+it were redacted correctly by the rules added in
+`docs/AGREEMENTS_AND_VEHICLES.md`, on a document class those rules were not
+written for.
+
+## The registration card photographs
+
+Two photographs of a smart-card RC for a second vehicle, front and back. They
+are images, not PDFs, and nothing in this repository reads them — Drive's own
+converter is the OCR path, per the architecture document.
+
+Worth recording because the **layout is a different one**: the printed card
+measured earlier is the older format, and this is the chip-card format, whose
+back carries `Maker's Name`, `Model Name`, `Colour`, `Body Type`,
+`Seating`, `Month-Year of Mfg.`, `Cubic Capacity`, `Wheel Base` and the
+registering authority as clean label/value pairs, and whose front carries
+`Regn. Number`, `Date of Regn.`, `Regn. Validity`, `Chassis Number`,
+`Engine / Motor Number`, `Owner Name`, `Fuel` and `Emission Norms`.
+
+`readVehicle` was written against the older layout. Its labels — `REG NO`,
+`REG.DATE`, `REGFC UPTO`, `MFR`, `CLASS` — are **not** the labels on this card,
+which says `Regn. Number`, `Date of Regn.`, `Regn. Validity`, `Maker's Name`
+and `Vehicle Class`. So it would read little of this one, and that is stated
+rather than assumed: no OCR text exists for it here to measure against, and a
+claim about how well a reader handles a document nobody has run it on is
+exactly the kind this repository does not make.

@@ -125,11 +125,11 @@ const cidsFor = (text) => [...text]
  *
  * @param {string} text
  * @param {{resources?: 'inline'|'indirect', font?: 'indirect'|'inline',
- *          name?: string}} [shape]
+ *          name?: string, decodesTo?: string}} [shape]
  */
-function scanned(text, { resources = 'indirect', font = 'indirect', name = 'C0_0' } = {}) {
-  const stream = `BT /${name} 12 Tf 50 750 Td <${cidsFor(text)}> Tj ET\n`;
-  const cmap = cmapFor(text);
+function scanned(text, { resources = 'indirect', font = 'indirect', name = 'C0_0', decodesTo = text } = {}) {
+  const stream = `BT /${name} 12 Tf 50 750 Td <${cidsFor(decodesTo)}> Tj ET\n`;
+  const cmap = cmapFor(decodesTo);
 
   const fontBody = '<< /Type /Font /Subtype /Type0 /BaseFont /HWJOVJ+AcuminPro '
     + '/Encoding /Identity-H /ToUnicode 6 0 R >>';
@@ -206,5 +206,91 @@ describe('how a page reaches its fonts', () => {
     // font and loses the rest of the resources.
     const result = await extract(scanned('Arrears', { resources: 'inline', font: 'inline' }));
     assert.includes(textOf(result), 'Arrears');
+  });
+});
+
+/**
+ * What a CMap says, and what a person typed.
+ *
+ * Measured on a real motor insurance policy. Two separate faults in one
+ * document, both invisible on screen:
+ *
+ *  - `Certi\0cate` — the font's CMap maps its `fi` ligature glyph to
+ *    **U+0000**, which is a font saying *this glyph has no Unicode*. The
+ *    reader emitted the NUL into the text, where it does not match a search
+ *    for `certificate` and would be written into a cell in the household's
+ *    Sheet.
+ *  - `beneﬁts` — a different font maps the same ligature honestly, to U+FB01.
+ *    Also correct, also unsearchable.
+ */
+describe('ligatures and the glyphs a font could not map', () => {
+  const textOfPdf = async (bytes) => {
+    const result = await extract(bytes);
+    return result.pages.flatMap((page) => page.lines ?? []).join(' ');
+  };
+
+  test('a ligature is decomposed into the letters it stands for', async () => {
+    const got = await textOfPdf(scanned('x', { decodesTo: `bene${String.fromCharCode(0xFB01)}ts` }));
+    assert.includes(got, 'benefits');
+  });
+
+  test('a glyph mapped to U+0000 is dropped rather than emitted', async () => {
+    // Wrong either way — the `fi` is genuinely lost, because the font never
+    // said what it was. But `Certicate` is wrong where a person can see it,
+    // and a NUL inside a word is not.
+    const got = await textOfPdf(scanned('x', { decodesTo: `Certi${String.fromCharCode(0)}cate` }));
+
+    assert.equal(got.includes(String.fromCharCode(0)), false, 'a NUL reached the text');
+    assert.includes(got, 'Certicate');
+  });
+
+  test('a NUL never survives even in the middle of ordinary text', async () => {
+    const got = await textOfPdf(scanned('x', { decodesTo: `A${String.fromCharCode(0)}B` }));
+    assert.equal(got.includes(String.fromCharCode(0)), false);
+  });
+});
+
+/**
+ * Three different answers that used to be one.
+ *
+ * `pages: []` with `encrypted: false` was returned for a JPEG renamed to
+ * `.pdf`, for a PDF this reader could not parse, and for a PDF of photographs
+ * with no text layer at all. Measured: two of eight real documents — a
+ * warranty booklet and a scanned certificate — were the third case, and a
+ * household scanning one would have been told nothing.
+ */
+describe('a scan with no text is not the same as no PDF', () => {
+  test('bytes that are not a PDF report no pages and no reason', async () => {
+    const result = await extract(new TextEncoder().encode('not a pdf at all'));
+    assert.equal(result.pageCount, 0);
+    assert.equal(result.reason, undefined, 'there is nothing to explain about a non-PDF');
+  });
+
+  test('a PDF whose pages carry no text says so, and says what to do', async () => {
+    // A page object with an image and no text-drawing operators.
+    const stream = 'q 200 0 0 100 50 700 cm /Im0 Do Q\n';
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R '
+        + '/Resources << /XObject << /Im0 5 0 R >> >> >>',
+      `<< /Length ${stream.length} >>\nstream\n${stream}endstream`,
+      '<< /Type /XObject /Subtype /Image /Width 1 /Height 1 >>',
+    ];
+    let out = '%PDF-1.4\n';
+    objects.forEach((body, i) => { out += `${i + 1} 0 obj\n${body}\nendobj\n`; });
+    out += 'trailer\n<< /Size 6 /Root 1 0 R >>\n%%EOF\n';
+
+    const result = await extract(new TextEncoder().encode(out));
+
+    assert.length(result.pages, 0, 'a blank page must not shift the rows a caller counts');
+    assert.equal(result.pageCount, 1, 'the page is still known to exist');
+    assert.includes(result.reason, 'needs OCR');
+  });
+
+  test('a PDF with text reports no reason', async () => {
+    const result = await extract(pdf(['Account Statement']));
+    assert.equal(result.pageCount, 1);
+    assert.equal(result.reason, undefined);
   });
 });

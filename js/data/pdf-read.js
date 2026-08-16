@@ -186,12 +186,42 @@ function parseToUnicode(cmap) {
   return { map, twoByte: width >= 2 };
 }
 
+/**
+ * Typographic ligatures, as the letters a person typed.
+ *
+ * A subset font maps its `ﬁ` glyph to U+FB01, which is correct and unhelpful:
+ * `beneﬁts` does not match a search for `benefits`, and no label pattern in
+ * `domain/extract.js` containing `fi` will ever match a document that uses
+ * them. Measured on a real motor policy, which is full of them.
+ *
+ * This is the one place a reader is allowed to change what the document said,
+ * because it is not changing it — U+FB01 *is* `fi`, written as one glyph for
+ * the typesetter's benefit.
+ */
+const LIGATURES = new Map(Object.entries({
+  'ﬀ': 'ff', 'ﬁ': 'fi', 'ﬂ': 'fl',
+  'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬅ': 'st', 'ﬆ': 'st',
+}));
+
+const unligature = (text) => (/[ﬀ-ﬆ]/.test(text)
+  ? [...text].map((ch) => LIGATURES.get(ch) ?? ch).join('')
+  : text);
+
 function utf16beToString(hex) {
   let out = '';
   for (let i = 0; i < hex.length; i += 4) {
-    out += String.fromCharCode(parseInt(hex.slice(i, i + 4).padEnd(4, '0'), 16));
+    const code = parseInt(hex.slice(i, i + 4).padEnd(4, '0'), 16);
+    // A CMap entry of U+0000 is a font saying *this glyph has no Unicode* —
+    // subset fonts write it for ligatures and ornaments they could not map.
+    // Emitting it puts a NUL inside a word: measured on a real policy, the
+    // reader produced `Certi<NUL>cate`, which is invisible on screen, does
+    // not match a search for `certificate`, and would be written into a cell
+    // in the household's Sheet. Dropping it leaves `Certicate` — wrong, but
+    // wrong in a way somebody can see.
+    if (code === 0) continue;
+    out += String.fromCharCode(code);
   }
-  return out;
+  return unligature(out);
 }
 
 /* ------------------------------------------------------ content streams */
@@ -525,7 +555,7 @@ export function build({ objects, text, encrypted }, inflated) {
   const streamData = (number) => inflated.get(number) ?? null;
 
   if (encrypted) {
-    return { pages: [], encrypted: true, reason: 'the PDF is encrypted' };
+    return { pages: [], encrypted: true, pageCount: 0, reason: 'the PDF is encrypted' };
   }
 
   /** What a font dictionary says about turning its bytes into text. */
@@ -603,7 +633,26 @@ export function build({ objects, text, encrypted }, inflated) {
     if (items.length) pages.push({ items, rows: toRows(items), lines: toLines(items) });
   }
 
-  return { pages, encrypted: false };
+  // A page with no text is not kept — a blank page in the middle of a
+  // statement would shift every row a caller counts on. But the *count* is
+  // kept, because without it these three are the same answer:
+  //
+  //   - these bytes are not a PDF
+  //   - this is a PDF and I could not parse it
+  //   - this is a PDF of photographs, and there is no text in it to find
+  //
+  // Measured: two of eight real documents — a warranty booklet and a scanned
+  // certificate — returned `pages: []` with `encrypted: false`, byte for byte
+  // what this returns for a JPEG renamed to `.pdf`. A household scanning a
+  // warranty card would be told nothing at all, when the true answer is
+  // "this needs OCR", which is a thing they can act on.
+  return {
+    pages,
+    encrypted: false,
+    pageCount: pageObjects.length,
+    reason: pages.length || !pageObjects.length ? undefined
+      : 'the PDF has pages but no text in them — it is a scan, and needs OCR',
+  };
 }
 
 /**
@@ -707,12 +756,20 @@ export async function inflateAll(bytes, { streams }, decompress = inflate) {
  *
  * @param {Uint8Array|ArrayBuffer} input
  * @param {{decompress?: (raw: Uint8Array) => Promise<Uint8Array|null>}} [options]
- * @returns {Promise<{pages: Array<{items, rows, lines}>, encrypted: boolean, reason?: string}>}
+ * `pageCount` is how many pages the file has; `pages` is how many carried
+ * text. They differ for a scan with no text layer, and `reason` says so.
+ *
+ * @returns {Promise<{pages: Array<{items, rows, lines}>, encrypted: boolean,
+ *   pageCount: number, reason?: string}>}
  */
 export async function extract(input, { decompress = inflate } = {}) {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   const scanned = scan(bytes);
-  if (scanned.encrypted) return { pages: [], encrypted: true, reason: 'the PDF is encrypted' };
+  // `pageCount: 0` rather than absent: every path out of here answers the
+  // same three questions, so a caller never has to test which shape it got.
+  if (scanned.encrypted) {
+    return { pages: [], encrypted: true, pageCount: 0, reason: 'the PDF is encrypted' };
+  }
   return build(scanned, await inflateAll(bytes, scanned, decompress));
 }
 
