@@ -294,3 +294,67 @@ describe('a scan with no text is not the same as no PDF', () => {
     assert.equal(result.reason, undefined);
   });
 });
+
+/**
+ * Text positioned by the graphics matrix rather than the text matrix.
+ *
+ * A producer may leave the text matrix alone and move each block with `cm`.
+ * A real no-dues certificate does exactly that: thirty-one `BT` blocks, every
+ * one of them `1 0 0 -1 0 14 Tm`, each preceded by its own `cm`. Tracking only
+ * the text matrix put **850 characters on seven distinct Y values**, so
+ * separate lines merged and were then ordered by X — coming out woven letter
+ * by letter:
+ *
+ *     Zsbauipmrceeoa duheas: sw 5bi6teh0ei0nn9 c31l0o steod 4 i0n
+ *
+ * Which is the worst thing this reader can produce: not empty, not obviously
+ * broken, and searchable rubbish once it reaches `ocrText`.
+ */
+describe('a block moved by cm rather than by Tm', () => {
+  /** Two lines, each in its own `q … cm … BT … ET … Q`, same text matrix. */
+  function positionedByCm(lines) {
+    const stream = lines.map(([y, text]) => 'q\n'
+      + `1 0 0 1 50 ${y} cm\n`
+      + `BT\n/F1 12 Tf\n1 0 0 1 0 0 Tm\n(${text}) Tj\nET\nQ\n`).join('');
+
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R '
+        + '/Resources << /Font << /F1 5 0 R >> >> >>',
+      `<< /Length ${stream.length} >>\nstream\n${stream}endstream`,
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    ];
+    let out = '%PDF-1.4\n';
+    objects.forEach((body, i) => { out += `${i + 1} 0 obj\n${body}\nendobj\n`; });
+    out += 'trailer\n<< /Size 6 /Root 1 0 R >>\n%%EOF\n';
+    return new TextEncoder().encode(out);
+  }
+
+  test('two blocks at different cm heights are two lines', async () => {
+    const result = await extract(positionedByCm([[700, 'Account closed'], [680, 'Nothing is owed']]));
+    const lines = result.pages.flatMap((page) => page.lines ?? []);
+
+    assert.length(lines, 2, 'the two lines were merged into one');
+    assert.includes(lines[0], 'Account closed');
+    assert.includes(lines[1], 'Nothing is owed');
+  });
+
+  test('and their words are not woven together', async () => {
+    // The failure was not a merge that reads oddly — it is characters from two
+    // lines interleaved by X, which looks like prose and is not.
+    const result = await extract(positionedByCm([[700, 'Account closed'], [680, 'Nothing is owed']]));
+    const joined = result.pages.flatMap((page) => page.lines ?? []).join(' ');
+
+    assert.includes(joined, 'Account closed');
+    assert.includes(joined, 'Nothing is owed');
+  });
+
+  test('a Q restores the height the matching q saved', async () => {
+    // Without the stack, each `cm` would accumulate and every block after the
+    // first would land somewhere it was never drawn.
+    const result = await extract(positionedByCm([[700, 'One'], [700, 'Two']]));
+    assert.length(result.pages.flatMap((page) => page.lines ?? []), 1,
+      'two blocks at the same height should be one line');
+  });
+});
