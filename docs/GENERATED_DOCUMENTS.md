@@ -88,14 +88,14 @@ Four mutations, all four caught:
 
 ## What is still not built
 
+**Word content controls and `MERGEFIELD` are done** — see
+`docs/WORD_FIELDS.md`, written after this and in answer to the paragraph that
+used to be here.
+
 **PDF output.** The prompt asks for it; `reports/pdf.js` writes PDFs already, so
 the missing piece is rendering a *filled template* to PDF rather than to DOCX,
 which means laying out Word content this application currently only rewrites in
 place. It is not a small piece and it is not started.
-
-**Word content controls and `MERGEFIELD`.** `domain/docxtemplate.js` finds
-`{{fields}}` and nothing else. A template built in Word's own field UI carries
-neither, and would report zero fields — honestly, but uselessly.
 
 **Template versioning.** Each generation is a new document record. Successive
 generations from one template are related only by `generatedFrom` carrying the

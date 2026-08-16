@@ -173,6 +173,99 @@ describe('reading the zip itself', () => {
   });
 });
 
+describe("the fields Word's own UI writes", () => {
+  // Measured before any of this existed: all three shapes reported no fields
+  // at all — honestly, and uselessly. A template built the way Word documents
+  // it carries no `{{placeholders}}` anywhere.
+  const simple = '<w:p><w:r><w:t>Dear </w:t></w:r>'
+    + '<w:fldSimple w:instr=" MERGEFIELD Tenant \\* MERGEFORMAT ">'
+    + '<w:r><w:t>«Tenant»</w:t></w:r></w:fldSimple>'
+    + '<w:r><w:t>,</w:t></w:r></w:p>';
+
+  const complex = '<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r>'
+    + '<w:r><w:instrText xml:space="preserve"> MERGEFIELD Amount </w:instrText></w:r>'
+    + '<w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+    + '<w:r><w:t>«Amount»</w:t></w:r>'
+    + '<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>';
+
+  const control = '<w:p><w:sdt><w:sdtPr><w:alias w:val="Landlord name"/>'
+    + '<w:tag w:val="landlord"/></w:sdtPr>'
+    + '<w:sdtContent><w:r><w:t>Click to enter</w:t></w:r></w:sdtContent></w:sdt></w:p>';
+
+  test('a simple MERGEFIELD is found and filled', () => {
+    assert.deep(fieldsIn(simple), ['Tenant']);
+    const out = fill(simple, { Tenant: 'Meera Narayan' });
+    assert.includes(out, 'Meera Narayan');
+    assert.not(out.includes('fldSimple'), 'the field survived into the document');
+    assert.not(out.includes('«Tenant»'), "Word's own placeholder text survived");
+    // The words around it are untouched.
+    assert.includes(out, '<w:t>Dear </w:t>');
+    assert.includes(out, '<w:t>,</w:t>');
+  });
+
+  test('the five-run complex form is one field, not five', () => {
+    assert.deep(fieldsIn(complex), ['Amount']);
+    const out = fill(complex, { Amount: '18,500' });
+    assert.includes(out, '18,500');
+    assert.not(out.includes('fldChar'), 'the field machinery survived');
+    assert.not(out.includes('MERGEFIELD'), 'the instruction survived into the document');
+  });
+
+  test('a content control is named by its tag and replaced by plain text', () => {
+    assert.deep(fieldsIn(control), ['landlord']);
+    const out = fill(control, { landlord: 'S Narayan & Co' });
+    // Escaped, like every other value this writes.
+    assert.includes(out, 'S Narayan &amp; Co');
+    assert.not(out.includes('<w:sdt'), 'the control survived, so the output is still a form');
+    assert.not(out.includes('Click to enter'));
+  });
+
+  test('an alias stands in when a control carries no tag', () => {
+    const aliasOnly = '<w:sdt><w:sdtPr><w:alias w:val="Witness"/></w:sdtPr>'
+      + '<w:sdtContent><w:r><w:t>…</w:t></w:r></w:sdtContent></w:sdt>';
+    assert.deep(fieldsIn(aliasOnly), ['Witness']);
+  });
+
+  test('a template with both kinds reports both, in document order', () => {
+    // Somebody edited a Word-built template by hand. Both are real.
+    const mixed = `${simple}<w:p><w:r><w:t>{{Date}}</w:t></w:r></w:p>`;
+    assert.deep(fieldsIn(mixed), ['Tenant', 'Date']);
+
+    const out = fill(mixed, { Tenant: 'Meera Narayan', Date: '16 August 2026' });
+    assert.includes(out, 'Meera Narayan');
+    assert.includes(out, '16 August 2026');
+  });
+
+  test('an unfilled Word field keeps its placeholder, as a brace field does', () => {
+    const out = fill(simple, { Somebody: 'else' });
+    assert.includes(out, 'fldSimple', 'the field was blanked rather than left');
+    assert.includes(out, '«Tenant»');
+  });
+
+  test('a field with no MERGEFIELD instruction is not one of ours', () => {
+    // ` PAGE ` and ` DATE ` are Word fields too, and filling them would be
+    // this application overwriting page numbers.
+    const page = '<w:p><w:fldSimple w:instr=" PAGE \\* MERGEFORMAT ">'
+      + '<w:r><w:t>1</w:t></w:r></w:fldSimple></w:p>';
+    assert.length(fieldsIn(page), 0);
+    assert.equal(fill(page, { PAGE: '99' }), page);
+  });
+
+  test('two fields in one paragraph are both replaced, and neither eats the other',
+    () => {
+      const two = '<w:p>'
+        + '<w:fldSimple w:instr=" MERGEFIELD A "><w:r><w:t>«A»</w:t></w:r></w:fldSimple>'
+        + '<w:r><w:t> and </w:t></w:r>'
+        + '<w:fldSimple w:instr=" MERGEFIELD B "><w:r><w:t>«B»</w:t></w:r></w:fldSimple>'
+        + '</w:p>';
+      const out = fill(two, { A: 'first', B: 'second' });
+      assert.includes(out, 'first');
+      assert.includes(out, 'second');
+      assert.includes(out, '<w:t> and </w:t>');
+      assert.not(out.includes('fldSimple'));
+    });
+});
+
 describe('a generated document is filed, not only downloaded', () => {
   const asFile = (bytes, { name, type }) => ({
     name,
