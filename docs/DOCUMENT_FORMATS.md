@@ -199,4 +199,11 @@ Missing kinds, in the order the measurement argues for them: `agreement`
 shared across all four), `vehicle` (a clean parse sitting unused), and
 `certificate`. Missing concept: more than one document in one file.
 
-None of that is built, and none of it is claimed.
+**`agreement` and `vehicle` are built** — see `docs/AGREEMENTS_AND_VEHICLES.md`,
+written after this and in answer to it. All twelve documents now classify
+correctly. That work also closed a leak this page did not look for: the
+chassis and engine numbers, which the schema holds `encrypted: true` and the
+extractor was writing in the clear into searchable text.
+
+Still open from this page: a `certificate` kind, the Luhn check argued for
+above, and more than one document in one file.

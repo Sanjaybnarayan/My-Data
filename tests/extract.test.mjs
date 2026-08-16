@@ -1,7 +1,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb } from './fixture.mjs';
 import {
-  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt, stopAtLabel,
+  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt, stopAtLabel, readAgreement, readVehicle,
 } from '../js/domain/extract.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
@@ -524,5 +524,185 @@ describe('a payer’s name when the line breaks are gone', () => {
 
   test('trailing punctuation from the cut is trimmed', () => {
     assert.equal(stopAtLabel('Sanjay Narayan, Towards'), 'Sanjay Narayan');
+  });
+});
+
+/**
+ * Documents this application could not name, and two numbers it was leaking.
+ *
+ * Measured against ten real household documents (`docs/DOCUMENT_FORMATS.md`).
+ * Every fixture below is a **retyped layout** — the shapes and labels of those
+ * documents with invented values, as every fixture in this repository is.
+ */
+
+// A Karnataka e-stamp header, label-first. Four documents measured share this
+// block; three of them print it the other way round, which is the whole
+// difficulty.
+const ESTAMP_LABEL_FIRST = [
+  'INDIA NON JUDICIAL',
+  'Government of Karnataka',
+  'e-Stamp',
+  'Certificate No. IN-KA11111111111111A',
+  'Certificate Issued Date 04-Feb-2021 11:19 AM',
+  'Description of Document : Article 5(J) Agreement (in any other cases)',
+  'Consideration Price (Rs.) 0',
+  '(Zero)',
+  'First Party ANAND RAO',
+  'Second Party MEERA IYER',
+  'Stamp Duty Amount(Rs.) 500',
+  '(Five Hundred only)',
+  'DEED OF PARTNERSHIP',
+  'THIS DEED is made and entered into in the city of Bangalore',
+].join('\n');
+
+// The same block as the OCR of a real scan lays it out: value, then label.
+const ESTAMP_VALUE_FIRST = [
+  'INDIA NON JUDICIAL',
+  'Government of Karnataka',
+  'IN-KA22222222222222B',
+  'Certificate No.',
+  '04-Feb-2021 11:19 AM',
+  'Certificate Issued Date',
+  'ANAND RAO',
+  'First Party',
+  'MEERA IYER',
+  'Second Party',
+  'Stamp Duty Amount(Rs.) 500',
+  'RENTAL AGREEMENT',
+  'hereinafter called the LESSOR',
+].join('\n');
+
+const RC_CARD = [
+  'KARNATAKA',
+  'CERTIFICATE OF REGISTRATION',
+  'TRANSPORT DEPARTMENT',
+  'REG NO: KA99XX1111',
+  'FORM-23A',
+  'REG.DATE :09-09-2021',
+  'CHASSIS.NO AAAAA111AAA222222',
+  'COLOUR: MIDNIGHT BLUE',
+  'ENGINE.NO B1CDEF222222 CLASS : Motor Car',
+  'MFR',
+  'A MOTORS INDIA PRIVATE LIMITED',
+  'OWNERNAME: ANAND RAO',
+  'REGFC UPTO: 08-09-2036',
+  // As the real card lays it out, and the order matters to the test below:
+  // the value, the seating type, the label, and then a *number*. Nothing
+  // readable follows the label, so there is only one reading — which is why a
+  // pattern of "any word near FUEL" answers `SLPR` here and is not saved by
+  // the ambiguity rule.
+  ': PETROL STDG/SLPR',
+  'FUEL',
+  ':1497.00',
+].join('\n');
+
+describe('a chassis number is as sensitive as a PAN, and the schema said so', () => {
+  test('chassis and engine numbers are kept out of searchable text', () => {
+    // `vehicle.chassisNumber` and `vehicle.engineNumber` are `encrypted: true`
+    // on the schema. They were being written, in the clear, into `ocrText` —
+    // which is searchable, and therefore syncs to a cell in the household's
+    // Sheet. The application had already decided these were sensitive.
+    const read = readDocument(RC_CARD);
+    const kinds = read.identifiers.map((i) => i.kind);
+
+    assert.ok(kinds.includes('Chassis'), 'a chassis number was left in the clear');
+    assert.ok(kinds.includes('Engine'), 'an engine number was left in the clear');
+    assert.equal(read.indexable.includes('AAAAA111AAA222222'), false);
+    assert.equal(read.indexable.includes('B1CDEF222222'), false);
+  });
+
+  test('they are anchored on their label, not on their shape', () => {
+    // Seventeen alphanumerics is also a part number, an order number and a
+    // policy number. Redacting every such token would do to an invoice what
+    // the Card rule does to a statement.
+    assert.length(readIdentifiers('Part AAAAA111AAA222222 fitted at service'), 0);
+  });
+
+  test('the marker says something was taken out', () => {
+    assert.includes(redact(RC_CARD), '[Chassis removed]');
+  });
+});
+
+describe('an agreement is not a bill and not a receipt', () => {
+  test('a lease is an agreement rather than a bill', () => {
+    // Measured: a real house agreement was classified `bill` and a real rent
+    // agreement `receipt`, because there was no agreement kind and an
+    // agreement falls through to whichever money-word appears first. `bill` is
+    // the kind whose due date feeds the reminder machinery.
+    assert.equal(detectKind(ESTAMP_VALUE_FIRST), 'agreement');
+    assert.equal(detectKind(ESTAMP_LABEL_FIRST), 'agreement');
+  });
+
+  test('a registration certificate is a vehicle document', () => {
+    assert.equal(detectKind(RC_CARD), 'vehicle');
+  });
+
+  test("a dealer's invoice for a car is still a receipt", () => {
+    // The vehicle rule is deliberately narrow. Matching on `chassis` would
+    // take the tax invoice with it, and buying a car is not registering one.
+    assert.equal(detectKind('TAX INVOICE\nCHASSIS NO: AAAAA111AAA222222\nReceipt date 01-Feb-2021'), 'receipt');
+  });
+
+  test('an agreement is filed as legal, and a certificate as a vehicle', () => {
+    assert.equal(suggestions(readDocument(ESTAMP_LABEL_FIRST)).category, 'legal');
+    assert.equal(suggestions(readDocument(RC_CARD)).category, 'vehicle');
+  });
+
+  test('an RC expiry becomes the expiry the reminders already watch', () => {
+    // The reason to read one: an RC that lapses unnoticed is a vehicle that
+    // cannot legally be driven.
+    assert.equal(suggestions(readDocument(RC_CARD)).expiresOn, '2036-09-08');
+  });
+
+  test('a document is not titled after one party to it', () => {
+    // A deed belongs to both sides; naming it after one is a judgement about
+    // whose document it is.
+    assert.equal(suggestions(readDocument(ESTAMP_LABEL_FIRST)).title, undefined);
+  });
+});
+
+describe('when the label may be on either side of its value', () => {
+  test('the e-stamp header reads label-first', () => {
+    const read = readAgreement(ESTAMP_LABEL_FIRST);
+    assert.equal(read.certificateNumber, 'IN-KA11111111111111A');
+    assert.equal(read.issuedOn, '2021-02-04');
+    assert.equal(read.stampDuty, 500_00);
+  });
+
+  test('and reads the same header written value-first', () => {
+    // Three of four measured documents put the value first. The same issuer's
+    // same block, so neither order can be assumed.
+    assert.equal(readAgreement(ESTAMP_VALUE_FIRST).certificateNumber, 'IN-KA22222222222222B');
+  });
+
+  test('a value that both readings agree on is returned once', () => {
+    assert.equal(readVehicle(RC_CARD).registrationNumber, 'KA99XX1111');
+  });
+
+  test('two readings that disagree produce nothing at all', () => {
+    // The first version preferred label-first, which does not fail in a
+    // value-first document — it answers confidently and wrongly. On a real
+    // partnership deed it returned the two partners **the wrong way round**,
+    // and on a rental agreement it gave `"Second Party"` as the first party's
+    // name.
+    const swapped = 'ANAND RAO\nFirst Party\nMEERA IYER\nSecond Party\nStamp Duty Amount(Rs.) 500';
+    const read = readAgreement(swapped);
+
+    assert.equal(read.firstParty ?? null, null, 'a party was guessed at');
+    // Named explicitly: the failure was not a blank, it was the *other* party.
+    assert.not(read.firstParty === 'MEERA IYER', 'the parties came back swapped');
+  });
+
+  test('a fuel is read from the closed set it belongs to', () => {
+    // The card prints `PETROL STDG/SLPR` on one line and `FUEL` on the next,
+    // so the nearest word to the label is `SLPR` — a seating type, read as a
+    // fuel.
+    assert.equal(readVehicle(RC_CARD).fuel ?? null, null);
+    assert.equal(readVehicle('FUEL: DIESEL\nCLASS : Motor Car').fuel, 'DIESEL');
+  });
+
+  test('an e-stamp issue date reaches the field the schema already had', () => {
+    // `document.issuedOn` existed and nothing had ever written it.
+    assert.equal(suggestions(readDocument(ESTAMP_LABEL_FIRST)).issuedOn, '2021-02-04');
   });
 });

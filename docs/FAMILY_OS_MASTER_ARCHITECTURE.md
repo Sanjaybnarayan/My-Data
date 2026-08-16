@@ -158,6 +158,9 @@ another caller to migrate.
 | Duplicate detection | **exists** | `export:js/domain/import.js#fingerprint` |
 | Reconciliation | **exists** | `export:js/domain/statement.js#reconcile` |
 | Receipt reading | **exists** | `export:js/domain/extract.js#readReceipt` |
+| Agreement reading — the e-stamp header only; a deed's body is prose | **partial** | `export:js/domain/extract.js#readAgreement` |
+| Registration certificate reading | **exists** | `export:js/domain/extract.js#readVehicle` |
+| A chassis or engine number never reaches searchable text | **exists** | `wired:js/domain/extract.js#Chassis` |
 | Local assistant | **exists** | `export:js/ai/assistant.js#Assistant` |
 | OCR | **exists — Drive's own converter** | `file:apps-script/Drive.gs` |
 | DOCX template engine | **exists** | `export:js/domain/docxtemplate.js#readTemplate` |
