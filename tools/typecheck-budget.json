@@ -1,4 +1,4 @@
 {
   "//": "The number of type findings the repository currently carries. It may go down and must not go up. `node tools/typecheck.mjs --update` writes it; raising it should be argued for in the commit that does.",
-  "max": 181
+  "max": 171
 }

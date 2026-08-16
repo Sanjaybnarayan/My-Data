@@ -6,6 +6,8 @@
  */
 
 import { test, describe, assert, setSuite } from './harness.mjs';
+import { makeDb } from './fixture.mjs';
+import { DocumentStore } from '../js/sync/drive.js';
 import {
   entriesIn, unzip, textRuns, fieldsIn, fill, readTemplate, generate, generatedName,
 } from '../js/domain/docxtemplate.js';
@@ -168,5 +170,53 @@ describe('reading the zip itself', () => {
     const runs = textRuns(SPLIT);
     assert.equal(runs.map((one) => one.text).join('|'), 'Dear |{{Na|me}}|, your rent is {{Amount}}.');
     assert.ok(runs[0].at < runs[1].at);
+  });
+});
+
+describe('a generated document is filed, not only downloaded', () => {
+  const asFile = (bytes, { name, type }) => ({
+    name,
+    type,
+    size: bytes.length,
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength),
+  });
+
+  test('it is recorded, and says which template it came from', async () => {
+    // Generating used to download and nothing else, which left the household
+    // with a file in a downloads folder and this application unable to say it
+    // had produced anything: no record, no version history, nothing in Drive.
+    const db = await makeDb();
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+
+    const { document } = await new DocumentStore({ db, transport: null }).capture(
+      asFile(bytes, {
+        name: 'rent-receipt-2026-08-16.docx',
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }),
+      { title: 'rent-receipt-2026-08-16.docx', category: 'other',
+        generatedFrom: 'rent-receipt.docx' },
+    );
+
+    const saved = await db.repo('document').get(document.id);
+    assert.equal(saved.generatedFrom, 'rent-receipt.docx');
+    assert.equal(saved.fileName, 'rent-receipt-2026-08-16.docx');
+    // The same path a scan takes: a version count Drive will maintain, and an
+    // encrypted blob queued for upload.
+    assert.equal(saved.versionCount, 1);
+    const blobs = await db.adapter.query('blobs', {});
+    assert.length(blobs.filter((blob) => blob.documentId === document.id), 1);
+  });
+
+  test('a scanned file says it came from nowhere, because it did', async () => {
+    // The field is absent rather than defaulted to something. "Generated from
+    // a scan" would be a claim about a file somebody photographed.
+    const db = await makeDb();
+    const { document } = await new DocumentStore({ db, transport: null }).capture(
+      asFile(new Uint8Array([9, 9]), { name: 'bill.pdf', type: 'application/pdf' }),
+      { category: 'other' },
+    );
+
+    assert.not((await db.repo('document').get(document.id)).generatedFrom);
   });
 });

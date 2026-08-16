@@ -607,6 +607,14 @@ const document = {
     text('mimeType', { hidden: true }),
     num('sizeBytes', { hidden: true }),
     num('versionCount', { default: 1, hidden: true }),
+    // The template this was produced from, by file name.
+    //
+    // Not a reference: a template is a `.docx` the household uploads each
+    // time, and there is no template record to point at. Naming the file is
+    // the whole of what can honestly be recorded, and it is worth recording —
+    // a generated document that cannot say what it was generated from is a
+    // document nobody can reproduce or check.
+    text('generatedFrom', { label: 'Generated from', list: true }),
     { key: 'ocrText', type: 'textarea', label: 'Extracted text', search: true, hidden: true },
     { key: 'confidential', type: 'boolean', default: false },
     note(),

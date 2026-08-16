@@ -160,6 +160,8 @@ another caller to migrate.
 | Receipt reading | **exists** | `export:js/domain/extract.js#readReceipt` |
 | Local assistant | **exists** | `export:js/ai/assistant.js#Assistant` |
 | OCR | **exists — Drive's own converter** | `file:apps-script/Drive.gs` |
+| DOCX template engine | **exists** | `export:js/domain/docxtemplate.js#readTemplate` |
+| A generated document is filed, not only downloaded | **exists** | `wired:js/modules/reports.js#documentStore` |
 | Entity resolution | **partial** | `export:js/domain/categorise.js#resolveAliases` |
 | Knowledge graph | missing | `absent:grep:knowledgeGraph` |
 | Anomaly detection | **exists** | `export:js/domain/unusual.js#unusualSpending` |
