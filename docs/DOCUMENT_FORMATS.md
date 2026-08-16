@@ -431,10 +431,65 @@ rather than left standing:
   cause. Merging those pairs is a symptom of the same wrong Y, not the origin
   of the interleaving.
 
-The real work is in how `extractRuns` tracks the text matrix for this
-producer — `TD`, `T*` and `TL` leading, which is where a line's Y comes from.
-That is a reader fix rather than a grouping fix, and it is not started.
+Nothing was shipped for the grouping rule. A change that alters output without
+fixing the problem is worse than no change, because the next person reads the
+code and believes the case is handled.
 
-Nothing was shipped for this. A change that alters output without fixing the
-problem is worse than no change, because the next person reads the code and
-believes the case is handled.
+## And the real cause: the reader was ignoring `cm`
+
+The guess above — `TD`, `T*` and `TL` leading — was wrong too. The content
+stream says what is actually happening:
+
+```
+q
+4 0 0 4 170.07875 168.54449 cm
+BT
+/F4 15 Tf
+1 0 0 -1 0 14 Tm
+<000F> Tj
+10.4250031 0 Td <0010> Tj
+```
+
+Thirty-one `BT` blocks, **every one of them `1 0 0 -1 0 14 Tm`**, each preceded
+by its own `cm`. The vertical position is in the **graphics** matrix, not the
+text matrix — and `extractRuns` tracked only the text matrix. It had no `q`,
+`Q` or `cm` at all. So every block reported the same Y, and 850 characters
+landed on seven values.
+
+`Td` inside those blocks moves horizontally only, which is why the *columns*
+were right and the *rows* were nonsense.
+
+The fix is a CTM and the `q`/`Q` stack it lives on, composed with the text
+matrix when a run is emitted. On that page: **7 distinct Y values become 23**,
+and the sentence that read
+
+```
+Zsbauipmrceeoa duheas: sw 5bi6teh0ei0nn9 c31l0o steod 4 i0n doauyr sb.ooks.
+```
+
+now reads
+
+```
+same has been closed in our books. The agreement signed by you in this
+regard stands terminated.
+```
+
+### What it changed elsewhere, checked rather than assumed
+
+Every one of the forty-one documents was re-measured. Thirty-seven are
+character-for-character identical. The three no-dues certificates gain text
+(2245→2357, 2160→2265, 2393→2520 characters) and one fee receipt moves by two
+characters. No document lost text.
+
+### One honest consequence
+
+Now that they are readable, two of the no-dues certificates classify as
+`bill` and one as `statement`, where all three were `unknown` before. That is
+wrong — a no-dues certificate is neither — and it is a **new** wrong answer
+created by making a document readable.
+
+It is not harmful as it stands: `readBill` finds an account number on them and
+**no due date and no amount**, so nothing generates a reminder from one. But
+it is a real gap, recorded rather than smoothed over: there is no kind for a
+letter from a bank confirming a loan is closed, and the money words in one are
+enough to make it look like a bill.

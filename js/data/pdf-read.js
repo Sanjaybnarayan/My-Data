@@ -277,6 +277,21 @@ function decodeHex(hex) {
  *
  * @returns {Array<{x: number, y: number, text: string, size: number}>}
  */
+/**
+ * `m` applied to `n` — the PDF matrix product, in the order the spec composes
+ * them: a text matrix is multiplied *into* the current transformation matrix.
+ */
+function compose(m, n) {
+  return [
+    m[0] * n[0] + m[1] * n[2],
+    m[0] * n[1] + m[1] * n[3],
+    m[2] * n[0] + m[3] * n[2],
+    m[2] * n[1] + m[3] * n[3],
+    m[4] * n[0] + m[5] * n[2] + n[4],
+    m[4] * n[1] + m[5] * n[3] + n[5],
+  ];
+}
+
 function extractRuns(content, fonts) {
   const source = latin1(content);
   const items = [];
@@ -285,6 +300,16 @@ function extractRuns(content, fonts) {
   // colour, clipping and the rest cannot move a character.
   let tm = [1, 0, 0, 1, 0, 0];
   let tlm = [1, 0, 0, 1, 0, 0];
+  // The graphics state's own matrix, and the `q`/`Q` stack it lives on.
+  //
+  // Without this a whole class of document collapses: a producer may leave the
+  // text matrix alone and position each block with `cm` instead. A real
+  // no-dues certificate does exactly that — thirty-one `BT` blocks, every one
+  // of them `1 0 0 -1 0 14 Tm`, each preceded by its own `cm`. Tracking only
+  // the text matrix put 850 characters on **seven** distinct Y values, so
+  // separate lines merged and came out woven letter by letter.
+  let ctm = [1, 0, 0, 1, 0, 0];
+  const stack = [];
   let leading = 0;
   let size = 10;
   let font = null;
@@ -312,7 +337,8 @@ function extractRuns(content, fonts) {
   const draw = (raw) => {
     const text = decode(raw);
     if (!text) return;
-    items.push({ x: tm[4], y: tm[5], text, size: size * Math.abs(tm[3] || 1) });
+    const at = compose(tm, ctm);
+    items.push({ x: at[4], y: at[5], text, size: size * Math.abs(at[3] || 1) });
   };
 
   const numbers = (n) => operands.slice(-n).map((value) => Number(value) || 0);
@@ -405,6 +431,15 @@ function extractRuns(content, fonts) {
         case 'BT':
           tm = [1, 0, 0, 1, 0, 0];
           tlm = [...tm];
+          break;
+        case 'q':
+          stack.push([...ctm]);
+          break;
+        case 'Q':
+          ctm = stack.pop() ?? [1, 0, 0, 1, 0, 0];
+          break;
+        case 'cm':
+          ctm = compose(numbers(6), ctm);
           break;
         case 'Tj':
           draw(operands.at(-1)?.string ?? '');
