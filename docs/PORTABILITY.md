@@ -31,13 +31,13 @@ What it is not is a copy of your records that anything can put back.
 
 ## What it carries, measured
 
-There are 43<!--live:entities--> entities holding
-519<!--live:fields--> fields between them, and an export is one file per
+There are 47<!--live:entities--> entities holding
+566<!--live:fields--> fields between them, and an export is one file per
 entity — so a complete one is forty-three files and eighty-six button presses.
 
 Of those fields:
 
-- **35<!--live:encryptedFields-->** are encrypted, and are left out unless you
+- **36<!--live:encryptedFields-->** are encrypted, and are left out unless you
   tick *Include encrypted fields in the clear*. Ticking it writes your document
   numbers, passwords and medical notes to a file in plain text, which is the
   right thing to offer and the wrong thing to do casually.
@@ -45,7 +45,7 @@ Of those fields:
   `columnsFor` drops every hidden field unconditionally. Three of them are
   `ref` fields — the links between records — so even a perfect reader would
   restore records that had forgotten what they pointed at.
-- **17<!--live:attachmentFields-->** are attachment fields. A CSV carries the
+- **21<!--live:attachmentFields-->** are attachment fields. A CSV carries the
   identifiers of the files, never the files. Your scanned passport is not in
   there.
 

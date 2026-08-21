@@ -56,7 +56,7 @@ leaving the list is worth a glance at what made it leave.
 
 ## What a finding does *not* mean
 
-**73<!--live:unreadFields--> of 519<!--live:fields--> fields are unread, and that is not 73 bugs.** A vehicle's chassis
+**82<!--live:unreadFields--> of 566<!--live:fields--> fields are unread, and that is not 73 bugs.** A vehicle's chassis
 number and a medication's dosage are reference data: you record them, you read
 them on screen, and nothing should compute with them.
 
