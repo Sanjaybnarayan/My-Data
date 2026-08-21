@@ -96,10 +96,23 @@ Two Android settings are deliberate rather than inherited:
 
 - `android:allowBackup="false"`. Android's auto-backup copies the app's data
   directory — the household's records and the wrapped key material — to the
-  account holder's Drive. An application whose premise is "encrypted, on this
-  device" should not put a copy of that device elsewhere without being asked.
-  The cost is that a new phone does not restore the old one's local store;
-  the recovery phrase and Drive sync are FamilyOS's own answer to that.
+  account holder's Drive. The wrapping is only as strong as what wraps it, and
+  `auth/lock.js` allows a four-digit PIN: ten thousand candidates between an
+  exfiltrated store and the records in it. The keypad is rate-limited; a copy
+  of the file is not.
+
+  **The cost is larger here than on the web, and worth reading twice.** On a
+  native build there is no backup at all today: the recovery phrase restores a
+  *key, not data* — Settings says exactly that — and the only thing that ever
+  copies records off the device is Google sync, which is the part that does not
+  work natively. So with this off, a lost or wiped phone means the records are
+  gone.
+
+  It ships off because the exposure is silent and the loss is not: nobody is
+  told their key material went to Drive, and everybody notices a lost phone.
+  But it is a household's call, not a library's — flip it in
+  `AndroidManifest.xml`, or export regularly from Reports until native sync
+  exists.
 - `android:usesCleartextTraffic="false"`. Already the platform default above
   API 27, written down so a later `targetSdk` change cannot flip it silently.
 
@@ -119,6 +132,13 @@ Making it work needs a second OAuth path — an installed-app client, PKCE, the
 system browser, and a custom-scheme deep link back — with its own security
 review. That is a piece of work in its own right, not a configuration setting,
 and it has not been done.
+
+**Any backup, therefore.** Sync is the only thing that copies records off the
+device, so a native build has no backup path. Until that changes, a household
+running the native app should export from Reports on a schedule and keep the
+file somewhere they control. `android:allowBackup` is off, so the OS will not
+quietly do it for them either — see Permissions above for why, and how to
+change it.
 
 **Biometric unlock.** WebAuthn is unavailable in both platforms' app WebViews.
 `webAuthnAvailable()` already gates every call, so the lock screen simply does

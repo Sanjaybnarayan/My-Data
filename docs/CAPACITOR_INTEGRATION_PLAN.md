@@ -193,6 +193,9 @@ an offline-first application depend on a network to start.
 traffic **off**, `INTERNET` the only permission. No camera, location or
 notification permission, because nothing uses them.
 
+`allowBackup` off — with the consequence written down rather than assumed. See
+the postscript below, which is where this plan was wrong about it.
+
 ## iOS
 
 Bundle id `com.familyos.app`, deployment target per Capacitor 8's default, no
@@ -254,3 +257,20 @@ passed on a fast run and failed on a slow one. It waits now.
 
 Three of those four were found by mutation testing, and the fourth by opening
 a PNG. None of them by the suite passing.
+
+**And `allowBackup` was justified with something untrue.** The manifest comment
+said the recovery phrase and Drive sync were the household's answer to a lost
+device. Neither reaches a native build: the recovery phrase restores a key and
+not data — `modules/settings.js` says so to the user's face — and sync is the
+exact feature that does not work natively. So turning the OS backup off left a
+native install with *no* backup at all, justified by a fallback that is not
+there.
+
+The setting stayed off, because the exposure it prevents is silent — a
+four-digit PIN is the floor in `auth/lock.js`, and ten thousand candidates is
+not a barrier once the wrapped key is on somebody else's server — while losing
+a phone is not silent. But the reasoning is now the real one, and the cost is
+stated where somebody shipping this will read it.
+
+Found by taking a claim this change had made and checking it, rather than by
+anything failing.

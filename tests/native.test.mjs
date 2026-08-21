@@ -152,3 +152,38 @@ describe('what a native app bundles', () => {
     }
   });
 });
+
+setSuite('what the native build says about itself');
+
+describe('the allowBackup decision', () => {
+  test('quotes the PIN floor that the lock screen actually enforces', async () => {
+    // `AndroidManifest.xml` and docs/CAPACITOR_SETUP.md both turn off Android's
+    // auto-backup, and both justify it with the number of candidates between an
+    // exfiltrated store and the records in it. That number is a property of
+    // `auth/lock.js`, quoted in two documents, and quoted numbers go stale.
+    //
+    // This is a tripwire rather than an assertion about the right value.
+    // Raising the minimum PIN length would be a good change; it would also make
+    // two security documents wrong, and this is what says so.
+    const lock = await readFile(join(ROOT, 'js/auth/lock.js'), 'utf8');
+    const floor = Number(/const PIN_LENGTH_MIN = (\d+);/.exec(lock)?.[1]);
+
+    assert.equal(floor, 4,
+      'the minimum PIN length changed — AndroidManifest.xml and '
+      + 'docs/CAPACITOR_SETUP.md both quote it as four digits, and ten thousand '
+      + 'candidates. Update both, then update this test.');
+  });
+
+  test('does not claim a backup that a native build has', async () => {
+    // The first version of that justification said the recovery phrase and
+    // Drive sync covered the loss. Neither reaches a native build: the phrase
+    // restores a key and not data, and sync is the feature that does not work
+    // there. The documents have to keep saying so.
+    const setup = await readFile(join(ROOT, 'docs/CAPACITOR_SETUP.md'), 'utf8');
+
+    assert.ok(/no backup at all/.test(setup),
+      'CAPACITOR_SETUP.md no longer states that a native build has no backup');
+    assert.ok(/key, not data|key and not data/.test(setup),
+      'CAPACITOR_SETUP.md no longer says the recovery phrase restores a key rather than data');
+  });
+});
