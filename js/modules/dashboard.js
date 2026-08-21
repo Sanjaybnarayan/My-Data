@@ -419,8 +419,12 @@ const WIDGETS = {
    */
   activity: (data) => card({ class: 'card--flush' }, [
     h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
+      // The card shows eight. The service built every story in the window and
+      // the rest were dropped on the floor, so the link is not decoration —
+      // it is the only way to reach a history the application already had.
       cardHeader(data.timeline.unseen ? 'Since you last looked' : 'Recent activity',
-        null, { iconName: 'clock' })),
+        h('a', { class: 'btn btn--subtle btn--small', href: '#/timeline' }, 'Show everything'),
+        { iconName: 'clock' })),
     data.timeline.stories.length
       ? h('div', { class: 'list' }, data.timeline.stories.slice(0, 8).map((story) => listItem({
         title: data.timeline.describe(story),

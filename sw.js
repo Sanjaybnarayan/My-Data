@@ -183,6 +183,7 @@ const SHELL = [
   './js/modules/vehicles.js',
   './js/services/vehicles.js',
   './js/modules/statements.js',
+  './js/modules/timeline.js',
   './js/modules/transactions.js',
 
   './js/ai/assistant.js',

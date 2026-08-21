@@ -752,6 +752,32 @@ async function main() {
 
     /* ------------------------------------------------------------ privacy */
 
+    /* ------------------------------------------------------- timeline */
+
+    {
+      const before = consoleErrors.length;
+
+      // The dashboard's card shows eight of them and the service was building
+      // every story in the window. The link is the only way to reach the rest.
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+      check('the activity card offers the whole history',
+        (await page.getByRole('link', { name: 'Show everything' }).count()) === 1);
+
+      await page.getByRole('link', { name: 'Show everything' }).click();
+      await page.waitForTimeout(700);
+
+      const timeline = (await page.locator('.app-content').innerText()).trim();
+      check('the timeline screen renders', /Family timeline/.test(timeline), timeline.slice(0, 300));
+      check('and says what happened in words rather than as rows',
+        !/^\s*(create|update|delete)\s*$/m.test(timeline), timeline.slice(0, 600));
+      check('and shows more than the eight the dashboard card does',
+        (await page.locator('.list-item').count()) > 8,
+        `${await page.locator('.list-item').count()} entries`);
+      check('the timeline draws without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
     {
       const before = consoleErrors.length;
       await go(page, '#/settings');

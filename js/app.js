@@ -260,6 +260,10 @@ function registerRoutes(router) {
     router.register(mod.id, custom[mod.id] ?? (() => import('./modules/crud.js')));
   }
   router.register('assistant', custom.assistant);
+  // Not a schema module — it has no entities of its own, it is a view over the
+  // audit log — so it is registered beside the assistant rather than appearing
+  // in the navigation. The dashboard's activity card is the way in.
+  router.register('timeline', () => import('./modules/timeline.js'));
   router.fallback(() => import('./modules/crud.js'));
 }
 
