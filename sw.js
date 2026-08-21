@@ -161,6 +161,7 @@ const SHELL = [
   './js/services/portfolio.js',
   './js/services/sms.js',
   './js/services/timeline.js',
+  './js/services/archive.js',
   './js/services/records.js',
   './js/services/transfers.js',
 

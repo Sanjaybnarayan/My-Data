@@ -3,6 +3,8 @@ import {
   buildBody, describeBody, seal, open, planRestore,
   ARCHIVE_VERSION, MAGIC, STORES, WHY,
 } from '../js/domain/archive.js';
+import { ArchiveService, REFUSED } from '../js/services/archive.js';
+import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 
 setSuite('archive');
 
@@ -173,5 +175,189 @@ describe('restoring', () => {
     assert.not(plan.ok);
     assert.equal(plan.why, WHY.UNKNOWN_STORE);
     assert.deep(plan.unknown, ['spaceship']);
+  });
+});
+
+/* ------------------------------------------------------------ the real thing */
+
+setSuite('archive · against a real database');
+
+describe('taking one', () => {
+  test('refuses a role that cannot read the whole household', async () => {
+    // Measured against this schema: an adult reads 37 of 43 entities. A
+    // "backup" they took would be missing six entities' worth of records with
+    // nothing saying so, and they would find out on the day they restored it.
+    // Silent loss wearing the word backup is worse than no backup, because the
+    // household has stopped worrying.
+    const db = await makeDb({ role: 'adult' });
+    const archive = new ArchiveService(db);
+
+    const taken = await archive.gather();
+    assert.not(taken.ok);
+    assert.equal(taken.why, REFUSED.NOT_OWNER);
+    assert.ok(taken.missing.length > 0, 'refused without naming what was missing');
+  });
+
+  test('an owner gets every entity, the keyring, the history and the documents', async () => {
+    const db = await makeDb();
+    await makePerson(db, { name: 'Asha' });
+    await makeAccount(db, { name: 'Savings' });
+
+    const taken = await (new ArchiveService(db)).gather();
+    assert.ok(taken.ok, taken.why);
+
+    assert.ok(taken.summary.records >= 2, `only ${taken.summary.records} records`);
+    assert.ok(taken.body.stores.meta.length > 0, 'no keyring in the archive');
+    for (const name of Object.keys(STORES.excluded)) {
+      assert.not(name in taken.body.stores, `${name} was archived`);
+    }
+  });
+
+  test('and the encrypted fields stay encrypted on the way out', async () => {
+    // The whole reason for `decrypt: false`. If an archive held plaintext where
+    // the database holds an envelope, the file would be a re-recording of the
+    // records rather than a copy of them — and the restored rows would no
+    // longer match the keyring that travelled with them.
+    const db = await makeDb();
+    await db.repo('identityDocument').create({
+      person: 'per_owner', kind: 'Passport', number: 'Z1234567',
+    });
+
+    const taken = await (new ArchiveService(db)).gather();
+    const row = taken.body.stores.identityDocument[0];
+
+    assert.ok(String(row.number).startsWith('enc:v1:'),
+      `archived in the clear: ${row.number}`);
+  });
+});
+
+describe('putting one back', () => {
+  test('a sealed archive restores onto an empty device, record for record', async () => {
+    // The round trip the whole phase exists for, through the real repository
+    // on both sides: take it, seal it, open it on a device that has never seen
+    // these records, and compare.
+    const source = await makeDb();
+    await makePerson(source, { name: 'Asha' });
+    await makePerson(source, { name: 'Ravi' });
+    await makeAccount(source, { name: 'Savings' });
+
+    const taken = await (new ArchiveService(source)).gather();
+    const file = await seal(taken.body, PHRASE);
+
+    const target = await makeDb({ personId: 'per_other' });
+    // A fresh device of its own — everything in it has to go, or the restore
+    // would be refusing for the right reason and proving nothing.
+    for (const name of ['person', 'account']) {
+      for (const row of await target.repo(name).list({ includeDeleted: true })) {
+        await target.adapter.delete(name, row.id);
+      }
+    }
+
+    const opened = await open(file, PHRASE);
+    assert.ok(opened.ok, opened.why);
+
+    const restored = await (new ArchiveService(target)).restore(opened.body);
+    assert.ok(restored.ok, restored.why);
+    assert.ok(restored.relock, 'a restore that replaced the keyring must relock');
+
+    // Nothing is readable until somebody unlocks again, and that is right: the
+    // keys this device was holding belong to records it no longer has.
+    await target.keyring.unlockWithPin('482913');
+
+    const people = await target.repo('person').list({ includeDeleted: true });
+    assert.deep(people.map((p) => p.name).sort(), ['Asha', 'Ravi']);
+
+    const accounts = await target.repo('account').list({});
+    assert.length(accounts, 1);
+    assert.equal(accounts[0].name, 'Savings');
+  });
+
+  test('and the encrypted fields open again, with the archive’s own key', async () => {
+    // The check that matters, and the one this suite did not have. Restoring
+    // the rows without the keyring passed every other test here: the names all
+    // matched, the counts all matched, and every encrypted field on the device
+    // was ciphertext nobody would ever open again. A household would have found
+    // out on the day they needed a passport number.
+    //
+    // So this restores, relocks, unlocks with the PIN the archive was taken
+    // under, and reads the field back. Nothing short of that distinguishes a
+    // restore from a very tidy way of losing data.
+    const PIN = '482913';
+    const source = await makeDb({ pin: PIN });
+    await source.repo('identityDocument').create({
+      person: 'per_owner', kind: 'Passport', number: 'Z1234567',
+    });
+
+    const taken = await (new ArchiveService(source)).gather();
+    const opened = await open(await seal(taken.body, PHRASE), PHRASE);
+    assert.ok(opened.ok, opened.why);
+
+    // A device with its own keyring and its own, different data key.
+    const target = await makeDb({ pin: PIN, personId: 'per_other' });
+    for (const name of ['person', 'identityDocument']) {
+      for (const row of await target.repo(name).list({ includeDeleted: true })) {
+        await target.adapter.delete(name, row.id);
+      }
+    }
+
+    const outcome = await (new ArchiveService(target)).restore(opened.body);
+    assert.ok(outcome.ok, outcome.why);
+
+    // The session is still holding the target's original key, which is wrong
+    // about every envelope that just arrived. This is what `relock` means.
+    target.keyring.lock();
+    await target.keyring.unlockWithPin(PIN);
+
+    const docs = await target.repo('identityDocument').list({});
+    assert.length(docs, 1);
+    assert.equal(docs[0].number, 'Z1234567',
+      'the archive restored rows whose encryption no key on this device opens');
+  });
+
+  test('refuses a device that already holds records, and says how many', async () => {
+    const source = await makeDb();
+    await makePerson(source, { name: 'Asha' });
+    const taken = await (new ArchiveService(source)).gather();
+
+    const target = await makeDb();
+    await makePerson(target, { name: 'Somebody else' });
+
+    const outcome = await (new ArchiveService(target)).restore(taken.body);
+    assert.not(outcome.ok);
+    assert.equal(outcome.why, WHY.NOT_EMPTY);
+    assert.ok(outcome.holding > 0);
+  });
+});
+
+describe('who may read the system stores', () => {
+  test('an owner may', async () => {
+    const db = await makeDb();
+    const rows = await db.systemStoreRows('meta');
+    assert.ok(Array.isArray(rows));
+  });
+
+  test('a child may not — they are the household with no filter in front', async () => {
+    // meta is the keyring, audit is every action anybody has taken, blobs are
+    // the documents. This is the hole the service-layer rule exists to close,
+    // and the one place system stores are reachable at all.
+    const db = await makeDb({ role: 'child' });
+    let threw = null;
+    try {
+      await db.systemStoreRows('audit');
+    } catch (err) {
+      threw = err;
+    }
+    assert.ok(threw, 'a child read the audit log');
+  });
+
+  test('and no store outside the archive is reachable through it', async () => {
+    const db = await makeDb();
+    let threw = null;
+    try {
+      await db.systemStoreRows('outbox');
+    } catch (err) {
+      threw = err;
+    }
+    assert.ok(threw, 'the outbox was readable through the archive path');
   });
 });

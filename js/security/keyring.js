@@ -284,6 +284,27 @@ export class Keyring {
     bus.emit(TOPIC.locked, {});
   }
 
+  /**
+   * Forget what is cached, and read the store again next time.
+   *
+   * `#methods` is held in memory because unlocking should not re-read the
+   * store on every attempt. That is right until something replaces the wrapped
+   * keys underneath it — which is exactly what restoring an archive does. The
+   * keyring would then unlock, successfully, to *this* device's old data key,
+   * and every envelope that arrived with the archive would be ciphertext it
+   * could not open. A restore that appears to work and leaves a household's
+   * document numbers permanently unreadable is the worst outcome this feature
+   * has, and it is indistinguishable from success without this.
+   *
+   * The application reloads after a restore, and a fresh page would have read
+   * the new rows anyway. This exists so that correctness does not depend on
+   * the caller remembering to.
+   */
+  forget() {
+    this.#methods = null;
+    this.#dataKey = null;
+  }
+
   /** Wipe every wrapped key. The data becomes unreadable — that is the point. */
   async reset() {
     this.#methods = [];
