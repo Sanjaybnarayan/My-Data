@@ -119,3 +119,57 @@ describe('what it does say', () => {
     assert.includes(describeMonth(out.months.find((r) => r.month === '2026-05')), 'short by');
   });
 });
+
+/**
+ * A month with unpaid leave in it.
+ *
+ * Deducting for unpaid leave needs a daily rate, and dividing a monthly figure
+ * by a number of working days is arithmetic this household never agreed to —
+ * the same objection this file already makes to a weekly agreement. So such a
+ * month is not judged, and says why.
+ */
+describe('unpaid leave', () => {
+  const away = (from, to, paid) => ({ from, to, paid });
+
+  test('a month containing unpaid leave is not judged, and says why', () => {
+    const out = reconcile(COOK, [pay('2026-05-05', 9_000_00)], TODAY,
+      [away('2026-05-12', '2026-05-14', false)]);
+    const may = out.months.find((row) => row.month === '2026-05');
+
+    assert.equal(may.status, STATUS.NOT_JUDGED);
+    assert.includes(may.why, 'unpaid leave');
+    assert.equal(may.difference, 0, 'a month with unpaid leave was scored as short');
+  });
+
+  test('paid leave changes nothing, which is what paid means', () => {
+    const out = reconcile(COOK, [pay('2026-05-05', 9_000_00)], TODAY,
+      [away('2026-05-12', '2026-05-14', true)]);
+    assert.equal(out.months.find((row) => row.month === '2026-05').status, STATUS.SHORT);
+  });
+
+  test('an absence with no end date is a single day', () => {
+    const out = reconcile(COOK, [pay('2026-05-05', 12_000_00)], TODAY,
+      [away('2026-05-12', null, false)]);
+    assert.equal(out.months.find((row) => row.month === '2026-05').status, STATUS.NOT_JUDGED);
+    assert.equal(out.months.find((row) => row.month === '2026-06').status, STATUS.NOTHING,
+      'a one-day absence in May reached into June');
+  });
+
+  test('leave across a month boundary makes both months unjudgeable', () => {
+    // The deduction lands in whichever month the household decided, and the
+    // record does not say which.
+    const out = reconcile(COOK, [], TODAY, [away('2026-05-28', '2026-06-03', false)]);
+    assert.equal(out.months.find((row) => row.month === '2026-05').status, STATUS.NOT_JUDGED);
+    assert.equal(out.months.find((row) => row.month === '2026-06').status, STATUS.NOT_JUDGED);
+  });
+
+  test('a month it will not judge is never a disagreement', () => {
+    const out = reconcile(COOK, [], TODAY, [away('2026-05-12', '2026-05-14', false)]);
+    assert.equal(disagreements(out).some((row) => row.month === '2026-05'), false);
+  });
+
+  test('the reason reads as a sentence', () => {
+    const out = reconcile(COOK, [], TODAY, [away('2026-05-12', null, false)]);
+    assert.includes(describeMonth(out.months.find((r) => r.month === '2026-05')), 'unpaid leave');
+  });
+});

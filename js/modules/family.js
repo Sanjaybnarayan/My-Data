@@ -35,6 +35,9 @@ const TABS = [
   // Staff are people the household employs, and the record is the role — the
   // person it points at is an ordinary person record, not a second identity.
   { id: 'staff', label: 'Staff' },
+  // Absences, not attendance — an empty list means nothing interrupted the
+  // arrangement, which is the truthful default.
+  { id: 'staffLeave', label: 'Absences' },
 ];
 
 export async function render(route) {
@@ -125,8 +128,24 @@ async function staffDocuments(id) {
  * expected to happen and calling it what happened — the parallel money path
  * `docs/HOUSEHOLD_STAFF.md` forbids.
  */
-function staffPay({ payments, agreed, staff }) {
-  const check = reconcile(staff ?? {}, payments);
+
+/**
+ * The months deliberately left out of the comparison, and why.
+ *
+ * Without this a household sees a total that looks short and has no way to
+ * learn that two months were skipped on purpose.
+ */
+function notJudged(check) {
+  const skipped = (check.months ?? []).filter((row) => row.status === 'not judged');
+  if (!skipped.length) return null;
+
+  return h('p', { class: 'small muted' },
+    `${skipped.length} month${skipped.length === 1 ? '' : 's'} not judged: `
+    + [...new Set(skipped.map((row) => row.why).filter(Boolean))].join('; ') + '.');
+}
+
+function staffPay({ payments, agreed, staff, leave }) {
+  const check = reconcile(staff ?? {}, payments, undefined, leave);
   const wrong = disagreements(check);
 
   return card({ class: 'card--quiet' }, [
@@ -145,6 +164,7 @@ function staffPay({ payments, agreed, staff }) {
             row.status === 'nothing recorded'
               ? `${row.month} — nothing recorded`
               : `${row.month} — ${formatMoney(row.paid)} against ${formatMoney(row.agreed)}`))),
+          notJudged(check),
         ])
         : check.months.length
           ? h('p', { class: 'small muted' }, 'Every completed month matches what was agreed.')

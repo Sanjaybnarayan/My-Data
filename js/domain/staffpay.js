@@ -32,6 +32,12 @@
  * owed instead. Pro-rating it would be this function inventing the agreement
  * rather than checking it. Those months are listed as not judged, so a person
  * can see they were skipped rather than wondering why the total looks short.
+ *
+ * **A month containing unpaid leave.** Deducting for it needs a daily rate,
+ * and dividing a monthly figure by a number of working days is arithmetic this
+ * household never agreed to — the same objection as the weekly agreement
+ * above. Paid leave changes nothing and is ignored here, which is what *paid*
+ * means.
  */
 
 import { nextMonth, today as todayOf } from '../core/dates.js';
@@ -74,8 +80,10 @@ export function whyNotComparable(staff) {
  * @param {Array<{date?: string, amount?: number}>} payments
  * @param {string} [today] injectable, because "the month in progress" is a
  *   boundary and a boundary needs testing on both sides
+ * @param {Array<{from?: string, to?: string, paid?: boolean}>} [leave] absences;
+ *   only the unpaid ones change anything
  */
-export function reconcile(staff, payments = [], today = todayOf()) {
+export function reconcile(staff, payments = [], today = todayOf(), leave = []) {
   const why = whyNotComparable(staff);
   if (why) return { comparable: false, why, months: [] };
 
@@ -92,19 +100,26 @@ export function reconcile(staff, payments = [], today = todayOf()) {
     ? monthOf(staff.endedOn)
     : lastWhole;
 
-  const skip = new Set([
+  const partMonths = new Set([
     staff.startedOn ? monthOf(staff.startedOn) : null,
     staff.endedOn ? monthOf(staff.endedOn) : null,
   ].filter(Boolean));
+
+  const unpaidMonths = monthsTouchedByUnpaidLeave(leave);
 
   const months = [];
   for (let month = from; month <= to; month = nextMonth(month)) {
     const inMonth = dated.filter((row) => monthOf(row.date) === month);
     const paid = inMonth.reduce((sum, row) => sum + Math.abs(row.amount ?? 0), 0);
 
-    // A part-month is skipped rather than pro-rated — see the header.
-    if (skip.has(month)) {
-      months.push({ month, paid, agreed, difference: 0, status: STATUS.NOT_JUDGED });
+    // Skipped rather than pro-rated — see the header. The reason travels with
+    // the row, because "not judged" without a why is a screen going quiet.
+    const why = partMonths.has(month) ? 'a part month'
+      : unpaidMonths.has(month) ? 'unpaid leave in this month'
+        : null;
+
+    if (why) {
+      months.push({ month, paid, agreed, difference: 0, status: STATUS.NOT_JUDGED, why });
       continue;
     }
 
@@ -113,6 +128,7 @@ export function reconcile(staff, payments = [], today = todayOf()) {
       paid,
       agreed,
       difference: paid - agreed,
+      why: null,
       status: !inMonth.length ? STATUS.NOTHING
         : paid === agreed ? STATUS.AGREES
           : paid < agreed ? STATUS.SHORT : STATUS.OVER,
@@ -120,6 +136,24 @@ export function reconcile(staff, payments = [], today = todayOf()) {
   }
 
   return { comparable: true, why: null, months };
+}
+
+
+/**
+ * Every month an unpaid absence touches, including the ones it spans.
+ *
+ * A single absence with no `to` is one day. One that runs across a month
+ * boundary makes **both** months unjudgeable, because the deduction lands in
+ * whichever month the household decided, and the record does not say.
+ */
+function monthsTouchedByUnpaidLeave(leave) {
+  const out = new Set();
+  for (const row of leave ?? []) {
+    if (!row?.from || row.paid !== false) continue;
+    const last = monthOf(row.to && row.to > row.from ? row.to : row.from);
+    for (let month = monthOf(row.from); month <= last; month = nextMonth(month)) out.add(month);
+  }
+  return out;
 }
 
 /** The months that disagree, newest first — the only ones worth a screen. */
@@ -136,7 +170,7 @@ export function describeMonth(row) {
     case STATUS.NOTHING: return `${row.month}: nothing recorded`;
     case STATUS.SHORT: return `${row.month}: short by ${minor(row.agreed - row.paid)}`;
     case STATUS.OVER: return `${row.month}: ${minor(row.paid - row.agreed)} more than agreed`;
-    case STATUS.NOT_JUDGED: return `${row.month}: a part month, not judged`;
+    case STATUS.NOT_JUDGED: return `${row.month}: not judged — ${row.why ?? 'a part month'}`;
     default: return `${row.month}: agrees`;
   }
 }

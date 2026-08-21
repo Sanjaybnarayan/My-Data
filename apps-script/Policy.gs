@@ -45,6 +45,7 @@ var POLICY = {
   "relationship": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "smsMessage": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "staff": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
+  "staffLeave": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "subscription": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "task": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "transaction": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },

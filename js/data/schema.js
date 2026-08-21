@@ -1282,6 +1282,40 @@ const staff = {
   ],
 };
 
+
+/**
+ * A day a staff member did not work.
+ *
+ * **Absence is recorded, not presence**, and that is the whole design. A row
+ * per working day would be twenty-six rows a month per person that a
+ * household will never keep up — and rows nobody enters lie by omission,
+ * because an empty month would read as *never came* rather than as *nothing
+ * unusual*. Recording only what interrupted the arrangement means an empty
+ * record is the truthful default.
+ *
+ * `paid` is the field that matters beyond the diary. Unpaid leave changes what
+ * a month owes, and `domain/staffpay.js` refuses to judge a month containing
+ * any — deducting for it needs a daily rate, and dividing a monthly figure by
+ * a number of working days is arithmetic this household never agreed to. The
+ * same refusal it already makes for a weekly agreement.
+ */
+const staffLeave = {
+  name: 'staffLeave', module: 'family', sheet: 'StaffLeave', version: 1,
+  labels: { one: 'Absence', many: 'Absences' }, icon: 'calendar',
+  acl: restricted,
+  title: (r) => `${r.kind ?? 'away'} from ${r.from ?? ''}`,
+  fields: [
+    ref('staff', 'staff', { required: true, list: true }),
+    day('from', { required: true, list: true }),
+    // Absent for a single day. A one-day absence should not require typing the
+    // same date twice.
+    day('to', { list: true }),
+    pick('kind', ['leave', 'sick', 'holiday', 'absent'], { default: 'leave', list: true }),
+    { key: 'paid', type: 'boolean', default: true, label: 'Paid', list: true },
+    note(),
+  ],
+};
+
 export const entities = Object.freeze(Object.fromEntries(
   [person, relationship, identityDocument, kycRecord, employment, importantDate,
     account, transaction, economicEvent, bankStatement, receipt, budget,
@@ -1292,7 +1326,7 @@ export const entities = Object.freeze(Object.fromEntries(
     policy, property, education, certificate,
     project, task, event, noteEntity, vaultItem,
     digitalAsset, subscription, emergencyContact, smsMessage,
-    staff,
+    staff, staffLeave,
   ].map((e) => [e.name, normalise(e)]),
 ));
 
