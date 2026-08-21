@@ -66,6 +66,18 @@ export function addMonths(day, n) {
   return toDay(anchor);
 }
 
+/**
+ * The month after this one, as `YYYY-MM`.
+ *
+ * Month strings rather than dates, because the things counted by month here —
+ * rent received, wages paid — are counted per calendar month and never per
+ * thirty days.
+ */
+export function nextMonth(month) {
+  const [year, m] = String(month).split('-').map(Number);
+  return m === 12 ? `${year + 1}-01` : `${year}-${String(m + 1).padStart(2, '0')}`;
+}
+
 export function addYears(day, n) {
   return addMonths(day, n * 12);
 }

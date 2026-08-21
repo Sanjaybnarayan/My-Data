@@ -36,7 +36,7 @@
  */
 
 import { format } from '../core/money.js';
-import { formatDay } from '../core/dates.js';
+import { formatDay, nextMonth } from '../core/dates.js';
 
 /** Above this, an Indian tenant needs the landlord's PAN to claim HRA. */
 export const PAN_THRESHOLD = 1_00_000_00;
@@ -81,11 +81,6 @@ export function rentReceived(property, transactions, { from, to }) {
   }
 
   return { months, why: null };
-}
-
-function nextMonth(month) {
-  const [year, m] = month.split('-').map(Number);
-  return m === 12 ? `${year + 1}-01` : `${year}-${String(m + 1).padStart(2, '0')}`;
 }
 
 /**
