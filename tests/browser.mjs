@@ -1763,6 +1763,52 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-unaccounted');
     }
 
+    /* ------------------------------------------- rent, and whose it was */
+
+    {
+      const before = consoleErrors.length;
+
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const people = await app().db.repo('person').list({ limit: 1 });
+        const owner = people[0]?.id ?? '';
+        const account = await app().db.repo('account').create({
+          name: 'Rent account', kind: 'savings', institution: 'HDFC Bank',
+          accountNumber: '50100222111000', holder: owner, openingBalance: '0',
+        });
+        // Two flats let at the same rent, and one credit. Before attribution
+        // both reported it as received and both offered a receipt.
+        for (const name of ['Rose Villa', 'Lily Cottage']) {
+          await app().db.repo('property').create({
+            name, kind: 'apartment', owner, rented: true, monthlyRent: '35000',
+            tenantName: 'R Krishnan',
+          });
+        }
+        const now = new Date();
+        const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-05`;
+        await app().db.repo('transaction').create({
+          date: day, kind: 'income', amount: '35000', category: 'rental income',
+          account: account.id, direction: 'in',
+        });
+      }, IN_PAGE.context);
+
+      await go(page, '#/reports');
+      await page.waitForTimeout(800);
+      const reports = await page.locator('.app-content').innerText();
+
+      check('rent receipts name both lettings', /Rose Villa/.test(reports)
+        && /Lily Cottage/.test(reports), reports.slice(0, 600));
+
+      // The whole point: one payment must not become two signed receipts.
+      check('a credit two lettings could claim is given to neither, and says so',
+        /could belong to more than one letting/.test(reports), reports.slice(0, 1200));
+
+      check('the rent report renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'reports-rent');
+    }
+
     /* ------------------------------ a docx template, through the real input */
 
     {

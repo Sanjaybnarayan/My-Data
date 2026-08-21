@@ -34,7 +34,7 @@ would be worse than leaving it at zero.
 
 ## Derived, not hand-annotated
 
-518<!--live:fields--> fields hand-labelled would be that many chances to be wrong and one afternoon
+519<!--live:fields--> fields hand-labelled would be that many chances to be wrong and one afternoon
 before the labels drifted from the schema. The level is derived from signals
 the schema already carries — field type, `encrypted`, the entity's access
 list, the module — and an explicit `classification:` on a field overrides when

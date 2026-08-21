@@ -18,7 +18,9 @@ read it.
 | --- | --- | --- |
 | A generated receipt records what produced it | `TESTED` | `js/domain/rentreceipt.js` |
 | No generated document claims legal effect | `IMPLEMENTED` | `docs/GENERATED_DOCUMENTS.md` |
-| Tenant records | `NOT_STARTED` | — |
+| A receipt is issued only for money that arrived | `TESTED` | `js/domain/rentreceipt.js` |
+| A payment is attributed to one letting or none | `TESTED` | `js/domain/rentreceipt.js` |
+| A tenant record with its own ledger | `NOT_STARTED` | — |
 
 ## The receipt
 
@@ -27,21 +29,52 @@ Drive's own revision history sits behind its version count. That is provenance,
 not authority. The receipt says a landlord issued it; this application does not
 vouch that the rent was paid.
 
-## The gap, stated plainly
+## A correction to an earlier version of this document
 
-**There is no tenant record worth the name.** `property.tenantName`,
+This file previously said the application *"cannot say which months were
+actually paid"*. **That was wrong**, and it was wrong in the direction that
+matters: `rentReceived` reads the credits, reports each month as received or
+not, and produces **no document** for a month with no matching payment.
+
+The error was found by going to build what this document said was missing and
+discovering it already existed. It is corrected here rather than quietly
+overwritten, because a compliance document that misdescribes a control is worse
+than one that omits it — somebody may act on either, and only one of them looks
+authoritative.
+
+## What was actually wrong
+
+Not the existence of rent tracking, but its **attribution**. Measured on two
+flats let at the same rent:
+
+```
+one credit of ₹35,000 · two flats both let at ₹35,000
+  Flat A says received: true · txn t1
+  Flat B says received: true · txn t1
+```
+
+**One payment, two receipts, both signed by the landlord** — the same rupee
+acknowledged twice on documents a tenant and a tax officer may both rely on.
+The matcher keyed on amount alone and nothing stopped two lettings claiming
+the same credit.
+
+A property may now record which account its rent arrives in. Where that is set,
+attribution is unambiguous and the receipt states **what arrived** rather than
+what was expected — so a part payment is receipted for the part, and a rent
+rise the record has not caught up with is no longer invisible. Where it is not
+set, a credit two lettings could claim is attributed to **neither**, and the
+month says why, because that one is fixable by recording something.
+
+## The gap that remains
+
+**There is still no tenant record worth the name.** `property.tenantName`,
 `property.tenantPhone` and `property.deposit` are three fields on the property
-row. There is no tenant entity, no rent ledger, no record of what was due
-against what arrived, and no arrears.
-
-`docs/PHASE_AUDIT_0_13.md` lists this among the placeholders that read as built
-features, and it is the one with a compliance edge: an application that
-generates rent receipts but cannot say which months were actually paid is
-producing documents it has no records behind.
+row. There is no tenant entity, no lease history, and no arrears figure — only
+a count of months where less arrived than the rent on record.
 
 Closing it means deciding what a tenancy is here — a relationship with its own
-ledger, or two fields on a flat. The receipt generator implies the first and the
-schema provides the second.
+ledger, or three fields on a flat. The receipt generator implies the first and
+the schema provides the second.
 
 ## Registration and stamp duty
 
