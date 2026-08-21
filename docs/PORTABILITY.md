@@ -5,14 +5,21 @@ document I had just added repeated it.
 
 ## The short answer
 
-**FamilyOS can export your records. It cannot restore them.** Those are
-different things, and only the first one exists.
+**Settings → Backup writes one encrypted file holding everything, and restores
+it onto a new device.** Reports → Export raw data is a different thing: CSVs
+for reading your records somewhere else, which nothing reads back.
 
-If you sync to your own Google Sheet and Drive, that is your backup, and it is
-a real one: a new device signs in and pulls everything down. If you do not sync
-— because you turned on local-only, or because you are running the Android or
-iOS build, where signing in does not work at all — then there is no backup,
-and the export screen is not a substitute for one.
+If you sync to your own Google Sheet and Drive, that is also a backup, and a
+real one: a new device signs in and pulls everything down. If you do not sync —
+because you turned on local-only, or because you are running the Android or iOS
+build, where signing in does not work at all — the backup file is the only copy
+of your records that exists anywhere but this device.
+
+> This section said the opposite until the backup was built, and the check
+> written to stop that happening did not fire. It watched `fromCsv` for a
+> caller, and the restore that arrived does not use `fromCsv` — a guard keyed
+> to one implementation rather than to the claim it was guarding. It is keyed
+> to the claim now.
 
 ## What an export is
 
@@ -60,30 +67,46 @@ auto-backup would copy the wrapped key material to Google's servers, and
 that stood behind it.
 
 That change then told households to *"export from Reports on a schedule"* as
-their backup instead. This document exists because that advice was wrong in the
-same way the `fromCsv` comment was wrong: it describes a restore that does not
-exist. A person who followed it would find out on the day their phone was
-stolen.
+their backup instead. That advice was wrong in the same way the `fromCsv`
+comment was wrong: it described a restore that did not exist. A person who
+followed it would have found out on the day their phone was stolen.
 
-## What a real answer needs
+## The backup
 
-Not built, and listed so that nobody has to rediscover the shape of it:
+`js/domain/archive.js` decides what an archive is; `js/services/archive.js`
+fills one and puts it back; Settings has the two buttons.
 
-1. **One file, not forty-three.** Every entity, every field — including the
-   hidden ones — in a single archive with the schema version it was written
-   against.
-2. **Encrypted by default.** A plaintext archive of a household's entire
-   records is a worse object to leave on a laptop than anything the app
-   currently produces. It should be encrypted to the data key, with the
-   recovery phrase able to open it — which is the one thing the recovery phrase
-   would then genuinely be for.
-3. **The attachments, or an honest statement that they are not included.**
-4. **A restore that refuses to guess.** Into an empty store is the case that
-   matters — a new phone — and is the one worth building first. Merging into a
-   store that already has records is a reconciliation problem, and this
-   codebase already has strong opinions about not forcing uncertain matches.
-5. **A test that restores what it exported and compares**, because an export
-   nobody has read back is exactly how this situation arose.
+1. **One file, not forty-three.** Every entity, every field including the
+   hidden ones, the keyring, the audit history and the documents themselves.
+2. **The rows exactly as the database holds them.** Encrypted fields stay in
+   their `enc:v1:` envelopes, and the keyring travels with them, so the same
+   PIN and phrase open the same records on the other side. Nothing is decrypted
+   to be archived, so a restore cannot quietly change what a record says.
+3. **Encrypted as a whole, with the recovery phrase.** The rows carry plaintext
+   payees, amounts and dates — a search index over ciphertext finds nothing —
+   so the file encryption is the only thing in front of them. The phrase is
+   generated rather than chosen, is already written down, and is checked
+   against the keyring *before* anything is sealed: a backup sealed with a typo
+   is one nobody can open, and it fails silently.
+4. **Only an owner may take one.** The repository filters rows by role, so an
+   adult would produce a file missing six entities' worth of records with
+   nothing saying so. Measured: owner 43 of 43, adult 37, child 13, member and
+   guest none.
+5. **A restore that refuses to guess.** Onto an empty device only. Merging into
+   a store that already holds records is a reconciliation problem — two records
+   with one id, an edit on each side — and the sync engine solves that with a
+   shadow copy and a three-way merge that an archive has no equivalent of.
+6. **A test that restores what it exported and compares** — including that an
+   encrypted field opens again afterwards. That check found two defects the
+   moment it existed: a restore that skipped the keyring passed everything
+   else, and `Keyring` cached its wrapped keys so the restored ones were
+   ignored.
 
-Until that exists, the honest statement to a household running the native app
-is: *your records are on this device and nowhere else.*
+## What it still does not do
+
+- **Merge.** A device that already holds records is refused, not reconciled.
+- **Run on a schedule.** Somebody has to press the button.
+- **Verify itself.** Nothing re-opens the file after writing it to prove the
+  bytes that landed are the bytes that were sealed.
+- **Say when the last one was taken.** There is no reminder, and a backup
+  nobody remembers to take is close to a backup nobody has.

@@ -50,34 +50,62 @@ describe('what an export carries', () => {
   });
 });
 
-describe('what can read one back', () => {
-  test('nothing in the application does', async () => {
-    // A tripwire, not an assertion that this is right — it is the opposite of
-    // right. docs/PORTABILITY.md, the comment on `fromCsv`, and the native
-    // setup guide all state that FamilyOS cannot restore an export. The day
-    // somebody wires up a reader, all three become wrong together, and this is
-    // what says so.
+describe('what the documents say about restoring', () => {
+  test('agrees with whether a restore actually exists', async () => {
+    // A tripwire keyed to the *claim*, because the last one was keyed to an
+    // implementation and missed the thing it was written for.
+    //
+    // It watched `fromCsv` for a caller. The restore that arrived does not use
+    // `fromCsv` at all — it is an encrypted archive with its own reader — so
+    // the guard stayed green while the document it guarded became false: it
+    // still opened "FamilyOS can export your records. It cannot restore them."
+    // three commits after Settings grew a Restore button.
+    //
+    // So this asks the code the question the document answers, and requires
+    // the two to agree in both directions.
+    const service = await readFile(join(ROOT, 'js/services/archive.js'), 'utf8')
+      .catch(() => '');
+    const settings = await readFile(join(ROOT, 'js/modules/settings.js'), 'utf8');
+    const portability = await readFile(join(ROOT, 'docs/PORTABILITY.md'), 'utf8');
+
+    const canRestore = /async restore\s*\(/.test(service)
+      && /Restore from a file/.test(settings);
+
+    const saysItCannot = /It cannot restore them/i.test(portability);
+
+    if (canRestore) {
+      assert.not(saysItCannot,
+        'a restore exists — docs/PORTABILITY.md still says FamilyOS cannot restore');
+      assert.ok(/Settings → Backup/.test(portability),
+        'a restore exists and docs/PORTABILITY.md does not tell anyone where it is');
+    } else {
+      assert.ok(saysItCannot,
+        'no restore exists and docs/PORTABILITY.md no longer says so');
+    }
+  });
+
+  test('and the CSV exports are still described as what they are', async () => {
+    // The archive did not make the exports readable. They remain forty-three
+    // files that nothing reads back, and the document has to keep saying so or
+    // somebody will treat them as the backup again.
     const callers = [];
     for (const path of await jsFiles()) {
       const source = await readFile(path, 'utf8');
       const used = source
         .replace(/\/\*[\s\S]*?\*\//g, ' ')
         .replace(/^\s*\/\/.*$/gm, ' ')
-        // The declaration mentions its own name, and a function is not its own
-        // caller. Removing it is what makes a real call the only thing left.
         .replace(/export function fromCsv\b/g, ' ');
       if (/\bfromCsv\b/.test(used)) callers.push(relative(ROOT, path));
     }
 
-    assert.length(callers, 0,
-      `fromCsv now has a caller (${callers.join(', ')}). If a restore has been `
-      + 'built, update docs/PORTABILITY.md, the comment on fromCsv in '
-      + 'js/reports/csv.js, and the backup section of docs/CAPACITOR_SETUP.md.');
-  });
-
-  test('and the documents say so rather than implying a backup', async () => {
     const portability = await readFile(join(ROOT, 'docs/PORTABILITY.md'), 'utf8');
-    assert.ok(/cannot restore them/i.test(portability),
-      'PORTABILITY.md no longer states that exports cannot be restored');
+    if (callers.length === 0) {
+      assert.ok(/nothing reads back|nothing can read them back|which nothing reads back/i
+        .test(portability),
+        'no CSV reader exists and docs/PORTABILITY.md no longer says the exports cannot be read back');
+    } else {
+      assert.ok(!/nothing reads back/i.test(portability),
+        `fromCsv has a caller (${callers.join(', ')}) — docs/PORTABILITY.md is out of date`);
+    }
   });
 });
