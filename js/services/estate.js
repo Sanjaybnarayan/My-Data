@@ -20,7 +20,9 @@
  */
 
 import { Service } from './service.js';
-import { estate } from '../domain/estate.js';
+import {
+  estate, bequestConflicts, willCoverage, willsInConflict, currentLegalDocuments,
+} from '../domain/estate.js';
 
 /** @type {Record<string, import('./service.js').Load>} */
 export const ESTATE_LOAD = Object.freeze({
@@ -36,11 +38,39 @@ export const ESTATE_LOAD = Object.freeze({
   loans: ['loan', { decrypt: false, limit: 200 }],
   vaultItems: ['vaultItem', { decrypt: false, limit: 500 }],
   digitalAssets: ['digitalAsset', { decrypt: false, limit: 500 }],
+  // The three that let a bequest be read against a nomination.
+  wills: ['will', { decrypt: false, limit: 200 }],
+  beneficiaries: ['beneficiary', { decrypt: false, limit: 1000 }],
+  legalDocuments: ['legalDocument', { decrypt: false, limit: 500 }],
 });
 
 export class EstateService extends Service {
   /** @returns {Promise<object>} as `estate()` yields */
   async review() {
     return estate(await this.load(ESTATE_LOAD));
+  }
+
+  /**
+   * What the will says, beside what each institution was told.
+   *
+   * A separate call rather than folded into `review()`, because the two answer
+   * different questions and the dashboard draws only the first. Loading wills
+   * for a widget that never shows them would be reading records nobody asked
+   * for — and these are among the most sensitive the schema has.
+   */
+  async wills() {
+    const data = await this.load(ESTATE_LOAD);
+    const conflicts = bequestConflicts(data);
+    return {
+      conflicts: conflicts.filter((row) => !row.unclear),
+      unclear: conflicts.filter((row) => row.unclear),
+      coverage: willCoverage(data),
+      duplicates: willsInConflict(data),
+      documents: currentLegalDocuments(data),
+      people: data.people ?? [],
+      any: conflicts.length > 0
+        || willsInConflict(data).length > 0
+        || (data.wills ?? []).length > 0,
+    };
   }
 }

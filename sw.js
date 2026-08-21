@@ -173,6 +173,7 @@ const SHELL = [
   './js/modules/receipts.js',
   './js/modules/reports.js',
   './js/modules/settings.js',
+  './js/modules/vault.js',
   './js/modules/statements.js',
   './js/modules/transactions.js',
 
