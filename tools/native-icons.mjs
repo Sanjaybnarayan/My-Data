@@ -110,14 +110,24 @@ function android() {
       encodePng(drawIcon(adaptive, { foreground: true }), adaptive));
     files += 3;
 
-    // Portrait and landscape, light and dark. The dimensions are the ones
-    // `cap add` laid down; only the pixels change.
+    /*
+     * Portrait and landscape, light and dark. The dimensions are the ones
+     * `cap add` laid down; only the pixels change.
+     *
+     * The qualifier order is not a style choice. Android fixes it — orientation
+     * before night mode before density — and rejects anything else outright
+     * with "Invalid resource directory name", failing the whole build at
+     * mergeResources. This first shipped as `drawable-night-port-hdpi` and
+     * every check in this repository passed it, because none of them knew what
+     * Android calls a directory. The build on a runner that could actually
+     * compile is what found it.
+     */
     const [w, h] = [Math.round(320 * scale), Math.round(480 * scale)];
     /** @type {[string, number[]][]} */
     const themes = [['', LIGHT], ['-night', DARK]];
-    for (const [suffix, background] of themes) {
-      bytes += write(join(ANDROID, `drawable${suffix}-port-${density}/splash.png`), splash(w, h, background));
-      bytes += write(join(ANDROID, `drawable${suffix}-land-${density}/splash.png`), splash(h, w, background));
+    for (const [night, background] of themes) {
+      bytes += write(join(ANDROID, `drawable-port${night}-${density}/splash.png`), splash(w, h, background));
+      bytes += write(join(ANDROID, `drawable-land${night}-${density}/splash.png`), splash(h, w, background));
       files += 2;
     }
   }

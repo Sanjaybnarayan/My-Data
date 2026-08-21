@@ -1,7 +1,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { isNative, platform, plugin, forgetPlugins } from '../js/core/native.js';
 import { precachedPaths, missingFrom, SHIPPED } from '../tools/webroot.mjs';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -185,5 +185,64 @@ describe('the allowBackup decision', () => {
       'CAPACITOR_SETUP.md no longer states that a native build has no backup');
     assert.ok(/key, not data|key and not data/.test(setup),
       'CAPACITOR_SETUP.md no longer says the recovery phrase restores a key rather than data');
+  });
+});
+
+describe('the Android resource directories', () => {
+  test('name their qualifiers in the order Android demands', async () => {
+    // Android fixes this order and rejects anything else outright: orientation,
+    // then UI mode (of which `night` is one), then density. A wrong name is not
+    // ignored and does not merely fail to match — it fails the whole build at
+    // mergeResources with "Invalid resource directory name".
+    //
+    // These were first generated as `drawable-night-port-hdpi`. Every check in
+    // this repository passed them: the dimensions were right, the pixels were
+    // right, and the composited icon looked right. None of them knew what
+    // Android calls a directory, so the first build on a machine that could
+    // actually compile is what found it. This is that knowledge, written down.
+    const ORDER = ['port', 'land', 'night', 'notnight',
+      'ldpi', 'mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi', 'nodpi', 'anydpi', 'v24', 'v26'];
+
+    const res = join(ROOT, 'android/app/src/main/res');
+    const dirs = (await readdir(res, { withFileTypes: true }))
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+
+    assert.ok(dirs.length > 15, `only ${dirs.length} resource directories found`);
+
+    const wrong = [];
+    for (const name of dirs) {
+      const [, ...qualifiers] = name.split('-');
+      const ranks = qualifiers.map((q) => ORDER.indexOf(q));
+
+      // A qualifier this test has never heard of is not judged — it would be a
+      // new kind of directory, not necessarily a wrong one.
+      if (ranks.includes(-1)) continue;
+      for (let i = 1; i < ranks.length; i++) {
+        if (ranks[i] < ranks[i - 1]) {
+          wrong.push(`${name} (${qualifiers[i]} must come before ${qualifiers[i - 1]})`);
+          break;
+        }
+      }
+    }
+
+    assert.length(wrong, 0, wrong.join(' | '));
+  });
+
+  test('carry a dark launch screen for every light one', async () => {
+    // The point of generating them at all: the app reads the stored theme in an
+    // inline script before the first paint so a dark-mode user never sees white,
+    // and a light-only launch screen puts that flash back one layer down.
+    const res = join(ROOT, 'android/app/src/main/res');
+    const dirs = (await readdir(res, { withFileTypes: true }))
+      .filter((d) => d.isDirectory() && /^drawable-(port|land)-/.test(d.name))
+      .map((d) => d.name);
+
+    const light = dirs.filter((d) => !d.includes('-night-'));
+    const dark = dirs.filter((d) => d.includes('-night-'));
+
+    assert.ok(light.length > 0, 'no orientation-specific launch screens at all');
+    assert.equal(dark.length, light.length,
+      `${light.length} light launch screens and ${dark.length} dark ones`);
   });
 });
