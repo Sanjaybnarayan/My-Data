@@ -24,7 +24,7 @@ honest half: the line between what is built and what is not.
 | **Backend** | Apps Script, loaded into Node and tested against literal stubs: admission, the member list, the cache, the request contract |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 1,808 checks with no browser and nothing installed; 283 more in a real Chromium. Both in CI. These two figures are the ones `tools/self-description.mjs` cannot guard — see below |
+| **Tests** | 1,808 checks with no browser and nothing installed; 283 more in a real Chromium. Both in CI. These two are the only figures in this table that `tools/self-description.mjs` cannot guard, so they are the two most likely to go stale — see `docs/SELF_DESCRIPTION.md` |
 
 ## Deliberately not built
 

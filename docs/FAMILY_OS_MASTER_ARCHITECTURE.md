@@ -19,6 +19,15 @@ each component marked.
 > second direction is the one that goes stale, because building is what people
 > do, and nobody re-reads a table to check whether it is still pessimistic.
 >
+> **Probes check rows, not sentences.** The prose around these tables went stale
+> anyway — it said 34 entities and 426 fields when the schema declared 39 and
+> 478 — because no probe reads a paragraph. Numbers describing the program as it
+> stands now therefore carry a `<!--live:…-->` marker, and
+> `tools/self-description.mjs` checks each one against the schema. Counts
+> recorded as history are left unmarked and unchanged on purpose: a dated audit
+> saying "28 of 426 fields" was true when it was written, and rewriting it would
+> falsify the record rather than correct it.
+>
 > The gate question in `PROJECT_AUDIT.md` §0 has since been answered — hybrid,
 > with a policy-only server — so the conditional branches this document once
 > carried have been resolved rather than left open.
@@ -48,14 +57,15 @@ Forbidden edges, all of which currently hold except the last:
 
 The last edge is the only architectural invariant this project declares and does
 not hold. It is not a boolean anybody fixes in one tranche — screens call
-`db.repo(...)` **71 times** — so it is a ratchet rather than a promise:
-`tools/architecture-budget.json` holds the count, `tools/architecture.mjs`
-fails the build if it rises, and every tranche that moves a screen onto
-`js/services/` lowers it permanently.
+`db.repo(...)` **58**<!--live:uiDatabaseCalls--> times — so it is a ratchet
+rather than a promise: `tools/architecture-budget.json` holds the count,
+`tools/architecture.mjs` fails the build if it rises, and every tranche that
+moves a screen onto `js/services/` lowers it permanently.
 
-The service layer exists and is barely adopted: four service modules against
-those 71 direct calls. Naming the number is what turns "we should migrate
-someday" into something with a direction.
+The service layer exists and is adopted in part:
+**11**<!--live:serviceModules--> service modules against those
+**58**<!--live:uiDatabaseCalls--> direct calls. Naming the number is what turns
+"we should migrate someday" into something with a direction.
 
 ---
 
@@ -71,6 +81,7 @@ someday" into something with a direction.
 | RBAC | **exists, server-authoritative** | `file:apps-script/Policy.gs` |
 | ABAC | **partial — own-record rules only** | `export:apps-script/Policy.gs#ownRecordAllows` |
 | Data classification | **exists — six levels** | `export:js/data/classification.js#LEVELS` |
+| Documentation counts checked against the schema | **exists** | `export:tools/self-description.mjs#check` |
 | Consent engine | **exists** | `file:js/data/consent.js` |
 | Provenance | **exists** | `file:js/data/provenance.js` |
 | Lineage | **exists** | `file:js/data/lineage.js` |

@@ -20,10 +20,12 @@
  */
 
 import { readdir, readFile } from 'node:fs/promises';
+import { readdirSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { entityNames, entity, modules, systemStores } from '../js/data/schema.js';
 import coverage from './field-coverage.json' with { type: 'json' };
+import budget from './architecture-budget.json' with { type: 'json' };
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS = join(ROOT, 'docs');
@@ -47,6 +49,10 @@ export function measure() {
     modules: modules.length,
     stores: names.length + Object.keys(systemStores).length,
     unreadFields: coverage.fields.length,
+    uiDatabaseCalls: budget.uiDatabaseCalls,
+    // `service.js` is the base class the others extend, not a service.
+    serviceModules: readdirSync(join(ROOT, 'js', 'services'))
+      .filter((f) => f.endsWith('.js') && f !== 'service.js').length,
   };
 }
 
