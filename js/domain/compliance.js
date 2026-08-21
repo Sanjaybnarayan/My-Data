@@ -306,13 +306,17 @@ export const REGIMES = Object.freeze([
       + 'may act on.',
     controls: [
       control('receipt-provenance', 'A generated receipt records what produced it',
-        STATUS.TESTED, { file: 'js/domain/rentreceipt.js', test: 'tests/domain.test.mjs' }),
+        STATUS.TESTED, { file: 'js/domain/rentreceipt.js', test: 'tests/docx.test.mjs' }),
       control('no-legal-effect-claim', 'No generated document claims legal effect',
         STATUS.IMPLEMENTED, { doc: 'docs/GENERATED_DOCUMENTS.md' }),
-      control('tenant-records', 'Tenant details kept as a record, not a ledger',
+      control('receipt-from-payment', 'A receipt is issued only for money that arrived',
+        STATUS.TESTED, { file: 'js/domain/rentreceipt.js', test: 'tests/docx.test.mjs' }),
+      control('one-letting-or-none', 'A payment is attributed to one letting or to none',
+        STATUS.TESTED, { file: 'js/domain/rentreceipt.js', test: 'tests/docx.test.mjs' }),
+      control('tenant-records', 'A tenant record with its own ledger',
         STATUS.NOT_STARTED, {},
-        'Two fields on `property`. No tenant entity, no rent ledger, no arrears '
-        + '— see docs/PHASE_AUDIT_0_13.md.'),
+        'Three fields on `property`. No tenant entity, no lease history, no '
+        + 'arrears figure — see docs/COMPLIANCE/PROPERTY.md.'),
     ],
   },
   {

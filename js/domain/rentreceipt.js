@@ -41,42 +41,115 @@ import { formatDay, nextMonth } from '../core/dates.js';
 /** Above this, an Indian tenant needs the landlord's PAN to claim HRA. */
 export const PAN_THRESHOLD = 1_00_000_00;
 
+const plain = (value) => String(value ?? '').trim();
+
 /**
  * Rent actually received against a property, month by month.
  *
- * A credit into one of the household's accounts, inside the month, for the
- * amount the lease says. Deliberately strict about the amount: a part payment
- * or a different figure is somebody's decision to describe, not this one's to
- * guess at, so it is reported as unreceipted rather than receipted for a number
- * nobody agreed.
+ * ## Two rules, and which applies depends on what the household recorded
+ *
+ * **With `property.rentAccount` set**, a credit into that account inside the
+ * month is the rent, and the receipt states **what arrived**. That is what
+ * makes a part payment and a rent rise visible: a tenant who paid ₹20,000 of
+ * ₹35,000 paid something, and reporting nothing was the older behaviour.
+ *
+ * **Without it**, the older rule stands — only an exact match for the recorded
+ * rent counts — because any credit in any account would otherwise become rent.
+ * The change is opt-in, and a household that records nothing new sees what it
+ * saw before.
+ *
+ * ## A credit two lettings could claim belongs to neither
+ *
+ * Measured before this existed, on two flats let at the same rent:
+ *
+ *     one credit of ₹35,000 · two flats both let at ₹35,000
+ *       Flat A says received: true · txn t1
+ *       Flat B says received: true · txn t1
+ *
+ * One payment, **two signed receipts**. So `others` is every other letting,
+ * and a credit more than one of them would claim is attributed to none of
+ * them — with the month saying why, because unlike "nobody paid" that one is
+ * fixable by recording which account each property's rent arrives in.
  *
  * @param {object} property
  * @param {object[]} transactions
- * @param {{from: string, to: string}} window inclusive, in calendar days
+ * @param {{from: string, to: string, others?: object[]}} window inclusive, in
+ *   calendar days; `others` is the household's other lettings
  */
-export function rentReceived(property, transactions, { from, to }) {
+export function rentReceived(property, transactions, { from, to, others = [] }) {
   if (!property?.rented || !property?.monthlyRent) {
     return { months: [], why: 'this property is not recorded as rented out' };
   }
 
-  const months = [];
-  const credits = (transactions ?? []).filter((t) => t
+  const inWindow = (transactions ?? []).filter((t) => t
     && !t.deletedAt
     && t.direction === 'in'
-    && t.amount === property.monthlyRent
     && t.date >= from && t.date <= to);
 
+  const bound = plain(property.rentAccount);
+
+  /**
+   * Credits this property could be the reason for.
+   *
+   * With `rentAccount` set, any credit into that account is a candidate and
+   * the amount is whatever arrived — which is what makes a part payment and a
+   * rent rise visible rather than invisible. Without it, the old rule stands:
+   * only an exact match for the recorded rent.
+   */
+  const candidates = bound
+    ? inWindow.filter((t) => plain(t.account) === bound)
+    : inWindow.filter((t) => t.amount === property.monthlyRent);
+
+  /**
+   * Other lettings that would claim the same credit.
+   *
+   * A household with two flats at the same rent used to get a receipt for
+   * **both** from one payment — the same rupee acknowledged twice, on two
+   * documents the landlord signs. Contested credits are attributed to
+   * neither, and the month says why.
+   */
+  const rivals = (others ?? []).filter((other) => other
+    && other.id !== property.id
+    && !other.deletedAt
+    && other.rented
+    && other.monthlyRent);
+
+  const contested = (t) => rivals.some((other) => {
+    const otherBound = plain(other.rentAccount);
+    if (bound && otherBound) return otherBound === bound;
+    if (bound || otherBound) return false;
+    return other.monthlyRent === t.amount;
+  });
+
+  const months = [];
   for (let month = from.slice(0, 7); month <= to.slice(0, 7); month = nextMonth(month)) {
-    const paid = credits.find((t) => t.date.startsWith(month));
+    const forMonth = candidates.filter((t) => t.date.startsWith(month));
+    const paid = forMonth.find((t) => !contested(t)) ?? null;
+    const blocked = !paid && forMonth.length > 0;
+
     months.push({
       month,
       // The date the money arrived, not the first of the month. A receipt
       // stating a date nothing happened on is a small lie that a tax officer
       // is entitled to notice.
       date: paid?.date ?? null,
+      // What arrived, not what was expected. A tenant who paid ₹24,000 of
+      // ₹25,000 paid something, and a receipt for it must say ₹24,000.
       amount: paid?.amount ?? null,
       transaction: paid?.id ?? null,
       received: Boolean(paid),
+      /** Set only where a credit exists and could not be attributed. */
+      why: blocked
+        ? 'a credit this month could belong to more than one letting — record '
+          + 'which account each property\'s rent arrives in to tell them apart'
+        : null,
+      /** Reported, never corrected: the receipt states what arrived. */
+      shortfall: paid && paid.amount < property.monthlyRent
+        ? property.monthlyRent - paid.amount
+        : null,
+      excess: paid && paid.amount > property.monthlyRent
+        ? paid.amount - property.monthlyRent
+        : null,
     });
   }
 
@@ -95,10 +168,21 @@ export function rentYear(months) {
   const received = (months ?? []).filter((m) => m.received);
   const total = received.reduce((sum, m) => sum + (m.amount ?? 0), 0);
 
+  const contested = (months ?? []).filter((m) => !m.received && m.why);
+
   return {
     total,
     receipted: received.length,
     missing: (months ?? []).length - received.length,
+    /**
+     * Months where money arrived and could not be attributed.
+     *
+     * Counted apart from `missing`, because "nobody paid" and "somebody paid
+     * and this application will not say who to" are different situations and
+     * only the second is fixable by recording something.
+     */
+    contested: contested.length,
+    shortfalls: received.filter((m) => m.shortfall).length,
     // Reported, never acted on. Whether a PAN goes on the document is the
     // signer's decision, and it is theirs to write.
     needsPan: total > PAN_THRESHOLD,

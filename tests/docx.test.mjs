@@ -21,6 +21,7 @@ setSuite('docx');
 const text = (bytes) => new TextDecoder().decode(bytes);
 
 const PROPERTY = {
+  id: 'prop_rose',
   name: 'Rose Villa',
   address: '14/3 Indiranagar, Bengaluru',
   rented: true,
@@ -117,6 +118,112 @@ describe('what rent was actually received', () => {
     const out = rentReceived({ ...PROPERTY, rented: false }, [credit('2026-04-03')], YEAR);
     assert.length(out.months, 0);
     assert.ok(/not recorded as rented out/.test(out.why), out.why);
+  });
+});
+
+describe('whose rent was it', () => {
+  const OTHER = {
+    id: 'prop_lily', name: 'Lily Cottage', rented: true, monthlyRent: 35_000_00,
+  };
+  const APRIL = { from: '2026-04-01', to: '2026-04-30' };
+
+  test('one credit does not receipt two lettings at the same rent', () => {
+    // Measured before the fix: both properties reported the same transaction
+    // as received, so one payment produced two receipts the landlord signs.
+    // The same rupee acknowledged twice.
+    const txns = [credit('2026-04-03')];
+    const rose = rentReceived(PROPERTY, txns, { ...APRIL, others: [OTHER] });
+    const lily = rentReceived(OTHER, txns, { ...APRIL, others: [PROPERTY] });
+
+    assert.not(rose.months[0].received);
+    assert.not(lily.months[0].received);
+  });
+
+  test('and says why, because this one is fixable', () => {
+    // "Nobody paid" and "somebody paid and this will not say whose" are
+    // different situations, and only the second has an action attached.
+    const [april] = rentReceived(PROPERTY, [credit('2026-04-03')],
+      { ...APRIL, others: [OTHER] }).months;
+    assert.ok(/more than one letting/.test(april.why), april.why);
+    assert.equal(rentYear([april]).contested, 1);
+  });
+
+  test('naming the account each rent arrives in tells them apart', () => {
+    const rose = { ...PROPERTY, rentAccount: 'acc_hdfc' };
+    const lily = { ...OTHER, rentAccount: 'acc_icici' };
+    const txns = [credit('2026-04-03', 35_000_00, { account: 'acc_hdfc' })];
+
+    const mine = rentReceived(rose, txns, { ...APRIL, others: [lily] });
+    const theirs = rentReceived(lily, txns, { ...APRIL, others: [rose] });
+
+    assert.ok(mine.months[0].received);
+    assert.equal(mine.months[0].transaction, 't-2026-04-03');
+    assert.not(theirs.months[0].received);
+  });
+
+  test('two lettings paid into one account are contested again', () => {
+    // Binding both to the same account does not disambiguate anything, and
+    // pretending otherwise would be worse than the original bug.
+    const rose = { ...PROPERTY, rentAccount: 'acc_hdfc' };
+    const lily = { ...OTHER, rentAccount: 'acc_hdfc' };
+    const txns = [credit('2026-04-03', 35_000_00, { account: 'acc_hdfc' })];
+    assert.not(rentReceived(rose, txns, { ...APRIL, others: [lily] }).months[0].received);
+  });
+
+  test('a single letting is never contested with itself', () => {
+    const [april] = rentReceived(PROPERTY, [credit('2026-04-03')],
+      { ...APRIL, others: [PROPERTY] }).months;
+    assert.ok(april.received);
+  });
+
+  test('a letting that is not let claims nothing', () => {
+    const shut = { ...OTHER, rented: false };
+    const [april] = rentReceived(PROPERTY, [credit('2026-04-03')],
+      { ...APRIL, others: [shut] }).months;
+    assert.ok(april.received);
+  });
+});
+
+describe('what actually arrived', () => {
+  const APRIL = { from: '2026-04-01', to: '2026-04-30' };
+  const BOUND = { ...PROPERTY, rentAccount: 'acc_hdfc' };
+  const into = (amount) => [credit('2026-04-05', amount, { account: 'acc_hdfc' })];
+
+  test('a part payment is receipted for what was paid, and the shortfall said', () => {
+    // Before this, ₹20,000 of ₹35,000 read as no payment at all: the tenant
+    // paid and got nothing. A receipt must state what arrived.
+    const [april] = rentReceived(BOUND, into(20_000_00), APRIL).months;
+    assert.ok(april.received);
+    assert.equal(april.amount, 20_000_00);
+    assert.equal(april.shortfall, 15_000_00);
+    assert.equal(april.excess, null);
+  });
+
+  test('a rent rise the record has not caught up with is not invisible', () => {
+    const [april] = rentReceived(BOUND, into(38_000_00), APRIL).months;
+    assert.ok(april.received);
+    assert.equal(april.amount, 38_000_00);
+    assert.equal(april.excess, 3_000_00);
+  });
+
+  test('the exact rent has neither a shortfall nor an excess', () => {
+    const [april] = rentReceived(BOUND, into(35_000_00), APRIL).months;
+    assert.equal(april.shortfall, null);
+    assert.equal(april.excess, null);
+  });
+
+  test('without a bound account the old exact-match rule still stands', () => {
+    // The change is opt-in. A household that has recorded nothing new sees
+    // exactly what it saw before.
+    const [april] = rentReceived(PROPERTY, [credit('2026-04-05', 20_000_00)], APRIL).months;
+    assert.not(april.received);
+  });
+
+  test('the year counts shortfalls without correcting them', () => {
+    const found = rentReceived(BOUND, into(20_000_00), APRIL).months;
+    const year = rentYear(found);
+    assert.equal(year.total, 20_000_00);
+    assert.equal(year.shortfalls, 1);
   });
 });
 

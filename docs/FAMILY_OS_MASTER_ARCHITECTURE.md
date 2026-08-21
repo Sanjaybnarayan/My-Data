@@ -199,7 +199,7 @@ verification* means the deterministic path must stay the one that writes.
 
 ## Layer 4 — Data & Economic Events
 
-43<!--live:entities--> entities, 518<!--live:fields--> fields, declared once in `js/data/schema.js` and used to
+43<!--live:entities--> entities, 519<!--live:fields--> fields, declared once in `js/data/schema.js` and used to
 derive stores, indexes, validators, forms, columns, Sheets tabs, reminders and
 report fields.
 

@@ -906,6 +906,15 @@ const property = {
     day('valuedOn', { group: 'Valuation' }),
     { key: 'rented', type: 'boolean', default: false, list: true, group: 'Rental' },
     money('monthlyRent', { group: 'Rental' }),
+    /**
+     * The account this property's rent arrives in.
+     *
+     * Optional, and the thing that makes a payment attributable. Without it,
+     * rent is matched by amount alone — and two flats let at the same rent
+     * both claimed the same credit, which produced two signed receipts for
+     * one payment. See `js/domain/rentreceipt.js`.
+     */
+    ref('rentAccount', 'account', { label: 'Rent arrives in', group: 'Rental' }),
     text('tenantName', { group: 'Rental' }),
     { key: 'tenantPhone', type: 'phone', group: 'Rental', encrypted: true },
     day('leaseEndsOn', { group: 'Rental', expiry: true, expiryLead: 60 }),

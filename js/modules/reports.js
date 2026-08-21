@@ -96,7 +96,9 @@ function rentReceiptsCard() {
         + 'that money was received.'),
 
       h('div', { class: 'list' }, rented.map((property) => {
-        const { months } = rentReceived(property, transactions, { from, to });
+        // Every other letting is passed in so a credit two of them could
+        // claim is attributed to neither, rather than receipted twice.
+        const { months } = rentReceived(property, transactions, { from, to, others: rented });
         const year = rentYear(months);
         const owner = people.find((person) => person.id === property.owner)?.name ?? '';
 
@@ -104,7 +106,17 @@ function rentReceiptsCard() {
           title: property.name,
           subtitle: [
             `${year.receipted} of ${months.length} months received`,
-            year.missing ? `${year.missing} with no matching payment` : null,
+            year.missing - year.contested
+              ? `${year.missing - year.contested} with no matching payment` : null,
+            // Said separately from "no payment": money arrived and this
+            // application will not say whose it was, which the household can
+            // fix by recording where each property's rent lands.
+            year.contested
+              ? `${year.contested} where a credit could belong to more than one letting`
+              : null,
+            year.shortfalls
+              ? `${year.shortfalls} paid less than the rent on record`
+              : null,
             // Reported, never printed on the document. Whether a PAN goes on it
             // is the signer's decision and theirs to write.
             year.needsPan
