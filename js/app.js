@@ -252,6 +252,7 @@ function registerRoutes(router) {
     reports: () => import('./modules/reports.js'),
     settings: () => import('./modules/settings.js'),
     vault: () => import('./modules/vault.js'),
+    vehicles: () => import('./modules/vehicles.js'),
     assistant: () => import('./modules/assistant-screen.js'),
   };
 

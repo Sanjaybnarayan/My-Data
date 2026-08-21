@@ -23,8 +23,6 @@
     "event.attendees",
     "event.endTime",
     "event.remindMinutesBefore",
-    "fuelLog.fullTank",
-    "fuelLog.litres",
     "healthRecord.diagnosis",
     "holding.riskLevel",
     "identityDocument.issuedBy",
