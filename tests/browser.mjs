@@ -2450,6 +2450,51 @@ async function main() {
         !/HDFC Savings/.test(said), said.slice(0, 300));
     }
 
+    /* -------------------------------------------------------------- wills */
+
+    {
+      const before = consoleErrors.length;
+
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const people = await app().db.repo('person').list({ limit: 2 });
+        const meera = people[0]?.name ?? 'Meera Narayan';
+        const account = await app().db.repo('account').create({
+          name: 'Legacy Savings', kind: 'savings', institution: 'HDFC Bank',
+          accountNumber: '50100444333222', holder: people[0]?.id ?? '',
+          openingBalance: '400000', nominee: meera,
+        });
+        const will = await app().db.repo('will').create({
+          title: 'Will of 2026', testator: people[0]?.id ?? '',
+          executedOn: '2026-01-11', whereKept: 'Bank locker',
+        });
+        await app().db.repo('beneficiary').create({
+          will: will.id, name: 'Somebody Else Entirely',
+          assetId: account.id, share: 'one half',
+        });
+      }, IN_PAGE.context);
+
+      await go(page, '#/vault/will');
+      await page.waitForTimeout(700);
+      const wills = await page.locator('.app-content').innerText();
+
+      // The refusal is on the screen, not in a comment.
+      check('the vault says a note is not the will',
+        /The will itself decides/.test(wills), wills.slice(0, 600));
+
+      check('a nomination and a bequest naming different people are shown together',
+        /name different people/.test(wills) && /Somebody Else Entirely/.test(wills),
+        wills.slice(0, 1400));
+
+      check('and neither is declared correct',
+        /not for this application to say/.test(wills), wills.slice(0, 1400));
+
+      check('the will comparison renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'vault-wills');
+    }
+
     /* ------------------------------------------- what has been happening */
 
     {

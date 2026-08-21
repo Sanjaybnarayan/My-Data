@@ -65,7 +65,7 @@ has not been begun. This is the largest single documentation gap in the project.
 | Database | **working** — one storage interface with IndexedDB and in-memory implementations, migrations, single-transaction writes, audit trail. 69 checks |
 | API | **exists, undocumented** — `apps-script/Code.gs` serves `doPost`/`doGet` over a `dispatch(action, payload, context)` contract, with 50 backend checks run against literal stubs. There is no `API_CONTRACTS.md`, and no REST surface |
 | Authentication | **working** — local PIN, WebAuthn, Google sign-in, recovery phrase. No `AUTHENTICATION.md` |
-| Authorization / RBAC | **working, server-authoritative** — `js/security/rbac.js` plus a generated `apps-script/Policy.gs` covering 40<!--live:entities--> entities |
+| Authorization / RBAC | **working, server-authoritative** — `js/security/rbac.js` plus a generated `apps-script/Policy.gs` covering 43<!--live:entities--> entities |
 | **ABAC** | **partial — own-record rules only.** No general attribute policy |
 
 **Verdict: partial**, on ABAC and on the undocumented API.
@@ -121,7 +121,7 @@ not a second expense.
 | **Android SMS Capability** | **not built, deliberately.** `nativeStatus()` returns `NOT_SUPPORTED` with the reason: a browser cannot read an SMS inbox, an Android companion does not exist, and the permission must not be requested without a current check of Play policy (rule 54) |
 | **Real-Time Processing** | **not built** — it depends on native ingestion. Messages arrive by paste or by an exported backup |
 | SMS Reconciliation | **working** — linked by UTR/UPI reference first, then account tail and day |
-| SMS Security | **working** — the OTP gate runs *before any field is read*, and nothing is stored. Proved across all 47<!--live:stores--> stores, not the one table it would most likely land in |
+| SMS Security | **working** — the OTP gate runs *before any field is read*, and nothing is stored. Proved across all 50<!--live:stores--> stores, not the one table it would most likely land in |
 | SMS Privacy | **working** — the schema has nowhere to put a one-time code |
 | SMS Conflict Engine | **working** — ₹5,000 against ₹5,500 is a `CONFLICT` with both figures shown, never a silent choice |
 

@@ -249,6 +249,7 @@ function registerRoutes(router) {
     investments: () => import('./modules/investments.js'),
     reports: () => import('./modules/reports.js'),
     settings: () => import('./modules/settings.js'),
+    vault: () => import('./modules/vault.js'),
     assistant: () => import('./modules/assistant-screen.js'),
   };
 

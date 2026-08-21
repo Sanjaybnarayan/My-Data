@@ -29,6 +29,9 @@
     "holding.riskLevel",
     "identityDocument.issuedBy",
     "identityDocument.placeOfIssue",
+    "legalDocument.concerns",
+    "legalDocument.custodian",
+    "legalDocument.registered",
     "loan.collateral",
     "loan.tenureMonths",
     "medication.dosage",
@@ -69,6 +72,9 @@
     "vehicle.purchasedOn",
     "vehicle.tyreChangedAt",
     "vehicleService.workDone",
-    "vehicleService.workshop"
+    "vehicleService.workshop",
+    "will.executorPerson",
+    "will.registered",
+    "will.witnesses"
   ]
 }

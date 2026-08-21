@@ -62,6 +62,7 @@ const note = (key = 'notes') => ({ key, type: 'textarea', label: 'Notes', search
 const tags = () => ({ key: 'tags', type: 'tags', label: 'Tags', search: true });
 const attach = () => ({ key: 'documents', type: 'files', label: 'Documents', ref: 'document' });
 
+
 /* ------------------------------------------------------------- 1. Identity */
 
 const person = {
@@ -1361,6 +1362,111 @@ const staffLeave = {
   ],
 };
 
+/* ---------------------------------------------------------------- 12. Legal */
+
+/**
+ * A legal instrument that exists, and where the original is.
+ *
+ * **Not the instrument itself.** This application records that a deed or a
+ * power of attorney exists, who it concerns and where to find it. It does not
+ * hold the operative text, does not sign anything, and must never look as
+ * though a record here has legal effect — the original does.
+ */
+const legalDocument = {
+  name: 'legalDocument', module: 'vault', sheet: 'LegalDocuments', version: 1,
+  labels: { one: 'Legal document', many: 'Legal documents' }, icon: 'file',
+  acl: secret,
+  title: (r) => r.title,
+  fields: [
+    { key: 'title', type: 'text', required: true, list: true, search: true },
+    pick('kind', [
+      'power of attorney', 'trust deed', 'gift deed', 'sale deed',
+      'partnership deed', 'succession certificate', 'legal heir certificate',
+      'affidavit', 'court order', 'agreement', 'other',
+    ], { required: true, list: true }),
+    ref('concerns', 'person', { label: 'Concerns' }),
+    day('executedOn', { list: true }),
+    { key: 'registered', type: 'boolean', label: 'Registered' },
+    { key: 'registrationNumber', type: 'text', encrypted: true },
+    { key: 'whereKept', type: 'text', label: 'Where the original is kept' },
+    { key: 'custodian', type: 'text', label: 'Held by' },
+    day('supersededOn', { label: 'Superseded on' }),
+    attach(),
+    note(),
+  ],
+};
+
+/**
+ * That a will exists, whose it is, and where.
+ *
+ * The same refusal, and it matters more here than anywhere else in the schema:
+ * **this is not the will.** A will is a formal instrument with requirements
+ * this application does not meet and does not try to — no signature mechanism,
+ * no generated text, no claim of validity. What is recorded is that one exists
+ * so a family can find it, and what the household understands it to say so the
+ * two can be compared with the nominations already on file.
+ *
+ * `revokedOn` exists because a revoked will must stop being compared against
+ * anything. A superseded will's beneficiaries are not a disagreement with the
+ * current nominations; they are a record of a decision already replaced.
+ */
+const will = {
+  name: 'will', module: 'vault', sheet: 'Wills', version: 1,
+  labels: { one: 'Will', many: 'Wills' }, icon: 'file',
+  acl: secret,
+  title: (r) => r.title,
+  fields: [
+    { key: 'title', type: 'text', required: true, list: true, search: true },
+    ref('testator', 'person', { required: true, list: true, label: 'Whose will' }),
+    day('executedOn', { list: true }),
+    { key: 'registered', type: 'boolean', label: 'Registered' },
+    { key: 'whereKept', type: 'text', label: 'Where the original is kept' },
+    { key: 'executor', type: 'text', label: 'Executor named' },
+    ref('executorPerson', 'person', { label: 'Executor, if in the household' }),
+    { key: 'witnesses', type: 'number', label: 'Witnesses', min: 0, max: 10 },
+    day('revokedOn', { label: 'Revoked or superseded on', list: true }),
+    attach(),
+    note(),
+  ],
+};
+
+/**
+ * Somebody a will names, and what it leaves them.
+ *
+ * `share` is free text on purpose. Wills say "one third", "the residue",
+ * "equally between my children" and "my share of the Bengaluru flat", and a
+ * percentage field would force every one of those into a number the will never
+ * stated. Nothing computes with it.
+ *
+ * `asset` optionally points at a record already in the application, which is
+ * what lets a bequest be read against that record's nominee. Where it is left
+ * blank the beneficiary is still recorded — a will naming somebody is worth
+ * knowing even when nothing here matches it.
+ */
+const beneficiary = {
+  name: 'beneficiary', module: 'vault', sheet: 'Beneficiaries', version: 1,
+  labels: { one: 'Beneficiary', many: 'Beneficiaries' }, icon: 'user',
+  acl: secret,
+  title: (r) => r.name,
+  fields: [
+    ref('will', 'will', { required: true, list: true }),
+    { key: 'name', type: 'text', required: true, list: true, search: true },
+    ref('person', 'person', { label: 'Who, if in the household' }),
+    { key: 'relationship', type: 'text' },
+    { key: 'share', type: 'text', label: 'What the will leaves them', list: true },
+    /**
+     * The record this bequest speaks to, where one is in the application.
+     *
+     * There is no companion "kind of asset" field. `nominations()` already
+     * knows what each record is, and a hand-set copy beside it is the second
+     * source of truth this project has now found three times.
+     */
+    { key: 'assetId', type: 'text', label: 'Which record, if one matches', hidden: true },
+    note(),
+  ],
+};
+
+
 export const entities = Object.freeze(Object.fromEntries(
   [person, relationship, identityDocument, kycRecord, employment, importantDate,
     account, transaction, economicEvent, bankStatement, receipt, budget,
@@ -1372,6 +1478,7 @@ export const entities = Object.freeze(Object.fromEntries(
     project, task, event, noteEntity, vaultItem,
     digitalAsset, subscription, emergencyContact, smsMessage,
     staff, staffLeave, goal,
+    legalDocument, will, beneficiary,
   ].map((e) => [e.name, normalise(e)]),
 ));
 

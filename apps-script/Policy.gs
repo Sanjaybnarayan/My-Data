@@ -17,6 +17,7 @@ var POLICY = {
   "account": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "appointment": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "bankStatement": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
+  "beneficiary": { read: ["owner","spouse"], write: ["owner","spouse"] },
   "budget": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "certificate": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "digitalAsset": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
@@ -34,6 +35,7 @@ var POLICY = {
   "importantDate": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "investmentTransaction": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "kycRecord": { read: ["owner","spouse"], write: ["owner","spouse"] },
+  "legalDocument": { read: ["owner","spouse"], write: ["owner","spouse"] },
   "loan": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "medication": { read: ["owner","spouse","adult"], write: ["owner","spouse","adult"] },
   "note": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
@@ -53,7 +55,8 @@ var POLICY = {
   "vaccination": { read: ["owner","spouse","adult"], write: ["owner","spouse","adult"] },
   "vaultItem": { read: ["owner","spouse"], write: ["owner","spouse"] },
   "vehicle": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
-  "vehicleService": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] }
+  "vehicleService": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
+  "will": { read: ["owner","spouse"], write: ["owner","spouse"] }
 };
 
 /** Roles, most privileged first. A rank of -1 is not a role at all. */
