@@ -46,6 +46,7 @@ const SHELL = [
   './js/core/errors.js',
   './js/core/ids.js',
   './js/core/money.js',
+  './js/core/native.js',
 
   './js/data/audit.js',
   './js/data/classification.js',

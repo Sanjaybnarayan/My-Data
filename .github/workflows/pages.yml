@@ -49,30 +49,14 @@ jobs:
       # all public already, none of it any use to a browser, and every one of
       # them a file a host would have to send.
       #
-      # This list is the same one `sw.js` precaches from. If they ever
-      # disagree, the worker fails to install and the app silently stops
-      # working offline, so the check below compares them rather than trusting
-      # that two lists stay in step.
+      # The list, and the check that guards it, used to live here inline. They
+      # moved into `tools/webroot.mjs` when Capacitor arrived needing the same
+      # web root in a directory of its own — a third copy of one list is how
+      # lists drift, and this repository has found that fault four times over.
+      # The tool copies, then refuses to finish if anything `sw.js` precaches
+      # is missing from what it copied.
       - name: Assemble the site
-        run: |
-          mkdir -p _site
-          cp -r index.html oauth-callback.html manifest.webmanifest sw.js .nojekyll \
-                js css assets _site/
-
-      - name: Check the service worker precaches nothing that was left out
-        run: |
-          node -e '
-            const fs = require("node:fs");
-            const sw = fs.readFileSync("sw.js", "utf8");
-            const wanted = [...sw.matchAll(/'"'"'\.\/([^'"'"']+)'"'"'/g)].map((m) => m[1]);
-            const missing = wanted.filter((p) => !fs.existsSync("_site/" + p));
-            if (missing.length) {
-              console.error("These are precached but were not published:");
-              for (const p of missing) console.error("  " + p);
-              process.exit(1);
-            }
-            console.log(wanted.length + " precached files, all published");
-          '
+        run: node tools/webroot.mjs _site
 
       - uses: actions/upload-pages-artifact@v3
         with:

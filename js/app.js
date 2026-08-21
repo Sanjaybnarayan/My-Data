@@ -35,6 +35,7 @@ import { h, replace } from './ui/dom.js';
 import { ACTIONS } from './data/audit.js';
 import { userMessage } from './core/errors.js';
 import { modules } from './data/schema.js';
+import { plugin, isNative } from './core/native.js';
 
 const root = () => document.getElementById('app');
 
@@ -164,6 +165,7 @@ async function start(db, limiter, googleSession = null) {
   replace(root(), shell.root);
   registerRoutes(shell.router);
   await shell.router.start();
+  wireHardwareBack();
 
   // Everything above is on screen before anything below touches the network.
   if (isConfigured()) {
@@ -332,6 +334,37 @@ function quickSearch(db, term, results) {
   }, 180);
 }
 
+/* ------------------------------------------------------------ native shell */
+
+/**
+ * The Android back button, which otherwise closes the application.
+ *
+ * A WebView receives no back gesture of its own: Android sends the hardware
+ * button straight to the activity, and the default activity finishes. Somebody
+ * three screens into a record taps back and FamilyOS disappears — with, on a
+ * form, whatever they had typed.
+ *
+ * The router pushes a history entry per navigation, so the browser's own
+ * history is the correct thing to walk. At the bottom of it there is nowhere
+ * left to go and closing the app *is* the right answer; anything else traps
+ * somebody in an application they are trying to leave.
+ *
+ * Nothing here runs in a browser: `plugin()` returns null off a native
+ * platform, and the browser has its own back button that already works.
+ */
+function wireHardwareBack() {
+  const App = plugin('App');
+  if (!App) return;
+
+  App.addListener('backButton', ({ canGoBack }) => {
+    if (canGoBack) globalThis.history.back();
+    else App.exitApp();
+  }).catch(() => {
+    // A shell without the App plugin keeps the platform default. Worth not
+    // crashing the boot over.
+  });
+}
+
 /* -------------------------------------------------------- service worker */
 
 function registerServiceWorker() {
@@ -339,6 +372,12 @@ function registerServiceWorker() {
   // so the single-file build cannot have one and says so rather than asking
   // for a `sw.js` that is not there and logging a 404 about it.
   if (globalThis.__FAMILYOS_SINGLE_FILE__) return;
+  // A native shell has already put every one of these files on the device —
+  // that is what an installed app is. Registering the worker there would build
+  // a second copy of the shell in a Cache Storage bucket inside the app, to
+  // serve files that were never going to be fetched over a network. It buys
+  // nothing and doubles the bytes.
+  if (isNative()) return;
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.register('./sw.js').then((registration) => {
     registration.addEventListener('updatefound', () => {

@@ -45,6 +45,13 @@ jobs:
       - name: Check the single-file build still builds
         run: node tools/bundle.mjs /tmp/familyos.html
 
+      # The web root a native app bundles, and the same one the Pages workflow
+      # publishes. It fails when the ship list and the worker's precache list
+      # disagree, in either direction — which is the only thing standing
+      # between an Android build and a bundle missing a stylesheet.
+      - name: Check the web root still assembles
+        run: node tools/webroot.mjs
+
       # The backend's copy of the access rules is generated from the schema.
       # Two tables describing one set of rules will disagree, and this is where
       # that gets caught rather than in a household's workbook.

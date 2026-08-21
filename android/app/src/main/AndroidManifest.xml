@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      allowBackup is off, and that is a decision rather than a default.
+
+      Android's auto-backup copies an application's data directory to the
+      account holder's Drive. For FamilyOS that directory is the WebView's
+      IndexedDB: a household's records, and the wrapped key material beside
+      them. The records are encrypted and the wrapping is sound, but an
+      application whose whole premise is "encrypted, on this device" should not
+      quietly put a copy of that device somewhere else.
+
+      What it costs: a new phone does not restore the old one's local store.
+      FamilyOS already owns that problem — the recovery phrase and the Google
+      Drive sync are its answer to a lost device, and they are answers the
+      household chose. Turn this back on if you would rather have the OS
+      backup; nothing else depends on it being off.
+
+      usesCleartextTraffic is stated rather than inherited. It is already the
+      platform default above API 27, and writing it down means a later
+      targetSdk change cannot silently flip it.
+    -->
+    <application
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>
