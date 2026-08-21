@@ -16,6 +16,8 @@
 import { h, replace } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { entity, entitiesOfModule, modules } from '../data/schema.js';
+import { describeConnections } from '../domain/connections.js';
+import { RecordsService } from '../services/records.js';
 import { entityTable, filterBar, cellFor } from '../ui/components/table.js';
 import { entityForm } from '../ui/components/form.js';
 import { modal, confirm } from '../ui/components/modal.js';
@@ -30,7 +32,6 @@ import { userMessage } from '../core/errors.js';
 import { can } from '../security/rbac.js';
 import { isEncrypted } from '../security/crypto.js';
 import { maskable, mask, classify } from '../data/classification.js';
-import { RecordsService } from '../services/records.js';
 import { formatInstant } from '../core/dates.js';
 import { describe as describeAudit } from '../data/audit.js';
 
@@ -337,6 +338,8 @@ export async function recordDetail(entityName, id, options = {}) {
 
     options.extra ? (await options.extra(record)) ?? null : null,
 
+    await connectionsCard(entityName, record),
+
     await historyCard(entityName, id),
 
     // Any entity with a `documents` field gets file capture, without knowing
@@ -362,6 +365,50 @@ export async function recordDetail(entityName, id, options = {}) {
   ]);
 
   return { node: host };
+}
+
+/**
+ * What this record is connected to, in both directions.
+ *
+ * Phase 17's knowledge graph, and the whole of it: **an edge is a reference,
+ * never a resemblance.** Nothing here joins two records because they mention
+ * the same name or fall on the same date. A line is drawn because one record
+ * stores the other's id, so nothing on this card can be wrong in a way the
+ * records are not already wrong.
+ *
+ * The inbound half is the useful one — a person's documents, a vehicle's
+ * services, a will's beneficiaries — and it is also the half that was
+ * incomplete until `referenceFields` replaced a hardcoded list of two field
+ * types with "anything carrying a `ref`".
+ */
+async function connectionsCard(entityName, record) {
+  const found = await new RecordsService(app().db).connectionsFor(entityName, record);
+  if (!found.total) return null;
+
+  return card({ class: 'record-connections' }, [
+    cardHeader('Connected records', badge(String(found.total)), { iconName: 'link' }),
+    h('p', { class: 'small muted' }, describeConnections(found)),
+
+    found.from.length
+      ? h('div', { class: 'list' }, found.from.flatMap((group) => group.records.map((one) => listItem({
+        title: one.title || '(untitled)',
+        subtitle: `${group.label} · via ${group.fieldLabel}`,
+        href: Router.href({
+          module: entity(group.entity).module, entity: group.entity, id: one.id,
+        }),
+      })))) : null,
+
+    found.to.length
+      ? h('div', { class: 'list' }, found.to.map((one) => listItem({
+        title: one.title || 'Not found',
+        subtitle: one.missing
+          ? `${one.label} · this points at a record that is not there`
+          : `${one.label}`,
+        href: one.missing ? undefined : Router.href({
+          module: entity(one.entity).module, entity: one.entity, id: one.id,
+        }),
+      }))) : null,
+  ]);
 }
 
 /**

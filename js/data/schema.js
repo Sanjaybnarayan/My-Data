@@ -1609,6 +1609,41 @@ export function entitiesOfModule(moduleId) {
   return Object.values(entities).filter((e) => e.module === moduleId);
 }
 
+/**
+ * Every field on an entity that points at another record.
+ *
+ * **A field is a reference because it carries a `ref`, not because its type is
+ * on a list.** `referencedBy` and `danglingReferences` used to test
+ * `type === 'ref' || type === 'multiref'`, which quietly excluded the
+ * seventeen `files` fields — every document attachment in the schema. A
+ * document attached to a transaction reported that nothing referenced it, so
+ * deleting it was offered as safe and left the transaction pointing at
+ * nothing, and the data-health check written to find exactly that saw none of
+ * it.
+ *
+ * Derived here so a fourth kind of reference cannot be missed the same way.
+ *
+ * `many` says how to read the value: a list, or a single id.
+ */
+export function referenceFields(entityName) {
+  return entity(entityName).fields
+    .filter((f) => Boolean(f.ref))
+    .map((f) => ({
+      key: f.key,
+      label: f.label,
+      ref: f.ref,
+      type: f.type,
+      many: f.type === 'multiref' || f.type === 'files',
+    }));
+}
+
+/** The ids a reference field points at, however it stores them. */
+export function referencedIds(record, field) {
+  const value = record?.[field.key];
+  if (field.many) return Array.isArray(value) ? value.filter(Boolean) : [];
+  return value ? [value] : [];
+}
+
 export function field(entityName, key) {
   return entity(entityName).fieldMap[key] ?? null;
 }

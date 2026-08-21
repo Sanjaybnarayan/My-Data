@@ -26,7 +26,10 @@
  */
 
 import { Service, TRANSACTION_LIMIT } from './service.js';
-import { entities, entity } from '../data/schema.js';
+import {
+  entities, entity, referenceFields, referencedIds,
+} from '../data/schema.js';
+import { connectionsOf } from '../domain/connections.js';
 import { summariseHistory } from '../data/audit.js';
 
 export class RecordsService extends Service {
@@ -108,6 +111,42 @@ export class RecordsService extends Service {
    *
    * @returns {Promise<{total: number, breaking: number, byEntity: object[]}>}
    */
+  /**
+   * What a record is connected to, in both directions.
+   *
+   * Here rather than in the screen for the reason this file exists: a screen
+   * that called `db.referencedBy` and then looked up a title per target would
+   * be four database calls in a view, testable only through a browser. It is
+   * also the difference between the connections card costing the UI→database
+   * budget a call and costing it none.
+   */
+  async connectionsFor(entityName, record) {
+    if (!entities[entityName]) throw new Error(`unknown entity: ${entityName}`);
+    const references = await this.db.referencedBy(record.id).catch(() => []);
+
+    // Titles for what this record points at. Fetched per target so one that
+    // is gone reads as missing rather than as an id.
+    const wanted = new Map();
+    for (const field of referenceFields(entityName)) {
+      for (const id of referencedIds(record, field)) {
+        if (!wanted.has(field.ref)) wanted.set(field.ref, new Set());
+        wanted.get(field.ref).add(id);
+      }
+    }
+
+    const titles = new Map();
+    for (const [name, ids] of wanted) {
+      for (const id of ids) {
+        const found = await this.repo(name).get(id).catch(() => null);
+        if (found) titles.set(`${name}:${id}`, String(entity(name).title(found) ?? id));
+      }
+    }
+
+    return connectionsOf(entityName, record, references, {
+      titleOf: (name, id) => titles.get(`${name}:${id}`) ?? null,
+    });
+  }
+
   async impactOfDeleting(entityName, id) {
     if (!entities[entityName]) throw new Error(`unknown entity: ${entityName}`);
 

@@ -1763,6 +1763,48 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-unaccounted');
     }
 
+    /* ------------------------------------------------------- connections */
+
+    {
+      const before = consoleErrors.length;
+
+      const docId = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const people = await app().db.repo('person').list({ limit: 1 });
+        const accounts = await app().db.repo('account').list({ limit: 1 });
+        const doc = await app().db.repo('document').create({
+          title: 'Connected lease deed', category: 'property',
+          person: people[0]?.id ?? '',
+        });
+        // Two transactions with the same document attached. Before the fix
+        // this reported nothing: an attachment was not a reference.
+        for (const date of ['2026-06-01', '2026-07-01']) {
+          await app().db.repo('transaction').create({
+            date, kind: 'expense', amount: '5000', category: 'rent',
+            account: accounts[0]?.id ?? '', documents: [doc.id],
+          });
+        }
+        return doc.id;
+      }, IN_PAGE.context);
+
+      await go(page, `#/documents/document/${docId}`);
+      await page.waitForTimeout(700);
+      const detail = await page.locator('.app-content').innerText();
+
+      check('a record says what is connected to it',
+        /Connected records/.test(detail), detail.slice(0, 700));
+
+      // The half that was invisible: an attachment is a reference.
+      check('and an attachment counts, in the direction that matters',
+        /records refer to it/.test(detail) && /via Documents/.test(detail),
+        detail.slice(0, 1200));
+
+      check('the connections card renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'record-connections');
+    }
+
     /* ------------------------------------------- rent, and whose it was */
 
     {
