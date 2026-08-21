@@ -99,7 +99,7 @@ and applies no role.
 
 ## Layer 2 — Experience
 
-19 modules exist: dashboard, identity, family, finance, investments,
+19<!--live:modules--> modules exist: dashboard, identity, family, finance, investments,
 documents, vehicles, health, insurance, property, education, tasks, calendar,
 notes, vault, digital, emergency, reports, settings.
 
@@ -188,7 +188,7 @@ verification* means the deterministic path must stay the one that writes.
 
 ## Layer 4 — Data & Economic Events
 
-34 entities, 426 fields, declared once in `js/data/schema.js` and used to
+39<!--live:entities--> entities, 478<!--live:fields--> fields, declared once in `js/data/schema.js` and used to
 derive stores, indexes, validators, forms, columns, Sheets tabs, reminders and
 report fields.
 

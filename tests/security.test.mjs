@@ -11,7 +11,7 @@ import { Session, AttemptLimiter, memoryStorage } from '../js/security/session.j
 import {
   escapeForSheet, unescapeFromSheet, escapeCsv, stripTags, safeUrl, safeFileName,
 } from '../js/security/sanitize.js';
-import { modules } from '../js/data/schema.js';
+import { modules, entitiesOfModule, entityNames, ROLES } from '../js/data/schema.js';
 
 setSuite('security');
 
@@ -242,6 +242,38 @@ describe('roles', () => {
     assert.includes(seen, 'emergency');
     assert.not(seen.includes('finance'));
     assert.ok(visibleEntities(owner).length > visibleEntities(guest).length);
+  });
+
+  test('a module lists exactly the entities that name it', () => {
+    // These were written twice — once as `module:` on the entity, once as an
+    // array here — and the copies drifted. `economicEvent`, `staff` and
+    // `staffLeave` named a module that did not list them back.
+    const listed = modules.flatMap((m) => m.entities);
+    assert.equal(listed.length, new Set(listed).size);
+    assert.equal([...listed].sort().join(','), entityNames().slice().sort().join(','));
+    for (const m of modules) {
+      assert.equal(m.entities.join(','), entitiesOfModule(m.id).map((e) => e.name).join(','));
+    }
+  });
+
+  test('a role that can read any of a module\'s entities sees the module', () => {
+    // This passes with the drifted lists too, because every role that could
+    // read `staff` could also read `relationship`. It is here for the case
+    // where that stops being true, which is when the drift would have cost
+    // somebody a screen rather than merely being wrong.
+    for (const m of modules) {
+      const members = entitiesOfModule(m.id).map((e) => e.name);
+      for (const role of ROLES) {
+        const actor = { personId: 'p1', role };
+        const readable = members.filter((name) => can(actor, 'read', name));
+        if (!readable.length) continue;
+        assert.includes(
+          visibleModules(actor, modules).map((x) => x.id),
+          m.id,
+          `${role} can read ${readable.join(', ')} but is not shown ${m.id}`,
+        );
+      }
+    }
   });
 
   test('a refused write throws rather than returning false', () => {

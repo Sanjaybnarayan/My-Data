@@ -257,7 +257,7 @@ export function listItem({ title, subtitle, value, leading, trailing, href, onCl
 
 /**
  * A due date with the urgency already worked out — the same rule everywhere,
- * so "expiring soon" means one thing across sixteen modules.
+ * so "expiring soon" means one thing across nineteen modules.
  */
 /**
  * @param {string} day

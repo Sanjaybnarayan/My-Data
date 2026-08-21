@@ -11,10 +11,10 @@ honest half: the line between what is built and what is not.
 
 | Area | What is actually there |
 | --- | --- |
-| **Foundation** | Storage adapter with IndexedDB and in-memory implementations of one interface; the schema registry that thirty-four entities, their stores, indexes, forms, validation, encryption, Sheets tabs and the assistant's vocabulary are all derived from; single-transaction writes; audit trail |
+| **Foundation** | Storage adapter with IndexedDB and in-memory implementations of one interface; the schema registry that thirty-nine<!--live:entities--> entities, their stores, indexes, forms, validation, encryption, Sheets tabs and the assistant's vocabulary are all derived from; single-transaction writes; audit trail |
 | **Security** | AES-256-GCM field encryption bound to entity, record and field; one data key wrapped separately by PIN, WebAuthn and a recovery phrase; RBAC enforced in the repository rather than the interface; session timeout; rate-limited unlock |
 | **Offline** | Every read and write local; outbox with exponential backoff; three-way field-level conflict merge with a deterministic tie-break so two devices converge without talking to each other |
-| **Modules** | Sixteen, over thirty-four entities. Fifteen are the same file reading the schema; the exceptions are dashboard, finance, investments, documents, family, calendar, reports, settings and the assistant |
+| **Modules** | Nineteen<!--live:modules-->, over thirty-nine<!--live:entities--> entities. Ten are the same file reading the schema; the other nine have a screen of their own — dashboard, finance, investments, documents, family, calendar, identity, reports and settings — as does the assistant, which is a route rather than a module |
 | **Documents** | Capture, encrypt on the device, upload to a per-person Drive folder, preview PDFs and images, read the text out of a PDF, and pull structured fields out of a bill or a policy — a due date fills itself in and the existing reminders pick it up |
 | **Statements** | PDF reader, column-aware parser, CSV/TSV reader, credit-card exports, categoriser, import planner. Every account's statements at once, matched to accounts by the number printed on them, deduplicated by fingerprint, checked against the bank's own balances before anything is written |
 | **Receipts** | A merchant registry, the Gmail query built from it, a receipt reader, a per-shop ledger, subscriptions reported by what they cost a year, and a match back to the bank rows that settled them. Several mailboxes, each attached by a Google sign-in or by a deployment |
@@ -24,7 +24,7 @@ honest half: the line between what is built and what is not.
 | **Backend** | Apps Script, loaded into Node and tested against literal stubs: admission, the member list, the cache, the request contract |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 625 checks with no browser and nothing installed; 134 more in a real Chromium. Both in CI |
+| **Tests** | 1,808 checks with no browser and nothing installed; 283 more in a real Chromium. Both in CI. These two figures are the ones `tools/self-description.mjs` cannot guard — see below |
 
 ## Deliberately not built
 
@@ -119,9 +119,10 @@ rather than forgetting it locally. Escrowed or not, what Drive holds is a
 wrapping key and never the data key.
 
 **Most fields are not encrypted, and the application now says so where a
-household will see it.** Twenty-eight fields carry `encrypted: true` — identity
-and account numbers, passwords, diagnoses, nominees, policy and registration
-identifiers. The other four hundred are stored as written, on this device and
+household will see it.** Thirty-four<!--live:encryptedFields--> fields carry
+`encrypted: true` — identity and account numbers, passwords, diagnoses,
+nominees, policy and registration identifiers. The other four hundred and
+forty-four are stored as written, on this device and
 in the household's Google Sheet alike, because a search index over ciphertext
 finds nothing and a table cannot sort a column it cannot read. Settings →
 Privacy counts both halves from the schema and names, per field, the reason it

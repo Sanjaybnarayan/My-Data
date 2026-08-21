@@ -40,7 +40,7 @@ for, so the value reaches a derivation without anything naming the key.
 
 ## What a finding does *not* mean
 
-**92 of 369 fields are unread, and that is not 92 bugs.** A vehicle's chassis
+**71<!--live:unreadFields--> of 478<!--live:fields--> fields are unread, and that is not 71 bugs.** A vehicle's chassis
 number and a medication's dosage are reference data: you record them, you read
 them on screen, and nothing should compute with them.
 

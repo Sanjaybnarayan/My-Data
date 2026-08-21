@@ -121,6 +121,23 @@ describe('every module', () => {
       `${wired.join(', ')} are read now — run node tools/field-coverage.mjs --update`);
   });
 
+  test('does not describe itself in numbers that have gone stale', async () => {
+    // The documents said 34 entities and 426 fields when the schema declared
+    // 39 and 478, said 28 fields were encrypted when 34 were, and said a test
+    // walked every store when it walked four of seven. None of it was caught
+    // by anything, because prose is not executed.
+    //
+    // Numbers that describe the program as it is now carry a `<!--live:key-->`
+    // marker; this reads the schema and checks them. Counts written down as
+    // history — a dated audit's "28 of 426 fields" — are unmarked and stay as
+    // written, because rewriting them would falsify the record.
+    const { check } = await import('../tools/self-description.mjs');
+    const { sites, problems } = await check();
+
+    assert.length(problems, 0, problems.join('; '));
+    assert.ok(sites > 10, `only ${sites} live numbers — the check has little to check`);
+  });
+
   test('is precached by the service worker', async () => {
     // The deploy workflow already checks one direction — that nothing
     // precached was left unpublished. Nothing checked the other, and the
