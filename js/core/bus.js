@@ -90,6 +90,7 @@ export const TOPIC = {
   route: 'ui:route',
   toast: 'ui:toast',
   theme: 'ui:theme',
+  locale: 'ui:locale',
   online: 'net:online',
   offline: 'net:offline',
 };

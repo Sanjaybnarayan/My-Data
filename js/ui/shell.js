@@ -20,6 +20,7 @@ import { bus, TOPIC } from '../core/bus.js';
 import { storedTheme, applyTheme, nextTheme, effectiveTheme } from './theme.js';
 import { SYNC_STATE } from '../sync/engine.js';
 import { avatar, iconButton } from './components/basics.js';
+import { moduleLabel } from '../core/labels.js';
 
 /** The five that fit on a phone's bottom bar. */
 const PRIMARY = ['dashboard', 'finance', 'documents', 'tasks', 'settings'];
@@ -102,7 +103,7 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
     allowed.filter((m) => PRIMARY.includes(m.id)).map((mod) => h('a', {
       href: Router.href({ module: mod.id }),
       dataset: { module: mod.id },
-    }, [icon(mod.icon, { size: 22 }), h('span', {}, mod.label)])));
+    }, [icon(mod.icon, { size: 22 }), h('span', {}, moduleLabel(mod))])));
 
   const scrim = h('div', { class: 'drawer-scrim', onClick: () => toggleDrawer(false) });
 
@@ -128,7 +129,7 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
       class: 'nav-item',
       href: Router.href({ module: mod.id }),
       dataset: { module: mod.id },
-    }, [icon(mod.icon, { size: 20 }), h('span', {}, mod.label)]);
+    }, [icon(mod.icon, { size: 20 }), h('span', {}, moduleLabel(mod))]);
   }
 
   function toggleDrawer(open) {

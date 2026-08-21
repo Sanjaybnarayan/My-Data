@@ -26,6 +26,9 @@ import { fileURLToPath } from 'node:url';
 import { entityNames, entity, modules, systemStores } from '../js/data/schema.js';
 import coverage from './field-coverage.json' with { type: 'json' };
 import budget from './architecture-budget.json' with { type: 'json' };
+import { survey } from './strings.mjs';
+import { strings as english } from '../js/locale/en.js';
+import { labelKeys } from '../js/core/labels.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS = join(ROOT, 'docs');
@@ -37,6 +40,8 @@ export function measure() {
   let encrypted = 0;
   let unexportable = 0;
   let attachmentFields = 0;
+  const strings = survey();
+
   for (const name of names) {
     for (const f of entity(name).fields) {
       fields += 1;
@@ -63,6 +68,13 @@ export function measure() {
     // `service.js` is the base class the others extend, not a service.
     serviceModules: readdirSync(join(ROOT, 'js', 'services'))
       .filter((f) => f.endsWith('.js') && f !== 'service.js').length,
+    // English written straight into the source, which no catalogue can reach.
+    // docs/LOCALISATION.md states it, and a stated number nobody derives is a
+    // number that drifts — this one especially, because it only looks good.
+    unroutedStrings: strings.total,
+    unroutedFiles: Object.keys(strings.byFile).length,
+    localeKeys: Object.keys(english).length,
+    labelKeys: labelKeys().length,
   };
 }
 
