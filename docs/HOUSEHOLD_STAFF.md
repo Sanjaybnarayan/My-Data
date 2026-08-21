@@ -38,10 +38,40 @@ own ledger, and `explainEvent` would know nothing about them. `monthlyPay` is
 therefore the *agreement* — useful for noticing that a payment does not match
 it, and never a substitute for the payment.
 
-**This is the piece that is not built**, and it is the one that makes the
-phase real. It carries a genuine design question — whether `economicEvent`
-gains a `staff` reference or the link lives elsewhere — and answering it
-wrongly creates exactly the parallel path this section forbids.
+**This is now built** — as a view, per the correction below.
+
+### The design question I posed was the wrong one
+
+I wrote it as *"does `economicEvent` gain a `staff` reference, or does the
+link live elsewhere?"* Measured, `economicEvent` is not the entity at all:
+
+```
+economicEvent  date, kind, amount, title, why, notes     — no references
+economicEvent.kind  transfer | split | sweep | transfer with fee
+transaction    account, toAccount, person, recurring, statement, movement
+```
+
+Two things fall out. `economicEvent` carries **no party references by
+design** — its links come from its legs, which is the whole basis of the
+explainability work. And its `kind` only ever describes money moving between
+the household's **own** accounts. A wage is none of `transfer`, `split`,
+`sweep` or `transfer with fee`: it leaves the household.
+
+**The link already exists, and it is `transaction.person`.** A wage paid is a
+transaction whose `person` is the staff member's person — the same person the
+`staff` record points at. Nothing needs adding to the schema.
+
+So this is the same shape as section 3, arriving from a different direction:
+the reference is there, and what is missing is a *view* — a staff record
+showing the payments already recorded against that person, and a comparison
+against `monthlyPay` so a household can see when a payment does not match what
+was agreed.
+
+One caveat that the field-coverage inventory already records: `transaction.person`
+is collected on three screens and **read by nothing**. So the link exists
+structurally and has never been used, which is exactly the kind of wiring gap
+that inventory exists to hold still. Building this reads it for the first
+time.
 
 ## 3. A staff member's documents are already reachable
 
@@ -83,7 +113,7 @@ again rather than raised.
 
 ## What is still not built
 
-**Wages as economic events** — section 2, and the next thing to do.
+**A comparison** — the staff record shows what was paid beside what was agreed, and does not yet say when they disagree.
 
 **Attendance and leave.** Not started, and not obviously a separate entity: a
 day off is a fact about a date, and this schema already has entities that
