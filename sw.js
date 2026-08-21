@@ -100,6 +100,7 @@ const SHELL = [
   './js/domain/settlement.js',
   './js/domain/sms.js',
   './js/domain/finance.js',
+  './js/domain/fuel.js',
   './js/domain/connections.js',
   './js/domain/compliance.js',
   './js/domain/cfo.js',
@@ -176,6 +177,8 @@ const SHELL = [
   './js/modules/reports.js',
   './js/modules/settings.js',
   './js/modules/vault.js',
+  './js/modules/vehicles.js',
+  './js/services/vehicles.js',
   './js/modules/statements.js',
   './js/modules/transactions.js',
 
