@@ -36,7 +36,7 @@ safety are genuinely absent"* survived the `staff` entity being built.
 Numbers describing the program **as it stands now** carry a marker:
 
 ```markdown
-- **39**<!--live:entities--> entities, **479**<!--live:fields--> fields
+- **40**<!--live:entities--> entities, **489**<!--live:fields--> fields
 ```
 
 The tool reads the schema, finds every marker, and fails when a marked number

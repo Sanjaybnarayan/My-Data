@@ -94,6 +94,23 @@ export function daysBetween(from, to) {
   return Math.round((ub - ua) / DAY_MS);
 }
 
+/**
+ * Whole months from one day to another, negative when `to` is earlier.
+ *
+ * Whole, not fractional: this exists so that "what would reaching this target
+ * by that date take each month" divides by a number of months somebody could
+ * actually make a payment in. 2026-08-21 to 2026-11-15 is two whole months,
+ * not 2.8 — the November payment has not come round by the 15th.
+ */
+export function monthsBetween(from, to) {
+  const a = fromDay(from);
+  const b = fromDay(to);
+  if (!a || !b) return NaN;
+  let months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (b.getDate() < a.getDate()) months -= 1;
+  return months;
+}
+
 export function daysUntil(day, clock = Date.now) {
   return daysBetween(today(clock), day);
 }

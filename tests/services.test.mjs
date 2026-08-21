@@ -27,6 +27,7 @@ import { DocumentsService } from '../js/services/documents.js';
 import { MessagesService } from '../js/services/sms.js';
 import { IdentityService, assembleIdentityReview } from '../js/services/identity.js';
 import { sectionsCovering } from '../js/domain/profile.js';
+import { GoalsService, assembleGoals } from '../js/services/goals.js';
 import { EstateService, ESTATE_LOAD } from '../js/services/estate.js';
 import { EvidenceService, EVIDENCE_LOAD } from '../js/services/evidence.js';
 import { ExplainService } from '../js/services/explain.js';
@@ -626,6 +627,75 @@ describe('reading a bank message against what was imported', () => {
     assert.equal(reading.amount, null);
     assert.equal(result.agreement, 'none');
     assert.not(asked, 'no repository call was made for a credential');
+  });
+});
+
+describe('goals against the balances that fund them', () => {
+  test('progress comes from the account, not from a number somebody typed', async () => {
+    const db = await makeDb();
+    const person = await makePerson(db);
+    const account = await makeAccount(db, { holder: person.id, openingBalance: '500000' });
+    await db.repo('goal').create({
+      name: 'House deposit', kind: 'purchase', targetAmount: '2000000',
+      targetDate: '2028-08-21', accounts: [account.id],
+    });
+
+    const { rows } = await new GoalsService(db).review({ clock: () => Date.parse('2026-08-21') });
+
+    // Money is stored in minor units, so these are paise: ₹5,00,000 funded
+    // against ₹20,00,000, and ₹62,500 a month to close the gap in 24 months.
+    assert.length(rows, 1);
+    assert.equal(rows[0].funded, 50000000);
+    assert.equal(rows[0].percent, 25);
+    assert.equal(rows[0].monthlyNeeded, 6250000);
+  });
+
+  test('two goals on one account are both refused a figure', async () => {
+    const db = await makeDb();
+    const person = await makePerson(db);
+    const account = await makeAccount(db, { holder: person.id, openingBalance: '500000' });
+    await db.repo('goal').create({
+      name: 'House deposit', targetAmount: '2000000', accounts: [account.id],
+    });
+    await db.repo('goal').create({
+      name: 'New car', targetAmount: '800000', accounts: [account.id],
+    });
+
+    const { rows, contested } = await new GoalsService(db).review();
+
+    assert.length(contested, 2);
+    for (const row of rows) assert.equal(row.funded, null);
+    assert.includes(contested[0].why, 'the same money cannot fund both');
+  });
+
+  test('an emergency fund with no spending history is refused a target', async () => {
+    // The service passes typicalDailySpend's zero straight through rather
+    // than averaging what little there is. A fund sized against a made-up
+    // month would be declared complete.
+    const db = await makeDb();
+    const person = await makePerson(db);
+    const account = await makeAccount(db, { holder: person.id, openingBalance: '120000' });
+    await db.repo('goal').create({
+      name: 'Emergency fund', kind: 'emergency fund', targetMonths: 6,
+      accounts: [account.id],
+    });
+
+    const { rows, spendHistory } = await new GoalsService(db).review();
+
+    assert.ok(spendHistory, 'a fresh household should have no spending history');
+    assert.equal(rows[0].target, null);
+    assert.includes(rows[0].why, 'not enough recorded spending');
+  });
+
+  test('the assembler is pure and needs no database', () => {
+    const out = assembleGoals({
+      goals: [{ id: 'g', name: 'Trip', targetAmount: 100000, accounts: ['a'] }],
+      accounts: [{ id: 'a', kind: 'savings', openingBalance: 40000 }],
+      transactions: [],
+      holdings: [],
+    }, { clock: () => Date.parse('2026-08-21') });
+    assert.equal(out.rows[0].percent, 40);
+    assert.ok(out.any);
   });
 });
 

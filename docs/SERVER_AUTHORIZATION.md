@@ -77,7 +77,7 @@ were three ways across and two are wrong:
 ## Two facts about the schema this surfaced
 
 **A child may write nothing at all.** Every `write` list is owner/spouse or
-owner/spouse/adult, so the child role is read-only across all 39<!--live:entities--> entities —
+owner/spouse/adult, so the child role is read-only across all 40<!--live:entities--> entities —
 including the 13 it can read. Not a bug, but not obviously intended either, and
 it was not written down anywhere before.
 

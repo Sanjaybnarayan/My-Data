@@ -27,6 +27,7 @@ var POLICY = {
   "employment": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "event": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "fuelLog": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
+  "goal": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "healthRecord": { read: ["owner","spouse","adult"], write: ["owner","spouse","adult"] },
   "holding": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "identityDocument": { read: ["owner","spouse"], write: ["owner","spouse"] },

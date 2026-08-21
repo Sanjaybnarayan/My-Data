@@ -23,6 +23,8 @@ import { formatDay, relativeDays } from '../core/dates.js';
 import { entitiesOfModule } from '../data/schema.js';
 import { TransfersService } from '../services/transfers.js';
 import { FinanceService } from '../services/finance.js';
+import { GoalsService } from '../services/goals.js';
+import { describeGoal, STATUS as GOAL_STATUS } from '../domain/goals.js';
 import { CONFIDENCE } from '../domain/events.js';
 import { describeSettlement } from '../domain/settlement.js';
 import { staleness, describeStaleness, describeEmi } from '../domain/amortise.js';
@@ -50,6 +52,7 @@ const TABS = [
   { id: 'budget', label: 'Budgets' },
   { id: 'recurringPayment', label: 'Recurring' },
   { id: 'loan', label: 'Loans' },
+  { id: 'goal', label: 'Goals' },
   { id: 'economicEvent', label: 'Movements' },
   { id: 'smsMessage', label: 'Messages' },
 ];
@@ -163,6 +166,7 @@ export async function render(route) {
     autoOpenNew: route.id === 'new',
     banner: active === 'smsMessage' ? evidenceBanner
       : active === 'economicEvent' ? explainBanner
+      : active === 'goal' ? goalsBanner
       : undefined,
   });
   replace(body, section.node);
@@ -226,6 +230,39 @@ async function evidenceBanner() {
  * event is explainable"* is not a property a household has until the ones that
  * are not can be named.
  */
+/**
+ * Each goal against the balances that fund it.
+ *
+ * Contested goals come first and carry no figure at all. Showing a percentage
+ * beside "this money is also claimed by your house deposit" would be inviting
+ * a household to read the number and ignore the sentence — and the number is
+ * the part that is wrong.
+ */
+async function goalsBanner() {
+  const review = await new GoalsService(app().db).review();
+  if (!review.any) return null;
+
+  return [card({ class: 'goals-progress' }, [
+    cardHeader('Where each goal stands', null, {
+      subtitle: 'Read from the accounts and holdings that fund it, not from a '
+        + 'figure anybody typed',
+    }),
+    h('div', { class: 'list' }, review.rows.map((row) => listItem({
+      title: row.goal.name,
+      subtitle: describeGoal(row, (n) => format(n)),
+      trailing: row.percent === null
+        ? badge('—', 'warning')
+        : badge(`${row.percent}%`, row.status === GOAL_STATUS.REACHED ? 'positive'
+          : row.status === GOAL_STATUS.OVERDUE ? 'danger' : ''),
+      href: Router.href({ module: 'finance', entity: 'goal', id: row.goal.id }),
+    }))),
+    review.spendHistory
+      ? h('p', { class: 'small faint' },
+        `An emergency fund is sized in months of spending, and ${review.spendHistory}.`)
+      : null,
+  ])];
+}
+
 async function explainBanner() {
   const review = await new ExplainService(app().db).review();
   if (!review.total) return null;

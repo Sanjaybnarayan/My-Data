@@ -481,6 +481,41 @@ const budget = {
   ],
 };
 
+/**
+ * Something a household is saving toward.
+ *
+ * The funding is named here — which accounts and which holdings hold the money
+ * — because a target with no source is a note, and a progress bar over a
+ * hand-typed "saved so far" is a number that agrees with itself.
+ *
+ * Two goals naming the same account is not prevented by the schema, because a
+ * household may well be mid-decision about which one that money is for.
+ * `domain/goals.js` refuses to report progress for either until they say,
+ * rather than showing both as funded by the same rupees.
+ */
+const goal = {
+  name: 'goal', module: 'finance', sheet: 'Goals', version: 1,
+  labels: { one: 'Goal', many: 'Goals' }, icon: 'target',
+  acl: restricted,
+  title: (r) => r.name,
+  fields: [
+    { key: 'name', type: 'text', required: true, list: true, search: true },
+    pick('kind', [
+      'emergency fund', 'purchase', 'education', 'retirement',
+      'vehicle', 'property', 'travel', 'repayment', 'other',
+    ], { default: 'purchase', list: true }),
+    money('targetAmount', { list: true }),
+    /** Emergency funds only: a target in months of spending rather than rupees. */
+    num('targetMonths', { label: 'Target (months of spending)', min: 1, max: 60 }),
+    day('targetDate', { list: true }),
+    { key: 'accounts', type: 'multiref', ref: 'account', label: 'Funded by' },
+    { key: 'holdings', type: 'multiref', ref: 'holding', label: 'And by holdings' },
+    ref('owner', 'person'),
+    day('achievedOn', { label: 'Reached on' }),
+    note(),
+  ],
+};
+
 function transactionCategories() {
   return transaction.fields.find((f) => f.key === 'category').options;
 }
@@ -1336,7 +1371,7 @@ export const entities = Object.freeze(Object.fromEntries(
     policy, property, education, certificate,
     project, task, event, noteEntity, vaultItem,
     digitalAsset, subscription, emergencyContact, smsMessage,
-    staff, staffLeave,
+    staff, staffLeave, goal,
   ].map((e) => [e.name, normalise(e)]),
 ));
 
