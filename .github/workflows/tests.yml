@@ -52,6 +52,12 @@ jobs:
       - name: Check the web root still assembles
         run: node tools/webroot.mjs
 
+      # The application and apps-script/ are two codebases that must agree about
+      # one list of action names, deployed separately. A client calling an
+      # action the backend does not serve is a 400 in a household's face.
+      - name: Check the application and the backend still agree
+        run: node tools/api-contract.mjs --check
+
       # The backend's copy of the access rules is generated from the schema.
       # Two tables describing one set of rules will disagree, and this is where
       # that gets caught rather than in a household's workbook.
