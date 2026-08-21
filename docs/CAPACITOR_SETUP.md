@@ -111,8 +111,12 @@ Two Android settings are deliberate rather than inherited:
   It ships off because the exposure is silent and the loss is not: nobody is
   told their key material went to Drive, and everybody notices a lost phone.
   But it is a household's call, not a library's — flip it in
-  `AndroidManifest.xml`, or export regularly from Reports until native sync
-  exists.
+  `AndroidManifest.xml` if you would rather have the OS backup.
+
+  **Exporting from Reports is not the alternative.** An earlier version of this
+  paragraph said it was. Exports are per-entity files that nothing can read
+  back, and they leave out twenty-two fields entirely — see
+  `docs/PORTABILITY.md`, which measures it.
 - `android:usesCleartextTraffic="false"`. Already the platform default above
   API 27, written down so a later `targetSdk` change cannot flip it silently.
 
@@ -134,11 +138,13 @@ review. That is a piece of work in its own right, not a configuration setting,
 and it has not been done.
 
 **Any backup, therefore.** Sync is the only thing that copies records off the
-device, so a native build has no backup path. Until that changes, a household
-running the native app should export from Reports on a schedule and keep the
-file somewhere they control. `android:allowBackup` is off, so the OS will not
-quietly do it for them either — see Permissions above for why, and how to
-change it.
+device, so a native build has no backup path at all. The export screen is not
+one — nothing reads an export back, and `docs/PORTABILITY.md` measures what it
+drops. `android:allowBackup` is off, so the OS will not quietly do it either.
+
+The honest statement to a household running the native app today is: *your
+records are on this device and nowhere else.* That is a gap, it is written
+down, and it should be closed before anyone is asked to rely on this build.
 
 **Biometric unlock.** WebAuthn is unavailable in both platforms' app WebViews.
 `webAuthnAvailable()` already gates every call, so the lock screen simply does

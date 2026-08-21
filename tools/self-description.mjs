@@ -35,10 +35,18 @@ export function measure() {
   const names = entityNames();
   let fields = 0;
   let encrypted = 0;
+  let unexportable = 0;
+  let attachmentFields = 0;
   for (const name of names) {
     for (const f of entity(name).fields) {
       fields += 1;
       if (f.encrypted) encrypted += 1;
+      // What no export carries at any setting. `columnsFor` drops hidden
+      // fields unconditionally and encrypted ones unless asked, so hidden is
+      // the floor — and three of them are `ref` fields, which is how a
+      // restored record would lose what it points at.
+      if (f.hidden) unexportable += 1;
+      if (f.type === 'files') attachmentFields += 1;
     }
   }
   return {
@@ -49,6 +57,8 @@ export function measure() {
     modules: modules.length,
     stores: names.length + Object.keys(systemStores).length,
     unreadFields: coverage.fields.length,
+    unexportableFields: unexportable,
+    attachmentFields,
     uiDatabaseCalls: budget.uiDatabaseCalls,
     // `service.js` is the base class the others extend, not a service.
     serviceModules: readdirSync(join(ROOT, 'js', 'services'))
