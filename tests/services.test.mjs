@@ -31,7 +31,7 @@ import { EvidenceService, EVIDENCE_LOAD } from '../js/services/evidence.js';
 import { ExplainService } from '../js/services/explain.js';
 import { xirr } from '../js/domain/portfolio.js';
 import { estate } from '../js/domain/estate.js';
-import { entities } from '../js/data/schema.js';
+import { entities, systemStores } from '../js/data/schema.js';
 
 setSuite('services');
 
@@ -843,7 +843,12 @@ describe('a message that is kept, and one that is never written', () => {
       const rows = await db.adapter.query(name, {}).catch(() => []);
       for (const row of rows) found.push(JSON.stringify(row));
     }
-    for (const name of ['audit', 'outbox', 'search', 'meta']) {
+    // Every store the application owns, not a list of the four most likely.
+    // This used to name audit, outbox, search and meta, and the database also
+    // has shadow, conflicts and blobs — shadow in particular keeps the last
+    // server-agreed copy of a record, which is exactly where a redacted-but-
+    // retained value would survive unnoticed.
+    for (const name of Object.keys(systemStores)) {
       const rows = await db.adapter.query(name, {}).catch(() => []);
       for (const row of rows) found.push(JSON.stringify(row));
     }

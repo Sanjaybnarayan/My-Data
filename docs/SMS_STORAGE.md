@@ -33,10 +33,22 @@ The third is the one that matters. There is no redacted-but-stored middle
 ground to get wrong, because there is nowhere to put one — and a schema with
 nowhere to keep a secret cannot be talked into keeping it later.
 
-The test for this walks **every store in the database** — all thirty-seven
-entities plus audit, outbox, search and meta — and fails if the six digits
+The test for this walks **every store in the database** — all
+thirty-nine<!--live:entities--> entities plus the seven the application owns
+for itself, forty-six<!--live:stores--> in all — and fails if the six digits
 appear anywhere at all. Asserting against the one table it was most likely to
 land in would have been the weaker claim.
+
+That sentence was not true when it was written. The walk named audit, outbox,
+search and meta, and the database also has `shadow`, `conflicts` and `blobs` —
+`shadow` being where the last server-agreed copy of a record with unpushed
+edits is kept, which is precisely where a redacted-but-retained value would
+have survived unnoticed. Planting the code in `shadow` and re-running proved
+it: the old test passed, the widened one fails. Nothing was leaking there, so
+this was a gap in the proof rather than a leak in the application — but the
+document had been claiming the stronger thing for as long as the gap existed.
+The list is now `Object.keys(systemStores)`, so a store added later is covered
+without anybody remembering to add it.
 
 ## What it stores, and what it refuses to write over
 

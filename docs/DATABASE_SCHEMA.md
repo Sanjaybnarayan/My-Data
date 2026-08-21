@@ -6,8 +6,8 @@ and report columns are all derived from it.
 
 ## Shape today
 
-- **34 entities**, **426 fields**, across **19 modules**
-- **28 fields (6.6%) encrypted** — the rest is plaintext locally and in the
+- **39**<!--live:entities--> entities, **478**<!--live:fields--> fields, across **19**<!--live:modules--> modules
+- **34**<!--live:encryptedFields--> fields encrypted — **7.1%**<!--live:encryptedPercent--> — the rest is plaintext locally and in the
   backup Sheet
 - Store: **IndexedDB**. No foreign keys, no constraints, no `CHECK`.
 - Roles: `owner`, `spouse`, `adult`, `child`, `guest`

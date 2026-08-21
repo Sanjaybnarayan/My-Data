@@ -7,7 +7,7 @@
  * derived from it. Nothing else in the codebase enumerates entities or fields.
  *
  * Changing a field here changes every one of those at once, which is the whole
- * point — sixteen modules hand-wired would be sixteen places to forget.
+ * point — nineteen modules hand-wired would be nineteen places to forget.
  *
  * ## Field shape
  *
@@ -1330,28 +1330,52 @@ export const entities = Object.freeze(Object.fromEntries(
   ].map((e) => [e.name, normalise(e)]),
 ));
 
-/** Modules, in navigation order. */
+/**
+ * Modules, in navigation order.
+ *
+ * Each module's entity list is derived from the entities themselves rather
+ * than written here a second time. It used to be written twice, and the two
+ * copies drifted: `economicEvent`, `staff` and `staffLeave` were declared with
+ * a module and appeared in `entitiesOfModule`, but no module here listed them.
+ * `visibleModules` in `js/security/rbac.js` reads *this* list to decide which
+ * navigation items a role sees, so an entity missing from it is an entity that
+ * cannot keep its own module on screen.
+ */
 export const modules = Object.freeze([
-  { id: 'dashboard', label: 'Dashboard', icon: 'grid', entities: [] },
-  { id: 'identity', label: 'Identity', icon: 'user', entities: ['person', 'identityDocument', 'kycRecord', 'employment'] },
-  { id: 'family', label: 'Family', icon: 'family', entities: ['relationship', 'importantDate'] },
-  { id: 'finance', label: 'Finance', icon: 'wallet', entities: ['account', 'transaction', 'bankStatement', 'receipt', 'budget', 'recurringPayment', 'loan', 'smsMessage'] },
-  { id: 'investments', label: 'Investments', icon: 'chart', entities: ['holding', 'investmentTransaction'] },
-  { id: 'documents', label: 'Documents', icon: 'file', entities: ['document'] },
-  { id: 'vehicles', label: 'Vehicles', icon: 'car', entities: ['vehicle', 'vehicleService', 'fuelLog'] },
-  { id: 'health', label: 'Health', icon: 'health', entities: ['healthRecord', 'medication', 'vaccination', 'appointment'] },
-  { id: 'insurance', label: 'Insurance', icon: 'shield', entities: ['policy'] },
-  { id: 'property', label: 'Property', icon: 'home', entities: ['property'] },
-  { id: 'education', label: 'Education', icon: 'school', entities: ['education', 'certificate'] },
-  { id: 'tasks', label: 'Tasks', icon: 'check', entities: ['task', 'project'] },
-  { id: 'calendar', label: 'Calendar', icon: 'calendar', entities: ['event'] },
-  { id: 'notes', label: 'Notes', icon: 'note', entities: ['note'] },
-  { id: 'vault', label: 'Vault', icon: 'lock', entities: ['vaultItem'] },
-  { id: 'digital', label: 'Digital', icon: 'globe', entities: ['digitalAsset', 'subscription'] },
-  { id: 'emergency', label: 'Emergency', icon: 'alert', entities: ['emergencyContact'] },
-  { id: 'reports', label: 'Reports', icon: 'report', entities: [] },
-  { id: 'settings', label: 'Settings', icon: 'settings', entities: [] },
-]);
+  { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
+  { id: 'identity', label: 'Identity', icon: 'user' },
+  { id: 'family', label: 'Family', icon: 'family' },
+  { id: 'finance', label: 'Finance', icon: 'wallet' },
+  { id: 'investments', label: 'Investments', icon: 'chart' },
+  { id: 'documents', label: 'Documents', icon: 'file' },
+  { id: 'vehicles', label: 'Vehicles', icon: 'car' },
+  { id: 'health', label: 'Health', icon: 'health' },
+  { id: 'insurance', label: 'Insurance', icon: 'shield' },
+  { id: 'property', label: 'Property', icon: 'home' },
+  { id: 'education', label: 'Education', icon: 'school' },
+  { id: 'tasks', label: 'Tasks', icon: 'check' },
+  { id: 'calendar', label: 'Calendar', icon: 'calendar' },
+  { id: 'notes', label: 'Notes', icon: 'note' },
+  { id: 'vault', label: 'Vault', icon: 'lock' },
+  { id: 'digital', label: 'Digital', icon: 'globe' },
+  { id: 'emergency', label: 'Emergency', icon: 'alert' },
+  { id: 'reports', label: 'Reports', icon: 'report' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
+].map((m) => Object.freeze({
+  ...m,
+  entities: Object.values(entities).filter((e) => e.module === m.id).map((e) => e.name),
+})));
+
+/**
+ * Every entity names a module that exists. An entity whose module is misspelt
+ * would vanish from navigation without any other symptom, so this is checked
+ * once, at load, in the same spirit as `entity()` throwing on an unknown name.
+ */
+for (const e of Object.values(entities)) {
+  if (!modules.some((m) => m.id === e.module)) {
+    throw new Error(`entity ${e.name} names a module that does not exist: ${e.module}`);
+  }
+}
 
 /** Stores the app owns that are not user entities. */
 export const systemStores = Object.freeze({

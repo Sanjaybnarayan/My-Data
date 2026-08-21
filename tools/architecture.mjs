@@ -62,7 +62,8 @@
  * One row of the forbidden-edges table is a count rather than a state. The
  * document declares four edges that must not exist and admits one does:
  * screens calling the repository directly. That is not a boolean anybody can
- * fix in a tranche — it is 71 call sites — so it is a ratchet like the typecheck
+ * fix in a tranche — it was 71 call sites when this was written — so it is a
+ * ratchet like the typecheck
  * budget. It may go down and never up, and the number lives in version control
  * where a rise is a diff somebody has to justify.
  *

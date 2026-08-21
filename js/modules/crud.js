@@ -1,9 +1,11 @@
 /**
  * The generic module screen.
  *
- * Fifteen of the sixteen modules are this file. It reads the module's entity
- * list out of the schema and produces the list, the filters, the detail view,
- * the add and edit forms and the delete flow — all from the field definitions.
+ * Ten of the nineteen modules are this file — vehicles, health, insurance,
+ * property, education, tasks, notes, vault, digital and emergency. It reads
+ * the module's entity list out of the schema and produces the list, the
+ * filters, the detail view, the add and edit forms and the delete flow — all
+ * from the field definitions.
  *
  * A module that needs more than this (Finance, Investments, the Dashboard)
  * imports `listSection` and `recordDetail` and adds its own views alongside,
