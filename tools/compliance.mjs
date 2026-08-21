@@ -10,9 +10,11 @@
  *
  * So four things are checked:
  *
- *  1. **Every citation resolves.** A row saying IMPLEMENTED must name a file
- *     that exists; TESTED must name a suite that exists. A status pointing at
- *     a path that was renamed a year ago is a claim with nothing behind it.
+ *  1. **Every citation resolves, and a cited suite is one that runs.** A row
+ *     saying IMPLEMENTED must name a file that exists; TESTED must name a suite
+ *     the runner actually executes. A path renamed a year ago is a claim with
+ *     nothing behind it, and a suite renamed out of `*.test.mjs` still exists
+ *     while having quietly stopped being evidence.
  *  2. **Nothing is VERIFIED.** Verification means somebody qualified checked
  *     the control against the obligation. Nobody has, and the day one appears
  *     it must be a deliberate act rather than an edit that slipped through.
@@ -24,7 +26,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { REGIMES, STATUS, claimingVerified, unevidenced, summary } from '../js/domain/compliance.js';
+import {
+  REGIMES, STATUS, claimingVerified, unevidenced, citingUnrunTests, summary,
+} from '../js/domain/compliance.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS = join(ROOT, 'docs', 'COMPLIANCE');
@@ -62,6 +66,16 @@ export function check() {
   }
 
   problems.push(...unevidenced().map((one) => `${one}`));
+
+  // Existing is not running. `tests/run.mjs` executes what matches
+  // `*.test.mjs`, so a suite renamed out of that pattern stays on disk, keeps
+  // resolving, and quietly stops being evidence of anything.
+  const runnable = new Set(
+    (existsSync(join(ROOT, 'tests')) ? readdirSync(join(ROOT, 'tests')) : [])
+      .filter((name) => name.endsWith('.test.mjs'))
+      .map((name) => `tests/${name}`),
+  );
+  problems.push(...citingUnrunTests(REGIMES, (path) => runnable.has(path)));
   problems.push(...claimingVerified().map((one) => `${one} claims VERIFIED — nobody has verified anything`));
 
   const present = existsSync(DOCS)

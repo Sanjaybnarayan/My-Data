@@ -495,6 +495,38 @@ export function unevidenced(regimes = REGIMES) {
 }
 
 /**
+ * TESTED controls whose cited suite would never be run.
+ *
+ * `tools/compliance.mjs` already refuses a citation pointing at a file that
+ * does not exist. Existing is not the same as running: `tests/run.mjs`
+ * executes what matches `*.test.mjs` and nothing else, so a suite renamed to
+ * `security.mjs` would still be on disk, still resolve, and silently stop being
+ * executed — while a control went on saying TESTED about it.
+ *
+ * Every one of the forty-one is runnable today. That is the reason to check it
+ * rather than a reason not to: a property that holds by care holds until
+ * somebody is in a hurry.
+ *
+ * @param {ReadonlyArray<{id: string, controls: ReadonlyArray<{
+ *   id: string, status: string, evidence?: object
+ * }>}>} regimes
+ * @param {(path: string) => boolean} runs whether the suite runner executes it
+ */
+export function citingUnrunTests(regimes = REGIMES, runs = () => true) {
+  const bad = [];
+  for (const regime of regimes) {
+    for (const row of regime.controls) {
+      if (row.status !== STATUS.TESTED) continue;
+      const test = row.evidence?.test;
+      if (test && !runs(test)) {
+        bad.push(`${regime.id}/${row.id} is TESTED and cites ${test}, which the suite does not run`);
+      }
+    }
+  }
+  return bad;
+}
+
+/**
  * Anything claiming to be verified.
  *
  * Always empty, and the check is the point: verification means a person
