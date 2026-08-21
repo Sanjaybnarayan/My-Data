@@ -29,6 +29,20 @@ import { zip } from '../js/reports/xlsx.js';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8247;
 const BASE = `http://localhost:${PORT}`;
+/**
+ * Module specifiers the *page* resolves, not the type checker.
+ *
+ * These paths are relative to the served root, which is not where this file
+ * lives, so `tsc` reported three "cannot find module" errors for imports that
+ * work perfectly at run time. Passing the specifier in as an argument makes it
+ * a value rather than a literal, which is the honest description of what it
+ * is: a string the browser will resolve.
+ */
+const IN_PAGE = Object.freeze({
+  context: './js/context.js',
+  pdfRead: './js/data/pdf-read.js',
+});
+
 const SHOTS = process.argv.includes('--shots');
 const PIN = '482913';
 
@@ -469,15 +483,15 @@ async function main() {
       // The PDF reader is the part that only exists in a browser — Node has
       // zlib, a browser has DecompressionStream, and this is the only place
       // the second one actually runs.
-      const decoded = await page.evaluate(async () => {
-        const { inflate } = await import('./js/data/pdf-read.js');
+      const decoded = await page.evaluate(async (spec) => {
+        const { inflate } = await import(spec);
         const original = new TextEncoder().encode('column x, column y, balance');
         const compressed = await new Response(
           new Blob([original]).stream().pipeThrough(new CompressionStream('deflate')),
         ).arrayBuffer();
         const out = await inflate(new Uint8Array(compressed));
         return out ? new TextDecoder().decode(out) : null;
-      });
+      }, IN_PAGE.pdfRead);
       check('the PDF reader can decompress in the browser',
         decoded === 'column x, column y, balance', String(decoded));
 
@@ -869,6 +883,65 @@ async function main() {
       if (SHOTS) await shot(page, 'settings-consent');
     }
 
+    /* ------------------------------------------------------------- goals */
+
+    {
+      const before = consoleErrors.length;
+
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const people = await app().db.repo('person').list({ limit: 1 });
+        const solo = await app().db.repo('account').create({
+          name: 'House fund', kind: 'savings', institution: 'HDFC Bank',
+          accountNumber: '50100999888777', holder: people[0]?.id ?? '',
+          openingBalance: '500000',
+        });
+        const shared = await app().db.repo('account').create({
+          name: 'Shared savings', kind: 'savings', institution: 'ICICI Bank',
+          accountNumber: '50100111222333', holder: people[0]?.id ?? '',
+          openingBalance: '300000',
+        });
+        // One goal that can be measured, and two that cannot because they
+        // both claim the same account.
+        await app().db.repo('goal').create({
+          name: 'House deposit', kind: 'purchase', targetAmount: '2000000',
+          targetDate: '2030-01-01', accounts: [solo.id],
+        });
+        await app().db.repo('goal').create({
+          name: 'New car', kind: 'vehicle', targetAmount: '800000',
+          accounts: [shared.id],
+        });
+        await app().db.repo('goal').create({
+          name: 'Holiday', kind: 'travel', targetAmount: '200000',
+          accounts: [shared.id],
+        });
+      }, IN_PAGE.context);
+
+      await go(page, '#/finance/goal');
+      await page.waitForTimeout(600);
+      const goals = await page.locator('.app-content').innerText();
+
+      // Deliberately not just the goal's name — the list prints that with or
+      // without the banner, so a check on the name alone passes when the
+      // banner is not drawn at all. This asserts the banner's own heading and
+      // the arithmetic only it produces.
+      check('a goal says where it stands, funded against its target',
+        /Where each goal stands/.test(goals) && /25%/.test(goals)
+        && /a month to reach it by then/.test(goals),
+        goals.slice(0, 700));
+
+      // The whole design: two goals funded by one account get no percentage,
+      // because showing both as funded from the same money would say the
+      // household has twice what it has.
+      check('two goals on one account are refused a figure, and told why',
+        /same money cannot fund both/.test(goals), goals.slice(0, 600));
+
+      check('the goals banner renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-goals');
+    }
+
     /* ------------------------------------------------- profile completion */
 
     {
@@ -901,15 +974,15 @@ async function main() {
       // A passport number is the case the whole classification layer was built
       // for: sensitive, an identifier, and a list column — so before this it
       // was printed in full on a screen anyone walking past could read.
-      const docId = await page.evaluate(async () => {
-        const { app } = await import('./js/context.js');
+      const docId = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
         const people = await app().db.repo('person').list({ limit: 1 });
         const doc = await app().db.repo('identityDocument').create({
           person: people[0]?.id ?? '', kind: 'Passport', number: 'Z1234567',
           issuedBy: 'RPO Bengaluru', expiresOn: '2032-01-01',
         });
         return doc.id;
-      });
+      }, IN_PAGE.context);
 
       await go(page, '#/identity/identityDocument');
       await page.waitForTimeout(500);
