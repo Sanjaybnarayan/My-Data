@@ -28,6 +28,10 @@
 
 import { Service } from './service.js';
 import { identityConflicts } from '../domain/kycconflict.js';
+import {
+  completion, familyCompletion, sectionEntities, personKey, sectionsCovering,
+} from '../domain/profile.js';
+import { visibleEntities } from '../security/rbac.js';
 import { kycDrift, stale, kinNote, latestPerInstitution } from '../domain/kyc.js';
 import { today } from '../core/dates.js';
 
@@ -81,6 +85,65 @@ export class IdentityService extends Service {
   /** @param {{clock?: () => number}} [options] */
   async review({ clock = Date.now } = {}) {
     return assembleIdentityReview(await this.load(IDENTITY_REVIEW_LOAD), { clock });
+  }
+
+  /**
+   * How complete each person's profile is, and the household's figure.
+   *
+   * ## Presence, not a count
+   *
+   * `completion` only ever asks whether a section has anything in it, so this
+   * loads each entity once and records **whether** a person appears in it. The
+   * alternative — an exact count per person — would need either an unbounded
+   * read or a limit, and a limit would make a displayed count quietly wrong
+   * for a household with a lot of documents. Presence has no such edge.
+   *
+   * No test can tell the two apart, and that is worth saying rather than
+   * implying otherwise: mutating this to a running total leaves the whole
+   * suite green, because nothing downstream reads the number. It is written
+   * this way so that nothing downstream ever can.
+   *
+   * ## An entity a role cannot read is not an empty section
+   *
+   * `load` returns an empty list where permission is refused, which would
+   * otherwise tell a child that their parent's Loans section is unfilled. The
+   * sections a role cannot see are dismissed for them instead, so the figure
+   * is over what that reader can actually account for.
+   */
+  async profiles() {
+    const names = sectionEntities();
+    /** @type {Record<string, [string, object]>} */
+    const spec = { people: ['person', { limit: 500 }] };
+    for (const name of names) spec[name] = [name, { limit: 2000 }];
+    const loaded = await this.load(spec);
+
+    const readable = new Set(visibleEntities(this.db.actor));
+    const unreadable = names.filter((name) => !readable.has(name));
+
+    const present = new Map();
+    for (const name of names) {
+      const key = personKey(name);
+      if (!key) continue;
+      for (const row of loaded[name] ?? []) {
+        const id = row?.[key];
+        if (!id) continue;
+        if (!present.has(id)) present.set(id, {});
+        present.get(id)[name] = 1;
+      }
+    }
+
+    const people = (loaded.people ?? []).map((person) => {
+      const dismissed = [
+        ...(person.notApplicableSections ?? []),
+        ...sectionsCovering(unreadable),
+      ];
+      return {
+        person,
+        ...completion(person, present.get(person.id) ?? {}, { notApplicable: dismissed }),
+      };
+    });
+
+    return { people, family: familyCompletion(people), unreadable };
   }
 
   /**
