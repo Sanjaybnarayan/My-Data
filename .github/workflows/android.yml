@@ -1,0 +1,96 @@
+name: android
+
+# Build the Android app, and hand back something you can install.
+#
+# This exists because the machine the integration was written on could not do
+# it: its network answers 403 for dl.google.com, so Gradle cannot fetch the
+# Android Gradle Plugin, and there is no Android SDK on it either. "The native
+# project compiles" was therefore a claim nobody was entitled to make.
+#
+# A GitHub runner can make it. The ubuntu image ships the Android SDK and can
+# reach Google, so this is the first place the Android build is actually
+# exercised — and the APK it uploads is the artifact to download and install on
+# a phone.
+#
+# It is a separate workflow from `tests` so that a failure reads as "the
+# Android build" rather than "the suite broke", and so the fast checks still
+# report in seconds while this one takes minutes.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Capacitor 8 wants a JDK 21. Pinned rather than inherited, because the
+      # runner image's default has moved before and a toolchain that changes
+      # underneath you produces a failure nobody can attribute.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # What the runner actually has, printed before anything depends on it.
+      # A build that fails on a missing platform should say so here rather than
+      # a hundred lines into Gradle's output.
+      - name: Show the toolchain
+        run: |
+          java -version
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+          ls "${ANDROID_HOME:-/usr/local/lib/android/sdk}/platforms" || true
+          ls "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" || true
+
+      - run: npm ci --no-audit --no-fund
+
+      # The production web root — not `npm run build`, which writes a
+      # single-file preview with no service worker. `cap sync` copies this into
+      # the native project and would fail outright if it were missing.
+      - name: Assemble the web root
+        run: node tools/webroot.mjs
+
+      - name: Sync the Android project
+        run: npx cap sync android
+
+      # The web assets are copied into the native project rather than committed,
+      # so this is where a broken sync would show up as a missing index.html
+      # instead of as a blank screen on somebody's phone.
+      - name: Check the app was actually copied in
+        run: |
+          test -f android/app/src/main/assets/public/index.html
+          echo "$(find android/app/src/main/assets/public -type f | wc -l) files bundled"
+
+      - name: Build the debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Say what came out
+        run: ls -lh android/app/build/outputs/apk/debug/
+
+      # Download this from the run's summary page, copy it to an Android phone
+      # and open it. It is a debug build, signed with the standard debug key —
+      # fine for trying, not for distributing.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: familyos-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

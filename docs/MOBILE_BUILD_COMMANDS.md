@@ -72,6 +72,18 @@ Android Gradle Plugin from `dl.google.com`, so a network that blocks Google
 fails at configuration time with `Could not resolve
 com.android.tools.build:gradle` — a network problem, not a project one.
 
+## Watch it build without installing anything
+
+Push the branch, or run the **android** workflow from the Actions tab. A
+GitHub runner has the Android SDK and can reach `dl.google.com`, which is what
+makes it able to do the build that a restricted network cannot.
+
+The run prints the toolchain it found, syncs the web root into the native
+project, checks the app was actually copied in, and compiles a debug APK. The
+APK is attached to the run as `familyos-debug-apk` — download it from the run's
+summary page, copy it to an Android phone, and open it. It is signed with the
+standard debug key: fine for trying, not for distributing.
+
 ## Build iOS
 
 ```
