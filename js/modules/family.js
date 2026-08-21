@@ -26,6 +26,7 @@ import {
 import { upcomingDates } from '../domain/reminders.js';
 import { formatDay, ageOn, today, relativeDays } from '../core/dates.js';
 import { format as formatMoney } from '../core/money.js';
+import { reconcile, disagreements } from '../domain/staffpay.js';
 
 const TABS = [
   { id: 'tree', label: 'Tree' },
@@ -124,9 +125,31 @@ async function staffDocuments(id) {
  * expected to happen and calling it what happened — the parallel money path
  * `docs/HOUSEHOLD_STAFF.md` forbids.
  */
-function staffPay({ payments, agreed }) {
+function staffPay({ payments, agreed, staff }) {
+  const check = reconcile(staff ?? {}, payments);
+  const wrong = disagreements(check);
+
   return card({ class: 'card--quiet' }, [
     cardHeader('What has been paid', badge(String(payments.length), 'muted')),
+
+    // The comparison, where one can honestly be made. `domain/staffpay.js`
+    // refuses part months and the month in progress, and says why when the
+    // agreement is not one a monthly figure can be checked against.
+    check.comparable === false
+      ? h('p', { class: 'small muted' }, `Not compared against what was agreed: ${check.why}.`)
+      : wrong.length
+        ? h('div', {}, [
+          h('p', { class: 'small' }, `${wrong.length} month${wrong.length === 1 ? '' : 's'} `
+            + 'do not match what was agreed:'),
+          h('ul', { class: 'small' }, wrong.slice(0, 6).map((row) => h('li', {},
+            row.status === 'nothing recorded'
+              ? `${row.month} — nothing recorded`
+              : `${row.month} — ${formatMoney(row.paid)} against ${formatMoney(row.agreed)}`))),
+        ])
+        : check.months.length
+          ? h('p', { class: 'small muted' }, 'Every completed month matches what was agreed.')
+          : null,
+
     payments.length
       ? h('div', { class: 'list' }, payments.slice(0, 6).map((row) => listItem({
         title: formatMoney(Math.abs(row.amount ?? 0)),

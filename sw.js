@@ -122,6 +122,7 @@ const SHELL = [
   './js/domain/reminders.js',
   './js/domain/rentreceipt.js',
   './js/domain/runway.js',
+  './js/domain/staffpay.js',
   './js/domain/statement.js',
   './js/domain/tabular.js',
   './js/domain/timeline.js',

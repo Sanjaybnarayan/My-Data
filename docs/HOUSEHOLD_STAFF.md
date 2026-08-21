@@ -113,7 +113,42 @@ again rather than raised.
 
 ## What is still not built
 
-**A comparison** — the staff record shows what was paid beside what was agreed, and does not yet say when they disagree.
+**Attendance and leave.** Not started, and not obviously a separate entity: a
+day off is a fact about a date, and this schema already models those.
+
+## The comparison, and the three things it refuses to say
+
+Showing what was paid beside what was agreed was one tranche. Saying **when
+they disagree** is the point of recording either, and it is `domain/staffpay.js`.
+
+It refuses three comparisons, and says why rather than going quiet:
+
+| Agreement | Answer |
+| --- | --- |
+| `paidEvery: 'task'` | there is no month that can be short — a gardener paid per visit who came twice is not underpaid |
+| `paidEvery: 'week'` or `'day'` | an agreed *monthly* figure cannot be checked against weekly pay without deciding how many weeks are in a month; 4.33 is a convention, not something this household agreed to |
+| no `monthlyPay` | nothing to compare against |
+
+And it refuses to judge two kinds of month:
+
+**The month in progress**, because it is not over and a wage that has not been
+paid yet is not a wage that was missed.
+
+**The joining and leaving months.** Somebody who started on the 20th is not
+owed a full month, and nothing on the record says what they *are* owed
+instead. Pro-rating it would be this function inventing the agreement rather
+than checking it. Those months are listed as *not judged*, so a person can see
+they were skipped rather than wonder why a total looks short.
+
+Two payments in one month are added rather than counted as two shortfalls, and
+a payment stored as a negative still counts as paid — a wage leaving the
+household may be written either way depending on which screen recorded it, and
+the size is what is being compared.
+
+Fifteen tests, six mutations, all six caught: judging part months, judging the
+month in progress, comparing a weekly agreement anyway, not adding two
+payments, treating a negative as nothing, and letting part months leak into
+the list of disagreements.
 
 **Attendance and leave.** Not started, and not obviously a separate entity: a
 day off is a fact about a date, and this schema already has entities that

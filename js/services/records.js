@@ -50,7 +50,7 @@ export class RecordsService extends Service {
    */
   async paymentsForStaff(staffId, { limit = 200 } = {}) {
     const record = await this.db.repo('staff').get(staffId, { decrypt: false });
-    if (!record?.person) return { payments: [], agreed: null };
+    if (!record?.person) return { payments: [], agreed: null, staff: null };
 
     const all = await this.db.repo('transaction').list({ decrypt: false, limit: TRANSACTION_LIMIT });
     const payments = all
@@ -58,7 +58,10 @@ export class RecordsService extends Service {
       .sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))
       .slice(0, limit);
 
-    return { payments, agreed: record.monthlyPay ?? null };
+    // The record travels with the payments so a caller can compare them
+    // against what was agreed — `paidEvery`, `startedOn` and `endedOn` all
+    // decide which months can honestly be judged. See `domain/staffpay.js`.
+    return { payments, agreed: record.monthlyPay ?? null, staff: record };
   }
 
   /**
