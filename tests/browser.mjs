@@ -1763,6 +1763,55 @@ async function main() {
       if (SHOTS) await shot(page, 'finance-unaccounted');
     }
 
+    /* ----------------------------------------------------------- mileage */
+
+    {
+      const before = consoleErrors.length;
+
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const people = await app().db.repo('person').list({ limit: 1 });
+        const vehicle = await app().db.repo('vehicle').create({
+          registration: 'KA01AB1234', make: 'Maruti', model: 'Swift',
+          owner: people[0]?.id ?? '', kind: 'car',
+        });
+        // Three full tanks, so two measurable stretches.
+        for (const row of [
+          { date: '2026-05-01', odometer: '10000', litres: '35', amount: '3500' },
+          { date: '2026-05-20', odometer: '10420', litres: '30', amount: '3000' },
+          { date: '2026-06-10', odometer: '10850', litres: '32', amount: '3200' },
+        ]) {
+          await app().db.repo('fuelLog').create({
+            vehicle: vehicle.id, ...row, fullTank: true,
+          });
+        }
+      }, IN_PAGE.context);
+
+      await go(page, '#/vehicles/vehicle');
+      await page.waitForTimeout(700);
+      const vehicles = await page.locator('.app-content').innerText();
+
+      // Counted, not merely present: the registration appears in the list
+      // below regardless, so `.test()` passed even when the banner rendered
+      // every row as "Vehicle". An earlier version spread the mileage result
+      // over the vehicle record and replaced it with an id; a check for
+      // "km/l" passed, and so did a check that the registration appeared.
+      const named = (vehicles.match(/KA01AB1234/g) ?? []).length;
+      check('a vehicle says what it returns to a litre, and which vehicle it is',
+        /km\/l/.test(vehicles) && /What each one returns/.test(vehicles)
+        && named >= 2,
+        `registration appeared ${named} time(s) — ${vehicles.slice(0, 700)}`);
+
+      // The refusal is the point, and it has to be on the screen.
+      check('and the screen says a missed fill-up cannot be detected',
+        /roughly twice what it should/.test(vehicles), vehicles.slice(0, 1400));
+
+      check('the mileage card renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'vehicles-mileage');
+    }
+
     /* ------------------------------------------------------- connections */
 
     {

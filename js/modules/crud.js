@@ -1,8 +1,8 @@
 /**
  * The generic module screen.
  *
- * Nine of the nineteen modules are this file — vehicles, health, insurance,
- * property, education, tasks, notes, digital and emergency. It reads
+ * Eight of the nineteen modules are this file — health, insurance, property,
+ * education, tasks, notes, digital and emergency. It reads
  * the module's entity list out of the schema and produces the list, the
  * filters, the detail view, the add and edit forms and the delete flow — all
  * from the field definitions.
