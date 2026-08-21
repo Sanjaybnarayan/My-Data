@@ -15,13 +15,16 @@ import {
 } from '../ui/components/basics.js';
 import { modal, confirm, prompt } from '../ui/components/modal.js';
 import { toast } from '../ui/components/toast.js';
+import { ArchiveService } from '../services/archive.js';
+import { seal, open as openArchive, describeBody } from '../domain/archive.js';
+import { download } from './reports.js';
 import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { config, isConfigured, saveStoredConfig, setLocalOnly } from '../core/config.js';
 import { privacyReport, whereData } from '../domain/privacy.js';
 import { consentScreen } from '../core/scopes.js';
 import { redirectUriFor as redirectUri } from '../auth/google.js';
-import { entities, entity, ROLES } from '../data/schema.js';
+import { entities, entity, entityNames, ROLES } from '../data/schema.js';
 import { Outbox } from '../sync/outbox.js';
 import { formatInstant, formatDay } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
@@ -31,7 +34,7 @@ import {
   googleUnlockAvailable, connectGoogleUnlock, linkExistingDevice, unlinkGoogleUnlock,
   GOOGLE_METHOD,
 } from '../auth/google-unlock.js';
-import { recentActivity, describe as describeAudit } from '../data/audit.js';
+import { recentActivity, describe as describeAudit, ACTIONS } from '../data/audit.js';
 import { report as consentReport, record, PURPOSES, DECISIONS } from '../data/consent.js';
 import { MAILBOXES_KEY, readMailbox } from '../domain/mailboxes.js';
 
@@ -76,6 +79,7 @@ async function paint(host) {
       securityCard(db, methods, () => paint(host)),
       appearanceCard(),
       dataCard(db, stats, usage),
+      backupCard(db, host),
       deletedCard(db),
       conflictsCard(db),
       activityCard(activity, people),
@@ -1403,4 +1407,173 @@ function connectForm() {
       }),
     ]),
   ]);
+}
+
+
+/* ----------------------------------------------------------------- backup */
+
+/**
+ * A whole household in one file, and the way back from a lost phone.
+ *
+ * Everything else on this screen is a setting. This is the only place that can
+ * hand somebody every record they have, and the only place that can replace
+ * every record they have, so both halves say plainly what they are before they
+ * do it.
+ *
+ * ## Why it asks for the recovery phrase rather than a new password
+ *
+ * The file is encrypted with a key derived from the phrase, and the phrase is
+ * checked against the keyring *before* anything is written. That check is the
+ * point: a backup sealed with a mistyped passphrase is a backup nobody can
+ * open, and it fails silently — the file looks fine, the household stops
+ * worrying, and the mistake surfaces years later on the worst day. Unlocking
+ * with the phrase costs one PBKDF2 derivation and removes that entire class of
+ * failure. It also unwraps the same data key that is already in memory, so
+ * verifying changes nothing about the session.
+ */
+function backupCard(db, host) {
+  const archive = new ArchiveService(db);
+  const missing = archive.unreadable();
+
+  if (missing.length) {
+    return card({}, [
+      cardHeader('Backup', null, { iconName: 'download' }),
+      h('p', { class: 'small muted' },
+        'Only an owner can back up the household. Taken by anyone else it would '
+        + `be missing ${missing.length} of the ${entityNames().length} kinds of `
+        + 'record, and would not say so — which is worse than having no backup, '
+        + 'because you would have stopped worrying about it.'),
+    ]);
+  }
+
+  return card({}, [
+    cardHeader('Backup', null, { iconName: 'download' }),
+    h('p', { class: 'small muted' },
+      'One encrypted file holding every record, every document and the keys that '
+      + 'open them. It is the only backup this device has if you are not syncing '
+      + 'to Google — see docs/PORTABILITY.md for what the CSV exports are and are not.'),
+
+    h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-3)' } }, [
+      button('Take a backup', { variant: 'primary', onClick: () => take(db, archive) }),
+      button('Restore from a file', { variant: 'subtle', onClick: () => restore(db, archive, host) }),
+    ]),
+  ]);
+}
+
+async function take(db, archive) {
+  const phrase = await prompt({
+    title: 'Take a backup',
+    label: 'Your recovery phrase — it is what encrypts the file, and what opens it again',
+    placeholder: 'the words you wrote down when you set this up',
+    confirmLabel: 'Take the backup',
+  });
+  if (!phrase) return;
+
+  try {
+    // Before anything is written. A file sealed with a typo is a file nobody
+    // can open, and nothing would say so until it mattered.
+    await db.keyring.unlockWithRecoveryPhrase(phrase);
+  } catch {
+    toast('That is not the recovery phrase for this household. Nothing was written.',
+      { kind: 'error', ms: 0 });
+    return;
+  }
+
+  try {
+    const taken = await archive.gather();
+    if (!taken.ok) {
+      toast(taken.why, { kind: 'error', ms: 0 });
+      return;
+    }
+
+    const file = await seal(taken.body, phrase);
+    const day = new Date().toISOString().slice(0, 10);
+    await download({
+      blobParts: JSON.stringify(file),
+      mime: 'application/json',
+      filename: `FamilyOS backup ${day}.familyos`,
+    });
+
+    const { records, documents } = taken.summary;
+    toast(`${records} records and ${documents} documents, encrypted. Keep it somewhere you control.`,
+      { kind: 'success', ms: 0 });
+    await db.logAudit(ACTIONS.export, { report: 'backup', format: 'archive', includeEncrypted: true });
+  } catch (err) {
+    toast(userMessage(err), { kind: 'error', ms: 0 });
+  }
+}
+
+/**
+ * Restoring, which is the one button here that replaces everything.
+ *
+ * It only ever runs against a device holding nothing — the service refuses
+ * anything else rather than merging, because two records with one id and no
+ * common ancestor is a reconciliation problem and an archive has none of the
+ * context the sync engine uses to solve it. So the confirmation is not "are you
+ * sure", which people click; it says what is in the file and what will be true
+ * afterwards.
+ */
+async function restore(db, archive, host) {
+  const picker = h('input', {
+    type: 'file',
+    accept: '.familyos,application/json',
+    style: { display: 'none' },
+  });
+  document.body.append(picker);
+
+  const chosen = await new Promise((resolve) => {
+    picker.addEventListener('change', () => resolve(picker.files?.[0] ?? null), { once: true });
+    picker.addEventListener('cancel', () => resolve(null), { once: true });
+    picker.click();
+  });
+  picker.remove();
+  if (!chosen) return;
+
+  const phrase = await prompt({
+    title: 'Restore a backup',
+    label: 'The recovery phrase this file was taken with',
+    confirmLabel: 'Open the file',
+  });
+  if (!phrase) return;
+
+  try {
+    const parsed = JSON.parse(await chosen.text());
+    const opened = await openArchive(parsed, phrase);
+    if (!opened.ok) {
+      toast(opened.why, { kind: 'error', ms: 0 });
+      return;
+    }
+
+    const summary = describeBody(opened.body);
+    const taken = summary.createdAt ? summary.createdAt.slice(0, 10) : 'an unknown date';
+
+    const go = await confirm({
+      title: 'Restore this backup?',
+      message: `Taken on ${taken}. It holds ${summary.records} records and `
+        + `${summary.documents} documents.\n\n`
+        + 'Everything in it will be written to this device, and the keys inside it '
+        + 'become this device\u2019s keys — so afterwards you unlock with the PIN and '
+        + 'phrase that were in use when the backup was taken, not the ones on this '
+        + 'device now.\n\n'
+        + 'FamilyOS will reload when it finishes.',
+      confirmLabel: 'Restore',
+      danger: true,
+    });
+    if (!go) return;
+
+    const done = await archive.restore(opened.body);
+    if (!done.ok) {
+      toast(done.why === undefined ? 'The restore was refused.' : done.why,
+        { kind: 'error', ms: 0 });
+      await paint(host);
+      return;
+    }
+
+    // The session is holding a key that belongs to records this device no
+    // longer has. There is no correct way to carry on in it.
+    toast(`Restored ${done.restored} records. Reloading…`, { kind: 'success' });
+    setTimeout(() => globalThis.location.reload(), 1200);
+  } catch (err) {
+    toast(userMessage(err), { kind: 'error', ms: 0 });
+  }
 }

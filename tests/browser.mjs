@@ -786,6 +786,33 @@ async function main() {
       check('and says why the list is empty rather than showing nothing',
         /there are no devices to list|Nothing has synced yet/.test(body), body.slice(0, 1200));
 
+      // The only place a household can take every record they have, and the
+      // only place they can replace every record they have.
+      check('Settings offers a real backup, not only the CSV exports',
+        /One encrypted file holding every record/.test(body), body.slice(0, 2000));
+      check('and offers the way back from a lost phone',
+        (await page.getByRole('button', { name: 'Restore from a file' }).count()) === 1);
+
+      // Sealed with a key derived from the phrase, and checked against the
+      // keyring first. A backup sealed with a typo is one nobody can open, and
+      // it fails silently — the file looks fine and the mistake surfaces years
+      // later on the worst possible day.
+      await page.getByRole('button', { name: 'Take a backup' }).click();
+      await page.waitForTimeout(300);
+      check('taking one asks for the recovery phrase rather than a new password',
+        /recovery phrase/i.test(await page.locator('.modal').innerText()));
+
+      await page.locator('#prompt-input').fill('not-the-phrase-at-all');
+      await page.getByRole('button', { name: 'Take the backup' }).click();
+      await page.waitForTimeout(1500);
+
+      // The newest toast, not the host: the host accumulates, and a check that
+      // reads all of them can pass on something another screen said earlier.
+      const refused = await page.locator('.toast').last().innerText().catch(() => '(no toast)');
+      check('and refuses a wrong phrase before writing anything',
+        /not the recovery phrase/i.test(refused) && /Nothing was written/.test(refused),
+        refused);
+
       check('the privacy card loads without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
