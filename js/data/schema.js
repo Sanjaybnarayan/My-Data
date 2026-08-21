@@ -1144,6 +1144,176 @@ const subscription = {
   ],
 };
 
+/* ----------------------------------------------------- 15b. Belongings */
+
+/**
+ * Something the household bought and still owns.
+ *
+ * Not a transaction. `transaction` is money leaving an account and
+ * `economicEvent` is what that money meant; this is the **object** — the
+ * washing machine, the laptop, the fridge — which outlives both and is the
+ * thing a warranty, a service call or an insurance claim is actually about.
+ * The three are linked rather than merged, because a purchase paid in four
+ * instalments is one object and four transactions, and collapsing them would
+ * make the household own four washing machines.
+ *
+ * `serialNumber` is encrypted. It is the number an insurer asks for and a
+ * thief would like, and it is exactly the shape of identifier this application
+ * encrypts everywhere else.
+ */
+const purchase = {
+  name: 'purchase', module: 'belongings', sheet: 'Purchases', version: 1,
+  labels: { one: 'Purchase', many: 'Belongings' }, icon: 'box',
+  acl: restricted,
+  sort: '-boughtOn',
+  title: (r) => r.item,
+  subtitle: (r) => r.seller,
+  fields: [
+    text('item', { label: 'What it is', required: true, list: true, search: true }),
+    pick('category', ['appliance', 'electronics', 'furniture', 'jewellery',
+      'tools', 'sports', 'clothing', 'other'], { default: 'other', list: true }),
+    day('boughtOn', { label: 'Bought on', required: true, list: true }),
+    money('amount', { label: 'Price paid', list: true }),
+    text('seller', { label: 'Bought from', list: true, search: true }),
+    text('model', { search: true }),
+    { key: 'serialNumber', type: 'text', label: 'Serial number', encrypted: true },
+    ref('person', 'person', { label: 'Belongs to' }),
+    ref('property', 'property', { label: 'Kept at' }),
+    ref('transaction', 'transaction', { label: 'Paid by' }),
+    { key: 'receipts', type: 'files', label: 'Receipt or invoice' },
+    // A thing that has left the household is still a fact about it: a warranty
+    // claim, an insurance question and a tax computation all outlive the sale.
+    day('disposedOn', { label: 'Sold or disposed of' }),
+    note(),
+  ],
+};
+
+/**
+ * A promise somebody made about something bought.
+ *
+ * Its own entity rather than two fields on `purchase`, for two reasons that
+ * both happen in ordinary households. A thing can carry more than one — the
+ * manufacturer's year and the shop's extended three — and they expire on
+ * different days from different people. And a thing can carry a warranty with
+ * no purchase record at all, because it was a gift or was inherited, and a
+ * design that cannot record that would push somebody to invent a purchase.
+ *
+ * `expiresOn` is marked `expiry`, which is the whole point: `domain/
+ * reminders.js` walks the schema for expiry fields, so this produces reminders
+ * the day it exists without a line of code being written for it. Sixty days of
+ * lead, because a claim needs the receipt found, the shop called and the item
+ * carried in — which is not a fortnight's work.
+ */
+const warranty = {
+  name: 'warranty', module: 'belongings', sheet: 'Warranties', version: 1,
+  labels: { one: 'Warranty', many: 'Warranties' }, icon: 'shield',
+  acl: restricted,
+  sort: 'expiresOn',
+  title: (r) => r.cover,
+  fields: [
+    text('cover', { label: 'What it covers', required: true, list: true, search: true }),
+    ref('purchase', 'purchase', { label: 'On', list: true }),
+    text('provider', { label: 'Given by', list: true, search: true }),
+    pick('kind', ['manufacturer', 'extended', 'shop', 'insurance-backed'],
+      { default: 'manufacturer', list: true }),
+    day('startsOn'),
+    day('expiresOn', { label: 'Expires on', required: true, list: true, expiry: true, expiryLead: 60 }),
+    { key: 'claimPhone', type: 'phone', label: 'Claim on' },
+    { key: 'claimUrl', type: 'url', label: 'Claim online' },
+    { key: 'documents', type: 'files', label: 'Warranty card' },
+    note(),
+  ],
+};
+
+/* --------------------------------------------------------- 15c. Travel */
+
+/**
+ * A journey, and the papers it needs.
+ *
+ * The reason this is not a calendar event: an event is a moment, and a trip is
+ * a container. Flights, a visa, an insurance policy and four passports all
+ * belong to one journey, and the question a household actually asks the night
+ * before — *have we got everything* — is a question about the container.
+ *
+ * `travellers` is a `multiref`, because who is going decides which passports
+ * and which visas matter, and a trip with one traveller field would make a
+ * family of four record the same journey four times.
+ */
+const trip = {
+  name: 'trip', module: 'travel', sheet: 'Trips', version: 1,
+  labels: { one: 'Trip', many: 'Travel' }, icon: 'globe',
+  acl: restricted,
+  sort: '-departsOn',
+  title: (r) => r.destination,
+  fields: [
+    text('destination', { required: true, list: true, search: true }),
+    pick('kind', ['holiday', 'work', 'family', 'medical', 'education', 'other'],
+      { default: 'holiday', list: true }),
+    day('departsOn', { label: 'Leaves on', required: true, list: true }),
+    day('returnsOn', { label: 'Returns on', list: true }),
+    { key: 'travellers', type: 'multiref', ref: 'person', label: 'Who is going' },
+    { key: 'international', type: 'boolean', label: 'Leaves the country', list: true },
+    money('budget', { label: 'Budget' }),
+    text('stayingAt', { search: true }),
+    ref('policy', 'policy', { label: 'Travel insurance' }),
+    { key: 'bookings', type: 'files', label: 'Tickets and bookings' },
+    note(),
+  ],
+};
+
+/* ------------------------------------------------------- 15d. Tenancy */
+
+/**
+ * Somebody renting a property the household owns.
+ *
+ * ## The person record, and the thing worth being honest about
+ *
+ * A tenant is a `person`, the same way `staff` is, and that is a decision with
+ * a cost. It means the household creates a record about somebody who is not in
+ * the household, did not ask to be recorded, and has no way to see or correct
+ * what is written. `docs/DATA_CONSENT.md` covers what a household consents to
+ * about itself; a third party is a different question and this does not
+ * pretend to answer it.
+ *
+ * It is done this way because the alternative is worse. Duplicating name,
+ * phone and address onto a tenancy row means the same person recorded twice
+ * when they renew, and no way to see that the tenant of flat 1 in 2024 is the
+ * tenant of flat 2 now. What limits the exposure is the role: a tenant's
+ * person record carries `guest`, which `rowFilter` allows almost nothing.
+ *
+ * What is stored is what a rent agreement already contains. Nothing here asks
+ * for an identity number, and that omission is deliberate.
+ *
+ * `agreementEndsOn` carries `expiry`, so a tenancy running out produces
+ * reminders like everything else with a deadline — ninety days, because
+ * renewing or re-letting takes a season rather than a fortnight.
+ */
+const tenant = {
+  name: 'tenant', module: 'property', sheet: 'Tenants', version: 1,
+  labels: { one: 'Tenant', many: 'Tenants' }, icon: 'home',
+  acl: restricted,
+  sort: '-agreementStartsOn',
+  title: (r) => r.name,
+  fields: [
+    text('name', { label: 'Name', required: true, list: true, search: true }),
+    ref('property', 'property', { label: 'Renting', required: true, list: true }),
+    // Optional on purpose. A person record is the right shape once the same
+    // tenant renews or moves between properties, and an unnecessary one for a
+    // single short let.
+    ref('person', 'person', { label: 'Also recorded as' }),
+    { key: 'phone', type: 'phone', list: true },
+    { key: 'email', type: 'email' },
+    day('agreementStartsOn', { label: 'Agreement from', list: true }),
+    day('agreementEndsOn', { label: 'Agreement until', list: true, expiry: true, expiryLead: 90 }),
+    money('monthlyRent', { label: 'Rent a month', list: true }),
+    money('deposit', { label: 'Deposit held' }),
+    pick('rentDueOn', ['1st', '5th', '10th', '15th', 'end of month'], { default: '1st' }),
+    { key: 'depositReturnedOn', type: 'date', label: 'Deposit returned on' },
+    { key: 'agreements', type: 'files', label: 'Rent agreement' },
+    note(),
+  ],
+};
+
 /* ------------------------------------------------------------ 16. Emergency */
 
 const emergencyContact = {
@@ -1484,6 +1654,7 @@ export const entities = Object.freeze(Object.fromEntries(
     vehicle, vehicleService, fuelLog,
     healthRecord, medication, vaccination, appointment,
     policy, property, education, certificate,
+    purchase, warranty, trip, tenant,
     project, task, event, noteEntity, vaultItem,
     digitalAsset, subscription, emergencyContact, smsMessage,
     staff, staffLeave, goal,
@@ -1513,6 +1684,8 @@ export const modules = Object.freeze([
   { id: 'health', label: 'Health', icon: 'health' },
   { id: 'insurance', label: 'Insurance', icon: 'shield' },
   { id: 'property', label: 'Property', icon: 'home' },
+  { id: 'belongings', label: 'Belongings', icon: 'box' },
+  { id: 'travel', label: 'Travel', icon: 'globe' },
   { id: 'education', label: 'Education', icon: 'school' },
   { id: 'tasks', label: 'Tasks', icon: 'check' },
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },

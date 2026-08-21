@@ -43,6 +43,7 @@ var POLICY = {
   "policy": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "project": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "property": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
+  "purchase": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "receipt": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "recurringPayment": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "relationship": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
@@ -51,11 +52,14 @@ var POLICY = {
   "staffLeave": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "subscription": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "task": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
+  "tenant": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "transaction": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
+  "trip": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "vaccination": { read: ["owner","spouse","adult"], write: ["owner","spouse","adult"] },
   "vaultItem": { read: ["owner","spouse"], write: ["owner","spouse"] },
   "vehicle": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
   "vehicleService": { read: ["owner","spouse","adult","child"], write: ["owner","spouse","adult"] },
+  "warranty": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
   "will": { read: ["owner","spouse"], write: ["owner","spouse"] }
 };
 

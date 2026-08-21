@@ -63,7 +63,7 @@ rather than a promise: `tools/architecture-budget.json` holds the count,
 moves a screen onto `js/services/` lowers it permanently.
 
 The service layer exists and is adopted in part:
-**15**<!--live:serviceModules--> service modules against those
+**17**<!--live:serviceModules--> service modules against those
 **58**<!--live:uiDatabaseCalls--> direct calls. Naming the number is what turns
 "we should migrate someday" into something with a direction.
 
@@ -110,7 +110,7 @@ and applies no role.
 
 ## Layer 2 — Experience
 
-19<!--live:modules--> modules exist: dashboard, identity, family, finance, investments,
+21<!--live:modules--> modules exist: dashboard, identity, family, finance, investments,
 documents, vehicles, health, insurance, property, education, tasks, calendar,
 notes, vault, digital, emergency, reports, settings.
 
@@ -199,7 +199,7 @@ verification* means the deterministic path must stay the one that writes.
 
 ## Layer 4 — Data & Economic Events
 
-43<!--live:entities--> entities, 519<!--live:fields--> fields, declared once in `js/data/schema.js` and used to
+47<!--live:entities--> entities, 566<!--live:fields--> fields, declared once in `js/data/schema.js` and used to
 derive stores, indexes, validators, forms, columns, Sheets tabs, reminders and
 report fields.
 
