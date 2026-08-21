@@ -9,7 +9,8 @@
 
 import { openDatabase } from './migrations.js';
 import { Repository } from './repository.js';
-import { entities, entity } from './schema.js';
+import { entities, entity, referenceFields, referencedIds,
+} from './schema.js';
 import { searchIndex, indexEntry } from './search.js';
 import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
 import { Keyring } from '../security/keyring.js';
@@ -162,16 +163,14 @@ export class Database {
   async referencedBy(id) {
     const found = [];
     for (const def of Object.values(entities)) {
-      const refFields = def.fields.filter((f) => f.type === 'ref' || f.type === 'multiref');
+      const refFields = referenceFields(def.name);
       if (!refFields.length) continue;
       const rows = await this.adapter.query(def.name, { filter: (r) => !r.deletedAt });
       for (const row of rows) {
         for (const f of refFields) {
-          const value = row[f.key];
-          const hit = f.type === 'multiref'
-            ? Array.isArray(value) && value.includes(id)
-            : value === id;
-          if (hit) found.push({ entity: def.name, id: row.id, field: f.key, title: def.title(row) });
+          if (referencedIds(row, f).includes(id)) {
+            found.push({ entity: def.name, id: row.id, field: f.key, title: def.title(row) });
+          }
         }
       }
     }
@@ -185,13 +184,12 @@ export class Database {
   async danglingReferences() {
     const broken = [];
     for (const def of Object.values(entities)) {
-      const refFields = def.fields.filter((f) => f.type === 'ref' || f.type === 'multiref');
+      const refFields = referenceFields(def.name);
       if (!refFields.length) continue;
       const rows = await this.adapter.query(def.name, { filter: (r) => !r.deletedAt });
       for (const row of rows) {
         for (const f of refFields) {
-          const targets = f.type === 'multiref' ? (row[f.key] ?? []) : [row[f.key]].filter(Boolean);
-          for (const target of targets) {
+          for (const target of referencedIds(row, f)) {
             const exists = await this.adapter.read(f.ref, target);
             if (!exists) {
               broken.push({ entity: def.name, id: row.id, field: f.key, missing: target });
