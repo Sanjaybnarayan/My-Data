@@ -58,6 +58,12 @@ jobs:
       - name: Check the application and the backend still agree
         run: node tools/api-contract.mjs --check
 
+      # The custom URL scheme Google answers on is derived from the client id, so
+      # it differs per deployment and is not committed. This does nothing in a
+      # clone with no configuration, and fails when a configured one has drifted.
+      - name: Check the native OAuth scheme matches the configuration
+        run: node tools/native-scheme.mjs --check
+
       # The backend's copy of the access rules is generated from the schema.
       # Two tables describing one set of rules will disagree, and this is where
       # that gets caught rather than in a household's workbook.

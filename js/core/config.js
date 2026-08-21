@@ -14,8 +14,19 @@
 import { BASE_SCOPES } from './scopes.js';
 
 export const defaults = Object.freeze({
-  /** Google Cloud OAuth 2.0 Web client id. */
+  /** Google Cloud OAuth 2.0 Web client id. Browsers and installed PWAs. */
   googleClientId: '',
+
+  /**
+   * Google Cloud OAuth 2.0 **Android or iOS** client id, for the native shells.
+   *
+   * A second id rather than a setting on the first, because Google will not
+   * accept the Web client from an application: the redirect has to be the
+   * reversed-client-id custom scheme, and only an installed-app client has one.
+   * Leaving this empty is a supported state — the native app then works exactly
+   * as it does today, locally, with sign-in unavailable and saying so.
+   */
+  googleNativeClientId: '',
 
   /** Deployed Apps Script web app URL, ending in `/exec`. */
   apiUrl: '',
@@ -98,7 +109,7 @@ export async function loadConfig(fetchImpl = globalThis.fetch, url = './familyos
 }
 
 /** The two values a deployment needs, and the only two it can be given. */
-export const DEPLOYMENT_KEYS = Object.freeze(['googleClientId', 'apiUrl']);
+export const DEPLOYMENT_KEYS = Object.freeze(['googleClientId', 'googleNativeClientId', 'apiUrl']);
 
 /** Where an in-app answer is kept, so it survives a redeploy of the site. */
 const STORED = 'deployment.config';

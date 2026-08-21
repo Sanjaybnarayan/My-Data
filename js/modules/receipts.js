@@ -55,7 +55,7 @@ import {
 import { categoryLabel } from '../domain/categorise.js';
 import { AppsScriptTransport } from '../sync/transport.js';
 import { GmailClient, MAIL_SCOPES } from '../sync/gmail.js';
-import { GoogleAuth } from '../auth/google.js';
+import { googleAuth } from '../auth/googleauth.js';
 import { today, addDays, addMonths, formatDay } from '../core/dates.js';
 import { format } from '../core/money.js';
 import { userMessage } from '../core/errors.js';
@@ -157,7 +157,7 @@ export async function render() {
   /** One sign-in per mailbox, pinned to its address so renewal cannot drift. */
   function authFor(mailbox, scopes) {
     if (!auths.has(mailbox.id)) {
-      auths.set(mailbox.id, new GoogleAuth({ scopes, loginHint: mailbox.email }));
+      auths.set(mailbox.id, googleAuth({ scopes, loginHint: mailbox.email, store: db }));
     }
     return auths.get(mailbox.id);
   }
@@ -357,7 +357,7 @@ export async function render() {
     paint();
 
     try {
-      const auth = new GoogleAuth({ scopes: MAIL_SCOPES });
+      const auth = googleAuth({ scopes: MAIL_SCOPES, store: db });
       await auth.signIn({ prompt: 'select_account consent' });
       const profile = await auth.fetchProfile();
 
@@ -424,7 +424,7 @@ export async function render() {
     paint();
 
     try {
-      const auth = new GoogleAuth({ scopes: IDENTITY_ONLY });
+      const auth = googleAuth({ scopes: IDENTITY_ONLY, store: db });
       await auth.signIn({ prompt: 'select_account consent' });
       const profile = await auth.fetchProfile();
 

@@ -35,7 +35,7 @@
  *                                            different one → refuse, loudly.
  */
 
-import { GoogleAuth } from './google.js';
+import { googleAuth } from './googleauth.js';
 import { DriveEscrow } from '../security/escrow.js';
 import { UNLOCK_SCOPES, APPDATA_SCOPE } from '../core/scopes.js';
 import {
@@ -65,10 +65,10 @@ export function googleUnlockAvailable() {
  * who you are, and only this needs somewhere to keep a key.
  *
  * @param {{prompt?: string}} [options]
- * @returns {Promise<{auth: GoogleAuth, escrow: DriveEscrow, email: string}>}
+ * @returns {Promise<{auth: object, escrow: DriveEscrow, email: string}>}
  */
 export async function connectGoogleUnlock({ prompt = 'select_account consent' } = {}) {
-  const auth = new GoogleAuth({ scopes: UNLOCK_SCOPES });
+  const auth = googleAuth({ scopes: UNLOCK_SCOPES });
   await auth.signIn({ prompt });
   const profile = await auth.fetchProfile().catch(() => null);
 
