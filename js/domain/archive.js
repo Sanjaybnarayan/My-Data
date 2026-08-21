@@ -95,6 +95,7 @@ export const WHY = Object.freeze({
   NO_KEYRING: 'the archive has no keyring, so nothing in it could be decrypted',
   NOT_EMPTY: 'this device already holds records',
   UNKNOWN_STORE: 'the archive holds a store this version does not know',
+  UNVERIFIABLE: 'the file was written but could not be read back, so it was not offered',
 });
 
 /* ------------------------------------------------------------------ build */
@@ -211,6 +212,38 @@ export async function open(file, phrase) {
 
   if (body?.magic !== MAGIC || !body.stores) return { ok: false, why: WHY.DAMAGED };
   return { ok: true, body };
+}
+
+/**
+ * Read back what was just written, and check it is all there.
+ *
+ * A file written and never re-opened is the same mistake as an export with no
+ * reader: it looks like a backup, it is treated as one, and whether it is one
+ * is discovered on the day it matters. Sealing can go wrong in ways nothing
+ * else here would notice — a phrase that verified against the keyring but was
+ * typed differently the second time, a truncated write, an encoder that
+ * mangled a surrogate pair in somebody's name.
+ *
+ * So the bytes that would be handed over are decrypted again with the same
+ * phrase and counted against what went in. It costs one more PBKDF2
+ * derivation, which is the cheapest insurance in this application.
+ *
+ * @returns {Promise<{ok: boolean, why?: string, found?: number, expected?: number}>}
+ */
+export async function verify(file, phrase, expected) {
+  const opened = await open(file, phrase);
+  if (!opened.ok) return { ok: false, why: opened.why };
+
+  const found = describeBody(opened.body);
+  if (found.records !== expected.records || found.documents !== expected.documents) {
+    return {
+      ok: false,
+      why: WHY.UNVERIFIABLE,
+      found: found.records,
+      expected: expected.records,
+    };
+  }
+  return { ok: true };
 }
 
 /* ---------------------------------------------------------------- restore */

@@ -16,7 +16,7 @@ import {
 import { modal, confirm, prompt } from '../ui/components/modal.js';
 import { toast } from '../ui/components/toast.js';
 import { ArchiveService } from '../services/archive.js';
-import { seal, open as openArchive, describeBody } from '../domain/archive.js';
+import { open as openArchive, describeBody } from '../domain/archive.js';
 import { download } from './reports.js';
 import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
@@ -79,7 +79,7 @@ async function paint(host) {
       securityCard(db, methods, () => paint(host)),
       appearanceCard(),
       dataCard(db, stats, usage),
-      backupCard(db, host),
+      await backupCard(db, host),
       deletedCard(db),
       conflictsCard(db),
       activityCard(activity, people),
@@ -1431,7 +1431,7 @@ function connectForm() {
  * failure. It also unwraps the same data key that is already in memory, so
  * verifying changes nothing about the session.
  */
-function backupCard(db, host) {
+async function backupCard(db, host) {
   const archive = new ArchiveService(db);
   const missing = archive.unreadable();
 
@@ -1453,14 +1453,20 @@ function backupCard(db, host) {
       + 'open them. It is the only backup this device has if you are not syncing '
       + 'to Google — see docs/PORTABILITY.md for what the CSV exports are and are not.'),
 
+    // A backup nobody remembers to take is close to a backup nobody has, so
+    // the date is on the card rather than somewhere it has to be looked for.
+    // "Never" is the honest word for a household that has not taken one, and
+    // it is the state most of them are in.
+    lastTakenLine(await archive.lastTaken()),
+
     h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-3)' } }, [
-      button('Take a backup', { variant: 'primary', onClick: () => take(db, archive) }),
+      button('Take a backup', { variant: 'primary', onClick: () => take(db, archive, host) }),
       button('Restore from a file', { variant: 'subtle', onClick: () => restore(db, archive, host) }),
     ]),
   ]);
 }
 
-async function take(db, archive) {
+async function take(db, archive, host) {
   const phrase = await prompt({
     title: 'Take a backup',
     label: 'Your recovery phrase — it is what encrypts the file, and what opens it again',
@@ -1480,24 +1486,26 @@ async function take(db, archive) {
   }
 
   try {
-    const taken = await archive.gather();
+    // Gathers, seals, and opens the sealed file again before it is offered.
+    // Nothing is handed over that has not been read back.
+    const taken = await archive.take(phrase);
     if (!taken.ok) {
       toast(taken.why, { kind: 'error', ms: 0 });
       return;
     }
 
-    const file = await seal(taken.body, phrase);
     const day = new Date().toISOString().slice(0, 10);
     await download({
-      blobParts: JSON.stringify(file),
+      blobParts: JSON.stringify(taken.file),
       mime: 'application/json',
       filename: `FamilyOS backup ${day}.familyos`,
     });
 
     const { records, documents } = taken.summary;
-    toast(`${records} records and ${documents} documents, encrypted. Keep it somewhere you control.`,
-      { kind: 'success', ms: 0 });
+    toast(`${records} records and ${documents} documents, encrypted and read back. `
+      + 'Keep it somewhere you control.', { kind: 'success', ms: 0 });
     await db.logAudit(ACTIONS.export, { report: 'backup', format: 'archive', includeEncrypted: true });
+    await paint(host);
   } catch (err) {
     toast(userMessage(err), { kind: 'error', ms: 0 });
   }
@@ -1576,4 +1584,14 @@ async function restore(db, archive, host) {
   } catch (err) {
     toast(userMessage(err), { kind: 'error', ms: 0 });
   }
+}
+
+/** The date, or the word that is true when there isn't one. */
+function lastTakenLine(iso) {
+  return h('p', {
+    class: ['small', iso ? 'muted' : 'faint'],
+    style: { marginTop: 'var(--space-2)' },
+  }, iso
+    ? `Last backup: ${iso.slice(0, 10)}`
+    : 'No backup has ever been taken on this device.');
 }

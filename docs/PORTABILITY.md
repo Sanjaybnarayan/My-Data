@@ -102,11 +102,23 @@ fills one and puts it back; Settings has the two buttons.
    else, and `Keyring` cached its wrapped keys so the restored ones were
    ignored.
 
+7. **It reads the file back before handing it over.** Sealing can go wrong in
+   ways nothing else here would notice — a truncated write, an encoder that
+   mangled a surrogate pair in somebody's name — and a file written and never
+   re-opened is the same mistake as an export with no reader. The bytes are
+   decrypted again with the same phrase and counted against what went in, at
+   the cost of one more derivation.
+
+The card says when the last backup was taken, or that none ever has been. A
+backup nobody remembers to take is close to a backup nobody has.
+
 ## What it still does not do
 
 - **Merge.** A device that already holds records is refused, not reconciled.
-- **Run on a schedule.** Somebody has to press the button.
-- **Verify itself.** Nothing re-opens the file after writing it to prove the
-  bytes that landed are the bytes that were sealed.
-- **Say when the last one was taken.** There is no reminder, and a backup
-  nobody remembers to take is close to a backup nobody has.
+- **Run on a schedule.** Somebody has to press the button, and nothing nags.
+- **Prove the file on disk.** The bytes are verified in memory before the
+  download; what the browser or the share sheet actually wrote is not read back,
+  and cannot be from inside the page.
+- **Survive a forgotten recovery phrase.** The phrase is the only key to the
+  file. That is the point, and it is also the whole risk: lose it and the
+  backup is as unreadable to the household as to anybody else.

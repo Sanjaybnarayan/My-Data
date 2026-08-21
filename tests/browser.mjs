@@ -793,6 +793,12 @@ async function main() {
       check('and offers the way back from a lost phone',
         (await page.getByRole('button', { name: 'Restore from a file' }).count()) === 1);
 
+      // A backup nobody remembers to take is close to a backup nobody has, so
+      // the state is on the card. "Never" is the honest word for a fresh
+      // install, and it is the state most households are in.
+      check('and says plainly that no backup has ever been taken here',
+        /No backup has ever been taken on this device/.test(body), body.slice(0, 2400));
+
       // Sealed with a key derived from the phrase, and checked against the
       // keyring first. A backup sealed with a typo is one nobody can open, and
       // it fails silently — the file looks fine and the mistake surfaces years

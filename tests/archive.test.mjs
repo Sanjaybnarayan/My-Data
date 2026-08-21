@@ -1,6 +1,6 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
-  buildBody, describeBody, seal, open, planRestore,
+  buildBody, describeBody, seal, open, planRestore, verify,
   ARCHIVE_VERSION, MAGIC, STORES, WHY,
 } from '../js/domain/archive.js';
 import { ArchiveService, REFUSED } from '../js/services/archive.js';
@@ -359,5 +359,112 @@ describe('who may read the system stores', () => {
       threw = err;
     }
     assert.ok(threw, 'the outbox was readable through the archive path');
+  });
+});
+
+
+setSuite('archive · reading it back');
+
+describe('verifying what was just written', () => {
+  test('a sealed file opens again and holds what went in', async () => {
+    const body = buildBody({ stores: stores(), entities });
+    const file = await seal(body, PHRASE);
+
+    const checked = await verify(file, PHRASE, describeBody(body));
+    assert.ok(checked.ok, checked.why);
+  });
+
+  test('a file that cannot be opened is not called a backup', async () => {
+    // The failure this exists for. Sealing can go wrong in ways nothing else
+    // notices — a truncated write, an encoder that mangled a name — and the
+    // household would find out on the day the phone was gone.
+    const body = buildBody({ stores: stores(), entities });
+    const file = await seal(body, PHRASE);
+
+    const damaged = { ...file, body: file.body.slice(0, Math.floor(file.body.length / 2)) };
+    const checked = await verify(damaged, PHRASE, describeBody(body));
+
+    assert.not(checked.ok);
+    assert.equal(checked.why, WHY.WRONG_PHRASE);
+  });
+
+  test('a file holding fewer records than went in is refused, and counted', async () => {
+    const body = buildBody({ stores: stores(), entities });
+    const file = await seal(body, PHRASE);
+
+    // Verified against an expectation of more than it contains.
+    const checked = await verify(file, PHRASE, { records: 99, documents: 1 });
+
+    assert.not(checked.ok);
+    assert.equal(checked.why, WHY.UNVERIFIABLE);
+    assert.equal(checked.expected, 99);
+    assert.equal(checked.found, 3);
+  });
+
+  test('taking one records when it happened, and it travels in the next archive', async () => {
+    // A backup nobody remembers to take is close to a backup nobody has. The
+    // date lives in meta, so a restored device knows when the file it came
+    // from was made rather than looking as though it never had one.
+    const db = await makeDb();
+    await makePerson(db, { name: 'Asha' });
+    const archive = new ArchiveService(db);
+
+    assert.equal(await archive.lastTaken(), null, 'a fresh device claims a backup');
+
+    const taken = await archive.take(PHRASE);
+    assert.ok(taken.ok, taken.why);
+
+    const when = await archive.lastTaken();
+    assert.ok(when, 'taking a backup did not record that it happened');
+
+    const again = await archive.take(PHRASE);
+    const carried = again.file && (await open(again.file, PHRASE));
+    const metaRows = carried.body.stores.meta;
+    assert.ok(metaRows.some((r) => r.key === 'backup.lastTakenAt'),
+      'the date did not travel inside the archive');
+  });
+
+  test('take reads the file back, and refuses one it cannot', async () => {
+    // The check that was missing. Removing the verification from `take` passed
+    // all thirty tests here: `verify` was covered on its own, `take` was
+    // covered on a path where nothing went wrong, and the wiring between them
+    // was covered by neither. This seals through something that truncates the
+    // result, so the only way to pass is to have actually read it back.
+    const db = await makeDb();
+    await makePerson(db, { name: 'Asha' });
+
+    const truncating = async (body, phrase) => {
+      const good = await seal(body, phrase);
+      return { ...good, body: good.body.slice(0, 24) };
+    };
+
+    const taken = await (new ArchiveService(db)).take(PHRASE, { sealWith: truncating });
+
+    assert.not(taken.ok, 'a file that cannot be opened was offered as a backup');
+    assert.equal(taken.file, undefined);
+  });
+
+  test('and does not record a backup that failed to verify', async () => {
+    // Worse than not taking one: the card would say a backup exists.
+    const db = await makeDb();
+    await makePerson(db, { name: 'Asha' });
+    const archive = new ArchiveService(db);
+
+    const truncating = async (body, phrase) => {
+      const good = await seal(body, phrase);
+      return { ...good, body: good.body.slice(0, 24) };
+    };
+
+    await archive.take(PHRASE, { sealWith: truncating });
+    assert.equal(await archive.lastTaken(), null,
+      'a backup that could not be read back was recorded as taken');
+  });
+
+  test('take refuses a role that cannot read the household, before sealing anything', async () => {
+    const db = await makeDb({ role: 'adult' });
+    const taken = await (new ArchiveService(db)).take(PHRASE);
+
+    assert.not(taken.ok);
+    assert.equal(taken.file, undefined, 'a partial backup was sealed anyway');
   });
 });

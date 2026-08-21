@@ -29,7 +29,16 @@
 
 import { Service } from './service.js';
 import { entityNames, entity } from '../data/schema.js';
-import { buildBody, planRestore, describeBody, STORES, WHY } from '../domain/archive.js';
+import { buildBody, planRestore, describeBody, seal, verify, STORES, WHY } from '../domain/archive.js';
+
+/**
+ * When a backup was last taken here.
+ *
+ * In `meta`, so it travels inside the next archive — which means a restored
+ * device knows when the file it came from was made, rather than looking as
+ * though it has never been backed up at all.
+ */
+const LAST_TAKEN = 'backup.lastTakenAt';
 
 /** Beyond the domain's own refusals: these are about who is asking. */
 export const REFUSED = Object.freeze({
@@ -74,6 +83,42 @@ export class ArchiveService extends Service {
       device: this.db.deviceId,
     });
     return { ok: true, body, summary: describeBody(body) };
+  }
+
+  /**
+   * Gather, seal, and read the sealed file back before offering it.
+   *
+   * The read-back is not belt-and-braces. Everything else in this feature is
+   * checked by a test; the one thing no test can check is the file a
+   * particular household is about to be handed, and that is the only copy of
+   * their records that will exist if the phone is lost. Verifying costs one
+   * derivation and turns "we believe this is a backup" into "this file opened".
+   *
+   * @returns {Promise<{ok: boolean, why?: string, file?: object, summary?: object,
+   *                    missing?: string[], found?: number, expected?: number}>}
+   */
+  async take(phrase, { sealWith = seal } = {}) {
+    const taken = await this.gather();
+    if (!taken.ok) return taken;
+
+    // The sealer is injectable for one reason: without it, nothing could prove
+    // this method verifies at all. Deleting the two lines below passed every
+    // test in the suite — they exercised `verify` on its own and `take` on a
+    // good path, and neither noticed the wiring between them was gone. A seam
+    // that lets a test produce a file that cannot be read back is what closes
+    // that, and it is the same shape as the clock and fetch seams elsewhere.
+    const file = await sealWith(taken.body, phrase);
+
+    const checked = await verify(file, phrase, taken.summary);
+    if (!checked.ok) return checked;
+
+    await this.db.setMeta(LAST_TAKEN, new Date().toISOString());
+    return { ok: true, file, summary: taken.summary };
+  }
+
+  /** When a backup was last taken on this device, or `null`. */
+  async lastTaken() {
+    return this.db.meta(LAST_TAKEN, null);
   }
 
   /** What is on this device now, in the shape `planRestore` asks about. */
