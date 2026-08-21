@@ -83,8 +83,11 @@ const SHELL = [
   './js/sync/drive.js',
 
   './js/auth/biometric.js',
+  './js/auth/pkce.js',
   './js/auth/google.js',
+  './js/auth/googleauth.js',
   './js/auth/google-unlock.js',
+  './js/auth/googlenative.js',
   './js/auth/lock.js',
 
   './js/domain/automation.js',

@@ -24,7 +24,7 @@ import { datesInRange, upcomingDates } from '../domain/reminders.js';
 import { billsInRange } from '../domain/finance.js';
 import { toICalendar, icalProblems, icalFilename } from '../domain/ical.js';
 import { CalendarClient, CALENDAR_SCOPES } from '../sync/calendar.js';
-import { GoogleAuth } from '../auth/google.js';
+import { googleAuth } from '../auth/googleauth.js';
 import { download } from './reports.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
@@ -208,7 +208,7 @@ export async function render(route) {
     }
 
     try {
-      const auth = new GoogleAuth({ scopes: CALENDAR_SCOPES });
+      const auth = googleAuth({ scopes: CALENDAR_SCOPES, store: db });
       const client = new CalendarClient({ getToken: () => auth.getToken() });
       const { written, failed, skipped } = await client.push(entries);
 

@@ -122,7 +122,16 @@ Two Android settings are deliberate rather than inherited:
 
 ## What does not work natively
 
-**Google sign-in, and everything behind it.** Measured, not assumed:
+**Google sign-in — now possible, but only after you register a second OAuth
+client.** `docs/NATIVE_SIGN_IN.md` has the steps and the reasons. The short
+version: an installed-app client with PKCE, opened in the system browser, with
+the answer arriving on a custom URL scheme. Until that client exists the native
+app behaves exactly as described below, and says which id is missing rather than
+failing silently.
+
+The paragraph that follows is why the Web client cannot simply be reused.
+
+**What the Web client cannot do.** Measured, not assumed:
 `redirectUriFor()` returns `https://localhost/oauth-callback.html` on Android
 and `capacitor://localhost/oauth-callback.html` on iOS, and Google's
 authorization server accepts neither for a Web OAuth client. The flow is also

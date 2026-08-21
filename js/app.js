@@ -24,7 +24,7 @@ import { applyTheme, storedTheme, watchSystemTheme } from './ui/theme.js';
 import { buildShell } from './ui/shell.js';
 import { lockScreen, recoveryKitScreen } from './auth/lock.js';
 import { Session, AttemptLimiter } from './security/session.js';
-import { GoogleAuth } from './auth/google.js';
+import { googleAuth } from './auth/googleauth.js';
 import { AppsScriptTransport } from './sync/transport.js';
 import { SyncEngine } from './sync/engine.js';
 import { DocumentStore } from './sync/drive.js';
@@ -123,7 +123,7 @@ async function start(db, limiter, googleSession = null) {
   // Building a second `GoogleAuth` here would ask them again — through a
   // hidden iframe that a strict browser blocks, and that on a machine with
   // several Google accounts can renew as the wrong one.
-  const auth = googleSession ?? new GoogleAuth();
+  const auth = googleSession ?? googleAuth({ store: db });
   const transport = new AppsScriptTransport({
     url: config().apiUrl,
     getToken: () => auth.getToken(),

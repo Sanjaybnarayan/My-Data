@@ -2,7 +2,7 @@
   "name": "my-data",
   "version": "1.0.0",
   "private": true,
-  "description": "FamilyOS \u2014 an offline-first record keeper for a household, encrypted on the device.",
+  "description": "FamilyOS — an offline-first record keeper for a household, encrypted on the device.",
   "type": "module",
   "scripts": {
     "start": "node tools/serve.mjs",
@@ -30,6 +30,7 @@
   "dependencies": {
     "@capacitor/android": "^8.5.0",
     "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.0",
     "@capacitor/filesystem": "^8.1.3",
     "@capacitor/ios": "^8.5.0",
