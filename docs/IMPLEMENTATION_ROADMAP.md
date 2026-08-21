@@ -194,7 +194,7 @@ is untested against the other. See `docs/BALANCES.md` and
 | 17 | Knowledge graph, universal search, family timeline, what changed | search exists; every record says what has happened to it (`docs/RECORD_HISTORY.md`), and the activity feed groups the log into things that happened, names the record and marks what is new (`docs/ACTIVITY_STORIES.md`). **No knowledge graph, and no timeline screen of its own — the feed is a dashboard widget eight stories deep** |
 | 18 | AI family assistant, AI governance, AI privacy | assistant exists; **governance and the AI Privacy Gate are one outbound pattern check** |
 | 19 | Advanced analytics, Family CFO, forecasting, risk detection | forecasting done; **no Family CFO, no risk detection** |
-| 20 | Security hardening, privacy hardening, compliance evidence | **not started** — and no compliance documents exist at all |
+| 20 | Security hardening, privacy hardening, compliance evidence | **not started** — but the applicability review it depends on is done: `js/domain/compliance.js` holds nineteen regimes and sixty-six controls, every evidenced status cites a file that exists, nothing is `VERIFIED`, and all twenty `docs/COMPLIANCE/` documents are written (`tools/compliance.mjs`) |
 | 21 | Backup, restore, portability, recovery | export exists; **no encrypted backup, no sandboxed restore** |
 | 22 | PWA optimisation | **done throughout** — installable, offline shell, sync queue, precache ratchet |
 | 23–25 | Android companion, iOS companion, internationalisation | **not started** |

@@ -100,6 +100,7 @@ const SHELL = [
   './js/domain/settlement.js',
   './js/domain/sms.js',
   './js/domain/finance.js',
+  './js/domain/compliance.js',
   './js/domain/cfo.js',
   './js/domain/goals.js',
   './js/domain/household.js',

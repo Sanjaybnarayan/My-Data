@@ -38,6 +38,22 @@ Two schema flags count as being read, because they are: `expiry` and
 `anniversary` are what `expiryReminders` and `upcomingDates` iterate looking
 for, so the value reaches a derivation without anything naming the key.
 
+## What can fool it
+
+Comments are stripped before the scan; **string literals are not.** So a field
+name appearing in ordinary prose inside a quoted string counts as a read.
+
+Found by tripping over it: adding `js/domain/compliance.js`, whose text
+included the phrase *"and is an employer besides"*, made `person.employer` and
+`employment.employer` disappear from this list without either becoming any more
+read than before.
+
+The prose was reworded rather than the scanner loosened, because stripping
+string literals would hide the reads that legitimately use one — a field
+fetched by a quoted key is still a field being read. The limitation is recorded
+here instead: **this inventory can shrink for the wrong reason**, and a field
+leaving the list is worth a glance at what made it leave.
+
 ## What a finding does *not* mean
 
 **75<!--live:unreadFields--> of 518<!--live:fields--> fields are unread, and that is not 75 bugs.** A vehicle's chassis
