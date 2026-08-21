@@ -26,6 +26,7 @@ import { FinanceService, assembleOverview } from '../js/services/finance.js';
 import { DocumentsService } from '../js/services/documents.js';
 import { MessagesService } from '../js/services/sms.js';
 import { IdentityService, assembleIdentityReview } from '../js/services/identity.js';
+import { sectionsCovering } from '../js/domain/profile.js';
 import { EstateService, ESTATE_LOAD } from '../js/services/estate.js';
 import { EvidenceService, EVIDENCE_LOAD } from '../js/services/evidence.js';
 import { ExplainService } from '../js/services/explain.js';
@@ -661,6 +662,68 @@ describe('identity review — what the household is told, worst first', () => {
       await makePerson(db, { name: 'Sanjay Narayan' });
       assert.not((await new IdentityService(db).review()).any);
     });
+
+  test('a profile figure counts sections that have something in them', async () => {
+    const db = await makeDb();
+    const asha = await makePerson(db, { name: 'Asha', email: 'asha@example.com' });
+    await makeAccount(db, { holder: asha.id });
+
+    const { people, family } = await new IdentityService(db).profiles();
+    const hers = people.find((row) => row.person.id === asha.id);
+
+    assert.equal(hers.sections.find((s) => s.id === 'accounts').state, 'recorded');
+    assert.equal(hers.sections.find((s) => s.id === 'vehicles').state, 'empty');
+    assert.ok(hers.percent > 0 && hers.percent < 100);
+    assert.equal(family.percent, hers.percent);
+  });
+
+  test('the count is presence, so a second account does not move the figure', async () => {
+    // What this establishes is that the figure is about coverage, not volume:
+    // a household with fifty documents is not more complete than one with one.
+    //
+    // It does not establish that the service stores presence rather than a
+    // count — mutating it to a running total leaves every test passing,
+    // because `completion` only ever asks whether the number exceeds zero.
+    // The two are indistinguishable by behaviour; presence is chosen so that
+    // the load limit can never make a stored count wrong, which is a property
+    // of the code rather than something a test can observe.
+    const db = await makeDb();
+    const asha = await makePerson(db, { name: 'Asha' });
+    await makeAccount(db, { holder: asha.id });
+    const one = (await new IdentityService(db).profiles()).family.percent;
+    await makeAccount(db, { holder: asha.id, name: 'ICICI Savings', accountNumber: '9988776655' });
+    const two = (await new IdentityService(db).profiles()).family.percent;
+    assert.equal(one, two);
+  });
+
+  test('a section a reader may not see is dismissed, not reported empty', async () => {
+    // A child told their parent's Loans section is unfilled would be reading a
+    // permission failure as a gap in the record.
+    const db = await makeDb();
+    const asha = await makePerson(db, { name: 'Asha' });
+    await makeAccount(db, { holder: asha.id });
+
+    const asOwner = await new IdentityService(db).profiles();
+    assert.deep(asOwner.unreadable, []);
+    assert.equal(asOwner.people[0].sections.find((s) => s.id === 'accounts').state, 'recorded');
+
+    db.setActor({ personId: asha.id, role: 'child' });
+    const asChild = await new IdentityService(db).profiles();
+
+    assert.ok(asChild.unreadable.length > 0, 'a child can read every section?');
+
+    const hidden = sectionsCovering(asChild.unreadable);
+    assert.ok(hidden.length > 0, 'no section is wholly unreadable — nothing tested');
+    for (const row of asChild.people) {
+      for (const id of hidden) {
+        assert.equal(row.sections.find((s) => s.id === id).state, 'not applicable',
+          `${id} should be dismissed for a child, not reported empty`);
+      }
+    }
+    // And the figure is over what this reader can account for, so it is not
+    // dragged down by sections they were never shown.
+    assert.equal(asChild.people[0].dismissed, hidden.length);
+  });
 
   test('the names come from the household, and an unknown id stays an id', () => {
     const nameOf = IdentityService.nameLookup([{ id: 'p1', name: 'Sanjay' }]);

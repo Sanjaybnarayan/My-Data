@@ -869,6 +869,30 @@ async function main() {
       if (SHOTS) await shot(page, 'settings-consent');
     }
 
+    /* ------------------------------------------------- profile completion */
+
+    {
+      const before = consoleErrors.length;
+
+      await go(page, '#/identity/person');
+      await page.waitForTimeout(500);
+      const people = await page.locator('.app-content').innerText();
+
+      check('the people tab says how complete each profile is',
+        /%/.test(people) && /Profiles/.test(people), people.slice(0, 400));
+
+      // A bare percentage is a scold. The whole design rests on the number
+      // being followed by what it is short of, so this checks the sentence
+      // and not just the figure.
+      check('and names the sections it is waiting on rather than only a figure',
+        /waiting on/.test(people) || /sections/.test(people), people.slice(0, 400));
+
+      check('the completion banner renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'identity-completion');
+    }
+
     /* ------------------------------------------------ masked identifiers */
 
     {

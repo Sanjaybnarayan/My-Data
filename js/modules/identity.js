@@ -29,6 +29,7 @@ import { entitiesOfModule } from '../data/schema.js';
 import { describeDrift } from '../domain/kyc.js';
 import { describeConflict, SEVERITY, KIND } from '../domain/kycconflict.js';
 import { IdentityService } from '../services/identity.js';
+import { describeCompletion } from '../domain/profile.js';
 import { formatDay } from '../core/dates.js';
 
 const TABS = ['person', 'identityDocument', 'kycRecord', 'employment'];
@@ -61,10 +62,43 @@ export async function render(route) {
 
   section = await listSection(active, {
     autoOpenNew: route.id === 'new',
-    banner: active === 'kycRecord' ? kycBanner : undefined,
+    banner: active === 'kycRecord' ? kycBanner
+      : active === 'person' ? completionBanner
+      : undefined,
   });
   replace(body, section.node);
   return { node: host, destroy: section.destroy };
+}
+
+/**
+ * How much of each profile is filled in, above the list of people.
+ *
+ * The figure is never shown on its own. A bare percentage is a scold: it tells
+ * a household it is failing at something without saying at what, and the only
+ * available response is to feel vaguely behind. So each person's number is
+ * followed by the sections it is short of, and by how many they have said do
+ * not apply — which is the difference between a gap and a decision.
+ */
+async function completionBanner() {
+  const { people, family } = await new IdentityService(app().db).profiles();
+  if (!people.length || family.percent === null) return null;
+
+  return [card({ class: 'card--quiet profile-completion' }, [
+    cardHeader('Profiles', null, {
+      subtitle: `${family.percent}% across ${family.scored} `
+        + `${family.scored === 1 ? 'person' : 'people'}`,
+    }),
+    h('div', { class: 'stack stack--tight' }, people.map((row) => listItem({
+      title: row.person.name,
+      subtitle: describeCompletion(row),
+      trailing: row.percent === null
+        ? badge('—')
+        : badge(`${row.percent}%`, row.percent === 100 ? 'positive' : ''),
+      onClick: () => app().router.navigate({
+        module: 'identity', entity: 'person', id: row.person.id,
+      }),
+    }))),
+  ])];
 }
 
 /**

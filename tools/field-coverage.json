@@ -35,8 +35,6 @@
     "medication.prescribedBy",
     "person.annualIncome",
     "person.chronicConditions",
-    "person.emergencyContactName",
-    "person.emergencyContactPhone",
     "person.employer",
     "person.nickname",
     "person.occupation",

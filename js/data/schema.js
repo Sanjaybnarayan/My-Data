@@ -95,6 +95,16 @@ const person = {
     { key: 'chronicConditions', type: 'textarea', group: 'Emergency' },
     { key: 'isDependent', type: 'boolean', label: 'Dependent' },
     { key: 'deceasedOn', type: 'date', label: 'Date of death' },
+    /**
+     * Profile sections this person has said do not apply to them.
+     *
+     * Hidden from the form because it is answered by dismissing a section on
+     * the profile, not by typing section ids into a box. It exists so that
+     * "no vehicles, and that is correct" is a recordable answer — without it
+     * the completion figure is capped for anybody who rents and takes the
+     * bus, and a number nobody can move is a number nobody reads.
+     */
+    { key: 'notApplicableSections', type: 'tags', label: 'Not applicable', hidden: true },
     note(),
   ],
 };
