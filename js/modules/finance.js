@@ -24,6 +24,8 @@ import { entitiesOfModule } from '../data/schema.js';
 import { TransfersService } from '../services/transfers.js';
 import { FinanceService } from '../services/finance.js';
 import { GoalsService } from '../services/goals.js';
+import { CfoService } from '../services/cfo.js';
+import { describeLine } from '../domain/cfo.js';
 import { describeGoal, STATUS as GOAL_STATUS } from '../domain/goals.js';
 import { CONFIDENCE } from '../domain/events.js';
 import { describeSettlement } from '../domain/settlement.js';
@@ -41,6 +43,7 @@ import { userMessage } from '../core/errors.js';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'position', label: 'Position' },
   { id: 'transaction', label: 'Transactions' },
   { id: 'account', label: 'Accounts' },
   { id: 'import', label: 'Import' },
@@ -119,6 +122,11 @@ export async function render(route) {
   // Not entities — screens that produce them. Loaded on demand: one pulls in
   // the PDF reader, the other the merchant registry, and neither is needed
   // until somebody opens the tab.
+  if (active === 'position') {
+    replace(body, await positionScreen());
+    return { node: host };
+  }
+
   if (active === 'import') {
     const screen = await (await import('./statements.js')).render();
     replace(body, screen.node);
@@ -238,6 +246,44 @@ async function evidenceBanner() {
  * a household to read the number and ignore the sentence — and the number is
  * the part that is wrong.
  */
+/**
+ * Ten figures and where each came from.
+ *
+ * The period figures are the last **complete** month, named on the card, with
+ * the month in progress shown apart from them and marked as unfinished. They
+ * are never put in the same list: on the 21st, a partial month showed ₹1,05,000
+ * saved against the previous month's ₹84,000, and side by side that reads as
+ * an improvement rather than as three missing weeks.
+ */
+async function positionScreen() {
+  const out = await new CfoService(app().db).position();
+  const partial = out.monthInProgress;
+
+  return h('div', { class: 'stack' }, [
+    card({ class: 'cfo-position' }, [
+      cardHeader('Where the money stands', null, {
+        subtitle: `Figures for ${out.monthLabel}, the last complete month · `
+          + 'every one names where it came from',
+      }),
+      h('div', { class: 'list' }, out.lines.map((row) => listItem({
+        title: row.label,
+        subtitle: describeLine(row, (n) => format(n)),
+        trailing: row.why ? badge('—', 'warning') : null,
+      }))),
+    ]),
+
+    card({ class: 'card--quiet cfo-partial' }, [
+      cardHeader(`${partial.month}, so far`, null, {
+        subtitle: `Up to ${formatDay(partial.upTo)}`,
+      }),
+      h('p', { class: 'small' },
+        `In: ${format(partial.income)} · Out: ${format(partial.expense)} · `
+        + `Net: ${format(partial.net)}`),
+      h('p', { class: 'small faint' }, partial.note),
+    ]),
+  ]);
+}
+
 async function goalsBanner() {
   const review = await new GoalsService(app().db).review();
   if (!review.any) return null;

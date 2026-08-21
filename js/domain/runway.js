@@ -117,6 +117,54 @@ export function typicalDailySpend(transactions, { billCategories = null, clock =
 }
 
 /**
+ * What a whole month costs this household, bills included.
+ *
+ * Not `typicalDailySpend` × 30. That function deliberately **excludes** rent,
+ * EMIs, insurance and bills, because `cashRunway` counts those separately as
+ * dated obligations — so it measures discretionary spending, and multiplying
+ * it by thirty answers "what do the groceries cost".
+ *
+ * Using it for months-of-cover was tried and measured: a household with
+ * ₹5,26,000 in cash, ₹45,000 of rent and ₹19,500 of everything else was told
+ * it had **27 months of cover** when the true figure against its own recorded
+ * outgoings was **8.2**. An emergency fund covers the rent too.
+ *
+ * Same rules as its neighbour: complete months only, median rather than mean
+ * so one hospital bill does not become the new normal, and a reason rather
+ * than a number when there is not enough history.
+ */
+export function typicalMonthlyOutgoings(transactions, { clock = Date.now } = {}) {
+  const perMonth = new Map();
+  const now = today(clock);
+
+  for (const row of transactions ?? []) {
+    if (!row || row.deletedAt) continue;
+    if (row.kind !== 'expense') continue;
+    const month = monthOf(row.date);
+    if (!month || row.date > now) continue;
+    perMonth.set(month, (perMonth.get(month) ?? 0) + (row.amount ?? 0));
+  }
+
+  const complete = [...perMonth].filter(([month]) => month < monthOf(now));
+
+  if (complete.length < MIN_MONTHS) {
+    return {
+      perMonth: 0,
+      months: complete.length,
+      why: `there ${complete.length === 1 ? 'is' : 'are'} only `
+        + `${complete.length} complete ${complete.length === 1 ? 'month' : 'months'} `
+        + 'recorded, which is not enough to say what a month costs',
+    };
+  }
+
+  return {
+    perMonth: Math.round(median(complete.map(([, amount]) => amount))),
+    months: complete.length,
+    why: null,
+  };
+}
+
+/**
  * The next credit the history leads you to expect — reported, never counted.
  *
  * A regular incoming amount on a regular day is what a salary looks like from

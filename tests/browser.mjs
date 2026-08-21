@@ -883,6 +883,57 @@ async function main() {
       if (SHOTS) await shot(page, 'settings-consent');
     }
 
+    /* ---------------------------------------------------------- position */
+
+    {
+      const before = consoleErrors.length;
+
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const people = await app().db.repo('person').list({ limit: 1 });
+        const account = await app().db.repo('account').create({
+          name: 'Position current', kind: 'savings', institution: 'HDFC Bank',
+          accountNumber: '50100777666555', holder: people[0]?.id ?? '',
+          openingBalance: '250000',
+        });
+        for (const [date, kind, amount, category] of [
+          ['2026-06-01', 'income', '150000', 'salary'],
+          ['2026-06-05', 'expense', '45000', 'rent'],
+          ['2026-06-09', 'expense', '18000', 'groceries'],
+          ['2026-07-01', 'income', '150000', 'salary'],
+          ['2026-07-05', 'expense', '45000', 'rent'],
+          ['2026-07-11', 'expense', '21000', 'groceries'],
+        ]) {
+          await app().db.repo('transaction').create({
+            date, kind, amount, category, account: account.id,
+          });
+        }
+      }, IN_PAGE.context);
+
+      await go(page, '#/finance/position');
+      await page.waitForTimeout(700);
+      const position = await page.locator('.app-content').innerText();
+
+      check('the position page names the month its figures come from',
+        /Where the money stands/.test(position) && /last complete month/.test(position),
+        position.slice(0, 500));
+
+      // The rule the whole page is built on: an unfinished month is reported
+      // apart from the complete one and marked as unfinished.
+      check('and keeps the month in progress apart from it, labelled',
+        /so far/.test(position) && /not comparable with a complete month/.test(position),
+        position.slice(0, 900));
+
+      check('every line says where it came from',
+        /transactions dated in/.test(position) && /bills included/.test(position),
+        position.slice(0, 900));
+
+      check('the position page renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-position');
+    }
+
     /* ------------------------------------------------------------- goals */
 
     {
