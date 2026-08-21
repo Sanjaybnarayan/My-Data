@@ -55,9 +55,21 @@ export function columnsFor(entityName, { includeEncrypted = false, only } = {}) 
 }
 
 /**
- * Parse a CSV back. Used by the import path in Settings, and by the tests
- * that check an export round-trips — an export nobody can read back is a
- * backup nobody has.
+ * Parse a CSV back.
+ *
+ * Nothing in the application calls this. The comment here used to say it was
+ * "used by the import path in Settings" — there is no import path in Settings,
+ * and there never was. One test calls it, to check that what `toCsv` writes
+ * can be read; no screen does.
+ *
+ * The rest of that comment was right, and was describing the application it
+ * sat in without anyone noticing: an export nobody can read back is a backup
+ * nobody has. FamilyOS can export forty-three files and restore none of them.
+ * docs/PORTABILITY.md says so plainly, with what it would take to fix.
+ *
+ * It stays because the round-trip test is the only thing proving the writer
+ * emits a CSV a spreadsheet will open, and because the restore that should
+ * exist will need a reader.
  */
 export function fromCsv(text, { delimiter = ',' } = {}) {
   const input = text.replace(/^﻿/, '');

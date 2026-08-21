@@ -1,6 +1,6 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
-  REGIMES, STATUS, APPLIES, EVIDENCED, unevidenced, claimingVerified, summary,
+  REGIMES, STATUS, APPLIES, EVIDENCED, unevidenced, claimingVerified, summary, citingUnrunTests
 } from '../js/domain/compliance.js';
 import { check } from '../tools/compliance.mjs';
 
@@ -105,5 +105,37 @@ describe('what the regimes say', () => {
 
   test('EVIDENCED names the statuses that make a claim about code', () => {
     assert.deep(EVIDENCED, [STATUS.IMPLEMENTED, STATUS.TESTED, STATUS.VERIFIED]);
+  });
+});
+
+
+describe('a cited suite is one that runs', () => {
+  test('every TESTED control names a suite the runner would execute', async () => {
+    // Existing is not running. `tests/run.mjs` executes `*.test.mjs` and
+    // nothing else, so a suite renamed to `security.mjs` stays on disk, keeps
+    // resolving, and quietly stops being evidence of anything.
+    const { readdir } = await import('node:fs/promises');
+    const here = new URL('.', import.meta.url).pathname;
+    const runnable = new Set((await readdir(here))
+      .filter((name) => name.endsWith('.test.mjs'))
+      .map((name) => `tests/${name}`));
+
+    const problems = citingUnrunTests(REGIMES, (path) => runnable.has(path));
+    assert.length(problems, 0, problems.join(' | '));
+  });
+
+  test('and the check notices when one is not', () => {
+    // The failure it exists for, produced on purpose. A check that cannot fail
+    // is worse than no check.
+    const problems = citingUnrunTests(REGIMES, () => false);
+    assert.ok(problems.length > 30,
+      `only ${problems.length} of the forty-one TESTED controls were flagged`);
+    assert.ok(problems[0].includes('which the suite does not run'), problems[0]);
+  });
+
+  test('and says nothing about controls that do not claim to be tested', () => {
+    const problems = citingUnrunTests(REGIMES, () => false);
+    const tested = REGIMES.flatMap((r) => r.controls.filter((c) => c.status === STATUS.TESTED));
+    assert.equal(problems.length, tested.filter((c) => c.evidence?.test).length);
   });
 });

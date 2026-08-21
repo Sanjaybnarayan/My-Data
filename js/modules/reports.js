@@ -28,6 +28,8 @@ import { inflate } from '../data/pdf-read.js';
 import { ACTIONS } from '../data/audit.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
 import { documentStore } from './documents.js';
+import { plugin } from '../core/native.js';
+import { toBase64 } from '../security/crypto.js';
 
 const PERIODS = [
   ['month', 'This month'],
@@ -427,8 +429,50 @@ function templateCard() {
   }
 }
 
+/**
+ * Hand the file to the native shell, or say it could not.
+ *
+ * Both of the web paths below are silent no-ops inside a WebView: the file
+ * picker is unimplemented, and clicking an `<a download href="blob:…">` is
+ * dropped on the floor by Android and iOS alike. Every export in the
+ * application — CSV, XLSX, DOCX, PDF, iCal, rent receipts — would have
+ * appeared to work and produced nothing.
+ *
+ * Cache when there is a share sheet to hand the file to; Documents when there
+ * is not, because a file written into a cache the person cannot reach is the
+ * same as no file. A cancelled share is not a failure — the person decided —
+ * and a write that fails is raised rather than swallowed, because falling
+ * through to a web path that cannot work would turn an error into silence.
+ *
+ * @returns {Promise<boolean>} whether the shell took it
+ */
+async function saveThroughTheShell(blob, filename) {
+  const Filesystem = plugin('Filesystem');
+  if (!Filesystem) return false;
+
+  const Share = plugin('Share');
+  const directory = Share ? 'CACHE' : 'DOCUMENTS';
+  const data = toBase64(new Uint8Array(await blob.arrayBuffer()));
+
+  const { uri } = await Filesystem.writeFile({ path: filename, data, directory, recursive: true });
+
+  if (!Share) {
+    toast(`Saved to your documents as ${filename}`, { kind: 'success' });
+    return true;
+  }
+
+  try {
+    await Share.share({ title: filename, url: uri });
+  } catch {
+    // Dismissing the share sheet is an answer, not an error.
+  }
+  return true;
+}
+
 export async function download({ blobParts, mime, filename }) {
   const blob = new Blob([blobParts], { type: mime });
+
+  if (await saveThroughTheShell(blob, filename)) return;
 
   if (globalThis.showSaveFilePicker) {
     try {

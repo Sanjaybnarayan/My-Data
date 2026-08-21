@@ -46,6 +46,7 @@ const SHELL = [
   './js/core/errors.js',
   './js/core/ids.js',
   './js/core/money.js',
+  './js/core/native.js',
 
   './js/data/audit.js',
   './js/data/classification.js',
@@ -96,6 +97,7 @@ const SHELL = [
   './js/domain/docxtemplate.js',
   './js/domain/events.js',
   './js/domain/amortise.js',
+  './js/domain/archive.js',
   './js/domain/accrual.js',
   './js/domain/settlement.js',
   './js/domain/sms.js',
@@ -159,6 +161,7 @@ const SHELL = [
   './js/services/portfolio.js',
   './js/services/sms.js',
   './js/services/timeline.js',
+  './js/services/archive.js',
   './js/services/records.js',
   './js/services/transfers.js',
 
@@ -180,6 +183,7 @@ const SHELL = [
   './js/modules/vehicles.js',
   './js/services/vehicles.js',
   './js/modules/statements.js',
+  './js/modules/timeline.js',
   './js/modules/transactions.js',
 
   './js/ai/assistant.js',

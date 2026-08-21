@@ -57,6 +57,46 @@ export class TimelineService extends Service {
     };
   }
 
+  /**
+   * The whole log, rather than the part nobody has seen.
+   *
+   * `recent()` answers "what has happened since I last looked", and collapses
+   * to the latest when the answer is nothing — which is the right answer for a
+   * dashboard card and the wrong one for a history. Asking it for a timeline
+   * gives a household their unseen changes and hides everything before them.
+   *
+   * It is also what makes the dashboard's eight the ceiling. The service builds
+   * every story in the window and the card slices the first eight off the
+   * front; on a store with 34 entries that is 26 built and dropped, and on a
+   * household that has used this for a year it is nearly all of them.
+   *
+   * @param {{limit?: number, entityName?: string, since?: string}} [options]
+   */
+  async history({ limit = 500, entityName, since } = {}) {
+    const entries = await this.db.activity({ limit, entityName, since });
+    const grouped = stories(entries);
+
+    const people = await this.repo('person').list({ decrypt: false, limit: 500 })
+      .catch(() => []);
+    const byId = new Map(people.map((person) => [person.id, person.name]));
+    const titles = await this.#titles(grouped);
+
+    return {
+      stories: grouped,
+      entries: entries.length,
+      // The entities that actually appear, so a filter offers what a household
+      // has rather than all forty-three of them — most of which they have never
+      // touched, and every one of which would return nothing.
+      present: [...new Set(entries.map((e) => e.entity).filter(Boolean))].sort(),
+      truncated: entries.length >= limit,
+      describe: (story) => describeStory(story, {
+        nameOf: (id) => byId.get(id) ?? id,
+        titleOf: (name, id) => titles.get(`${name}:${id}`) ?? null,
+        labelOf: (name) => (name ? entityDef(name).labels.one.toLowerCase() : 'record'),
+      }),
+    };
+  }
+
   /** Mark everything up to now as seen. Called after drawing, never before. */
   async markSeen(at = new Date().toISOString()) {
     return this.db.setMeta(SEEN_KEY, at);

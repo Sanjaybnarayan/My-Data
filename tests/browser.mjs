@@ -752,6 +752,32 @@ async function main() {
 
     /* ------------------------------------------------------------ privacy */
 
+    /* ------------------------------------------------------- timeline */
+
+    {
+      const before = consoleErrors.length;
+
+      // The dashboard's card shows eight of them and the service was building
+      // every story in the window. The link is the only way to reach the rest.
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+      check('the activity card offers the whole history',
+        (await page.getByRole('link', { name: 'Show everything' }).count()) === 1);
+
+      await page.getByRole('link', { name: 'Show everything' }).click();
+      await page.waitForTimeout(700);
+
+      const timeline = (await page.locator('.app-content').innerText()).trim();
+      check('the timeline screen renders', /Family timeline/.test(timeline), timeline.slice(0, 300));
+      check('and says what happened in words rather than as rows',
+        !/^\s*(create|update|delete)\s*$/m.test(timeline), timeline.slice(0, 600));
+      check('and shows more than the eight the dashboard card does',
+        (await page.locator('.list-item').count()) > 8,
+        `${await page.locator('.list-item').count()} entries`);
+      check('the timeline draws without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
     {
       const before = consoleErrors.length;
       await go(page, '#/settings');
@@ -785,6 +811,39 @@ async function main() {
       // the honest answer — an empty card would read as "no devices".
       check('and says why the list is empty rather than showing nothing',
         /there are no devices to list|Nothing has synced yet/.test(body), body.slice(0, 1200));
+
+      // The only place a household can take every record they have, and the
+      // only place they can replace every record they have.
+      check('Settings offers a real backup, not only the CSV exports',
+        /One encrypted file holding every record/.test(body), body.slice(0, 2000));
+      check('and offers the way back from a lost phone',
+        (await page.getByRole('button', { name: 'Restore from a file' }).count()) === 1);
+
+      // A backup nobody remembers to take is close to a backup nobody has, so
+      // the state is on the card. "Never" is the honest word for a fresh
+      // install, and it is the state most households are in.
+      check('and says plainly that no backup has ever been taken here',
+        /No backup has ever been taken on this device/.test(body), body.slice(0, 2400));
+
+      // Sealed with a key derived from the phrase, and checked against the
+      // keyring first. A backup sealed with a typo is one nobody can open, and
+      // it fails silently — the file looks fine and the mistake surfaces years
+      // later on the worst possible day.
+      await page.getByRole('button', { name: 'Take a backup' }).click();
+      await page.waitForTimeout(300);
+      check('taking one asks for the recovery phrase rather than a new password',
+        /recovery phrase/i.test(await page.locator('.modal').innerText()));
+
+      await page.locator('#prompt-input').fill('not-the-phrase-at-all');
+      await page.getByRole('button', { name: 'Take the backup' }).click();
+      await page.waitForTimeout(1500);
+
+      // The newest toast, not the host: the host accumulates, and a check that
+      // reads all of them can pass on something another screen said earlier.
+      const refused = await page.locator('.toast').last().innerText().catch(() => '(no toast)');
+      check('and refuses a wrong phrase before writing anything',
+        /not the recovery phrase/i.test(refused) && /Nothing was written/.test(refused),
+        refused);
 
       check('the privacy card loads without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
@@ -2716,6 +2775,149 @@ async function main() {
     // paper over while still depending on a host being *reachable*. Killing
     // the server is the honest version of the question.
     await page.setViewportSize({ width: 1280, height: 900 });
+    /* ---------------------------------------------------- native shell */
+
+    // The application inside a fake Capacitor bridge, in a real browser, on
+    // the same files that ship. Not a unit test of `core/native.js` — that
+    // exists too — but the three places the running app is supposed to behave
+    // differently when there is a native shell around it.
+    //
+    // The bridge is shaped from `@capacitor/core`'s own source: `Plugins` is
+    // populated only by `registerPlugin`, which returns a proxy whose methods
+    // dispatch natively. Everything called through it is recorded.
+    {
+      const nativeContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      await nativeContext.addInitScript(() => {
+        const calls = [];
+        Object.defineProperty(globalThis, '__nativeCalls', { value: calls });
+
+        const proxyFor = (name) => new Proxy({}, {
+          get(_target, method) {
+            // A proxy that answers `then` with a function is a thenable, and
+            // awaiting it recurses forever. Everything else becomes a call.
+            if (typeof method !== 'string' || method === 'then') return undefined;
+            return (...args) => {
+              calls.push({ plugin: name, method, args });
+              if (method === 'writeFile') return Promise.resolve({ uri: 'file:///data/x' });
+              if (method === 'addListener') return Promise.resolve({ remove() {} });
+              return Promise.resolve();
+            };
+          },
+        });
+
+        /*
+         * A WebView has no file picker, so neither does this shell.
+         *
+         * Headless Chromium *does* have `showSaveFilePicker`, and leaving it
+         * in place made the check below unfalsifiable: with the native save
+         * deliberately broken so the web path also ran, the picker answered
+         * first and no anchor was ever created, so the check passed on code
+         * that was wrong. Deleting it is both the faithful simulation of a
+         * WebView and the thing that lets the check fail.
+         */
+        delete globalThis.showSaveFilePicker;
+
+        // A web-path download leaves nothing behind to count: `download()`
+        // removes the anchor in the same turn it clicks it, so
+        // `querySelectorAll('a[download]')` is zero whether the fallback ran
+        // or not — a check that cannot fail. The click itself is the event, so
+        // the click is what gets recorded.
+        const click = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function record() {
+          if (this.hasAttribute('download')) {
+            calls.push({ plugin: 'web', method: 'anchorDownload', args: [this.download] });
+          }
+          return click.call(this);
+        };
+
+        const built = ['App', 'Filesystem', 'Share'];
+        globalThis.Capacitor = {
+          isNativePlatform: () => true,
+          getPlatform: () => 'android',
+          isPluginAvailable: (name) => built.includes(name),
+          registerPlugin: (name) => proxyFor(name),
+        };
+      });
+
+      const shell = await nativeContext.newPage();
+      const shellErrors = [];
+      shell.on('pageerror', (err) => shellErrors.push(err.message));
+
+      await shell.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+      await shell.waitForSelector('.keypad', { timeout: 20_000 });
+
+      for (const digit of PIN) await shell.getByRole('button', { name: digit, exact: true }).click();
+      await shell.getByRole('button', { name: 'Done' }).click();
+      await shell.waitForTimeout(200);
+      for (const digit of PIN) await shell.getByRole('button', { name: digit, exact: true }).click();
+      await shell.getByRole('button', { name: 'Done' }).click();
+
+      await shell.waitForSelector('text=Your recovery phrase', { timeout: 20_000 });
+      await shell.locator('#kit-ack').check();
+      await shell.getByRole('button', { name: 'I have written it down' }).click();
+      await shell.waitForSelector('.app-nav', { timeout: 20_000 });
+
+      check('the app boots and unlocks inside a native shell', true);
+      check('and raises no error doing it', shellErrors.length === 0, shellErrors.join(' | '));
+
+      // The files are already on the device. A worker there would build a
+      // second copy of the shell in Cache Storage to serve requests that were
+      // never going to reach a network.
+      const workerInShell = await shell.evaluate(
+        () => navigator.serviceWorker.getRegistration().then(Boolean),
+      );
+      check('no service worker is registered inside a native shell', !workerInShell,
+        'it would cache a second copy of files the app already ships with');
+
+      // Android sends the hardware back button to the activity, which finishes
+      // it. Without this listener, back closes the app from any screen.
+      // Waited for, not sampled. `.app-nav` is in the document before the
+      // router has started, and the listener is claimed after — so reading
+      // once here passed on a fast run and failed on a slow one, which is the
+      // worst way for a check to be wrong.
+      const claimed = await shell.waitForFunction(() => globalThis.__nativeCalls
+        .some((c) => c.plugin === 'App' && c.method === 'addListener' && c.args[0] === 'backButton'),
+      null, { timeout: 10_000 }).then(() => true, () => false);
+
+      const listeners = await shell.evaluate(() => globalThis.__nativeCalls
+        .filter((c) => c.plugin === 'App' && c.method === 'addListener')
+        .map((c) => c.args[0]));
+      check('the hardware back button is claimed from the platform', claimed,
+        `listeners: ${listeners.join(', ') || 'none'}`);
+
+      // The reason `@capacitor/filesystem` is installed at all. Both web paths
+      // — the file picker and a click on `<a download href="blob:…">` — are
+      // silent no-ops in a WebView, so every export in the application would
+      // have appeared to work and produced nothing.
+      // The specifier is passed in rather than written inline: it resolves
+      // against the page, and a literal here would be resolved by the type
+      // checker against this file, where no such module exists.
+      await shell.evaluate(async (module) => {
+        const { download } = await import(module);
+        await download({ blobParts: 'a,b\n1,2\n', mime: 'text/csv', filename: 'export.csv' });
+      }, './js/modules/reports.js');
+      const after = await shell.evaluate(() => globalThis.__nativeCalls.slice(-6));
+
+      const wrote = after.find((c) => c.plugin === 'Filesystem' && c.method === 'writeFile');
+      const shared = after.find((c) => c.plugin === 'Share' && c.method === 'share');
+      check('an export is written through the native filesystem', Boolean(wrote),
+        `calls: ${JSON.stringify(after)}`);
+      check('and handed to the share sheet', Boolean(shared));
+      check('and carries the file, base64 encoded, not an empty write',
+        typeof wrote?.args?.[0]?.data === 'string' && wrote.args[0].data.length > 4,
+        JSON.stringify(wrote?.args?.[0]?.data));
+      check('and keeps the filename it was given', wrote?.args?.[0]?.path === 'export.csv');
+
+      // The anchor fallback must not also fire: two saves for one export, and
+      // on a real device the second one silently does nothing.
+      const fellThrough = after.filter((c) => c.method === 'anchorDownload');
+      check('and does not also fall through to the web download path',
+        fellThrough.length === 0,
+        `the web download path also ran, for ${fellThrough.map((c) => c.args[0]).join(', ')}`);
+
+      await nativeContext.close();
+    }
+
     await go(page, '#/dashboard');
 
     const registered = await page.evaluate(async () => {

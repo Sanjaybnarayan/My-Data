@@ -16,7 +16,7 @@ import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
 import { Keyring } from '../security/keyring.js';
 import { deviceId as resolveDeviceId } from '../core/ids.js';
 import { memoryStorage } from '../security/session.js';
-import { AppError } from '../core/errors.js';
+import { AppError, PermissionError } from '../core/errors.js';
 import { config } from '../core/config.js';
 
 export class Database {
@@ -129,6 +129,57 @@ export class Database {
   /** Recent entries across every record, for the activity feed. */
   async activity(options) {
     return recentActivity(this.adapter, options);
+  }
+
+  /* --------------------------------------------------------------- archive */
+
+  /**
+   * The system stores an archive carries, and puts back.
+   *
+   * Here for the same reason `history` and `activity` are here: a service may
+   * not touch `db.adapter`, and `meta`, `audit` and `blobs` have no repository
+   * to be read through — they are not entities and carry no per-row ACL. So
+   * the one place system stores are reached stays this class.
+   *
+   * Owner only, and that is not belt-and-braces. These three stores are the
+   * whole household with no row filter in front of them: `meta` holds the
+   * keyring, `audit` holds every action anybody has taken, `blobs` holds the
+   * documents. A `child` reading them through here would get their siblings'
+   * papers, which is exactly the hole the service-layer rule exists to close.
+   *
+   * `search` is not offered: it is derived, and rebuilt as rows are written.
+   */
+  static ARCHIVE_STORES = Object.freeze(['meta', 'audit', 'blobs']);
+
+  #assertOwner(action) {
+    if (this.#actor?.role !== 'owner') {
+      throw new PermissionError(action, 'archive', this.#actor?.role ?? 'anonymous');
+    }
+  }
+
+  async systemStoreRows(store) {
+    this.#assertOwner('read');
+    if (!Database.ARCHIVE_STORES.includes(store)) {
+      throw new AppError(`${store} is not an archived store`, { code: 'wrong-store' });
+    }
+    return this.adapter.query(store, {});
+  }
+
+  /**
+   * Write system rows back, verbatim.
+   *
+   * Verbatim matters most for `meta`: it carries the keyring, and a restore
+   * that re-derived anything there would produce a device whose wrapped key no
+   * longer matches the envelopes in the records beside it. The archive's rows
+   * become this device's rows or the restore is not one.
+   */
+  async writeSystemStoreRows(store, rows) {
+    this.#assertOwner('write');
+    if (!Database.ARCHIVE_STORES.includes(store)) {
+      throw new AppError(`${store} is not an archived store`, { code: 'wrong-store' });
+    }
+    for (const row of rows) await this.adapter.write(store, row);
+    return rows.length;
   }
 
   /* ---------------------------------------------------------------- search */

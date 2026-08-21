@@ -39,6 +39,22 @@ build step at the other end, nothing fetched at runtime. It gives up the
 service worker, and therefore offline — a worker has to be its own file at its
 own URL, so one file cannot have one.
 
+## Install it on a phone
+
+It is a PWA, so a browser will offer to install it from any HTTPS deployment.
+It also runs as a real Android and iOS application through Capacitor, on the
+same files:
+
+```
+npm run build:web      # → dist/web, the production web root
+npm run cap:sync       # then copy it into android/ and ios/
+```
+
+`docs/CAPACITOR_SETUP.md` covers the native build, and is honest about the one
+thing that does not work there: Google sign-in, and therefore sync, needs a
+native OAuth flow that has not been built. `docs/MOBILE_BUILD_COMMANDS.md` is
+the command reference.
+
 ## Deploy it
 
 `docs/DEPLOYMENT.md` covers hosting, headers, releases and backups. The short
