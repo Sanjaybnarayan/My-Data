@@ -38,6 +38,20 @@ export class RecordsService extends Service {
    * and adding one more would have widened it.
    */
   /**
+   * The absences recorded against a staff record.
+   *
+   * Absence is what is stored, not presence — see the entity in
+   * `data/schema.js`. So an empty answer means nothing interrupted the
+   * arrangement, which is the truthful default rather than a gap in the data.
+   */
+  async leaveForStaff(staffId, { limit = 500 } = {}) {
+    const all = await this.db.repo('staffLeave').list({ decrypt: false, limit });
+    return all
+      .filter((row) => row.staff === staffId)
+      .sort((a, b) => String(b.from ?? '').localeCompare(String(a.from ?? '')));
+  }
+
+  /**
    * What has actually been paid to the person a staff record points at.
    *
    * `transaction.person` is the link and it already exists — a wage is not an
@@ -50,7 +64,7 @@ export class RecordsService extends Service {
    */
   async paymentsForStaff(staffId, { limit = 200 } = {}) {
     const record = await this.db.repo('staff').get(staffId, { decrypt: false });
-    if (!record?.person) return { payments: [], agreed: null, staff: null };
+    if (!record?.person) return { payments: [], agreed: null, staff: null, leave: [] };
 
     const all = await this.db.repo('transaction').list({ decrypt: false, limit: TRANSACTION_LIMIT });
     const payments = all
@@ -61,7 +75,8 @@ export class RecordsService extends Service {
     // The record travels with the payments so a caller can compare them
     // against what was agreed — `paidEvery`, `startedOn` and `endedOn` all
     // decide which months can honestly be judged. See `domain/staffpay.js`.
-    return { payments, agreed: record.monthlyPay ?? null, staff: record };
+    const leave = await this.leaveForStaff(staffId);
+    return { payments, agreed: record.monthlyPay ?? null, staff: record, leave };
   }
 
   /**

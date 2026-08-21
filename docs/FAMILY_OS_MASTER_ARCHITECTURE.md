@@ -113,9 +113,10 @@ notes, vault, digital, emergency, reports, settings.
 | Safety | missing | `absent:grep:geofence` |
 
 Privacy is reachable through Settings rather than as a top-level entry, and the
-assistant is routed at `#/assistant`. Staff, chat and safety are genuinely
-absent — and safety is one of the things `PROJECT_AUDIT.md` records as
-**deliberately not scheduled**, because a PWA cannot deliver location or SOS.
+assistant is routed at `#/assistant`. Chat and safety are genuinely absent —
+and safety is one of the things `PROJECT_AUDIT.md` records as **deliberately
+not scheduled**, because a PWA cannot deliver location or SOS. Staff was
+absent when this was written and is not any more.
 
 **The architectural debt here is the missing domain-service layer.** Screens
 call the repository directly, so every module added before the layer exists is
@@ -163,6 +164,7 @@ another caller to migrate.
 | A chassis or engine number never reaches searchable text | **exists** | `wired:js/domain/extract.js#Chassis` |
 | A document that gave two expiry dates says so on screen | **exists** | `wired:js/modules/documents.js#expiryConflict` |
 | A staff record shows the person's documents, without a second reference | **exists** | `wired:js/modules/family.js#documentsForStaff` |
+| Unpaid leave stops a month being judged rather than pro-rating it | **exists** | `export:js/domain/staffpay.js#reconcile` |
 | Local assistant | **exists** | `export:js/ai/assistant.js#Assistant` |
 | OCR | **exists — Drive's own converter** | `file:apps-script/Drive.gs` |
 | DOCX template engine | **exists** | `export:js/domain/docxtemplate.js#readTemplate` |

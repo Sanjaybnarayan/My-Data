@@ -113,8 +113,45 @@ again rather than raised.
 
 ## What is still not built
 
-**Attendance and leave.** Not started, and not obviously a separate entity: a
-day off is a fact about a date, and this schema already models those.
+## Attendance: absence is recorded, presence is not
+
+The note that used to stand here guessed that leave might not need an entity —
+*"a day off is a fact about a date, and this schema already models those"*.
+**Measured, that was wrong.** The three date-shaped entities are:
+
+| Entity | What it is for |
+| --- | --- |
+| `importantDate` | birthdays, anniversaries, festivals — things you *remember*, recurring, with reminders |
+| `event` | a calendar entry with a time, a location and attendees |
+| `task` | something to do |
+
+None of them models *the cook did not come on Tuesday*. Forcing it into
+`event` would mean a calendar entry per working day.
+
+So `staffLeave` exists, and the design decision is which side to record.
+**Absence, not presence.** A row per working day is twenty-six a month per
+person that no household will keep up, and rows nobody enters lie by omission
+— an empty month would read as *never came* rather than as *nothing unusual*.
+Recording only what interrupted the arrangement makes an empty record the
+truthful default.
+
+### Unpaid leave stops a month being judged
+
+`paid` is the field that reaches beyond the diary. Unpaid leave changes what a
+month owes, and deducting for it needs a **daily rate** — dividing a monthly
+figure by a number of working days is arithmetic this household never agreed
+to. That is the same objection `domain/staffpay.js` already makes to checking
+a weekly agreement against a monthly figure, so it gets the same answer: the
+month is **not judged**, and says why.
+
+Paid leave changes nothing, which is what *paid* means.
+
+Leave spanning a month boundary makes **both** months unjudgeable, because the
+deduction lands in whichever the household decided and the record does not
+say. An absence with no end date is a single day.
+
+The screen names the skipped months and their reasons, because a total that
+looks short with no explanation is worse than no total.
 
 ## The comparison, and the three things it refuses to say
 
