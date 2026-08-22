@@ -183,7 +183,15 @@ evidence and critical gaps. Summary:
 
 ## 8. Security findings
 
-### 8.1 · P0 — server-side authorization never receives the caller's role
+### 8.1 · P0 — server-side authorization never receives the caller's role — **FIXED**
+
+> **Resolved after this audit was written.** The context now carries `role` and
+> `personId`, and five tests drive push and pull through `doPost`. Percentages
+> and readiness figures in §2 and in `docs/PHASE_STATUS.md` are as measured at
+> the time of the audit and are **not** restated here — the audit is a
+> snapshot, and rewriting its numbers to flatter a later fix is how a report
+> stops being one. What changed is recorded in `docs/SECURITY_AUDIT.md`.
+
 
 **Finding.** `doPost` builds the dispatch context without `role` or `personId`,
 both of which `admit()` had just resolved. Every server-side policy decision

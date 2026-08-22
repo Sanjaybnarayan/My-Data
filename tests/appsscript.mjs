@@ -83,12 +83,19 @@ export function loadAppsScript(files, globals, exports) {
  * from Drive, which is the case worth testing: a delete of something already
  * gone is a success, not an error.
  *
+ * `workbook` is the spreadsheet `SpreadsheetApp.openById` hands back. Without
+ * one the open throws, as it does in Apps Script for an id that resolves to
+ * nothing — so a test that forgets the fixture fails on the missing workbook
+ * rather than quietly exercising a different path.
+ *
  * @param {{owner?: string, tokens?: Record<string, object>, properties?: object,
- *          driveFiles?: Record<string, object>, files?: string[]}} setup
+ *          driveFiles?: Record<string, object>, files?: string[],
+ *          workbook?: object|null}} setup
  */
 export function backend({
   owner = 'owner@example.com', tokens = {}, properties = {},
   driveFiles = {}, files = ['Policy.gs', 'Code.gs', 'Drive.gs'],
+  workbook = null,
 } = {}) {
   const props = propertyStore(properties);
   const cache = cacheStore();
@@ -126,9 +133,19 @@ export function backend({
 
     LockService: {
       getScriptLock: () => ({ waitLock() {}, releaseLock() {} }),
+      // `withLock` takes a *user* lock, and this stub only had a script one.
+      // Nothing noticed, because no test had ever driven a write through
+      // `doPost` — which is the same blind spot that let the dispatch context
+      // ship without a role.
+      getUserLock: () => ({ tryLock: () => true, waitLock() {}, releaseLock() {} }),
     },
 
-    SpreadsheetApp: {},
+    SpreadsheetApp: {
+      openById: (id) => {
+        if (!workbook) throw new Error(`No item with the given ID could be found: ${id}`);
+        return workbook;
+      },
+    },
     DriveApp: {
       getFileById(id) {
         const file = driveFiles[id];
@@ -145,11 +162,15 @@ export function backend({
     console: { log: (...args) => logged.push(args.join(' ')), warn() {}, error() {} },
   };
 
+  // Conditional, because the factory returns an object literal naming every
+  // export: asking for `sheetPush` when Sheets.gs was not loaded is a
+  // ReferenceError at return time rather than a missing key.
   const api = loadAppsScript(files, globals, [
     'doPost', 'doGet', 'verifyToken', 'admit', 'members', 'memberFor',
     'manageMembers', 'dispatch', 'fail',
     'policyAllows', 'readableEntities', 'roleRank',
     'manageDevices', 'noteDevice', 'readDevices',
+    ...(files.includes('Sheets.gs') ? ['sheetPush', 'sheetPull'] : []),
   ]);
 
   /**

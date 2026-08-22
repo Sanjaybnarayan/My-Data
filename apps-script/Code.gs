@@ -63,10 +63,28 @@ function doPost(e) {
     noteDevice(caller.email, deviceId, String(request.clientVersion || ''),
       String(request.deviceLabel || ''));
 
+    // Everything `admit` resolved, not a subset of it.
+    //
+    // `role` and `personId` were missing here, and Sheets.gs reads both:
+    // `(context && context.role) || 'guest'`. A guest may write nothing and
+    // read nothing, so every push was refused row by row for every caller
+    // including the owner, and every pull came back empty — the whole
+    // server-side policy evaluated against a constant instead of against the
+    // person making the request.
+    //
+    // It failed closed, so nobody got access they should not have. What it
+    // cost was the off-device copy a household believed it had.
+    //
+    // The tests could not see it: policy.test.mjs calls `sheetPush` with a
+    // context it builds itself, including a role, and backend.test.mjs goes
+    // through `doPost` but never pushed. Both ends covered, the wiring between
+    // them not. `pushes what the caller's role permits` now goes end to end.
     var data = dispatch(request.action, request.payload || {}, {
       email: caller.email,
       owner: caller.owner,
       isOwner: caller.isOwner,
+      role: caller.role,
+      personId: caller.personId,
       deviceId: deviceId,
       clientVersion: String(request.clientVersion || ''),
     });
