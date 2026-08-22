@@ -65,6 +65,60 @@ export const strings = {
   'record.newTitle': 'New {one}',
   'record.deleteTitle': 'Delete this {one}?',
 
+  // Safety. The first module written after this catalogue existed, and the
+  // reason the unrouted count did not go up when Phase 15 landed.
+  'safety.title': 'Safety',
+  'safety.subtitle': 'Where people were, and the places that matter',
+  'safety.limits.title': 'What this does not do',
+  'safety.limits.background': 'FamilyOS reads a position only while somebody has the app open and asks it to. There is no background tracking: nothing is recorded while the phone is in a pocket, and no alert can reach you from a zone crossed while the app was closed.',
+  'safety.limits.geofence': 'Zones are circles this app measures against a reading it already has. They are not registered with the phone, so crossing one does not wake anything.',
+  'safety.where.title': 'Where everyone was',
+  'safety.where.count': '{n} of {total} with a reading',
+  'safety.where.nobody': 'Nobody is on file yet',
+  'safety.where.readMine': 'Record where I am',
+  'safety.where.recorded': 'Position recorded',
+  'safety.where.noPerson': 'This sign-in is not linked to a person, so there is nobody to record a position for.',
+  'safety.fresh': 'just now',
+  'safety.ageing': 'a while ago',
+  'safety.stale': 'old',
+  'safety.crossings.title': 'Zone crossings',
+  'safety.crossings.arrived': 'Arrived at {zone}',
+  'safety.crossings.left': 'Left {zone}',
+  'safety.crossings.unsure': 'Noticed at {at}, but {hours} hours passed since the previous reading — the crossing happened somewhere in between',
+  'safety.crossings.approx': 'when is a guess',
+
+  // Whereabouts, in words. Sentences rather than fragments, so a language that
+  // orders them differently can say so.
+  'safety.none': '{name} has no location on this device.',
+  'safety.seen': '{name} was {place} {when}.',
+  'safety.seenStale': '{name} was {place} {when}. That is the last reading on this device, and it is old enough that it says nothing about now.',
+  'safety.atZone': 'at {zone}',
+  'safety.awayFromZones': 'away from every saved zone',
+  'safety.justNow': 'just now',
+  'safety.minutesAgo': '{n} minutes ago',
+  'safety.hoursAgo': '{n} hours ago',
+
+  // Why a position could not be read. Separate keys because "you said no" and
+  // "the device could not get a fix" want different answers from the reader.
+  'position.denied': 'This device has not been given permission to share its location. It can be granted in the browser or system settings for this app.',
+  'position.unavailable': 'The device could not work out where it is. Indoors and underground are the usual reasons.',
+  'position.timedOut': 'The device took too long to find a position.',
+  'position.unsupported': 'This device has no location service available to the app.',
+  'position.unknown': 'The location could not be read.',
+
+  // The SOS message itself, which somebody sends from their own phone.
+  'sos.needsHelp': '{name} needs help.',
+  'sos.near': 'Near {zone}.',
+  'sos.map': 'Map: {url}',
+  'sos.accuracy': 'Accurate to about {n} m.',
+  'sos.noPosition': 'No position could be read on this device.',
+  'safety.somebody': 'This person',
+
+  // How coarse a fix is, said in the units a person thinks in.
+  'accuracy.unstated': 'the device did not say how accurate this is',
+  'accuracy.metres': 'accurate to about {n} m',
+  'accuracy.kilometres': 'accurate to about {n} km, so this is a neighbourhood and not a place',
+
   // The language picker itself.
   'locale.title': 'Language',
   'locale.english': 'English',

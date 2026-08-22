@@ -56,11 +56,23 @@ export const POLICIES = Object.freeze({
   keep: { days: null, why: 'identity and health records are not aged out' },
   /** Secrets. A deleted password should stop existing sooner, not later. */
   secret: { days: 7, why: 'a deleted credential should stop existing quickly' },
+  /**
+   * Where people have been. Deleted quickly, for the same reason as a secret:
+   * a location history is a record of a family's movements, and a deleted one
+   * that lingers ninety days is ninety days of it still on the device.
+   *
+   * This is only half of the answer. Retention governs *deletions*; it never
+   * ages out a live row. What keeps the history short is
+   * `domain/safety.js` → `expired()`, which the service calls on every write.
+   */
+  location: { days: 7, why: 'a family\'s movements should not linger once deleted' },
 });
 
 /** Entities whose records are financial, by the module they belong to. */
 const FINANCIAL_MODULES = new Set(['finance', 'investments', 'insurance']);
 const KEEP_MODULES = new Set(['identity', 'health']);
+/** Where people have been, which nothing should hold on to. */
+const LOCATION_MODULES = new Set(['safety']);
 
 /**
  * Which policy applies to an entity.
@@ -77,6 +89,7 @@ export function policyFor(entityName) {
   const hasSecret = owner.fields.some((f) => classify(f, owner) === 'CRITICAL_SECRET');
   if (hasSecret) return { name: 'secret', ...POLICIES.secret };
 
+  if (LOCATION_MODULES.has(owner.module)) return { name: 'location', ...POLICIES.location };
   if (KEEP_MODULES.has(owner.module)) return { name: 'keep', ...POLICIES.keep };
   if (FINANCIAL_MODULES.has(owner.module)) return { name: 'financial', ...POLICIES.financial };
   return { name: 'standard', ...POLICIES.standard };

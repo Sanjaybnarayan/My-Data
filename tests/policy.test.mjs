@@ -301,14 +301,32 @@ describe('pushing', () => {
     assert.not(book.touched.includes('Vault'));
   });
 
-  test('a child may write nothing at all, which is a fact about the schema', () => {
-    // Worth stating rather than discovering. Every `write` list in the schema
-    // is owner/spouse or owner/spouse/adult, so the child role is read-only
-    // everywhere — including the entities a child can see.
+  test('a child writes only what their own device produces', () => {
+    // This used to read "a child may write nothing at all", and that was true
+    // of the schema until Phase 15. A location reading is made by the device
+    // in the child's pocket, so if a child may not write one, a child never
+    // has a position — which is most of the point of safe zones.
+    //
+    // So the exception is deliberate and it is narrow. It is asserted as a
+    // list rather than a count, because the failure worth catching is a
+    // *different* entity quietly joining it.
     const api = sheets();
-    const writable = Object.keys(entities).filter((n) => api.policyAllows('child', 'write', n));
-    assert.deep(writable, []);
+    const writable = Object.keys(entities)
+      .filter((n) => api.policyAllows('child', 'write', n))
+      .sort();
+
+    assert.deep(writable, ['locationPing', 'sosAlert']);
     assert.ok(api.readableEntities('child').length > 0, 'though they can read plenty');
+  });
+
+  test('and a child may not read where anybody else has been', () => {
+    // The other half of the household's decision: a parent sees a child, and
+    // a child does not see a sibling. Without this the entity above would be
+    // readable by everyone it is about, which is not what was asked for.
+    const api = sheets();
+    assert.not(api.policyAllows('child', 'read', 'locationPing'));
+    assert.ok(api.policyAllows('spouse', 'read', 'locationPing'));
+    assert.ok(api.policyAllows('adult', 'read', 'locationPing'));
   });
 
   test('a missing role is treated as a guest, not as an owner', () => {

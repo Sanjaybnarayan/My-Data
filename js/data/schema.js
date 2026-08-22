@@ -1314,6 +1314,123 @@ const tenant = {
   ],
 };
 
+/* --------------------------------------------------------------- 15. Safety */
+
+/**
+ * A circle on the map with a name.
+ *
+ * Not a geofence. A real geofence is registered with the operating system and
+ * wakes the application when it is crossed; this is a centre and a radius that
+ * `domain/geo.js` compares a position against when the application happens to
+ * have one. The arithmetic is the same and the wake-ups do not exist, and
+ * `docs/LOCATION.md` says which is which.
+ *
+ * The radius is in metres and required, because a zone without one is not a
+ * circle. Fifty metres is about a house; five hundred is about a school and
+ * its grounds.
+ */
+const safeZone = {
+  name: 'safeZone', module: 'safety', sheet: 'SafeZones', version: 1,
+  labels: { one: 'Safe zone', many: 'Safe zones' }, icon: 'shield',
+  acl: { read: HOUSEHOLD, write: ALL_ADULTS },
+  sort: 'name',
+  title: (r) => r.name,
+  subtitle: (r) => (r.radiusMetres ? `${r.radiusMetres} m` : ''),
+  fields: [
+    text('name', { required: true, list: true, search: true }),
+    pick('kind', ['home', 'school', 'work', 'family', 'clinic', 'other'],
+      { default: 'home', list: true }),
+    num('latitude', { required: true, min: -90, max: 90 }),
+    num('longitude', { required: true, min: -180, max: 180 }),
+    num('radiusMetres', { label: 'Radius in metres', required: true, min: 10, max: 50_000, list: true, default: 150 }),
+    // Optional: a zone is often a property already on file, and naming it
+    // saves recording the same place twice.
+    ref('property', 'property', { label: 'Same place as' }),
+    { key: 'watch', type: 'multiref', ref: 'person', label: 'Tell me about' },
+    note(),
+  ],
+};
+
+/**
+ * One reading of where a person's device was, at a moment.
+ *
+ * ## Why a history exists, and what that means
+ *
+ * The household chose to keep one rather than only the latest position. That
+ * is a real choice with a real cost, and it is written here rather than left
+ * in a commit message: this table is a record of where the people in a family
+ * have been. It is the most sensitive thing in the database — more than the
+ * money, because money says what you bought and this says where you were.
+ *
+ * So: the coordinates are encrypted, the rows age out on the `location`
+ * retention policy rather than being kept, and there is no background capture
+ * to fill it in when nobody is looking. A row exists because somebody had the
+ * application open and it read a position.
+ *
+ * `accuracyMetres` is not decoration. Without it no row can be placed against
+ * a zone honestly, and `domain/geo.js` refuses to try — see `WHERE.UNCERTAIN`.
+ */
+const locationPing = {
+  name: 'locationPing', module: 'safety', sheet: 'Locations', version: 1,
+  labels: { one: 'Location reading', many: 'Location readings' }, icon: 'globe',
+  // A child may write their own readings — their device is what produces them
+  // — and `ownRecordAllows` on the server widens that to their own rows only.
+  // Reading is adults, which is the household's decision recorded in
+  // docs/LOCATION.md: a parent sees a child, and a child does not see a
+  // sibling.
+  acl: { read: ALL_ADULTS, write: HOUSEHOLD },
+  sort: '-recordedAt',
+  indexes: [['byPerson', 'person'], ['byRecordedAt', 'recordedAt']],
+  title: (r) => r.zoneName || 'Location reading',
+  fields: [
+    ref('person', 'person', { required: true, list: true }),
+    { key: 'recordedAt', type: 'text', label: 'Taken at', required: true, list: true },
+    num('latitude', { required: true, encrypted: true }),
+    num('longitude', { required: true, encrypted: true }),
+    num('accuracyMetres', { label: 'Accurate to (m)', list: true }),
+    // Resolved when the row is written, so a screen can name the place without
+    // decrypting every coordinate in the table to find out.
+    text('zoneName', { label: 'Zone', list: true }),
+    ref('zone', 'safeZone', { label: 'Inside zone' }),
+    pick('source', ['device', 'manual'], { default: 'device', list: true }),
+    note(),
+  ],
+};
+
+/**
+ * Somebody said they need help.
+ *
+ * What this is: a record, with a position attached if one could be read, and a
+ * message the household can hand to their phone's own share sheet or dialler.
+ *
+ * What this is not: an alert that reaches anybody by itself. There is no
+ * server in this application to send from, no SMS gateway and no push. An SOS
+ * that silently failed to send would be the worst object this repository could
+ * produce, so nothing here claims to send: the screen composes, the person
+ * sends, and `sentVia` records what they said they did.
+ */
+const sosAlert = {
+  name: 'sosAlert', module: 'safety', sheet: 'SOSAlerts', version: 1,
+  labels: { one: 'SOS', many: 'SOS alerts' }, icon: 'alert',
+  acl: { read: HOUSEHOLD, write: HOUSEHOLD },
+  sort: '-raisedAt',
+  indexes: [['byPerson', 'person'], ['byRaisedAt', 'raisedAt']],
+  title: (r) => r.reason || 'SOS',
+  fields: [
+    ref('person', 'person', { required: true, list: true }),
+    { key: 'raisedAt', type: 'text', label: 'Raised at', required: true, list: true },
+    text('reason', { list: true, search: true }),
+    num('latitude', { encrypted: true }),
+    num('longitude', { encrypted: true }),
+    num('accuracyMetres', { label: 'Accurate to (m)' }),
+    text('whereabouts', { label: 'Where, in words', search: true }),
+    { key: 'contacts', type: 'multiref', ref: 'emergencyContact', label: 'Meant for' },
+    pick('sentVia', ['not sent', 'phone call', 'message', 'shared'], { default: 'not sent', list: true }),
+    { key: 'resolvedAt', type: 'text', label: 'Stood down at' },
+    note(),
+  ],
+};
+
 /* ------------------------------------------------------------ 16. Emergency */
 
 const emergencyContact = {
@@ -1657,6 +1774,7 @@ export const entities = Object.freeze(Object.fromEntries(
     purchase, warranty, trip, tenant,
     project, task, event, noteEntity, vaultItem,
     digitalAsset, subscription, emergencyContact, smsMessage,
+    safeZone, locationPing, sosAlert,
     staff, staffLeave, goal,
     legalDocument, will, beneficiary,
   ].map((e) => [e.name, normalise(e)]),
@@ -1692,6 +1810,7 @@ export const modules = Object.freeze([
   { id: 'notes', label: 'Notes', icon: 'note' },
   { id: 'vault', label: 'Vault', icon: 'lock' },
   { id: 'digital', label: 'Digital', icon: 'globe' },
+  { id: 'safety', label: 'Safety', icon: 'shield' },
   { id: 'emergency', label: 'Emergency', icon: 'alert' },
   { id: 'reports', label: 'Reports', icon: 'report' },
   { id: 'settings', label: 'Settings', icon: 'settings' },

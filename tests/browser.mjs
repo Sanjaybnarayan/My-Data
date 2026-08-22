@@ -251,7 +251,7 @@ async function main() {
 
     const modules = ['dashboard', 'identity', 'family', 'finance', 'investments',
       'documents', 'vehicles', 'health', 'insurance', 'property', 'education',
-      'tasks', 'calendar', 'notes', 'vault', 'digital', 'emergency', 'reports',
+      'tasks', 'calendar', 'notes', 'vault', 'digital', 'emergency', 'safety', 'reports',
       'assistant', 'settings'];
 
     for (const module of modules) {
@@ -775,6 +775,25 @@ async function main() {
         (await page.locator('.list-item').count()) > 8,
         `${await page.locator('.list-item').count()} entries`);
       check('the timeline draws without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
+    {
+      // Safety says what it cannot do before what it can, and a card that
+      // silently failed to render would say nothing at all — which reads
+      // exactly like a phone that is quietly watching. Checked by its text.
+      const before = consoleErrors.length;
+      await go(page, '#/safety');
+      await page.waitForTimeout(400);
+
+      const body = (await page.locator('.app-content').innerText()).trim();
+      check('Safety says there is no background tracking',
+        /no background tracking/i.test(body), body.slice(0, 500));
+      check('and that a zone is not registered with the phone',
+        /not registered with the phone/i.test(body), body.slice(0, 800));
+      check('it offers to record a position rather than doing it unasked',
+        (await page.getByRole('button', { name: 'Record where I am' }).count()) === 1);
+      check('the safety screen draws without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 

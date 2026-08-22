@@ -47,6 +47,15 @@ const INVENTORY = join(ROOT, 'tools', 'strings.json');
 /**
  * The catalogues themselves, which are nothing but user-facing English by
  * definition, and the locale machinery that quotes keys.
+ *
+ * Not excluded, and worth knowing: `js/data/schema.js` is counted, and roughly
+ * two hundred of its strings are entity and field labels that a catalogue
+ * *can* reach through `labelKeys()`. So the number below over-counts by about
+ * that much, and a new entity raises it even though its labels are
+ * translatable. Narrowing that means telling a label apart from an enum option
+ * and a help string inside the schema, which is a separate piece of work; until
+ * then the count is an upper bound and this comment is the reason it moves
+ * when a phase lands.
  */
 const NOT_COUNTED = new Set([
   'js/locale/en.js',

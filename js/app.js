@@ -261,6 +261,7 @@ function registerRoutes(router) {
     vehicles: () => import('./modules/vehicles.js'),
     belongings: () => import('./modules/belongings.js'),
     travel: () => import('./modules/travel.js'),
+    safety: () => import('./modules/safety.js'),
     assistant: () => import('./modules/assistant-screen.js'),
   };
 
