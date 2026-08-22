@@ -22,6 +22,18 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- Required, and iOS terminates the app on a location request without it.
+	     Both paths need it: the Geolocation plugin and the WebView's own
+	     navigator.geolocation, which position.js falls back to.
+
+	     WhenInUse only. There is deliberately no
+	     NSLocationAlwaysAndWhenInUseUsageDescription, for the same reason
+	     ACCESS_BACKGROUND_LOCATION is absent from the Android manifest and a
+	     test enforces it: FamilyOS reads a position only while somebody has
+	     the app open and asks it to, and a key requesting more than that would
+	     be asking for a capability the application does not have. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>FamilyOS reads your location only when you ask it to, while the app is open, so it can record where you are or check a safe zone. It is never read in the background and never leaves your device.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

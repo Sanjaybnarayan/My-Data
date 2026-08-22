@@ -88,3 +88,57 @@ against the **client** RBAC and the **policy table**, both of which are correct.
 It does mean that any future control claiming "authorization is enforced
 server-side" would be citing a mechanism that is currently fed a constant. No
 control makes that claim today, and none should until the wiring test exists.
+
+## A control held below TESTED now has to say why
+
+The checks in `js/domain/compliance.js` all ran one way: they stop a control
+claiming more than its evidence supports. `unevidenced` refuses a status that
+cites nothing, `citingUnrunTests` refuses a TESTED row naming a suite the
+runner never executes, and `claimingVerified` refuses `VERIFIED` outright.
+
+Nothing checked the other direction. A control can also sit **below** what it
+has done, and a status with no reason beside it is indistinguishable from a
+status nobody has revisited — which is precisely how four rows of
+`docs/PHASE_STATUS.md` came to assert that built things were unbuilt.
+
+`unexplained()` closes it: a `DESIGNED` or `IMPLEMENTED` control must state a
+gap. Fourteen of the sixteen already did.
+
+**A gap is not an admission of failure.** `DPDP/children` states that nothing
+verifies the adult is the guardian — which is why it is IMPLEMENTED and not
+TESTED, since the requirement is *verifiable* parental consent and this
+application has no means to verify. Writing that down is the control working.
+
+### The two that said nothing were refusals
+
+`UIDAI/no-authentication` — *no Aadhaar authentication or e-KYC performed* —
+and `PROPERTY/no-legal-effect-claim` — *no generated document claims legal
+effect*. Both asserted an absence and cited a file for it, which is somebody's
+word.
+
+A refusal is the easiest kind of claim to test and the easiest to let rot,
+because nothing breaks the day it stops being true. `tests/refusals.test.mjs`
+now reads everything that ships and fails on a UIDAI host, an auth or e-KYC
+call, any URL addressed to the authority, or a claim of legal effect anywhere
+in `js/` — not only in the report builders, because the same sentence on a
+screen is the same claim.
+
+Both are now `TESTED`: **45**, up from 43. Raised by doing the work, not by
+relabelling, and neither became `VERIFIED` — a passing suite is evidence the
+code does what it says, and verification is a person qualified to judge
+signing their name. Nothing here is `VERIFIED` and nothing claims the
+application is compliant.
+
+### What mutation testing said about the guard itself
+
+Seven mutations. Six caught. Two conditions survive rather than one, because
+each catches what the other cannot: the length floor stops a token, and the
+word list stops a *long* excuse — `TODO: come back to this once we have
+decided what we want to do here` clears forty characters and explains nothing.
+Deleting the word list broke no test until a fixture that long existed.
+
+The one that was not caught is **inert rather than uncaught**, and is recorded
+as such: redefining the constructor's `gap = null` default to a placeholder
+changes no outcome today, because all fourteen applicable controls pass an
+explicit gap and none falls back to the default. Claiming a catch that did not
+happen would be the same species of error this file exists to prevent.

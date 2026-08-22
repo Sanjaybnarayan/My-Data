@@ -194,8 +194,14 @@ export const REGIMES = Object.freeze([
       + 'asks for them, and the rules on storing and displaying them bind '
       + 'whoever holds one.',
     controls: [
+      // TESTED rather than IMPLEMENTED because the absence is now checked
+      // rather than asserted: `tests/refusals.test.mjs` reads everything that
+      // ships and fails on a UIDAI host, an auth or e-KYC call, or any URL
+      // addressed to the authority. The words `Aadhaar` and `KYC` are all
+      // over this application and should be — a number is stored and an
+      // institution's copy is modelled. What must not exist is a *call*.
       control('no-authentication', 'No Aadhaar authentication or e-KYC performed',
-        STATUS.IMPLEMENTED, { file: 'js/domain/kyc.js' },
+        STATUS.TESTED, { file: 'js/domain/kyc.js', test: 'tests/refusals.test.mjs' },
         null),
       control('masked-display', 'Aadhaar shown masked by default',
         STATUS.TESTED, { file: 'js/data/classification.js', test: 'tests/classification.test.mjs' }),
@@ -341,8 +347,13 @@ export const REGIMES = Object.freeze([
     controls: [
       control('receipt-provenance', 'A generated receipt records what produced it',
         STATUS.TESTED, { file: 'js/domain/rentreceipt.js', test: 'tests/docx.test.mjs' }),
+      // Checked across everything that ships, not only the generator: a claim
+      // of legal effect made on a screen *about* a document is the same
+      // claim, and confining the check to js/reports would let the sentence
+      // move one file to the left and survive.
       control('no-legal-effect-claim', 'No generated document claims legal effect',
-        STATUS.IMPLEMENTED, { doc: 'docs/GENERATED_DOCUMENTS.md' }),
+        STATUS.TESTED,
+        { doc: 'docs/GENERATED_DOCUMENTS.md', test: 'tests/refusals.test.mjs' }),
       control('receipt-from-payment', 'A receipt is issued only for money that arrived',
         STATUS.TESTED, { file: 'js/domain/rentreceipt.js', test: 'tests/docx.test.mjs' }),
       control('one-letting-or-none', 'A payment is attributed to one letting or to none',
@@ -602,6 +613,72 @@ export function citingUnrunTests(regimes = REGIMES, runs = () => true) {
   }
   return bad;
 }
+
+/**
+ * Controls held below TESTED that do not say why.
+ *
+ * The register's honesty runs the other way from the checks above it. Those
+ * stop a control claiming more than its evidence supports; this stops one
+ * sitting below what it has done without stating a reason — because a status
+ * with no reason is indistinguishable from a status nobody has revisited,
+ * and this repository has now found four documents that drifted exactly
+ * that way.
+ *
+ * Fourteen of the sixteen already carried a gap when this was written. The
+ * two that did not were `UIDAI/no-authentication` and
+ * `PROPERTY/no-legal-effect-claim` — both refusals, both asserted rather than
+ * tested, and both now TESTED with a suite that reads what ships. So the
+ * check found nothing to excuse and everything to hold.
+ *
+ * A gap is not an admission of failure. `DPDP/children` states that nothing
+ * verifies the adult is the guardian, which is why it is IMPLEMENTED and not
+ * TESTED — the requirement is *verifiable* parental consent and the
+ * application has no means to verify. Writing that down is the control doing
+ * its job.
+ *
+ * @param {ReadonlyArray<{id: string, controls: ReadonlyArray<{
+ *   id: string, status: string, gap?: string|null
+ * }>}>} [regimes]
+ */
+export function unexplained(regimes = REGIMES) {
+  /** @type {readonly string[]} */
+  const below = [STATUS.DESIGNED, STATUS.IMPLEMENTED];
+  const out = [];
+  for (const regime of regimes) {
+    for (const row of regime.controls) {
+      if (!below.includes(row.status)) continue;
+      const gap = String(row.gap ?? '').trim();
+      const unsaid = `${regime.id}/${row.id} is ${row.status} and does not explain what is missing`;
+      if (!gap) {
+        out.push(unsaid);
+        continue;
+      }
+      // A placeholder is not an explanation. Two conditions rather than one,
+      // and each catches what the other cannot: the length floor stops a
+      // token, and the word list stops a *long* excuse — "TODO: come back to
+      // this once we have decided what to do" clears forty characters and
+      // explains nothing.
+      //
+      // Mutation testing was careful about this. Redefining the constructor's
+      // `gap = null` default to a placeholder changes nothing today, because
+      // all fourteen applicable controls pass an explicit gap and none falls
+      // back to it. That mutation is inert rather than uncaught, and this
+      // note says so instead of claiming a catch that did not happen.
+      if (gap.length < MEANINGFUL_GAP || /^(?:tbd|todo|n\/?a|none|unstated|unknown)\b/i.test(gap)) {
+        out.push(unsaid);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * How long a stated gap has to be before it counts as an explanation.
+ *
+ * A sentence somebody wrote for a reader, not a token written for a checker.
+ * The shortest real one in the register is comfortably over this.
+ */
+export const MEANINGFUL_GAP = 40;
 
 /**
  * Anything claiming to be verified.
