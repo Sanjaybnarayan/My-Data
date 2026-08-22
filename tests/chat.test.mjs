@@ -365,3 +365,191 @@ describe('escrow through the service', () => {
     assert.equal(read[0].text, 'escrowed');
   });
 });
+
+/* ---------------------------------------------------------- attachments */
+
+describe('sending a file', () => {
+  const conversationWith = async (db, participants) => db.repo('conversation').create({
+    title: 'Household', participants, startedAt: new Date().toISOString(),
+  });
+
+  const PHOTO = new TextEncoder().encode('a photograph of a bank statement, pretend');
+
+  test('the bytes come back to a recipient', async () => {
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+
+    const row = await chat.attach(conversation.id, asha.id,
+      { name: 'statement.pdf', type: 'application/pdf', bytes: PHOTO });
+
+    const [message] = await chat.read(conversation.id);
+    assert.ok(message.file, 'the message did not arrive as a file');
+    assert.equal(message.file.name, 'statement.pdf');
+    assert.equal(message.file.size, PHOTO.length);
+    assert.equal(message.row.id, row.id);
+
+    const back = await chat.openAttachment(message.file.attachment);
+    assert.equal(new TextDecoder().decode(back), new TextDecoder().decode(PHOTO));
+  });
+
+  test('the raw JSON never reaches the caller as text', async () => {
+    // A screen printing `{"kind":"file",…}` is how somebody learns not to
+    // trust the screen.
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+    await chat.attach(conversation.id, asha.id, { name: 'x.pdf', bytes: PHOTO });
+
+    const [message] = await chat.read(conversation.id);
+    assert.equal(message.text, null);
+  });
+
+  test('the bytes on disk are not the file, and not household-encrypted', async () => {
+    // The whole point. A document blob is encrypted with the household key —
+    // readable by anyone who can unlock the app — while the screen above the
+    // conversation says end-to-end encrypted. That sentence had to stay true.
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+    await chat.attach(conversation.id, asha.id, { name: 'x.pdf', bytes: PHOTO });
+
+    const stored = await db.adapter.query('attachments', {});
+    assert.length(stored, 1);
+    const dump = JSON.stringify(stored[0]);
+    assert.not(dump.includes('photograph'), 'the file was stored in the clear');
+
+    // Sealed to devices, so the envelope names them and carries wrapped keys.
+    const envelope = JSON.parse(stored[0].envelope);
+    assert.ok(envelope.keys?.length, 'the file was not sealed to any device');
+  });
+
+  test('and the filename is inside the seal, not a column beside it', async () => {
+    // `divorce-papers.pdf` names the thing the file was meant to keep private.
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+    await chat.attach(conversation.id, asha.id,
+      { name: 'divorce-papers.pdf', bytes: PHOTO });
+
+    const rows = [
+      ...await db.adapter.query('attachments', {}),
+      ...await db.adapter.query('message', {}),
+    ];
+    assert.not(JSON.stringify(rows).includes('divorce-papers'),
+      'the filename was stored where the household key can read it');
+  });
+
+  test('a device that was not a recipient cannot open it', async () => {
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+    await chat.attach(conversation.id, asha.id, { name: 'x.pdf', bytes: PHOTO });
+
+    const [message] = await chat.read(conversation.id);
+
+    // A different device: same database, its own identity.
+    await db.setMeta('chat.deviceIdentity', await (await import('../js/security/e2ee.js')).createIdentity());
+    const stranger = new ChatService(db);
+
+    let threw = false;
+    try { await stranger.openAttachment(message.file.attachment); } catch { threw = true; }
+    assert.ok(threw, 'a device that was never a recipient opened the file');
+  });
+
+  test('sealing to nobody is refused rather than producing a lost file', async () => {
+    const { db, chat, asha, kid } = await household();
+    await chat.enrol(asha.id);
+    // A conversation with somebody who has never opened the application.
+    const conversation = await conversationWith(db, [kid.id]);
+
+    let error;
+    try {
+      await chat.attach(conversation.id, asha.id, { name: 'x.pdf', bytes: PHOTO });
+    } catch (e) { error = e; }
+    assert.equal(error?.code, 'noRecipients');
+    assert.length(await db.adapter.query('attachments', {}), 0,
+      'bytes were written for a file nobody could read');
+  });
+
+  test('an empty file is refused', async () => {
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+
+    let error;
+    try {
+      await chat.attach(conversation.id, asha.id, { name: 'x.pdf', bytes: new Uint8Array() });
+    } catch (e) { error = e; }
+    assert.equal(error?.code, 'emptyFile');
+  });
+
+  test('withdrawing a message takes the bytes with it', async () => {
+    // Blanking the body and leaving the photograph would be the worst of
+    // both: the message reads as withdrawn while the file is still here.
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+    const row = await chat.attach(conversation.id, asha.id, { name: 'x.pdf', bytes: PHOTO });
+
+    assert.length(await db.adapter.query('attachments', {}), 1);
+    await chat.withdraw(row.id);
+    assert.length(await db.adapter.query('attachments', {}), 0,
+      'the file survived the message being withdrawn');
+  });
+
+  test('the document sweep does not delete an attachment as an orphan', async () => {
+    // Measured before `attachments` was its own store: a sealed attachment
+    // sitting in `blobs` was picked up by the Drive flush, its `documentId`
+    // resolved to null, and it was removed as an orphan. Silent, permanent,
+    // and it would have looked like the file was never sent.
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+    await chat.attach(conversation.id, asha.id, { name: 'x.pdf', bytes: PHOTO });
+
+    const { DocumentStore } = await import('../js/sync/drive.js');
+    const store = new DocumentStore({ db, transport: { configured: true } });
+    await store.flush({ limit: 10 }).catch(() => {});
+
+    assert.length(await db.adapter.query('attachments', {}), 1,
+      'the document sweep removed a chat attachment');
+  });
+
+  test('and a blob with no document is left alone by the sweep', async () => {
+    // The same invariant one layer down, so it holds whoever writes to
+    // `blobs` next. Driven through the real flush rather than by repeating
+    // its filter here — a test that restates the code it is checking passes
+    // whatever the code does.
+    const { db } = await household();
+    await db.adapter.write('blobs', {
+      id: 'blb_stray', data: 'x', uploaded: false, createdAt: new Date().toISOString(),
+    });
+
+    const { DocumentStore } = await import('../js/sync/drive.js');
+    const store = new DocumentStore({ db, transport: { configured: true } });
+    await store.flush({ limit: 10 }).catch(() => {});
+
+    assert.ok(await db.adapter.read('blobs', 'blb_stray'),
+      'the document sweep deleted a blob that was never its business');
+  });
+
+  test('sealing text and opening it as bytes agree, so one path serves both', async () => {
+    // `seal` is a wrapper around `sealBytes`. If they ever stopped agreeing,
+    // a message and a file would need separate key-wrapping code — which is
+    // the part where being wrong is unrecoverable.
+    const e2ee = await import('../js/security/e2ee.js');
+    const me = await e2ee.createIdentity();
+    const sealed = await e2ee.seal('bring milk', me, [{ id: 'd1', publicKey: me.publicKey }]);
+
+    const asBytes = await e2ee.openBytes(sealed, { id: 'd1', ...me });
+    assert.equal(new TextDecoder().decode(asBytes), 'bring milk');
+    assert.equal(await e2ee.open(sealed, { id: 'd1', ...me }), 'bring milk');
+  });
+
+  test('opening something that is gone is null, not a crash', async () => {
+    const { chat, asha } = await household();
+    await chat.enrol(asha.id);
+    assert.equal(await chat.openAttachment('att_nothing'), null);
+  });
+});

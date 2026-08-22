@@ -1958,6 +1958,18 @@ export const systemStores = Object.freeze({
    * safety argument.
    */
   diagnostics: { keyPath: 'id', indexes: [] },
+  /**
+   * Sealed chat attachments.
+   *
+   * Its own store rather than a corner of `blobs`, which holds documents.
+   * They look alike and behave differently: a document blob is encrypted with
+   * the household key and uploaded to Drive, an attachment is sealed to the
+   * recipients' devices and never leaves. Sharing a store meant the document
+   * sweep in `js/sync/drive.js` picked attachments up and deleted them as
+   * orphans, because they have no `documentId` — measured, and the reason
+   * this store exists.
+   */
+  attachments: { keyPath: 'id', indexes: [['byMessage', 'message']] },
 });
 
 /* ----------------------------------------------------------------- helpers */

@@ -46,7 +46,7 @@ external integration or has an open critical security or data-integrity defect.
 | 11 | Health / ABDM | **BLOCKED** | 35 | `healthRecord`, `medication`, `vaccination`, `appointment` all real and encrypted | **ABDM is architecture only** — correctly classified, needs participant status | Low |
 | 12 | Legal / estate / digital life | **MOSTLY_COMPLETE** | 75 | `will`, `beneficiary`, `legalDocument`, `digitalAsset`, `subscription`, `vaultItem`; secrets encrypted, never plaintext | No crypto-wallet metadata model | Low |
 | 13 | Household staff | **MOSTLY_COMPLETE** | 72 | `staff`, `staffLeave`, wages, agreements, documents; role-limited exposure | No notice or access path for the recorded person | Medium |
-| 14 ↑ | Family chat / media / E2EE | **PARTIALLY_COMPLETE** | 65 | `js/security/e2ee.js` — ECDH P-256 + HKDF-SHA-256, per-device keypairs, private half never in a synced table, safety numbers, forward-only revocation, recovery-phrase escrow | **No external cryptographic review**, so it may not be called COMPLETE; no media sharing; escrow means the phrase opens everything, and the screen says so | Medium |
+| 14 ↑ | Family chat / media / E2EE | **MOSTLY_COMPLETE** | 76 | `js/security/e2ee.js` — ECDH P-256 + HKDF-SHA-256, per-device keypairs, safety numbers, forward-only revocation, escrow; **files sealed to the same devices**, filename inside the seal, own store; **a conversation view that can actually send and read** | **No external cryptographic review**, so it may not be called COMPLETE; no thumbnails or previews; attachments do not sync and are never pruned; escrow opens everything and the screen says so | Medium |
 | 15 ↑ | Location / safe zones / SOS | **MOSTLY_COMPLETE** | 70 | `js/domain/geo.js`, `js/core/position.js`, `js/services/safety.js`; native Geolocation preferred over the WebView, accuracy-aware INSIDE/OUTSIDE/**UNCERTAIN**, position history with retention | **No background location** — `ACCESS_BACKGROUND_LOCATION` is deliberately absent and a test enforces it, so zones only evaluate with the app open | Low |
 | 16 | Notifications / tasks / reminders / automation | **MOSTLY_COMPLETE** | 73 | `project`, `task`, `event`, `reminders.js` (schema-driven), automation rules, outbox retries, idempotency | No push (no server); background jobs are client-side | Medium |
 | 17 | Knowledge graph / search / timeline | **MOSTLY_COMPLETE** | 76 | `search` store, `connections.js`, `timeline.js` + screen, "what changed", authorization-aware search | Graph is derived, not stored | Low |
@@ -63,8 +63,8 @@ external integration or has an open critical security or data-integrity defect.
 
 ```
 COMPLETE              4   (10, 21, 22, and 0)
-MOSTLY_COMPLETE      12   (2, 3, 5, 6, 7, 9, 12, 13, 15, 16, 17, 19)
-PARTIALLY_COMPLETE    8   (0.5, 4, 8, 14, 18, 20, 23, 25)
+MOSTLY_COMPLETE      13   (2, 3, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 19)
+PARTIALLY_COMPLETE    7   (0.5, 4, 8, 18, 20, 23, 25)
 REQUIRES_REWORK       1   (1)
 BLOCKED               2   (11, 24)
 NOT_STARTED           0

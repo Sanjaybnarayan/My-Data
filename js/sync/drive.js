@@ -332,8 +332,17 @@ export class DocumentStore {
     if (await refused(this.#db, 'documents')) return { uploaded: 0, skipped: 'consent-withdrawn' };
     if (!this.#transport?.configured) return { uploaded: 0, skipped: 'not-configured' };
 
+    // `documentId` is required, not incidental. The `blobs` store also holds
+    // sealed chat attachments, which belong to a message and not to a
+    // document — and the orphan rule below would have deleted every one of
+    // them on the first flush, because `repo('document').get(undefined)` is
+    // null and a blob whose document is gone is dropped.
+    //
+    // Measured before this line existed: a chat blob was picked up by this
+    // query and its document resolved to null. Silent, permanent, and it
+    // would have looked like the attachment had never been sent.
     const pending = await this.#db.adapter.query('blobs', {
-      filter: (b) => !b.uploaded,
+      filter: (b) => !b.uploaded && b.documentId,
       limit,
     });
 

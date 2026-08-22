@@ -164,7 +164,23 @@ async function wrappingKey(privateKey, publicKey, salt) {
  *   when escrow is on. Listed like a device, so a reader can see it is there
  *   rather than discovering it in a spec.
  */
-export async function seal(plaintext, sender, recipients, { escrowPublicKey = null } = {}) {
+export async function seal(plaintext, sender, recipients, options = {}) {
+  return sealBytes(new TextEncoder().encode(plaintext), sender, recipients, options);
+}
+
+/**
+ * The same thing, for bytes.
+ *
+ * Text and files travel identically because they are the same problem: a
+ * content key, wrapped once per recipient device. `seal` is a wrapper around
+ * this rather than a sibling of it, because a second copy of the key-wrapping
+ * would be a second copy of the part where being wrong is unrecoverable —
+ * and the two would drift the first time either was touched.
+ *
+ * The wire format is unchanged, so a message sealed before this existed still
+ * opens. A test asserts exactly that.
+ */
+export async function sealBytes(bytes, sender, recipients, { escrowPublicKey = null } = {}) {
   if (!recipients?.length && !escrowPublicKey) {
     // A message nobody can open is not a private message, it is a lost one.
     throw new AppError('a message must be sealed to at least one device', { code: 'noRecipients' });
@@ -175,7 +191,7 @@ export async function seal(plaintext, sender, recipients, { escrowPublicKey = nu
   );
   const iv = randomBytes(IV_BYTES);
   const ciphertext = new Uint8Array(await subtle().encrypt(
-    { name: 'AES-GCM', iv }, contentKey, new TextEncoder().encode(plaintext),
+    { name: 'AES-GCM', iv }, contentKey, bytes,
   ));
 
   const senderPrivate = await importPrivate(sender.privateKey);
@@ -218,7 +234,7 @@ export async function seal(plaintext, sender, recipients, { escrowPublicKey = nu
  * message was sent, and a screen showing a blank line instead of saying so is
  * how somebody concludes the app lost their messages.
  */
-export async function open(sealed, device, { escrow = null } = {}) {
+export async function openBytes(sealed, device, { escrow = null } = {}) {
   if (Number(sealed?.v) !== SEALED_VERSION) {
     throw new AppError('this message was written by a newer version of FamilyOS',
       { code: 'sealedVersion' });
@@ -232,7 +248,12 @@ export async function open(sealed, device, { escrow = null } = {}) {
   const plain = await subtle().decrypt(
     { name: 'AES-GCM', iv: fromBase64(sealed.iv) }, contentKey, fromBase64(sealed.body),
   );
-  return new TextDecoder().decode(plain);
+  return new Uint8Array(plain);
+}
+
+/** A sealed message as text. See `openBytes` for why this is the wrapper. */
+export async function open(sealed, device, options = {}) {
+  return new TextDecoder().decode(await openBytes(sealed, device, options));
 }
 
 async function unwrapContentKey(sealed, device, escrow) {

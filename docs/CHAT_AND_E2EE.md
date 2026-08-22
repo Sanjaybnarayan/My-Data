@@ -159,3 +159,88 @@ Recorded so the size of it is visible rather than assumed:
 - A decision, made explicitly, that some household data is **not** recoverable
   by the household owner. That is the part that is a product decision rather
   than an engineering one.
+
+
+## Files (Phase 14, second tranche)
+
+### What was measured first
+
+```
+a document blob is encrypted with : the HOUSEHOLD key
+a chat message is sealed to       : the recipients' device keys
+can chat send a file at all       : NO — there is no attachment path
+```
+
+A document's bytes are encrypted with the key every household member shares
+and uploaded to Drive. That is right for a passport scan the household keeps
+together, and exactly wrong for a chat attachment: it would be readable by
+anyone who can unlock the application, while the card above the conversation
+says the messages are end-to-end encrypted. **That sentence would have become
+false the day attachments shipped.**
+
+### How a file travels
+
+The bytes are sealed to the same devices as the message, using the same code.
+`seal` is now a thin wrapper around `sealBytes` rather than a sibling of it —
+a second copy of the key-wrapping would be a second copy of the part where
+being wrong is unrecoverable, and the two would drift the first time either
+was touched. A test seals text and opens it as bytes to prove the two paths
+agree.
+
+**The filename is inside the seal.** `divorce-papers.pdf` names the thing the
+file was meant to keep private, so it travels in a sealed envelope rather than
+a column a household key could read. A test writes exactly that filename and
+then searches every stored row for it.
+
+### Its own store, and why
+
+`attachments`, not `blobs`. They look alike and behave differently, and sharing
+a store was measured to be actively dangerous: the Drive flush in
+`js/sync/drive.js` picks up any un-uploaded blob, looks up its `documentId`,
+finds nothing, and **deletes it as an orphan**. Every attachment would have
+vanished on the first sync, silently, looking exactly like a file that was
+never sent.
+
+The sweep now also requires a `documentId` — belt and braces, and tested
+through the real `flush` rather than by restating its filter in a test, which
+would pass whatever the code did.
+
+### Withdrawing takes the file
+
+Blanking the body and leaving the bytes would be the worst of both: the message
+reads as withdrawn while the photograph is still on the device, and no screen
+would say so.
+
+### The screen that did not exist
+
+`ChatService.send` had **no caller**. The encryption was built, tested, and
+unreachable from any screen — so conversations had no view, no way to send, and
+no way to read. Scoring a phase for code a household cannot use is the
+inflation this repository's scorecard exists to refuse, so the conversation
+view came before the score: sending, reading, choosing a file, opening one, and
+every unreadable message saying *why* in place.
+
+A file is handed back through an object URL built from the decrypted bytes in
+memory and released immediately. The plaintext never touches the disk, which is
+the point of having sealed it.
+
+### Unchanged, and still true
+
+Escrow still opens everything — the recovery phrase is a key to the whole
+conversation, files included, and the card says so. Nothing here has been
+reviewed by a cryptographer.
+
+### What files still do not do
+
+- **No thumbnails, no preview, no streaming.** A file is opened whole or not
+  at all.
+- **No size limit and no pruning.** `pruneUploaded` only ever removes blobs
+  whose upload is confirmed, and an attachment is never uploaded — so
+  attachments accumulate until somebody withdraws the message.
+- **They do not sync.** An attachment lives on the devices that received the
+  message. A device that joins later gets `sentBefore`, the same as for text.
+
+**9 of 9 mutations caught**, including *the file stored unsealed*, *the
+filename put in a column*, *withdrawing leaving the bytes*, *the file's
+description leaking to the screen as raw JSON*, and *the document sweep
+reclaiming attachments as orphans*.
