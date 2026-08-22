@@ -15,8 +15,12 @@
  */
 
 import { Service, TRANSACTION_LIMIT } from './service.js';
-import { read, reconcileWithStatement, fingerprint } from '../domain/sms.js';
+import { read, reconcileWithStatement, fingerprint, SOURCE } from '../domain/sms.js';
 import { today } from '../core/dates.js';
+import * as inbox from '../core/smsinbox.js';
+
+/** The newest arrival already handled, so an inbox is not re-read whole. */
+const WATERMARK = 'sms.lastReadMillis';
 
 export class MessagesService extends Service {
   /**
@@ -29,8 +33,10 @@ export class MessagesService extends Service {
    * would leak it, but because there is no reason to run one, and the shortest
    * path a secret can travel is the safest.
    */
-  async readAndReconcile(message) {
-    const reading = read(message);
+  /** @param {{source?: string}} [options] */
+  async readAndReconcile(message, options = {}) {
+    const { source = SOURCE.IMPORTED } = options;
+    const reading = read(message, { source });
     if (reading.secret) {
       return { reading, result: { agreement: 'none', transaction: null, why: null } };
     }
@@ -71,8 +77,10 @@ export class MessagesService extends Service {
    * one alert would make the evidence look like two events — the failure rule
    * 52 exists to prevent, arriving by a different door.
    */
-  async ingest(message, { clock = Date.now } = {}) {
-    const { reading, result } = await this.readAndReconcile(message);
+  /** @param {{clock?: () => number, source?: string}} [options] */
+  async ingest(message, options = {}) {
+    const { clock = Date.now, source = SOURCE.IMPORTED } = options;
+    const { reading, result } = await this.readAndReconcile(message, { source });
 
     if (reading.secret) {
       return {
@@ -126,5 +134,74 @@ export class MessagesService extends Service {
     });
 
     return { reading, result, stored, why: null };
+  }
+
+  /* --------------------------------------------------- off the device */
+
+  /**
+   * Read what has arrived since last time, and keep what is worth keeping.
+   *
+   * ## Why this counts everything it drops
+   *
+   * Rule 57: every financial event must be explainable. The inverse matters
+   * just as much — a person who taps this and sees "7 messages" needs to know
+   * what happened to the other five, or the number is a mystery that reads as
+   * data loss. So the result names each outcome, including the credentials,
+   * which are the ones somebody is most entitled to be told were discarded.
+   *
+   * ## The watermark is only advanced past what was actually handled
+   *
+   * If ingesting throws half way through a page, the watermark stays at the
+   * last message that really landed. The next read repeats a few and the
+   * fingerprint makes the repeats free — which is the right way round. The
+   * other way loses messages silently, and silence is the one outcome this
+   * whole phase is built to avoid.
+   */
+  /**
+   * @param {{plugin?: (name: string) => object|null, limit?: number,
+   *          clock?: () => number}} [options]
+   * @returns {Promise<{ok: boolean, why: string|null, read: number,
+   *                    kept: number, secrets: number, already: number}>}
+   */
+  async ingestFromDevice({ plugin, limit = inbox.PAGE, clock = Date.now } = {}) {
+    const options = plugin ? { plugin } : {};
+
+    if (!inbox.available(options)) {
+      return { ok: false, why: inbox.UNSUPPORTED, read: 0, kept: 0, secrets: 0, already: 0 };
+    }
+
+    const since = Number(await this.db.meta(WATERMARK)) || 0;
+    const result = await inbox.read({ ...options, since, limit });
+    if (!result.ok) {
+      return { ok: false, why: result.why, read: 0, kept: 0, secrets: 0, already: 0 };
+    }
+
+    const messages = result.messages ?? [];
+    // Oldest first, so the watermark only ever moves forward and a failure
+    // part way through leaves it on a real boundary rather than past a gap.
+    const ordered = [...messages].sort(
+      (a, b) => (a.receivedAtMillis ?? 0) - (b.receivedAtMillis ?? 0),
+    );
+
+    let kept = 0;
+    let secrets = 0;
+    let already = 0;
+    let watermark = since;
+
+    for (const message of ordered) {
+      const outcome = await this.ingest(message, { clock, source: SOURCE.NATIVE });
+
+      if (outcome.reading.secret) secrets += 1;
+      else if (outcome.why === 'this message is already recorded') already += 1;
+      else if (outcome.stored) kept += 1;
+
+      if (Number.isFinite(message.receivedAtMillis) && message.receivedAtMillis > watermark) {
+        watermark = message.receivedAtMillis;
+      }
+    }
+
+    if (watermark > since) await this.db.setMeta(WATERMARK, watermark);
+
+    return { ok: true, why: null, read: ordered.length, kept, secrets, already };
   }
 }

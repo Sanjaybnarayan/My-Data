@@ -51,6 +51,7 @@ const SHELL = [
   './js/core/money.js',
   './js/locale/en.js',
   './js/core/native.js',
+  './js/core/smsinbox.js',
 
   './js/data/audit.js',
   './js/data/classification.js',

@@ -284,6 +284,47 @@ describe('the location permissions', () => {
       + 'application does not do that. Change them first, or remove the line.');
   });
 
+  test('it asks to read SMS, because Phase 6 needs it', async () => {
+    const xml = await manifest();
+    assert.ok(asks(xml, 'READ_SMS'),
+      'the native SMS path cannot work without it, and js/core/smsinbox.js '
+      + 'would silently fall back to reporting no inbox');
+  });
+
+  test('and does not ask to receive SMS as messages arrive', async () => {
+    // The Phase 6 counterpart to background location, and the same argument.
+    // RECEIVE_SMS wakes the app on every arriving message, which is passive
+    // interception rather than something a person asked for. Nothing here
+    // needs it: the inbox is read when somebody opens the screen and taps.
+    //
+    // js/core/smsinbox.js, the Messages screen and docs/SMS_INTELLIGENCE.md
+    // all say nothing runs in the background. This is what makes that true
+    // rather than merely written down.
+    const xml = await manifest();
+    assert.not(asks(xml, 'RECEIVE_SMS'),
+      'RECEIVE_SMS was added — the module, the screen and the documentation '
+      + 'all say this application does not watch for messages. Change them '
+      + 'first, or remove the line.');
+    assert.not(asks(xml, 'SEND_SMS'), 'this application never sends a message');
+  });
+
+  test('the SMS permission carries the distribution warning with it', async () => {
+    // READ_SMS is a Play restricted permission and decides where this build
+    // can go. Somebody adding a target or preparing a listing has to meet
+    // that fact at the line itself, not three documents away.
+    const xml = await manifest();
+    const before = xml.slice(0, xml.indexOf('android.permission.READ_SMS'));
+    const comment = before.slice(before.lastIndexOf('<!--'));
+    assert.includes(comment, 'restricted permission');
+    assert.includes(comment, 'sideload');
+  });
+
+  test('a device without telephony is not excluded either', async () => {
+    const xml = await manifest();
+    assert.ok(/android\.hardware\.telephony"\s+android:required="false"/.test(xml),
+      'a tablet or work profile with no SIM still runs everything else');
+  });
+
   test('a device without GPS is not excluded from the store listing', async () => {
     const xml = await manifest();
     assert.ok(/android\.hardware\.location\.gps"\s+android:required="false"/.test(xml),

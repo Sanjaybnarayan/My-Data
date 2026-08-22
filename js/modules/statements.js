@@ -37,6 +37,8 @@ import {
 import { summarise, categoryLabel, businessLedger } from '../domain/categorise.js';
 import { AGREEMENT } from '../domain/sms.js';
 import { MessagesService } from '../services/sms.js';
+import { nativeStatus, CONNECTOR_STATUS } from '../domain/sms.js';
+import * as smsInbox from '../core/smsinbox.js';
 import { today } from '../core/dates.js';
 import { format } from '../core/money.js';
 import { transact } from '../data/unit.js';
@@ -55,6 +57,11 @@ export async function render() {
    */
   let businesses = await app().db.meta(BUSINESSES, []);
 
+  // What the last permission request answered, so the card can change without
+  // asking Android again. `null` means "not asked in this session", which the
+  // status treats the same as "not granted" — the safe direction.
+  let pendingPermission = null;
+
   const input = h('input', {
     type: 'file',
     accept: 'application/pdf,.pdf,text/csv,.csv,.tsv,.txt',
@@ -67,10 +74,17 @@ export async function render() {
     },
   });
 
+  // Its own container, because `paint()` repaints the statement body only and
+  // the messages card has to be able to change on its own — granting the
+  // permission turns "Allow" into "Read this device", and that is the whole
+  // feedback somebody gets for having said yes.
+  const smsHost = h('div', {});
+  const paintSms = () => replace(smsHost, smsCard());
+
   // Deliberately not a page header: this screen lives inside Finance's, and
   // two of them stacked reads as two pages.
   replace(host, [
-    smsCard(),
+    smsHost,
     card({}, [
       cardHeader('Import statements', [
         button('Choose files', { variant: 'primary', iconName: 'plus', onClick: () => input.click() }),
@@ -80,18 +94,20 @@ export async function render() {
     body,
   ]);
 
+  paintSms();
   paint();
   return { node: host };
 
   /* ------------------------------------------------------------------ sms */
 
   /**
-   * A bank message, pasted.
+   * Bank messages: read off this device where that is possible, pasted where
+   * it is not.
    *
-   * The prompt's Phase 6 says a PWA must not depend on SMS access, and a
-   * browser cannot read an inbox — so this is the alternative ingestion rule 55
-   * asks for. It reads what the message says, checks it against the statements
-   * already imported, and writes nothing.
+   * Pasting came first and stays, because it is the only path that works in a
+   * browser and on iOS — rule 55's alternative ingestion. Reading the inbox is
+   * the Android companion build only, and the card says which of the two this
+   * device is looking at rather than showing a button that does nothing.
    */
   function smsCard() {
     const box = h('textarea', {
@@ -162,14 +178,80 @@ export async function render() {
       ].filter(Boolean));
     }
 
+    /**
+     * Sweep the device inbox.
+     *
+     * The counts are all reported, including the credentials. Somebody who
+     * taps this and is told "7 kept" out of twelve messages is owed the other
+     * five, or the number reads as data quietly going missing.
+     */
+    async function sweep(node) {
+      replace(node, h('p', { class: 'small faint' }, 'Reading…'));
+
+      const service = new MessagesService(app().db);
+      const result = await service.ingestFromDevice();
+
+      if (!result.ok) {
+        replace(node, h('p', { class: 'small money--negative' },
+          result.why === smsInbox.DENIED
+            ? 'Permission to read messages was refused. Android only asks once, '
+              + 'so this has to be changed in system settings — or paste a '
+              + 'message below instead.'
+            : 'The inbox could not be read on this device. Pasting a message '
+              + 'below still works.'));
+        return;
+      }
+
+      const parts = [`${result.read} ${result.read === 1 ? 'message' : 'messages'} read`];
+      if (result.kept) parts.push(`${result.kept} kept`);
+      if (result.already) parts.push(`${result.already} already recorded`);
+      if (result.secrets) {
+        parts.push(`${result.secrets} carried a one-time code and ${result.secrets === 1 ? 'was' : 'were'} discarded unread`);
+      }
+
+      replace(node, h('p', { class: 'small' }, `${parts.join(', ')}.`));
+      paint();
+    }
+
+    const device = {
+      available: smsInbox.available(),
+      permission: pendingPermission,
+    };
+    const status = nativeStatus(device);
+    const deviceOut = h('div', {});
+
     return card({}, [
-      cardHeader('Read a bank message', [
-        button('Read', { variant: 'subtle', onClick: () => void readIt() }),
-      ], {
-        subtitle: 'A browser cannot read your inbox — paste one instead',
+      cardHeader('Bank messages', [
+        status.status === CONNECTOR_STATUS.CONNECTED
+          ? button('Read this device', {
+            variant: 'subtle',
+            iconName: 'inbox',
+            onClick: () => void sweep(deviceOut),
+          })
+          : null,
+        status.status === CONNECTOR_STATUS.AUTH_REQUIRED
+          ? button('Allow reading messages', {
+            variant: 'subtle',
+            iconName: 'shield',
+            onClick: async () => {
+              // Asked here and nowhere else. Android shows this dialog once
+              // and a refusal is final, so it happens on a deliberate tap
+              // under a sentence that has already said what it is for.
+              pendingPermission = await smsInbox.request();
+              paintSms();
+            },
+          })
+          : null,
+      ].filter(Boolean), {
+        subtitle: status.why,
         iconName: 'info',
       }),
+      deviceOut,
+      h('p', { class: 'small faint' }, 'Or paste a message:'),
       box,
+      h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-2)' } }, [
+        button('Read', { variant: 'subtle', onClick: () => void readIt() }),
+      ]),
       out,
     ]);
   }

@@ -29,7 +29,7 @@ external integration or has an open critical security or data-integrity defect.
 | 3 | Document AI / OCR / DOCX | **MOSTLY_COMPLETE** | 78 | `pdf-read.js` (816 lines), `docx.js`, `xlsx`, `extract.js`, `classification`, confidence, versioning, duplicate detection | Image OCR requires the Drive round-trip; no on-device OCR | Low |
 | 4 | Gmail / Drive / Calendar | **PARTIALLY_COMPLETE** | 62 | `apps-script/Gmail.gs`, `Drive.gs`, `js/sync/calsync.js`, real scopes, optional Gmail | Incremental sync partial; revocation handling thin; multi-account not supported | Medium |
 | 5 | Financial foundation | **MOSTLY_COMPLETE** | 82 | `categorise.js` (927), `events.js`, `evidence.js`, `settlement.js`, `ledger.js`; statements, CSV/XLS/PDF; Cases 1, 2, 4, 5 pass | No unified conflict record (Case 3); headline not corrected for settlements | Medium |
-| 6 | SMS intelligence | **PARTIALLY_COMPLETE** | 45 | `domain/sms.js`, `services/sms.js`, `smsMessage` entity, OTP refusal, `SOURCE_PRIORITY`, 22 tests | **No native capture.** `SOURCE.NATIVE` → `NOT_SUPPORTED`; manifest has only `INTERNET` | Low |
+| 6 ↑ | SMS intelligence | **MOSTLY_COMPLETE** | 72 | `domain/sms.js`, `services/sms.js`, `smsMessage` entity, OTP refusal, `SOURCE_PRIORITY`; **native inbox capture** via `SmsInboxPlugin.java` + `js/core/smsinbox.js`, watermarked sweeps, every count reported | **Never run on a device** — compiles in CI, all JS tested against a fake plugin; `READ_SMS` is a Play restricted permission, so this build is for sideloading; no `SMSEvent`/`SMSSource` entities | Medium |
 | 7 | Cards / loans / EMI / FD / RD / ledger | **MOSTLY_COMPLETE** | 76 | `loan`, `card bills`, `amortise.js`, `accrual.js`, `settlement.js`, family ledger, splits | FD/RD classification imprecise (`p2p-out`) | Medium |
 | 8 | Investments / broker | **PARTIALLY_COMPLETE** | 42 | `holding`, `investmentTransaction`, `costbasis.js`, `portfolio.js`, P&L, fees | **No broker connector.** Zerodha appears only as a narration regex | Low |
 | 9 | Financial intelligence | **MOSTLY_COMPLETE** | 74 | `cfo.js`, `goals.js`, `commitments.js`, `explain.js`, forecasting, anomalies; provenance on figures | No ML; forecasts are rule-based | Low |
@@ -46,7 +46,7 @@ external integration or has an open critical security or data-integrity defect.
 | 20 ↑ | Security / privacy / compliance hardening | **PARTIALLY_COMPLETE** | 68 | AES-GCM + PBKDF2, 36 encrypted fields, sanitiser, rate limiting, device trust, 68 compliance controls, **0 VERIFIED**; §8.1 fixed in `76b946f` | No external cryptographic review; no control has been verified, and none may be called compliant until one is | Medium |
 | 21 | Backup / restore / portability | **COMPLETE** | 88 | `domain/archive.js` + `services/archive.js`; encrypted archive, verified read-back, restore refuses to merge, keyring travels, deleted rows preserved | No scheduling; on-disk bytes unverifiable from a page | Low |
 | 22 | PWA optimisation | **COMPLETE** | 84 | Manifest, 167-entry precache, offline shell, IndexedDB, sync queue, update mechanism, `tools/webroot.mjs` two-way check | No push, no background sync | Low |
-| 23 ↑ | Android companion | **PARTIALLY_COMPLETE** | 58 | Capacitor 8.5.0; **debug APK builds in CI**; back button, Filesystem, Share; `allowBackup` off; **coarse and fine location**, GPS declared non-required | No SMS, no background location or geofencing, no screen time, no camera | Medium |
+| 23 ↑ | Android companion | **PARTIALLY_COMPLETE** | 64 | Capacitor 8.5.0; **debug APK builds in CI**; back button, Filesystem, Share; `allowBackup` off; coarse and fine location; **a first-party SMS plugin**, telephony declared non-required | No background location or geofencing, no screen time, no camera; the SMS permission makes this a sideload build | Medium |
 | 24 | iOS companion | **BLOCKED** | 30 | Project generated and synced; RGB icons; no usage descriptions needed | **Never compiled** — no macOS available | Medium |
 | 25 ↑ | Internationalisation | **PARTIALLY_COMPLETE** | 45 | `js/core/locale.js` merged in `e5b45df`; schema labels and dates route through it; a translation that drops a placeholder is **refused**; `tools/strings.mjs` measures the rest | **One language.** 3,319 strings are still written into the source, and nothing has been translated | Low |
 
@@ -54,8 +54,8 @@ external integration or has an open critical security or data-integrity defect.
 
 ```
 COMPLETE              4   (10, 21, 22, and 0)
-MOSTLY_COMPLETE      11   (2, 3, 5, 7, 9, 12, 13, 15, 16, 17, 19)
-PARTIALLY_COMPLETE    9   (0.5, 4, 6, 8, 14, 18, 20, 23, 25)
+MOSTLY_COMPLETE      12   (2, 3, 5, 6, 7, 9, 12, 13, 15, 16, 17, 19)
+PARTIALLY_COMPLETE    8   (0.5, 4, 8, 14, 18, 20, 23, 25)
 REQUIRES_REWORK       1   (1)
 BLOCKED               2   (11, 24)
 NOT_STARTED           0

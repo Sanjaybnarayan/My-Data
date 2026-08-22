@@ -499,6 +499,26 @@ async function main() {
       // Phase 6's reading exists in `domain/sms.js`; this is the half that
       // proves a household can reach it.
       {
+        // Phase 6's native half, from the browser's side. There is no plugin
+        // here, so the honest outcome is that the card says reading an inbox
+        // is not possible and offers pasting instead — not a button that
+        // silently does nothing when tapped.
+        const card = (await page.locator('.app-content').innerText()).trim();
+
+        check('a browser is told it cannot read an inbox rather than shown a dead button',
+          /cannot read an SMS inbox/i.test(card), card.slice(0, 600));
+        check('and no read-this-device button is offered where it cannot work',
+          (await page.getByRole('button', { name: /Read this device/ }).count()) === 0,
+          card.slice(0, 600));
+        check('and no permission prompt is offered either',
+          (await page.getByRole('button', { name: /Allow reading messages/ }).count()) === 0,
+          card.slice(0, 600));
+        // The alternative rule 55 asks for is still right there.
+        check('and pasting is still offered',
+          (await page.locator('#sms-text').count()) === 1, card.slice(0, 600));
+      }
+
+      {
         const smsBefore = consoleErrors.length;
 
         await page.locator('#sms-text').fill(
