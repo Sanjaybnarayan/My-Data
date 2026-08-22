@@ -16,7 +16,7 @@ does is make a second language *possible* and make an incomplete one
 | Piece | What it is |
 | --- | --- |
 | `js/core/locale.js` | `t()`, catalogue registration, the active language, and the measurements below |
-| `js/locale/en.js` | The authoritative catalogue. 79<!--live:localeKeys--> keys today |
+| `js/locale/en.js` | The authoritative catalogue. 99<!--live:localeKeys--> keys today |
 | `js/core/labels.js` | The one door the schema's English passes through on its way to a screen |
 | `tools/strings.mjs` | Counts the English still written directly into the source |
 
@@ -46,7 +46,7 @@ with strings the application will never show. A refused line counts as zero.
 
 ## What still cannot be translated
 
-**3,293<!--live:unroutedStrings--> English strings, across 138<!--live:unroutedFiles--> files.** That is the measured count from
+**3,311<!--live:unroutedStrings--> English strings, across 141<!--live:unroutedFiles--> files.** That is the measured count from
 `node tools/strings.mjs`, and it is the number that matters. They are written
 directly into the source, so no catalogue can reach them and no translator will
 ever see them.
@@ -57,16 +57,16 @@ cannot hand to a translator.
 
 What *is* reachable today:
 
-- 79<!--live:localeKeys--> UI message keys — dates, the generic record screens, the language card
-- 716<!--live:labelKeys--> schema label keys — 22<!--live:modules--> modules, 50<!--live:entities--> entities in two forms each, 594<!--live:fields--> fields
+- 99<!--live:localeKeys--> UI message keys — dates, the generic record screens, the language card
+- 743<!--live:labelKeys--> schema label keys — 23<!--live:modules--> modules, 53<!--live:entities--> entities in two forms each, 614<!--live:fields--> fields
 
-716<!--live:labelKeys--> of those are derived from the schema by `labelKeys()`, so a new entity is
+743<!--live:labelKeys--> of those are derived from the schema by `labelKeys()`, so a new entity is
 something a translator is told about rather than something they discover.
 
 ## Why no second language ships
 
 Not because the mechanism is not ready. Because nobody has translated anything,
-and machine-translating 3,293<!--live:unroutedStrings--> strings of Indian financial and legal vocabulary
+and machine-translating 3,311<!--live:unroutedStrings--> strings of Indian financial and legal vocabulary
 would have produced something worse than English.
 
 The application says things like *a credit-card settlement is not an expense*,
@@ -83,9 +83,9 @@ being empty.
 
 ## What a translator would need
 
-1. `js/locale/en.js` — 79<!--live:localeKeys--> strings, whole sentences, with `{placeholders}`
+1. `js/locale/en.js` — 99<!--live:localeKeys--> strings, whole sentences, with `{placeholders}`
    intact. Every placeholder must survive or the line is refused.
-2. The 716<!--live:labelKeys--> label keys from `labelKeys()` — entity names, field names, module
+2. The 743<!--live:labelKeys--> label keys from `labelKeys()` — entity names, field names, module
    names.
 3. A decision on `midSentence`: `'lower'` if the language lowercases nouns
    inside a sentence the way English does, `'preserve'` otherwise. German

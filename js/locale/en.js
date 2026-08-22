@@ -119,6 +119,29 @@ export const strings = {
   'accuracy.metres': 'accurate to about {n} m',
   'accuracy.kilometres': 'accurate to about {n} km, so this is a neighbourhood and not a place',
 
+  // Chat. The honesty lines are above the conversations on purpose: somebody
+  // deciding whether to type something sensitive decides before they scroll.
+  'chat.title': 'Chat',
+  'chat.subtitle': 'Messages between people in this household',
+  'chat.honesty.title': 'What this encryption covers',
+  'chat.honesty.badge': 'end-to-end, with one exception',
+  'chat.honesty.covered': 'A message is sealed to each participant\u2019s devices. Google cannot read it, and neither can anyone in this household who is not in the conversation.',
+  'chat.honesty.escrow': 'Except the recovery phrase. Every message is also sealed to a key that phrase opens, so a restored backup can still read old conversations \u2014 which means whoever holds the phrase can read every conversation, including ones they were never part of.',
+  'chat.honesty.unaudited': 'This uses standard Web Crypto and has been tested, but it has not been reviewed by a cryptographer. There is no forward secrecy: somebody who takes a device\u2019s key can read everything ever sent to it.',
+  'chat.devices.title': 'Devices that can read messages',
+  'chat.devices.count': '{n} enrolled',
+  'chat.devices.none': 'No device has been enrolled yet',
+  'chat.devices.notEnrolled': 'This device has no chat key yet, so it cannot read or send messages. Enrolling makes one and keeps the private half on this device only.',
+  'chat.devices.enrol': 'Enrol this device',
+  'chat.devices.enrolled': 'This device is enrolled',
+  'chat.devices.thisDevice': 'This device',
+  'chat.devices.done': 'This device can now read messages sent to it',
+  'chat.devices.noPerson': 'This sign-in is not linked to a person, so there is nobody to enrol a device for.',
+  'chat.devices.verified': 'The safety number was compared and matched',
+  'chat.devices.unverified': 'Nobody has compared this device\u2019s safety number yet',
+  'chat.devices.verifiedBadge': 'verified',
+  'chat.devices.unverifiedBadge': 'unverified',
+
   // The language picker itself.
   'locale.title': 'Language',
   'locale.english': 'English',

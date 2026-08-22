@@ -305,7 +305,9 @@ describe('pushing', () => {
     // This used to read "a child may write nothing at all", and that was true
     // of the schema until Phase 15. A location reading is made by the device
     // in the child's pocket, so if a child may not write one, a child never
-    // has a position — which is most of the point of safe zones.
+    // has a position — which is most of the point of safe zones. Phase 14 adds
+    // three more for the same reason: a child who cannot enrol a device or
+    // write a message is a child who cannot be in the family chat.
     //
     // So the exception is deliberate and it is narrow. It is asserted as a
     // list rather than a count, because the failure worth catching is a
@@ -315,7 +317,8 @@ describe('pushing', () => {
       .filter((n) => api.policyAllows('child', 'write', n))
       .sort();
 
-    assert.deep(writable, ['locationPing', 'sosAlert']);
+    assert.deep(writable,
+      ['conversation', 'deviceKey', 'locationPing', 'message', 'sosAlert']);
     assert.ok(api.readableEntities('child').length > 0, 'though they can read plenty');
   });
 
