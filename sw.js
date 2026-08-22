@@ -60,6 +60,7 @@ const SHELL = [
   './js/data/provenance.js',
   './js/data/database.js',
   './js/data/formats.js',
+  './js/data/integrity.js',
   './js/data/idb.js',
   './js/data/migrations.js',
   './js/data/pdf-read.js',

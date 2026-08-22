@@ -64,6 +64,7 @@ export const strings = {
   'record.editTitle': 'Edit {one}',
   'record.newTitle': 'New {one}',
   'record.deleteTitle': 'Delete this {one}?',
+  'record.deleteBlockedTitle': 'This {one} cannot be deleted yet',
 
   // Safety. The first module written after this catalogue existed, and the
   // reason the unrouted count did not go up when Phase 15 landed.

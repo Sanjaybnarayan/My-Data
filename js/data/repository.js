@@ -20,6 +20,9 @@ import { validateOrThrow } from './validate.js';
 import { upgradeRecord } from './migrations.js';
 import { indexEntry, indexKey } from './search.js';
 import { auditEntry, changedFields, ACTIONS, shouldLogRead } from './audit.js';
+import {
+  unresolved, refuseUnresolved, dependents, blocking, refuseBlocked,
+} from './integrity.js';
 import { assertCan, rowFilter } from '../security/rbac.js';
 import { encryptRecord, decryptRecord, decryptMany } from '../security/fieldcrypto.js';
 import { newId } from '../core/ids.js';
@@ -137,7 +140,33 @@ export class Repository {
    * the first one written, and a refusal discovered late is a refusal
    * discovered after the first write went in.
    */
-  async stageCreate(input) {
+  /**
+   * Does this row exist and is it still here?
+   *
+   * A soft-deleted row does not count. Pointing at a record somebody threw
+   * away is the same dangling reference as pointing at one that never was,
+   * and it is the more common way to arrive at one.
+   */
+  #exists = async (entityName, id, pending = null) => {
+    // A row staged earlier in the same unit of work counts. Recording a
+    // payment and the economic event it belongs to is one act, and the event
+    // has to point at a transaction that is not written yet — which is what a
+    // relational database calls a deferred constraint and what this is.
+    if (pending?.has?.(`${entityName}:${id}`)) return true;
+    const row = await this.#ctx.adapter.read(entityName, id);
+    return Boolean(row) && !row.deletedAt;
+  };
+
+  #rowsOf = async (entityName) => this.#ctx.adapter.query(entityName, {});
+
+  /** Refuse a write whose references name nothing. */
+  async #assertReferencesResolve(record, pending) {
+    const bad = await unresolved(this.#name, record,
+      (entityName, id) => this.#exists(entityName, id, pending));
+    if (bad.length) throw refuseUnresolved(this.#name, bad);
+  }
+
+  async stageCreate(input, { pending = null } = {}) {
     const actor = this.#actor();
     assertCan(actor, 'write', this.#name);
 
@@ -160,6 +189,7 @@ export class Repository {
     // The row-level check needs the finished record: a child creating a task
     // for themselves is allowed, for a sibling is not.
     assertCan(actor, 'write', this.#name, record);
+    await this.#assertReferencesResolve(record, pending);
 
     return this.plan({ record, before: null, action: ACTIONS.create });
   }
@@ -176,7 +206,7 @@ export class Repository {
   }
 
   /** An update, prepared and not written. See `stageCreate`. */
-  async stageUpdate(id, patch) {
+  async stageUpdate(id, patch, { pending = null } = {}) {
     const actor = this.#actor();
     const existing = await this.#ctx.adapter.read(this.#name, id);
     if (!existing) throw new AppError(`no ${this.#name} with id ${id}`, { code: 'not-found' });
@@ -202,6 +232,7 @@ export class Repository {
       syncState: 'pending',
     };
     assertCan(actor, 'write', this.#name, record);
+    await this.#assertReferencesResolve(record, pending);
 
     return this.plan({
       record, before: current, action: ACTIONS.update, existingRaw: existing,
@@ -226,6 +257,14 @@ export class Repository {
     const existing = await this.#ctx.adapter.read(this.#name, id);
     if (!existing) return null;
     assertCan(actor, 'write', this.#name, existing);
+
+    // RESTRICT, never CASCADE. Deleting a person does not delete their
+    // transactions: cascading through a household's financial records because
+    // somebody tidied a contact is data loss with a plausible explanation.
+    // An *optional* reference is left to dangle-by-design — the schema
+    // already says that field may be empty — and only a required one blocks.
+    const blocked = blocking(await dependents(this.#name, id, this.#rowsOf));
+    if (blocked.length) throw refuseBlocked(this.#name, blocked);
 
     const record = {
       ...existing,
@@ -297,7 +336,7 @@ export class Repository {
    * goes through the same code it always did.
    *
    * @returns {Promise<{stores: string[], apply: (t: object) => Promise<void>,
-   *                    emit: () => void, record: object}>}
+   *                    emit: () => void, record: object, entity: string}>}
    */
   async plan({ record, before, action, existingRaw = null }) {
     const sealed = await encryptRecord(this.#name, record, this.#ctx.keyring.key);
@@ -358,6 +397,11 @@ export class Repository {
       apply,
       emit,
       record,
+      // Named rather than inferred from `stores[0]`. A unit of work needs to
+      // know what a staged row *is* to let the next one reference it, and
+      // reading that off the first element of a list is the kind of coupling
+      // that survives until somebody reorders the list.
+      entity: this.#name,
     };
   }
 

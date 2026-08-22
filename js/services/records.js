@@ -166,6 +166,10 @@ export class RecordsService extends Service {
         groups.set(key, {
           entity: ref.entity,
           label: def.labels.many,
+          // Both, because a group of one is the commonest case on this screen
+          // and "1 health records" is the sort of sentence that makes somebody
+          // stop trusting the rest of the dialog.
+          labelOne: def.labels.one,
           field: ref.field,
           fieldLabel: field?.label ?? ref.field,
           required,
@@ -230,11 +234,15 @@ export class RecordsService extends Service {
     const parts = [`${records(impact.total)} ${impact.total === 1 ? 'refers' : 'refer'} to this one`];
 
     if (impact.breaking) {
+      // Present tense, and a refusal rather than a forecast. The repository
+      // will not perform this delete, so a sentence saying what *would* break
+      // describes something that is not going to happen.
       const list = impact.byEntity.filter((g) => g.required)
-        .map((g) => `${g.count} ${g.label.toLowerCase()}`).join(', ');
+        .map((g) => `${g.count} ${(g.count === 1 ? g.labelOne : g.label).toLowerCase()}`)
+        .join(', ');
       parts.push(
-        `${records(impact.breaking)} need it — ${list} — and will not pass validation `
-        + 'until they are pointed somewhere else',
+        `${records(impact.breaking)} ${impact.breaking === 1 ? 'needs' : 'need'} it — ${list} `
+        + '— so it cannot be deleted until they are pointed somewhere else',
       );
     }
 

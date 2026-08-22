@@ -14,8 +14,13 @@ import { button } from './basics.js';
 let openCount = 0;
 
 /**
- * @param {{title: string, body: Node, footer?: Node, wide?: boolean,
- *          onClose?: Function, dismissable?: boolean}} options
+ * `body` and `footer` take what `h()` takes: a node, or a list of them. Every
+ * caller in the tree passes a list of buttons for the footer, and typing it as
+ * a single node meant each of them carried a type finding for doing the
+ * ordinary thing.
+ *
+ * @param {{title: string, body: Node|Node[], footer?: Node|Node[],
+ *          wide?: boolean, onClose?: Function, dismissable?: boolean}} options
  * @returns {{node: Node, close: Function}}
  */
 export function modal({
@@ -110,6 +115,28 @@ export function confirm({
         }),
       ],
       onClose: () => finish(false),
+    });
+  });
+}
+
+/**
+ * A statement, with one way out.
+ *
+ * Separate from `confirm` because a dialog offering a choice that does not
+ * exist is worse than no dialog: a Delete button on a delete that will be
+ * refused teaches somebody that the button lies. Used where a rule has already
+ * decided, and the screen's job is to say what it decided and why.
+ */
+export function inform({ title, message, dismissLabel = 'Close' }) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => { if (!settled) { settled = true; resolve(); } };
+
+    const { close } = modal({
+      title,
+      body: h('p', {}, message),
+      footer: [button(dismissLabel, { variant: 'primary', onClick: () => { finish(); close(); } })],
+      onClose: finish,
     });
   });
 }
