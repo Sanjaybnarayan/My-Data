@@ -913,6 +913,29 @@ async function main() {
       check('and does not offer a picker with one entry in it',
         (await page.getByRole('button', { name: /^English/ }).count()) === 0);
 
+      // The one card that must never say "all clear". No application can
+      // detect that a copy of a household's records was taken, and a screen
+      // implying otherwise would be answering a question it never asked.
+      {
+        const summary = page.getByText('If you think your records have got out');
+        check('Settings offers help if records may have got out',
+          (await summary.count()) >= 1);
+
+        // A collapsed <details> keeps its body out of innerText, so this
+        // opens it — which is what somebody would do anyway.
+        await summary.first().click();
+        await page.waitForTimeout(300);
+        const body = (await page.locator('.app-content').innerText()).trim();
+
+        check('and never claims to have detected anything',
+          !/no breach(es)? detected|breach detection|all clear/i.test(body),
+          body.slice(0, 600));
+        check('and says an empty list is not the same as nothing happening',
+          /not the same as nothing having happened/i.test(body), body.slice(-1200));
+        check('and refuses the regulator half in as many words',
+          /Notify a regulator/i.test(body), body.slice(-1200));
+      }
+
       // Consent for the people whose records are somebody else's to agree to.
       // A member of household staff is another person; before this, nothing
       // in the application asked, and nothing recorded that nobody had.

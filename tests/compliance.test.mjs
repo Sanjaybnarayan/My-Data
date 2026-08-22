@@ -99,8 +99,36 @@ describe('what the regimes say', () => {
     const counts = summary();
     assert.equal(counts.regimes, REGIMES.length);
     assert.equal(counts.controls, REGIMES.reduce((n, r) => n + r.controls.length, 0));
-    assert.equal(counts.gaps.length, counts.byStatus[STATUS.NOT_STARTED]);
+    // `?? 0` because a status with no rows is absent from the tally, not
+    // zero — and the day the last NOT_STARTED control was filled in, this
+    // compared 0 against undefined and failed for the happiest reason it
+    // could have.
+    assert.equal(counts.gaps.length, counts.byStatus[STATUS.NOT_STARTED] ?? 0);
     assert.not(STATUS.VERIFIED in counts.byStatus);
+  });
+
+  test('no control is VERIFIED, whatever else has been filled in', () => {
+    // The number that matters, and the one that must not drift upward
+    // quietly. Every other status is a claim about this codebase; VERIFIED is
+    // a claim that somebody qualified checked it against the obligation and
+    // signed their name. Nobody has.
+    //
+    // This is asserted separately from the tally above because the tally
+    // could be rewritten, and because zero NOT_STARTED controls is exactly
+    // the moment somebody would read the list as "compliant".
+    const verified = REGIMES.flatMap((r) => r.controls)
+      .filter((c) => c.status === STATUS.VERIFIED);
+    assert.length(verified, 0, JSON.stringify(verified.map((c) => c.id)));
+  });
+
+  test('and no regime claims the application is compliant', () => {
+    // Never claim compliance automatically. A regime that applies is a regime
+    // whose obligations were read by a programmer, not assessed by a lawyer,
+    // and every one of them says so.
+    for (const regime of REGIMES) {
+      assert.not(/\bis compliant\b|\bfully complies\b|\bcertified\b/i.test(regime.why ?? ''),
+        `${regime.id}: ${regime.why}`);
+    }
   });
 
   test('EVIDENCED names the statuses that make a claim about code', () => {

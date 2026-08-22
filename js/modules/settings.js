@@ -39,6 +39,8 @@ import {
 import { recentActivity, describe as describeAudit, ACTIONS } from '../data/audit.js';
 import { recent as recentDiagnostics, summarise as summariseDiagnostics } from '../data/diagnostics.js';
 import { attention as connectorsNeedingAttention } from '../data/connectors.js';
+import { SEVERITY } from '../domain/breach.js';
+import { readinessFor } from '../data/incident.js';
 import {
   report as consentReport, record, PURPOSES, DECISIONS, peopleWithRecordsAbout,
 } from '../data/consent.js';
@@ -59,6 +61,9 @@ async function paint(host) {
   const activity = await recentActivity(db.adapter, { limit: 12 });
   const diagnostics = await recentDiagnostics(db.adapter, { limit: 100 });
   const needing = await connectorsNeedingAttention(db);
+
+  // Facts that already exist, gathered rather than invented.
+  const breach = await readinessFor(db);
   const methods = await db.keyring.methods();
   const people = Object.fromEntries(
     (await db.repo('person').list({ decrypt: false })).map((p) => [p.id, p.name]),
@@ -98,6 +103,7 @@ async function paint(host) {
       connectionsCard(needing),
       activityCard(activity, people, db),
       diagnosticsCard(diagnostics),
+      breachCard(breach),
       aboutCard(),
     ]),
   ]);
@@ -1533,6 +1539,68 @@ function diagnosticsCard(events) {
       'Nobody is watching it but you. Nothing alerts anyone, and there is no '
       + 'view across your other devices.'),
   ]);
+}
+
+/**
+ * What to do if the household thinks their records have got out.
+ *
+ * ## The word "detection" does not appear here, deliberately
+ *
+ * No application can detect that a copy of a household's records was taken. A
+ * stolen phone, a shared Drive link, a photograph of a screen — none of them
+ * produce an event on this device. A card that said "no breaches detected"
+ * would be answering a question it never asked.
+ *
+ * So it reports indicators, each with what it means *and does not*, and it
+ * carries the three things it cannot do even when it has something to report.
+ * A screen that drops its caveats the moment it has news overstates exactly
+ * when it matters most.
+ *
+ * ## The half that is genuinely useful
+ *
+ * Who would have to be told. This application knows, because it holds the
+ * records — and since the household keeps records about staff and children,
+ * that list has people on it whose data is not the household's own to weigh.
+ * Working that out under pressure, from a list nobody has, is the part worth
+ * having ready.
+ */
+function breachCard(answer) {
+  const urgent = answer.indicators.filter((i) => i.severity === SEVERITY.URGENT);
+
+  return h('details', { class: 'card card--quiet' }, [
+    h('summary', {}, [
+      'If you think your records have got out',
+      urgent.length ? badge(String(urgent.length), 'warning') : null,
+    ].filter(Boolean)),
+
+    h('p', { class: 'small' },
+      'FamilyOS cannot tell you whether this has happened. What it can do is '
+      + 'show you the few things it does know about, and who you would have '
+      + 'to tell.'),
+
+    answer.indicators.length
+      ? h('div', { class: 'list' }, answer.indicators.map((one) => listItem({
+        title: one.what,
+        subtitle: `${one.meaning} ${one.notMeaning}`,
+        trailing: badge(one.severity, one.severity === SEVERITY.URGENT ? 'warning' : 'muted'),
+      })))
+      : h('p', { class: 'small faint' },
+        'Nothing to show — which is not the same as nothing having happened.'),
+
+    answer.affected.length
+      ? h('div', {}, [
+        h('p', { class: 'small', style: { marginBottom: 0 } }, 'Who you would have to tell:'),
+        h('div', { class: 'list' }, answer.affected.map((person) => listItem({
+          title: person.name,
+          subtitle: person.why,
+          trailing: person.othersData ? badge('not your data', 'warning') : null,
+        }))),
+      ])
+      : null,
+
+    h('p', { class: 'small faint', style: { marginBottom: 0 } },
+      `What this cannot do: ${answer.cannot.join(' ')}`),
+  ].filter(Boolean));
 }
 
 /* ----------------------------------------------------------------- about */
