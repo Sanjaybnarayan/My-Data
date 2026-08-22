@@ -41,6 +41,12 @@ existed are read forward in place — an old bare-string entry takes the role it
 always behaved as, and no write is needed to migrate.
 
 **`admit()` returns the role**, and the role travels with the verified identity.
+For a period it travelled only as far as `admit()`: `doPost` built the dispatch
+context without `role` or `personId`, so `Sheets.gs` read `'guest'` for
+everybody and refused every push and pull. Everything on this page was true of
+the design and false of the running system, which is the most expensive kind of
+documentation there is. `tests/backend.test.mjs` now drives both through
+`doPost`, so the claim on this page is checked rather than stated.
 It is never read from the request: a caller telling the backend what role it has
 would be a caller granting itself one.
 

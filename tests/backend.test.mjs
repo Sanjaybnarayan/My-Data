@@ -594,3 +594,186 @@ describe('a device nobody has vouched for', () => {
     assert.equal(seen(api, MINE).data.unrecognisedDevices, 0);
   });
 });
+
+/* ------------------------------------------------- the identity that arrives */
+
+/**
+ * What `doPost` hands the action, rather than what `admit` worked out.
+ *
+ * The two had drifted. `admit` resolves a role and a person id from the
+ * members list the owner controls, and the dispatch context copied neither, so
+ * `Sheets.gs` — `(context && context.role) || 'guest'` — authorised every
+ * request as a guest. A guest may write nothing and read nothing, so every
+ * push was refused row by row for every caller including the owner, and every
+ * pull came back empty.
+ *
+ * It failed closed, so nobody gained access they should not have. What it cost
+ * was the off-device copy a household believed it had.
+ *
+ * Neither existing suite could see it. `policy.test.mjs` calls `sheetPush`
+ * with a context it builds itself, role included, and proves the rules are
+ * right when handed one. This file drives `doPost` and never pushed. Both ends
+ * covered, the wiring between them not — so these go end to end, through the
+ * same HTTP-shaped entry point the browser uses.
+ */
+describe('the identity that reaches the action', () => {
+  const HEADERS = ['_id', '_rev', '_updatedAt', '_deletedAt'];
+  const ROWS = [['a1', 1, '2026-08-01T00:00:00.000Z', '']];
+
+  /** A workbook that records what was written to it. */
+  const book = () => {
+    const appended = [];
+    const sheet = (name) => ({
+      getName: () => name,
+      getLastRow: () => ROWS.length + 1,
+      getLastColumn: () => HEADERS.length,
+      getRange: (row) => ({
+        getValues: () => (row === 1 ? [HEADERS] : ROWS),
+        setValues: () => {},
+        setValue: () => {},
+      }),
+      appendRow: (row) => appended.push({ sheet: name, row }),
+    });
+    return {
+      appended,
+      getSheets: () => ['Accounts'].map(sheet),
+      getSheetByName: (name) => (name === 'Accounts' ? sheet(name) : null),
+    };
+  };
+
+  const household = (members) => {
+    const workbook = book();
+    const api = backend({
+      owner: OWNER,
+      tokens,
+      files: ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs'],
+      workbook,
+      properties: {
+        members: JSON.stringify(members),
+        workbookId: 'book-1',
+        sheetMap: JSON.stringify({ account: 'Accounts' }),
+      },
+    });
+    return { api, workbook };
+  };
+
+  /** The same, with a Health sheet whose rows name the person they are about. */
+  const HEALTH_HEADERS = ['_id', '_rev', '_updatedAt', '_deletedAt', 'person'];
+  const healthHousehold = (members) => {
+    const sheet = (name) => ({
+      getName: () => name,
+      getLastRow: () => 1,
+      getLastColumn: () => HEALTH_HEADERS.length,
+      getRange: () => ({
+        getValues: () => [HEALTH_HEADERS],
+        setValues: () => {},
+        setValue: () => {},
+      }),
+      appendRow: () => {},
+    });
+    const workbook = {
+      getSheets: () => ['Health'].map(sheet),
+      getSheetByName: (name) => (name === 'Health' ? sheet(name) : null),
+    };
+    return {
+      workbook,
+      api: backend({
+        owner: OWNER,
+        tokens,
+        files: ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs'],
+        workbook,
+        properties: {
+          members: JSON.stringify(members),
+          workbookId: 'book-1',
+          sheetMap: JSON.stringify({ healthRecord: 'Health' }),
+        },
+      }),
+    };
+  };
+
+  const pushHealth = (api, token, person) => api.post('push', token, {
+    changes: [{
+      store: 'healthRecord', op: 'put', recordId: 'h1', rev: 1,
+      payload: { id: 'h1', person },
+    }],
+  }, { deviceId: 'device-1' });
+
+  const pushAccount = (api, token) => api.post('push', token, {
+    changes: [{
+      store: 'account', op: 'put', recordId: 'a1', rev: 1,
+      payload: { id: 'a1', name: 'HDFC' },
+    }],
+  }, { deviceId: 'device-1' });
+
+  test('a spouse’s push is applied, because the role travels with the request', () => {
+    // The regression in one line: with `role` missing from the context this
+    // came back rejected with "a guest may not write account".
+    const { api } = household([{ email: SPOUSE, role: 'spouse', personId: 'p-asha' }]);
+    const result = pushAccount(api, 'spouse-token');
+
+    assert.ok(result.ok, result.error ?? '');
+    assert.length(result.data.rejected, 0,
+      result.data.rejected[0]?.reason ?? '');
+    assert.length(result.data.applied, 1);
+  });
+
+  test('and a child’s is refused, so the first test is not passing on a rule that permits everything', () => {
+    const { api } = household([{ email: SPOUSE, role: 'child', personId: 'p-kid' }]);
+    const result = pushAccount(api, 'spouse-token');
+
+    assert.length(result.data.applied, 0);
+    assert.length(result.data.rejected, 1);
+    assert.ok(/child may not write account/.test(result.data.rejected[0].reason),
+      result.data.rejected[0].reason);
+  });
+
+  test('the role in the reply is the one the members list gives, not one the caller sent', () => {
+    // `ping` reports `context.role`. Absent it, this key was simply missing —
+    // which is how the whole defect was first visible from outside.
+    const { api } = household([{ email: SPOUSE, role: 'spouse', personId: 'p-asha' }]);
+    const said = api.post('ping', 'spouse-token', {}, { deviceId: 'device-1' });
+
+    assert.equal(said.data.role, 'spouse');
+  });
+
+  test('a pull returns rows for a spouse and nothing for a guest', () => {
+    const asSpouse = household([{ email: SPOUSE, role: 'spouse', personId: 'p-asha' }]);
+    const asGuest = household([{ email: SPOUSE, role: 'guest', personId: 'p-asha' }]);
+
+    const spouseSaw = asSpouse.api.post('pull', 'spouse-token', {}, { deviceId: 'device-1' });
+    const guestSaw = asGuest.api.post('pull', 'spouse-token', {}, { deviceId: 'device-1' });
+
+    assert.ok(spouseSaw.ok, spouseSaw.error ?? '');
+    assert.ok(guestSaw.ok, guestSaw.error ?? '');
+
+    // Both halves asserted. Only checking that a spouse sees rows would pass
+    // against a backend that showed everything to everybody; only checking
+    // that a guest sees none would pass against the broken version, where
+    // every caller was a guest and nobody saw anything.
+    assert.length(spouseSaw.data.records.account ?? [], 1);
+    assert.deep(guestSaw.data.records, {});
+  });
+
+  test('the person id travels too, so a child may keep their own health record', () => {
+    // `ownRecordAllows(personId, …)` widens what a restricted role may write,
+    // but only for rows about themselves. A child's role alone may not write
+    // healthRecord at all, so this push can only succeed if the *person id*
+    // reached the action — which it did not, and asserting on the role would
+    // not have noticed: dropping `personId` alone passed all 2,089 tests until
+    // this test existed.
+    const { api } = healthHousehold([{ email: SPOUSE, role: 'child', personId: 'p-kid' }]);
+    const result = pushHealth(api, 'spouse-token', 'p-kid');
+
+    assert.ok(result.ok, result.error ?? '');
+    assert.length(result.data.rejected, 0, result.data.rejected[0]?.reason ?? '');
+    assert.length(result.data.applied, 1);
+  });
+
+  test('and not a sibling’s, so the widening is about the person and not the push', () => {
+    const { api } = healthHousehold([{ email: SPOUSE, role: 'child', personId: 'p-kid' }]);
+    const result = pushHealth(api, 'spouse-token', 'p-sibling');
+
+    assert.length(result.data.applied, 0);
+    assert.length(result.data.rejected, 1);
+  });
+});
