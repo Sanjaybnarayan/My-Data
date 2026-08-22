@@ -35,7 +35,8 @@ import { describeCommitments } from '../domain/commitments.js';
 import { describeRunway } from '../domain/runway.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
 import { EvidenceService } from '../services/evidence.js';
-import { describeOrphan } from '../domain/evidence.js';
+import { ConflictService } from '../services/conflict.js';
+import { t } from '../core/locale.js';
 import { ExplainService } from '../services/explain.js';
 import { describeExplanation } from '../domain/explain.js';
 import { toast } from '../ui/components/toast.js';
@@ -58,6 +59,7 @@ const TABS = [
   { id: 'goal', label: 'Goals' },
   { id: 'economicEvent', label: 'Movements' },
   { id: 'smsMessage', label: 'Messages' },
+  { id: 'conflicts', label: 'Disagreements' },
 ];
 
 /** Screens that produce records rather than listing one entity. */
@@ -70,8 +72,13 @@ const TABS = [
 // them. A blank form would produce a movement with no legs — which
 // `domain/explain.js` reports as the worst thing it can find, and which this
 // screen would then have invited.
+//
+// `conflicts` is here because it lists nothing that can be created. A
+// disagreement is derived from the records that disagree; a form offering to
+// add one would be offering to write down that two things do not match,
+// which is not a record a household has.
 const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights', 'transaction',
-  'bankStatement', 'smsMessage', 'economicEvent']);
+  'bankStatement', 'smsMessage', 'economicEvent', 'conflicts']);
 
 export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity) {
@@ -125,6 +132,12 @@ export async function render(route) {
   if (active === 'position') {
     replace(body, await positionScreen());
     return { node: host };
+  }
+
+  if (active === 'conflicts') {
+    const screen = await (await import('./conflicts.js')).render();
+    replace(body, screen.node);
+    return { node: host, destroy: screen.destroy };
   }
 
   if (active === 'import') {
@@ -189,42 +202,30 @@ export async function render(route) {
  * property of any one row; it is the absence of one.
  */
 async function evidenceBanner() {
-  const review = await new EvidenceService(app().db).review();
   const cards = [];
 
-  if (review.orphans.length) {
-    cards.push(card({ class: 'evidence-orphans' }, [
-      cardHeader('Paid, and not in the ledger',
-        badge(String(review.orphans.length), 'warning'), { iconName: 'alert' }),
-      h('div', { class: 'list' }, review.orphans.map((orphan) => listItem({
-        title: orphan.merchant || 'A payment',
-        subtitle: describeOrphan(orphan, format),
-        value: format(orphan.amount),
-      }))),
-      h('p', { class: 'small faint' },
-        'Nothing has been added. Import the statement these belong to, or add '
-        + 'the payment yourself if there is no statement for it.'),
+  // Counted here rather than restated. The orphans and the amount
+  // disagreements this card used to print are two of the four kinds
+  // `domain/conflict.js` now gathers, and printing two of four beside a
+  // screen that holds all four is how a household learns to distrust both
+  // numbers. So this says how many there are and where they are.
+  const conflicts = await new ConflictService(app().db).review();
+  if (conflicts.total) {
+    cards.push(card({ class: 'evidence-conflicts' }, [
+      cardHeader(t('conflict.banner.title'),
+        badge(String(conflicts.total), 'warning'), { iconName: 'alert' }),
+      h('p', { class: 'small muted' }, t('conflict.banner.body', { n: conflicts.total })),
+      button(t('conflict.banner.go'), {
+        onClick: () => app().router.navigate({ module: 'finance', entity: 'conflicts' }),
+      }),
     ]));
   }
 
-  if (review.disagreeing) {
-    cards.push(card({ class: 'card--quiet evidence-disagreements' }, [
-      cardHeader('Sources that disagree', badge(String(review.disagreeing), 'warning'),
-        { iconName: 'info' }),
-      h('p', { class: 'small muted' },
-        `${review.disagreeing} payment${review.disagreeing === 1 ? '' : 's'} where a `
-        + 'message, a receipt and the statement do not state the same figure. '
-        + 'Every figure is kept as it was recorded; nothing here decides which '
-        + 'is right.'),
-    ]));
-  }
-
+  const review = await new EvidenceService(app().db).review();
   if (review.corroborated) {
     cards.push(card({ class: 'card--quiet evidence-count' }, [
       h('p', { class: 'small muted', style: { margin: 0 } },
-        `${review.corroborated} of ${review.total} payments have more than one `
-        + 'thing saying they happened. That is corroboration, not verification — '
-        + 'none of these sources is a person having checked it.'),
+        t('evidence.corroborated', { n: review.corroborated, total: review.total })),
     ]));
   }
 

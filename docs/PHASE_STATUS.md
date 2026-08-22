@@ -32,12 +32,12 @@ external integration or has an open critical security or data-integrity defect.
 | # | Name | Status | % | Evidence | Critical gaps | Risk |
 |---|---|---|---|---|---|---|
 | 0 | Repository audit | **COMPLETE** | 90 | 85 docs; `PROJECT_AUDIT.md`, `ARCHITECTURE.md`, `DATA_GOVERNANCE.md`, `SECURITY.md`; 10 ratchet tools in `tools/` | No observability audit | Low |
-| 0.5 ↑ | Trust & governance | **MOSTLY_COMPLETE** | 80 | `security/rbac.js`, `data/consent.js`, `classification.js`, `provenance.js`, `lineage.js`, `retention.js`, `audit` store, device registry; §8.1 fixed in `76b946f`; **consent for staff and children** — recorded per person, surfaced as a gap until answered, and gating nothing | Not *verifiable* parental consent: nothing checks the adult is the guardian. A staff member still has no way to see or dispute what is held — no staff role, no access path | Medium |
+| 0.5 ↑ | Trust & governance | **MOSTLY_COMPLETE** | 80 | `security/rbac.js`, `data/consent.js`, `classification.js`, `provenance.js`, `lineage.js`, `retention.js`, `audit` store, device registry; §8.1 fixed in `76b946f`; **consent for staff and children** — recorded per person, surfaced as a gap until answered, and gating nothing | Parental consent is not *verifiable* — nothing checks the adult is the guardian. A staff member can now be shown their own record (`#111`), but cannot sign in to see it themselves — there is no per-person credential | Medium |
 | 1 | Database / API / auth / authz | **REQUIRES_REWORK** | 55 | IndexedDB + 15-action Apps Script API; OAuth + PKCE; RBAC client and server; **referential integrity enforced on local writes**, RESTRICT deletes, deferred constraints in a unit of work | No PostgreSQL, no relational model; the store enforces nothing itself; **sync is exempt** | **Critical** |
 | 2 | Family / people / identity / CKYC | **MOSTLY_COMPLETE** | 80 | `person`, `relationship`, `identityDocument`, `kycRecord`, `employment`; `person_id` is the master key; CKYC conflicts modelled | No family-tree view; no per-person profile screen; no CKYCRR (correctly refused) | Low |
 | 3 | Document AI / OCR / DOCX | **MOSTLY_COMPLETE** | 78 | `pdf-read.js` (816 lines), `docx.js`, `xlsx`, `extract.js`, `classification`, confidence, versioning, duplicate detection | Image OCR requires the Drive round-trip; no on-device OCR | Low |
 | 4 ↑ | Gmail / Drive / Calendar | **MOSTLY_COMPLETE** | 78 | `apps-script/Gmail.gs`, `Drive.gs`, `js/sync/calsync.js`, real scopes, optional Gmail; **connector health for Gmail, Drive and Calendar** through one recorder — `EXPIRED` told apart from `ERROR`, persisted, in diagnostics, and surfaced in Settings only when something needs a person | Scanning is date-windowed, not `historyId`-based; the sync engine is not in the model; the backend is still one deployment for one account | Medium |
-| 5 | Financial foundation | **MOSTLY_COMPLETE** | 82 | `categorise.js` (927), `events.js`, `evidence.js`, `settlement.js`, `ledger.js`; statements, CSV/XLS/PDF; Cases 1, 2, 4, 5 pass | No unified conflict record (Case 3); headline not corrected for settlements | Medium |
+| 5 ↑ | Financial foundation | **MOSTLY_COMPLETE** | 86 | `categorise.js` (927), `events.js`, `evidence.js`, `settlement.js`, `ledger.js`; statements, CSV/XLS/PDF; Cases 1, 2, 4, 5 pass; **Case 3 closed** — `domain/conflict.js` joins four findings that lived in three shapes on two screens into one derived record type, and detects a fifth nothing looked for: two sources naming different *days* | Headline not corrected for settlements (deliberate, and stated); `FD BOOKING` still reads as `p2p-out` — wrong label, safe number (Case 6) | Medium |
 | 6 ↑ | SMS intelligence | **MOSTLY_COMPLETE** | 72 | `domain/sms.js`, `services/sms.js`, `smsMessage` entity, OTP refusal, `SOURCE_PRIORITY`; **native inbox capture** via `SmsInboxPlugin.java` + `js/core/smsinbox.js`, watermarked sweeps, every count reported | **Never run on a device** — compiles in CI, all JS tested against a fake plugin; `READ_SMS` is a Play restricted permission, so this build is for sideloading; no `SMSEvent`/`SMSSource` entities | Medium |
 | 7 | Cards / loans / EMI / FD / RD / ledger | **MOSTLY_COMPLETE** | 76 | `loan`, `card bills`, `amortise.js`, `accrual.js`, `settlement.js`, family ledger, splits | FD/RD classification imprecise (`p2p-out`) | Medium |
 | 8 | Investments / broker | **PARTIALLY_COMPLETE** | 42 | `holding`, `investmentTransaction`, `costbasis.js`, `portfolio.js`, P&L, fees | **No broker connector.** Zerodha appears only as a narration regex | Low |
@@ -87,8 +87,12 @@ Three phases are held below where their code alone would put them:
   because the store enforces none of it and sync bypasses it —
   `docs/REFERENTIAL_INTEGRITY.md` states both limits. The remaining half is a
   hosting decision, not code.
-- **Phase 0.5 and 20** — capped by the open critical defect in §8.1 of the
-  report. Neither may be COMPLETE while server-side authorization does not
-  receive the caller's identity.
+- **Phase 0.5 and 20** — no longer capped by §8.1, which was fixed in
+  `76b946f` and which the Phase 0.5 row already said. This paragraph went on
+  asserting an open critical defect after the row above it recorded the fix —
+  the exact fault this table exists to catch, inside the table's own summary.
+  Both are still held below COMPLETE, for reasons that are current: there has
+  been **no external cryptographic review**, and no compliance control has
+  been verified by anybody.
 - **Phase 11 and 24** — BLOCKED rather than incomplete. Neither is waiting on
   code: one waits on ABDM participant status, the other on a macOS machine.

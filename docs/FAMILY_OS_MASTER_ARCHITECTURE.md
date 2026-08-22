@@ -63,7 +63,7 @@ rather than a promise: `tools/architecture-budget.json` holds the count,
 moves a screen onto `js/services/` lowers it permanently.
 
 The service layer exists and is adopted in part:
-**19**<!--live:serviceModules--> service modules against those
+**20**<!--live:serviceModules--> service modules against those
 **58**<!--live:uiDatabaseCalls--> direct calls. Naming the number is what turns
 "we should migrate someday" into something with a direction.
 
@@ -233,6 +233,9 @@ prose — see `docs/PROMPT_TESTS.md` and `docs/MULTI_LEG.md`.
 | Economic events | **exists** | `export:js/domain/events.js#proposeMultiLeg` |
 | Economic events, on a screen | **exists** | `wired:js/modules/finance.js#ExplainService` |
 | Rule 57 — every financial event explainable | **exists** | `export:js/domain/explain.js#explainEvent` |
+| Every disagreement about money, in one list | **exists** | `export:js/domain/conflict.js#conflicts` |
+| That list, on a screen a household can reach | **exists** | `wired:js/modules/finance.js#ConflictService` |
+| A conflict that picks the right figure | missing, deliberately | `absent:grep:preferredFigure` |
 | A record screen can carry an answer its fields cannot | **exists** | `wired:js/modules/crud.js#options.extra` |
 | Transfer matching, explicit confidence | **exists** | `export:js/domain/events.js#proposeTransfers` |
 | Six-level classification | **exists** | `export:js/data/classification.js#MEANING` |

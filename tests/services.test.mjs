@@ -30,6 +30,7 @@ import { sectionsCovering } from '../js/domain/profile.js';
 import { GoalsService, assembleGoals } from '../js/services/goals.js';
 import { EstateService, ESTATE_LOAD } from '../js/services/estate.js';
 import { EvidenceService, EVIDENCE_LOAD } from '../js/services/evidence.js';
+import { ConflictService, CONFLICT_LOAD } from '../js/services/conflict.js';
 import { ExplainService } from '../js/services/explain.js';
 import { xirr } from '../js/domain/portfolio.js';
 import { estate } from '../js/domain/estate.js';
@@ -1157,6 +1158,70 @@ describe('what the sources say, through a real database', () => {
   test('messages are loaded decrypted, or the summary reads ciphertext', () => {
     // The trap `docs/SEALED_VALUES.md` records, one entity along.
     assert.equal(EVIDENCE_LOAD.messages[1].decrypt, true);
+  });
+
+  test('one list holds the payment disagreement and the wages one', async () => {
+    // The Case 3 gap, through a real database: before this, these two came
+    // out of different modules in different shapes on different screens.
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    const person = await makePerson(db, { name: 'Ravi Kumar', role: 'staff', relationship: 'other' });
+
+    // A payment the statement and the alert disagree about.
+    await db.repo('transaction').create({
+      date: '2026-08-20', kind: 'expense', amount: 5_500_00, account: account.id,
+      accountNumber: 'XXXXXX8963', reference: 'UPI/412345678901',
+    });
+    await new MessagesService(db).ingest({
+      text: 'Rs 5,000.00 debited from a/c XX8963 on 20-08-26 to VPA metro@okaxis '
+        + 'UPI Ref 412345678901. Avl Bal Rs 1,40,500.00',
+      sender: 'HDFCBK', receivedAt: '2026-08-20T10:31:00Z',
+    });
+
+    // A month of wages short of what was agreed.
+    await db.repo('staff').create({
+      person: person.id, role: 'Driver', monthlyPay: 12_000_00,
+      paidEvery: 'month', startedOn: '2026-05-01',
+    });
+    for (const [date, amount] of [['2026-06-03', 12_000_00], ['2026-07-03', 9_000_00]]) {
+      await db.repo('transaction').create({
+        date, kind: 'expense', amount, account: account.id, person: person.id,
+      });
+    }
+
+    const review = await new ConflictService(db).review({ today: '2026-08-22' });
+    assert.equal(review.byKind.amount, 1);
+    assert.equal(review.byKind.wages, 1);
+    assert.equal(review.total, 2);
+  });
+
+  test('and nothing about a conflict is written back', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db);
+    const row = await db.repo('transaction').create({
+      date: '2026-08-20', kind: 'expense', amount: 5_500_00, account: account.id,
+      accountNumber: 'XXXXXX8963', reference: 'UPI/412345678901',
+    });
+    await new MessagesService(db).ingest({
+      text: 'Rs 5,000.00 debited from a/c XX8963 on 20-08-26 to VPA metro@okaxis '
+        + 'UPI Ref 412345678901. Avl Bal Rs 1,40,500.00',
+      sender: 'HDFCBK', receivedAt: '2026-08-20T10:31:00Z',
+    });
+
+    const before = await db.repo('transaction').get(row.id);
+    await new ConflictService(db).review({ today: '2026-08-22' });
+    const after = await db.repo('transaction').get(row.id);
+
+    // The figure the message disagreed with is still the figure the statement
+    // stated. A list that quietly took the higher-priority source would be
+    // the one thing this module must never do.
+    assert.equal(after.amount, 5_500_00);
+    assert.equal(after.amount, before.amount);
+    assert.equal(after.updatedAt, before.updatedAt);
+  });
+
+  test('the conflict list reads messages decrypted, like the evidence one', () => {
+    assert.equal(CONFLICT_LOAD.messages[1].decrypt, true);
   });
 });
 
