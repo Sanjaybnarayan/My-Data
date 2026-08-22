@@ -97,6 +97,63 @@ token this repository does not have.
 Two call sites, one of them untestable. One call site cannot be half-removed,
 and removing it fails three browser checks.
 
+## Drive and Calendar, and one recorder for all three
+
+### What was measured
+
+```
+Gmail scan (receipts)    health: yes | diagnostics: yes
+Drive (documents)        health: NO  | diagnostics: NO
+Calendar                 health: NO  | diagnostics: NO
+```
+
+A Drive upload or a calendar push whose authorisation had gone produced a toast
+and nothing else — exactly the state Gmail was in before this model existed.
+
+### One function, not three copies
+
+The Gmail scan did four steps inline: load the health, decide the outcome,
+persist it, write the diagnostic. Adding Drive and Calendar would have made
+three copies of those four steps.
+
+The last time this repository had *two* copies of one decision — `noteSuccess`
+on one branch and `noteFailure` on another — mutation testing found that one of
+them could be deleted with nothing noticing. Three copies is that problem with
+more places to hide. So `js/data/connectors.js` has `attempted(db, id, {error,
+where})`, and all three call it.
+
+`js/domain/connector.js` still decides what a state *means* and still touches
+no database, which is what keeps it testable without one.
+
+### Once per run, not once per file
+
+A Drive flush records one outcome for the whole flush. Five documents failing
+because one grant expired is one problem, and counting it five times would make
+a single revoked authorisation look like a crisis.
+
+**A flush with nothing to upload records nothing at all.** It is not a success
+and not a failure — it says nothing about the connector, and recording it as a
+success would clear a genuinely expired grant the next time somebody opened the
+application. A test asserts exactly that.
+
+### Where a household sees it
+
+Gmail says so on the Shops screen, which is where somebody is already looking
+for receipts. Drive and Calendar have no screen of their own, so Settings grows
+a **Connections that need you** card.
+
+It is **absent when everything works.** A card that is permanently present and
+permanently green is a card people stop reading, and the one time it turns red
+they will not notice.
+
+### A dead export, found and given a caller
+
+`needingAttention` was written, exported and tested in the previous tranche —
+and had **no production caller**. Tested dead code is still dead code, and it
+is the same fault as building an encryption layer no screen can reach. The
+Connections card is its caller; had there been no honest one, the right move
+was to delete it.
+
 ## What is still not done in Phase 4
 
 - **No multi-account backend.** Several mailboxes work; the sync backend is
@@ -105,8 +162,14 @@ and removing it fails three browser checks.
   advances to the newest receipt found, which is honest and readable — the
   whole privacy argument rests on the query being something a household can
   read — but it re-reads a day it has already seen.
-- **Drive and Calendar have no health of their own.** The model is general;
-  only Gmail scanning is wired to it so far.
+- **The sync engine still has no health of its own.** It records diagnostics
+  and holds `lastError`, but it is not in this model, so a backend that has
+  been refusing for a week does not appear on the Connections card.
+
+**8 of 8 mutations caught**, including *health never persisted*, *a success
+recorded as a failure*, *Drive reporting per file rather than per run*, *an
+empty flush clearing an expired grant*, and *Calendar never reporting at all* —
+the last of which needed a browser check, because its call site is a screen.
 
 **15 of 15 mutations caught**, including *a 401 treated as an ordinary error*,
 *one failure condemning a mailbox*, *a success not clearing an expired grant*,

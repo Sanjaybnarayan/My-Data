@@ -24,6 +24,7 @@ import { datesInRange, upcomingDates } from '../domain/reminders.js';
 import { billsInRange } from '../domain/finance.js';
 import { toICalendar, icalProblems, icalFilename } from '../domain/ical.js';
 import { CalendarClient, CALENDAR_SCOPES } from '../sync/calendar.js';
+import { attempted, CALENDAR } from '../data/connectors.js';
 import { googleAuth } from '../auth/googleauth.js';
 import { download } from './reports.js';
 import { toast } from '../ui/components/toast.js';
@@ -207,6 +208,9 @@ export async function render(route) {
       return;
     }
 
+    /** What the push threw, or null. Recorded either way. */
+    let failure = null;
+
     try {
       const auth = googleAuth({ scopes: CALENDAR_SCOPES, store: db });
       const client = new CalendarClient({ getToken: () => auth.getToken() });
@@ -218,8 +222,14 @@ export async function render(route) {
         : `${written.length} sent to a calendar of its own — sync again to update them`,
       { kind: left ? 'info' : 'success' });
     } catch (err) {
+      failure = err;
       toast(userMessage(err), { kind: 'error' });
     }
+
+    // A push whose authorisation had gone used to produce a toast and nothing
+    // else — so a calendar that had stopped working looked exactly like one
+    // nobody had synced, which is the state Gmail was in before Phase 4.
+    await attempted(db, CALENDAR, { error: failure, where: 'calendar.push' });
   }
 
   function monthGrid(start, end, byDay) {

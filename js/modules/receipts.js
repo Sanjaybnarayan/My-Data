@@ -47,10 +47,8 @@ import { toast } from '../ui/components/toast.js';
 import { confirm } from '../ui/components/modal.js';
 import { app } from '../context.js';
 import { MERCHANTS, searchQuery, customMerchant } from '../domain/merchants.js';
-import {
-  HEALTH_KEY, CONNECTOR_STATUS, afterScan, describe as describeConnector,
-} from '../domain/connector.js';
-import { record as recordDiagnostic, KIND } from '../data/diagnostics.js';
+import { CONNECTOR_STATUS, describe as describeConnector } from '../domain/connector.js';
+import { health as loadHealth, attempted } from '../data/connectors.js';
 import { planScan, enrich, byMerchant, subscriptions, reconcile } from '../domain/inbox.js';
 import {
   BACKEND, readMailbox, googleMailbox, scriptMailbox,
@@ -124,7 +122,7 @@ export async function render() {
    * not recognise, so health living inside one would be thrown away on the
    * next read.
    */
-  let health = await db.meta(HEALTH_KEY, {});
+  let health = await loadHealth(db);
 
   let receipts = await db.repo('receipt').list({ limit: 20_000 });
   let transactions = [];
@@ -273,26 +271,16 @@ export async function render() {
       } catch (err) {
         failure = err;
         runs.push({ mailbox, error: userMessage(err) });
-
-        // Recorded, so a mailbox that has been failing for a fortnight is
-        // tellable from one that failed this morning. Until this existed the
-        // toast was the whole record and it did not survive a reload.
-        await recordDiagnostic(db.adapter, {
-          kind: KIND.connector,
-          where: 'gmail.scan',
-          code: err?.status != null ? `http-${err.status}` : (err?.code ?? ''),
-          message: err?.message ?? '',
-        });
       }
 
-      // One call, both outcomes. A scan that finished clears whatever was
-      // wrong with this mailbox because it is no longer wrong; one that did
-      // not records why. Per mailbox, not per run — one account's revoked
-      // grant says nothing about another's.
-      health = afterScan(health, mailbox.id, failure);
+      // One call, both outcomes, and it writes the diagnostic too. A scan
+      // that finished clears whatever was wrong with this mailbox because it
+      // is no longer wrong; one that did not records why, so a mailbox
+      // failing for a fortnight is tellable from one that failed this
+      // morning. Per mailbox, not per run — one account's revoked grant says
+      // nothing about another's.
+      health = await attempted(db, mailbox.id, { error: failure, where: 'gmail.scan' });
     }
-
-    await db.setMeta(HEALTH_KEY, health);
 
     receipts = await db.repo('receipt').list({ limit: 20_000 });
     lastScan = { runs, added, query };
