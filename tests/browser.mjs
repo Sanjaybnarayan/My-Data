@@ -251,7 +251,7 @@ async function main() {
 
     const modules = ['dashboard', 'identity', 'family', 'finance', 'investments',
       'documents', 'vehicles', 'health', 'insurance', 'property', 'education',
-      'tasks', 'calendar', 'notes', 'vault', 'digital', 'emergency', 'safety', 'reports',
+      'tasks', 'calendar', 'notes', 'vault', 'digital', 'emergency', 'safety', 'chat', 'reports',
       'assistant', 'settings'];
 
     for (const module of modules) {
@@ -775,6 +775,25 @@ async function main() {
         (await page.locator('.list-item').count()) > 8,
         `${await page.locator('.list-item').count()} entries`);
       check('the timeline draws without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
+    {
+      // The two sentences that must be above the conversations, not below and
+      // not in a document nobody opens. A padlock and the word "encrypted" are
+      // the easiest false claim in this application to make.
+      const before = consoleErrors.length;
+      await go(page, '#/chat');
+      await page.waitForTimeout(400);
+
+      const body = (await page.locator('.app-content').innerText()).trim();
+      check('Chat says the recovery phrase can read every conversation',
+        /recovery phrase/i.test(body) && /every conversation/i.test(body), body.slice(0, 900));
+      check('and that nobody has reviewed the cryptography',
+        /not been reviewed by a cryptographer/i.test(body), body.slice(0, 1200));
+      check('it offers to enrol this device rather than having done so unasked',
+        (await page.getByRole('button', { name: /Enrol this device/ }).count()) === 1);
+      check('the chat screen draws without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 

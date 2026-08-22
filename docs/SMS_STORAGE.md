@@ -34,8 +34,8 @@ ground to get wrong, because there is nowhere to put one — and a schema with
 nowhere to keep a secret cannot be talked into keeping it later.
 
 The test for this walks **every store in the database** — all
-fifty<!--live:entities--> entities plus the seven the application owns
-for itself, fifty-seven<!--live:stores--> in all — and fails if the six digits
+fifty-three<!--live:entities--> entities plus the seven the application owns
+for itself, sixty<!--live:stores--> in all — and fails if the six digits
 appear anywhere at all. Asserting against the one table it was most likely to
 land in would have been the weaker claim.
 

@@ -19,6 +19,19 @@ async function jsFiles(dir = join(ROOT, 'js'), out = []) {
 setSuite('portability');
 
 describe('what an export carries', () => {
+  test('a chat message is in no export at all, at any setting', async () => {
+    // Two of the twenty-four are `message.body` and `deviceKey.publicKey`, and
+    // the first is the interesting one: a conversation cannot be exported.
+    //
+    // That is correct rather than a gap. The body is sealed to devices, so a
+    // CSV of it would be unreadable ciphertext, and an export path holding no
+    // device key could not decrypt it to write anything better. The encrypted
+    // archive carries the rows as they are stored and a restored device with
+    // its key can still read them; a spreadsheet never could.
+    const columns = columnsFor('message', { includeEncrypted: true }).map((c) => c.key ?? c);
+    assert.not(columns.includes('body'), 'a sealed message body reached an export');
+  });
+
   test('leaves out fields no setting can include', async () => {
     // `columnsFor` drops hidden fields unconditionally, so "include encrypted"
     // is not the whole story and docs/PORTABILITY.md says which fields stay
@@ -31,7 +44,7 @@ describe('what an export carries', () => {
     }
     assert.ok(all > widest,
       'every field is exportable now — docs/PORTABILITY.md says some are not');
-    assert.equal(all - widest, 22,
+    assert.equal(all - widest, 24,
       'the number of unexportable fields moved; docs/PORTABILITY.md states it '
       + 'as a live number and tools/self-description.mjs checks it, but the '
       + 'prose around it explains that three are refs — check that still holds');

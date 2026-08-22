@@ -1,8 +1,85 @@
-# Phase 14 Cannot Deliver E2EE, And Here Is The Measurement
+# Family chat, and exactly what its encryption is worth
 
-Phase 14 is *"family chat, media, sharing, E2EE"*. The headline feature cannot
-be built as written on this application's key model, and that is worth
-establishing before anything is built rather than after.
+> **This document was called "Phase 14 Cannot Deliver E2EE".** That was true of
+> the key model it measured, and the measurement below is kept because the
+> reasoning still holds: on **one household key**, end-to-end encryption is not
+> possible, and building chat on that key and calling it encrypted would have
+> been the largest false claim in this repository.
+>
+> What changed is the key model, not the argument. `js/security/e2ee.js` adds
+> per-**device** ECDH keypairs alongside the household key, and messages are
+> sealed to those. The original measurement follows the current position.
+
+## What the encryption does
+
+A message is encrypted with a fresh random content key. That key is wrapped
+once per recipient **device**, using ECDH P-256 between the sender's device key
+and the recipient's, run through HKDF-SHA-256 into an AES-GCM wrapping key.
+
+| Who | Can they read it? |
+| --- | --- |
+| The devices in the conversation | Yes — that is the point |
+| Google, holding the synced Sheet | **No** |
+| A household member not in the conversation | **No**, even with the app unlocked |
+| The household data key | **No** — `message.body` is deliberately not `encrypted: true` |
+| Whoever holds the recovery phrase | **Yes. Every conversation.** See below |
+
+Because only the sender's private key can produce that shared secret, a wrap
+that opens is also evidence of who sent it — so there is no separate signing
+key. Fewer keys is fewer things to get wrong.
+
+## What it does not do, and none of this is hedging
+
+**The recovery phrase reads everything.** The household chose escrow, so every
+message is sealed to one extra recipient: an escrow keypair whose private half
+is wrapped under a key derived from the recovery phrase and **nothing else** —
+not the PIN, not the household data key. A restored archive can therefore open
+old conversations, and whoever holds that phrase can read every conversation,
+including ones they were never part of. That is the single largest hole in the
+table above. It is on the Chat screen, not only here.
+
+**No forward secrecy.** Device keys are long-lived. Somebody who takes a
+device's private key can read every message ever sent to it, past included. A
+Double Ratchet is what fixes that, and an unaudited hand-rolled ratchet is
+worse than not having one, so it is absent rather than approximated.
+
+**No post-compromise security.** Same fact: a compromised device stays
+compromised until its key is revoked and a new one enrolled.
+
+**No external audit.** Standard Web Crypto, composed carefully, tested hard —
+including a test whose only job is to confirm a stranger cannot read a sealed
+message. It has **not** been reviewed by a cryptographer, and no claim here
+should be read as though it has.
+
+**Metadata is not hidden.** Who is in a conversation, when a message was sent
+and who sent it are all in the clear, so the household can see that a
+conversation exists. Hiding that from the database that stores it would be a
+different design and a claim this cannot support.
+
+**Revocation is forward-only.** Revoking a device stops future messages being
+sealed to it. Messages already sealed to it stay sealed to it — a key that has
+been used cannot be un-used, and any screen suggesting otherwise would be
+dangerous.
+
+**Chat is in no export.** `message.body` is hidden, so no CSV or spreadsheet
+carries it at any setting. That is correct rather than a gap: the body is
+ciphertext an export path holds no key for. The encrypted archive carries the
+rows as stored, and a restored device with its key can still read them.
+
+## Verifying a device
+
+`safetyNumber()` hashes both public keys, sorted so the two ends agree, and
+renders 60 digits in 12 groups — digits because the number is read aloud over a
+phone call. A substituted key produces a different number, which is the whole
+purpose. `verifiedAt` records that a person says they compared it; the
+application cannot check that claim, which is precisely why it is worth
+recording who made it.
+
+---
+
+## The original measurement, kept
+
+
 
 The build prompt's rule is unambiguous: **never claim E2EE without real
 implementation and testing.** This document is what checking looks like.

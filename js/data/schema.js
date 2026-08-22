@@ -1314,6 +1314,101 @@ const tenant = {
   ],
 };
 
+/* ----------------------------------------------------------------- 14. Chat */
+
+/**
+ * A device that can read messages.
+ *
+ * The public half only. The private half never reaches this table, never syncs
+ * and never leaves the device that made it — it lives in `meta`, wrapped by
+ * the household key, and if that device is lost it is lost with it.
+ *
+ * `fingerprint` is stored so two people can compare a number without either of
+ * them re-deriving it from a key they would have to fetch first. `verifiedAt`
+ * is set when somebody says they compared it and it matched, and it is a claim
+ * by a person rather than something the application can check — which is what
+ * makes it worth recording.
+ */
+const deviceKey = {
+  name: 'deviceKey', module: 'chat', sheet: 'DeviceKeys', version: 1,
+  labels: { one: 'Device key', many: 'Device keys' }, icon: 'shield',
+  acl: { read: HOUSEHOLD, write: HOUSEHOLD },
+  sort: '-addedAt',
+  indexes: [['byPerson', 'person'], ['byDevice', 'deviceId']],
+  title: (r) => r.label || r.deviceId,
+  subtitle: (r) => (r.revokedAt ? 'revoked' : r.verifiedAt ? 'verified' : 'not verified'),
+  fields: [
+    ref('person', 'person', { required: true, list: true }),
+    text('deviceId', { label: 'Device', required: true, list: true }),
+    text('label', { label: 'Called', list: true, search: true }),
+    // Public. Deliberately not encrypted: it is a public key, and encrypting
+    // it would only make it harder to reach for the thing it exists for.
+    text('publicKey', { label: 'Public key', required: true, hidden: true }),
+    text('fingerprint', { label: 'Safety number' }),
+    { key: 'addedAt', type: 'text', label: 'Added', required: true, list: true },
+    { key: 'verifiedAt', type: 'text', label: 'Verified' },
+    { key: 'revokedAt', type: 'text', label: 'Revoked', list: true },
+    note(),
+  ],
+};
+
+/**
+ * A conversation between named people.
+ *
+ * The participant list is not a secret and is not encrypted — the household
+ * can see that a conversation exists and who is in it. What it cannot see is
+ * what was said. Hiding the existence of a conversation from the household
+ * that owns the database would need a different design and would be a claim
+ * this cannot support, so it is not made.
+ */
+const conversation = {
+  name: 'conversation', module: 'chat', sheet: 'Conversations', version: 1,
+  labels: { one: 'Conversation', many: 'Conversations' }, icon: 'chat',
+  acl: { read: HOUSEHOLD, write: HOUSEHOLD },
+  sort: '-startedAt',
+  title: (r) => r.title,
+  fields: [
+    text('title', { required: true, list: true, search: true }),
+    { key: 'participants', type: 'multiref', ref: 'person', label: 'Between', required: true },
+    { key: 'startedAt', type: 'text', label: 'Started', required: true, list: true },
+    { key: 'closedAt', type: 'text', label: 'Closed' },
+    note(),
+  ],
+};
+
+/**
+ * One message, already sealed.
+ *
+ * `body` holds the sealed envelope from `security/e2ee.js` as JSON, and is
+ * **not** marked `encrypted: true`. That is not an oversight. `encrypted: true`
+ * means "encrypt this with the household data key", and a message the
+ * household key can open is not end-to-end encrypted — the whole property is
+ * that this row is unreadable to everything except the devices it was sealed
+ * to. Adding household encryption on top would change nothing about who can
+ * read it and would suggest to a reader of this schema that the household key
+ * is what protects it.
+ *
+ * `sentAt` and `sender` are in the clear, so a list of conversations can be
+ * ordered and attributed without opening anything. That is metadata this
+ * design does not hide, and `docs/CHAT_AND_E2EE.md` says so.
+ */
+const message = {
+  name: 'message', module: 'chat', sheet: 'ChatMessages', version: 1,
+  labels: { one: 'Message', many: 'Messages' }, icon: 'chat',
+  acl: { read: HOUSEHOLD, write: HOUSEHOLD },
+  sort: 'sentAt',
+  indexes: [['byConversation', 'conversation'], ['bySentAt', 'sentAt']],
+  title: (r) => `Message ${r.sentAt ?? ''}`.trim(),
+  fields: [
+    ref('conversation', 'conversation', { required: true, list: true }),
+    ref('sender', 'person', { required: true, list: true }),
+    { key: 'sentAt', type: 'text', label: 'Sent', required: true, list: true },
+    { key: 'body', type: 'textarea', label: 'Sealed body', required: true, hidden: true },
+    { key: 'readBy', type: 'multiref', ref: 'person', label: 'Read by' },
+    { key: 'deletedForEveryone', type: 'boolean', label: 'Withdrawn' },
+  ],
+};
+
 /* --------------------------------------------------------------- 15. Safety */
 
 /**
@@ -1775,6 +1870,7 @@ export const entities = Object.freeze(Object.fromEntries(
     project, task, event, noteEntity, vaultItem,
     digitalAsset, subscription, emergencyContact, smsMessage,
     safeZone, locationPing, sosAlert,
+    deviceKey, conversation, message,
     staff, staffLeave, goal,
     legalDocument, will, beneficiary,
   ].map((e) => [e.name, normalise(e)]),
@@ -1810,6 +1906,7 @@ export const modules = Object.freeze([
   { id: 'notes', label: 'Notes', icon: 'note' },
   { id: 'vault', label: 'Vault', icon: 'lock' },
   { id: 'digital', label: 'Digital', icon: 'globe' },
+  { id: 'chat', label: 'Chat', icon: 'chat' },
   { id: 'safety', label: 'Safety', icon: 'shield' },
   { id: 'emergency', label: 'Emergency', icon: 'alert' },
   { id: 'reports', label: 'Reports', icon: 'report' },
