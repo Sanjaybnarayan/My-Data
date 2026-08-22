@@ -35,7 +35,7 @@ nowhere to keep a secret cannot be talked into keeping it later.
 
 The test for this walks **every store in the database** — all
 fifty-three<!--live:entities--> entities plus the seven the application owns
-for itself, sixty-one<!--live:stores--> in all — and fails if the six digits
+for itself, sixty-two<!--live:stores--> in all — and fails if the six digits
 appear anywhere at all. Asserting against the one table it was most likely to
 land in would have been the weaker claim.
 

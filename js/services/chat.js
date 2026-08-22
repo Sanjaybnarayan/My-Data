@@ -24,9 +24,10 @@
 
 import { Service } from './service.js';
 import {
-  createIdentity, seal, open, safetyNumber, sealedTo, ESCROW_ID,
+  createIdentity, seal, open, sealBytes, openBytes, safetyNumber, sealedTo, ESCROW_ID,
 } from '../security/e2ee.js';
 import { AppError } from '../core/errors.js';
+import { newId } from '../core/ids.js';
 
 const DEVICE_KEY = 'chat.deviceIdentity';
 const ESCROW_KEY = 'chat.escrowIdentity';
@@ -164,6 +165,134 @@ export class ChatService extends Service {
   }
 
   /**
+   * Everything one conversation screen needs, in one call.
+   *
+   * The screen asked for the conversation and the people itself and took the
+   * UI→database count from 58 to 60 — a budget that may only fall. It belongs
+   * here anyway: a conversation view needs three entities joined, which is
+   * the cross-entity question this layer exists for.
+   */
+  async view(conversationId, { escrow = null } = {}) {
+    const [conversation, messages, people] = await Promise.all([
+      this.repo('conversation').get(conversationId),
+      this.read(conversationId, { escrow }),
+      this.repo('person').list({ limit: 200 }),
+    ]);
+
+    const names = new Map(people.map((p) => [p.id, p.name]));
+    return {
+      conversation,
+      messages,
+      // Resolved here rather than handing the screen a list to search: the
+      // screen would do it once per message.
+      nameOf: (id) => names.get(id) ?? null,
+    };
+  }
+
+  /* --------------------------------------------------------- attachments */
+
+  /**
+   * Send a file.
+   *
+   * ## Why this does not reuse how a document is stored
+   *
+   * A document's bytes are encrypted with the **household key** — the one
+   * every member shares — and uploaded to Drive. That is right for a passport
+   * scan the household keeps together, and it is exactly wrong here: an
+   * attachment encrypted that way is readable by anyone who can unlock the
+   * app, while the screen above it says the conversation is end-to-end
+   * encrypted. That sentence would become false the day attachments shipped.
+   *
+   * So the bytes are sealed to the same devices as the message, with the same
+   * code — `sealBytes` is what `seal` is built on, not a sibling of it.
+   *
+   * ## The filename is sealed too
+   *
+   * It is inside the sealed envelope, not a column beside it.
+   * `divorce-papers.pdf` tells you the thing the file was meant to keep
+   * private, and a field-encrypted name would be readable by the household
+   * key that the body deliberately is not.
+   *
+   * @param {{name?: string, type?: string, bytes: Uint8Array}} file
+   */
+  async attach(conversationId, senderPersonId, file) {
+    const identity = await this.identity();
+    if (!identity) throw new AppError('this device has no chat identity yet', { code: 'notEnrolled' });
+
+    const bytes = file?.bytes;
+    if (!bytes?.length) throw new AppError('there is nothing to send', { code: 'emptyFile' });
+
+    const conversation = await this.repo('conversation').get(conversationId);
+    if (!conversation) throw new AppError('that conversation no longer exists', { code: 'noConversation' });
+
+    const devices = await this.devicesFor(conversation.participants ?? []);
+    if (!devices.length) {
+      throw new AppError(
+        'nobody in this conversation has a device that can read a file yet — '
+        + 'each person opens FamilyOS once on their own phone to enrol one',
+        { code: 'noRecipients' },
+      );
+    }
+
+    const to = devices.map((d) => ({ id: d.deviceId, publicKey: d.publicKey }));
+    const escrowPublicKey = await this.escrowPublicKey();
+
+    const sealedFile = await sealBytes(bytes, identity, to, { escrowPublicKey });
+    const attachmentId = newId('att');
+
+    // The envelope carries the file's own content key, wrapped per device. The
+    // message below carries a second, separate seal for the name and size —
+    // two envelopes rather than one, so a device that may read the message may
+    // read the file and nothing is inferable from the pair.
+    const meta = {
+      kind: 'file',
+      name: String(file.name ?? 'file'),
+      type: String(file.type ?? 'application/octet-stream'),
+      size: bytes.length,
+      attachment: attachmentId,
+    };
+    const sealedMeta = await seal(JSON.stringify(meta), identity, to, { escrowPublicKey });
+
+    const row = await this.repo('message').create({
+      conversation: conversationId,
+      sender: senderPersonId,
+      sentAt: new Date().toISOString(),
+      body: JSON.stringify(sealedMeta),
+    });
+
+    // Written after the message, and pointing at it. The other order leaves an
+    // attachment nothing references if the message write is refused — bytes
+    // on the device that nobody can find or delete.
+    await this.db.putAttachment({
+      id: attachmentId,
+      message: row.id,
+      conversation: conversationId,
+      envelope: JSON.stringify(sealedFile),
+      bytes: bytes.length,
+      createdAt: new Date().toISOString(),
+    });
+
+    return row;
+  }
+
+  /**
+   * The bytes back, if this device is one of the recipients.
+   *
+   * Returns `null` rather than throwing when there is nothing to open: an
+   * attachment withdrawn on another device is a fact about that message, and
+   * a list should say so rather than fall over.
+   */
+  async openAttachment(attachmentId, { escrow = null } = {}) {
+    const stored = await this.db.attachment(attachmentId);
+    if (!stored?.envelope) return null;
+
+    const identity = await this.identity();
+    if (!identity) throw new AppError('this device has no chat identity yet', { code: 'notEnrolled' });
+
+    return openBytes(JSON.parse(stored.envelope), { id: this.db.deviceId, ...identity }, { escrow });
+  }
+
+  /**
    * A conversation, opened as far as this device can open it.
    *
    * Never throws for an unreadable message. A conversation is a list, and one
@@ -204,7 +333,14 @@ export class ChatService extends Service {
 
     try {
       const text = await open(sealed, { id: deviceId, ...identity }, { escrow });
-      return { row, text, why: null, to };
+
+      // A file arrives as a sealed envelope holding its own description. The
+      // caller gets the name and size, never the raw JSON — a screen printing
+      // `{"kind":"file",...}` is how somebody learns not to trust the screen.
+      const file = readFileMeta(text);
+      if (file) return { row, text: null, file, why: null, to };
+
+      return { row, text, file: null, why: null, to };
     } catch (error) {
       // The common one, and worth its own word: a device enrolled after the
       // message was sent was never a recipient and never will be. That is not
@@ -217,9 +353,35 @@ export class ChatService extends Service {
     }
   }
 
-  /** Withdraw a message. The copy already on other devices is not recalled. */
+  /**
+   * Withdraw a message. The copy already on other devices is not recalled.
+   *
+   * The attachment goes with it. Blanking the body and leaving the bytes would
+   * be the worst of both: the message reads as withdrawn while the photograph
+   * is still on the device, and nothing on any screen would say so.
+   */
   async withdraw(messageId) {
+    for (const attachment of await this.db.attachmentsFor(messageId)) {
+      await this.db.removeAttachment(attachment.id);
+    }
     return this.repo('message').update(messageId, { deletedForEveryone: true, body: '{}' });
+  }
+}
+
+/**
+ * A decrypted body that describes a file, or null for an ordinary message.
+ *
+ * Parsed defensively. A body that is not JSON is simply a message whose text
+ * happens to start with a brace, and treating that as a broken attachment
+ * would lose it.
+ */
+function readFileMeta(text) {
+  if (!text?.startsWith('{')) return null;
+  try {
+    const meta = JSON.parse(text);
+    return meta?.kind === 'file' && meta.attachment ? meta : null;
+  } catch {
+    return null;
   }
 }
 

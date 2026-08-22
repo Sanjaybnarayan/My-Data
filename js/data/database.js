@@ -114,6 +114,38 @@ export class Database {
     return value;
   }
 
+  /* ----------------------------------------------------- chat attachments */
+
+  /**
+   * Sealed attachment bytes.
+   *
+   * On the database rather than reached through `adapter` by a service,
+   * because `tests/services.test.mjs` forbids a service touching the adapter
+   * — the repository is where `assertCan` and `rowFilter` live, and a service
+   * that went round it would return rows its caller may not see. `attachments`
+   * has no repository, so it gets an accessor here for the same reason `meta`
+   * has one.
+   */
+  async attachment(id) {
+    return this.adapter.read('attachments', id);
+  }
+
+  async putAttachment(row) {
+    await this.adapter.write('attachments', row);
+    return row;
+  }
+
+  /** Every attachment belonging to a message, for withdrawing one. */
+  async attachmentsFor(messageId) {
+    return this.adapter.query('attachments', {
+      index: 'byMessage', range: { only: messageId },
+    });
+  }
+
+  async removeAttachment(id) {
+    await this.adapter.remove('attachments', id);
+  }
+
   /* ----------------------------------------------------------------- audit */
 
   /**
