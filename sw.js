@@ -54,6 +54,7 @@ const SHELL = [
   './js/core/smsinbox.js',
 
   './js/data/audit.js',
+  './js/data/chain.js',
   './js/data/classification.js',
   './js/data/consent.js',
   './js/data/unit.js',

@@ -85,7 +85,7 @@ async function paint(host) {
       await backupCard(db, host),
       deletedCard(db),
       conflictsCard(db),
-      activityCard(activity, people),
+      activityCard(activity, people, db),
       aboutCard(),
     ]),
   ]);
@@ -1347,10 +1347,65 @@ function conflictsCard(db) {
 
 /* -------------------------------------------------------------- activity */
 
-function activityCard(activity, people) {
+/**
+ * Whether the log still adds up.
+ *
+ * Behind a button rather than run on the way past: it reads every entry, and a
+ * check that costs something should be something a person asks for.
+ *
+ * The sentence it prints is careful on purpose. "Intact" here means nothing has
+ * been altered *without recomputing the chain*, and somebody who can unlock
+ * this application can recompute it. Saying "verified" or "proven" would be
+ * claiming more than a hash chain inside its own database can deliver —
+ * docs/AUDIT_CHAIN.md sets the limit out in full.
+ */
+function chainCheck(db) {
+  const out = h('div', {});
+
+  return h('div', { style: { padding: '0 var(--space-5) var(--space-5)' } }, [
+    h('div', { class: 'row', style: { gap: 'var(--space-2)' } }, [
+      button('Check the log', {
+        variant: 'subtle',
+        iconName: 'shield',
+        onClick: async () => {
+          replace(out, h('p', { class: 'small faint' }, 'Checking…'));
+          const result = await db.verifyAudit();
+
+          const unchained = result.unchained
+            ? ` ${result.unchained} older ${result.unchained === 1 ? 'entry' : 'entries'} `
+              + 'cannot be checked at all — they were written before this existed.'
+            : '';
+
+          if (result.ok) {
+            replace(out, h('p', { class: 'small' },
+              `${result.checked} ${result.checked === 1 ? 'entry links' : 'entries link'} `
+              + 'up correctly. Nothing has been altered or removed without also '
+              + 'rebuilding the chain — which anybody who can unlock FamilyOS '
+              + `could do.${unchained}`));
+            return;
+          }
+
+          const broken = result.devices.filter((d) => !d.ok);
+          replace(out, [
+            h('p', { class: 'small money--negative' },
+              `The audit log does not add up on ${broken.length} `
+              + `${broken.length === 1 ? 'device' : 'devices'}.`),
+            ...broken.map((d) => h('p', { class: 'small faint' },
+              `${d.why}${d.at ? ` (entry ${d.at})` : ''}`)),
+            unchained ? h('p', { class: 'small faint' }, unchained.trim()) : null,
+          ].filter(Boolean));
+        },
+      }),
+    ]),
+    out,
+  ]);
+}
+
+function activityCard(activity, people, db) {
   return card({ class: 'card--flush' }, [
     h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
       cardHeader('Audit log', null, { iconName: 'clock' })),
+    chainCheck(db),
     activity.length
       ? h('div', { class: 'list' }, activity.map((entry) => listItem({
         title: describeAudit(entry, (id) => people[id] ?? 'Someone'),

@@ -41,6 +41,7 @@ export class Repository {
   /**
    * @param {string} entityName
    * @param {{adapter, keyring, actor: () => object, deviceId: string,
+   *          chain: import('./chain.js').Chain,
    *          nextSeq: () => number, clock?: () => number, currency?: string}} ctx
    */
   constructor(entityName, ctx) {
@@ -342,10 +343,13 @@ export class Repository {
     const sealed = await encryptRecord(this.#name, record, this.#ctx.keyring.key);
     const fields = changedFields(before, record);
 
-    const audit = auditEntry({
+    // Linked here rather than at apply time, because `plan` is awaited in
+    // order and `apply` is not — two entries hashed against the same head
+    // would fork the chain and read as an insertion.
+    const audit = await this.#ctx.chain.next(auditEntry({
       action, entity: this.#name, recordId: record.id, actor: this.#actor(),
       fields, deviceId: this.#ctx.deviceId, at: record.updatedAt,
-    });
+    }));
 
     const outbox = {
       id: newId('obx'),
@@ -385,6 +389,10 @@ export class Repository {
         await t.put('search', indexEntry(this.#name, record));
       }
       await t.put('audit', audit);
+      // In the same transaction as the entry. A head that outlives a
+      // rolled-back write would point at an entry nobody has, and the next
+      // one would chain to nothing.
+      await t.put('meta', this.#ctx.chain.headRow());
       await t.put('outbox', outbox);
     };
 
@@ -393,7 +401,7 @@ export class Repository {
     });
 
     return {
-      stores: [this.#name, 'search', 'audit', 'outbox', 'shadow'],
+      stores: [this.#name, 'search', 'audit', 'outbox', 'shadow', 'meta'],
       apply,
       emit,
       record,
@@ -407,12 +415,28 @@ export class Repository {
 
   /** Run one prepared write, on its own, in its own transaction. */
   async #run(planned) {
-    await this.#ctx.adapter.tx(planned.stores, 'readwrite', planned.apply);
+    try {
+      await this.#ctx.adapter.tx(planned.stores, 'readwrite', planned.apply);
+    } catch (error) {
+      // The head advanced when the entry was planned. Nothing was written, so
+      // forget it and re-read the committed one next time.
+      this.#ctx.chain.reset();
+      throw error;
+    }
     planned.emit();
   }
 
   async #writeAudit(entry) {
-    await this.#ctx.adapter.write('audit', entry);
+    const linked = await this.#ctx.chain.next(entry);
+    try {
+      await this.#ctx.adapter.tx(['audit', 'meta'], 'readwrite', async (t) => {
+        await t.put('audit', linked);
+        await t.put('meta', this.#ctx.chain.headRow());
+      });
+    } catch (error) {
+      this.#ctx.chain.reset();
+      throw error;
+    }
   }
 }
 

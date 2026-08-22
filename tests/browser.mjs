@@ -857,6 +857,44 @@ async function main() {
       check('and does not offer a picker with one entry in it',
         (await page.getByRole('button', { name: /^English/ }).count()) === 0);
 
+      // The audit chain, driven rather than asserted in a unit test. Both ends
+      // of this have tests; the wiring between them is where this codebase
+      // keeps finding holes.
+      {
+        await page.getByRole('button', { name: 'Check the log' }).click();
+        await page.waitForTimeout(600);
+        const said = (await page.locator('.app-content').innerText()).trim();
+
+        check('the audit log can be checked from Settings and says it adds up',
+          /link up correctly|links up correctly/.test(said), said.slice(0, 400));
+
+        // The whole honesty of the feature. A screen that said "verified" or
+        // "proven" would be claiming more than a hash chain inside its own
+        // database can deliver.
+        check('and says plainly who could still defeat it',
+          /anybody who can unlock/i.test(said), said.slice(0, 400));
+        check('and does not use the word verified or proven',
+          !/\bverified\b|\bproven\b/i.test(said), said.slice(0, 400));
+
+        // Now break it, through the adapter, and require the screen to notice.
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          const rows = await app().db.adapter.query('audit', {});
+          const target = rows.find((r) => r.hash);
+          await app().db.adapter.write('audit', { ...target, actorId: 'somebody-else' });
+        }, IN_PAGE.context);
+
+        await page.getByRole('button', { name: 'Check the log' }).click();
+        await page.waitForTimeout(600);
+        const broken = (await page.locator('.app-content').innerText()).trim();
+
+        check('and a rewritten entry is reported on the screen, not only in a test',
+          /does not add up/.test(broken), broken.slice(0, 400));
+        check('and the screen says what kind of tampering it was',
+          /changed after it was written|not attached|no beginning|same place/.test(broken),
+          broken.slice(0, 400));
+      }
+
       // The layer is wired to the boot sequence, not merely present. `dir` is
       // the half that proves it: index.html already carries a static
       // `lang="en"`, so that attribute would survive `start()` being deleted

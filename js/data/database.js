@@ -12,6 +12,7 @@ import { Repository } from './repository.js';
 import { entities, entity, referenceFields, referencedIds,
 } from './schema.js';
 import { searchIndex, indexEntry } from './search.js';
+import { Chain, verify as verifyChain } from './chain.js';
 import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
 import { Keyring } from '../security/keyring.js';
 import { deviceId as resolveDeviceId } from '../core/ids.js';
@@ -47,6 +48,10 @@ export class Database {
     const { adapter, name, storage = globalThis.localStorage ?? memoryStorage() } = this.options;
     this.#adapter = await openDatabase({ adapter, name });
     this.#deviceId = resolveDeviceId(storage);
+
+    // One chain per device, so two phones appending offline do not read as a
+    // broken log. `js/data/chain.js` says why at length.
+    this.chain = new Chain(this.#adapter, this.#deviceId);
 
     this.keyring = new Keyring(
       { get: (k) => this.meta(k), set: (k, v) => this.setMeta(k, v) },
@@ -87,6 +92,7 @@ export class Database {
         keyring: this.keyring,
         actor: () => this.#actor,
         deviceId: this.#deviceId,
+        chain: this.chain,
         nextSeq: () => this.nextSeq(),
         clock: this.options.clock,
         currency: this.options.currency ?? config().currency,
@@ -255,10 +261,29 @@ export class Database {
   /* ----------------------------------------------------------------- audit */
 
   async logAudit(action, detail = {}) {
-    await this.adapter.write('audit', auditEntry({
+    const linked = await this.chain.next(auditEntry({
       action, actor: this.#actor, deviceId: this.#deviceId, detail,
       entity: detail.entity, recordId: detail.recordId,
     }));
+    try {
+      await this.adapter.tx(['audit', 'meta'], 'readwrite', async (t) => {
+        await t.put('audit', linked);
+        await t.put('meta', this.chain.headRow());
+      });
+    } catch (error) {
+      this.chain.reset();
+      throw error;
+    }
+  }
+
+  /**
+   * Whether the audit trail still adds up.
+   *
+   * Reads every entry, so this is something a person asks for rather than
+   * something a screen does on the way past.
+   */
+  async verifyAudit() {
+    return verifyChain(await this.adapter.query('audit', {}));
   }
 
   /* --------------------------------------------------------------- counts */

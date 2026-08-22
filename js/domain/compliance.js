@@ -314,9 +314,16 @@ export const REGIMES = Object.freeze([
       control('one-letting-or-none', 'A payment is attributed to one letting or to none',
         STATUS.TESTED, { file: 'js/domain/rentreceipt.js', test: 'tests/docx.test.mjs' }),
       control('tenant-records', 'A tenant record with its own ledger',
-        STATUS.NOT_STARTED, {},
-        'Three fields on `property`. No tenant entity, no lease history, no '
-        + 'arrears figure — see docs/COMPLIANCE/PROPERTY.md.'),
+        STATUS.IMPLEMENTED,
+        { file: 'js/data/schema.js', test: 'tests/phase10.test.mjs' },
+        // Was NOT_STARTED with "no tenant entity, no lease history", both of
+        // which Phase 10 built and neither of which anybody came back to
+        // correct. What is still missing is the *ledger* half, and that is
+        // now what this says.
+        'The `tenant` entity carries the letting, its dates, rent and deposit. '
+        + 'There is still no per-tenant ledger and no arrears figure — rent '
+        + 'received is attributed by `js/domain/rentreceipt.js`, not totalled '
+        + 'against what was due.'),
     ],
   },
   {
@@ -355,9 +362,18 @@ export const REGIMES = Object.freeze([
       control('original-preserved', 'The source file is kept unmodified',
         STATUS.TESTED, { file: 'js/services/documents.js', test: 'tests/provenance.test.mjs' }),
       control('tamper-evidence', 'A record that has been altered can be shown to have been',
-        STATUS.NOT_STARTED, {},
-        'The audit trail is a log in the same database as the records. Nothing '
-        + 'signs or chains it, so it establishes history, not tamper-evidence.'),
+        STATUS.TESTED,
+        { file: 'js/data/chain.js', test: 'tests/chain.test.mjs' },
+        // TESTED, not VERIFIED, and the gap is stated rather than left for
+        // somebody to discover: this detects tampering, it does not prevent
+        // it, and it is defeated by anybody who can recompute the chain —
+        // which is anybody who can unlock the application. Closing that needs
+        // an anchor outside the device. docs/AUDIT_CHAIN.md sets out what
+        // that would take and does not pretend it is here.
+        'Each entry carries the hash of the one before it from the same device, '
+        + 'so an alteration, a deletion or an insertion is detectable. It is '
+        + 'not prevented, and it is defeated by anybody who can write to this '
+        + 'database and recompute the chain. There is no external anchor.'),
     ],
   },
   {
