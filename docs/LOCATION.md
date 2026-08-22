@@ -23,9 +23,34 @@ a person sends it from their own phone. `sentVia` records what they say they
 did, and its default is `not sent`.
 
 What a background implementation would need, stated so nobody has to discover
-it: `@capacitor/geolocation`, a foreground-service notification, and on Android
-10+ a separate `ACCESS_BACKGROUND_LOCATION` grant with a Play policy
-declaration attached to it. None of that is in this repository.
+it: a foreground-service notification and, on Android 10+, a separate
+`ACCESS_BACKGROUND_LOCATION` grant with a Play policy declaration attached to
+it. Neither is in this repository, and `tests/native.test.mjs` fails if that
+permission is ever added — so the absence is enforced rather than merely
+described.
+
+## On a phone
+
+`@capacitor/geolocation` is installed, and it is what asks Android for the
+runtime permission. This matters more than it looks: `navigator.geolocation`
+exists inside a Capacitor WebView and appears as though it should work, but the
+WebView asks the *activity* through `onGeolocationPermissionsShowPrompt`, and
+with no Android runtime grant behind it that prompt is answered no before a
+person ever sees it. The feature would look broken rather than unpermitted. So
+`js/core/position.js` prefers the plugin whenever there is one and falls back
+to the browser API otherwise — one code path for both, because the plugin
+returns the web shape deliberately.
+
+The manifest asks for two permissions and no more:
+
+| Permission | Why |
+| --- | --- |
+| `ACCESS_FINE_LOCATION` | A 200 m zone needs a fix precise enough to decide it |
+| `ACCESS_COARSE_LOCATION` | Android lets somebody grant only the approximate one, and a household that would rather say "the right neighbourhood" than "the right doorstep" should be able to. A coarse fix still decides a 3 km zone, and the geometry refuses to place it against a 200 m one |
+
+`android.hardware.location.gps` is declared `required="false"`, so a device
+without GPS is not excluded from the store listing — it gets a screen that says
+there is no reading rather than an app it cannot install.
 
 ## The rule the geometry exists for
 
@@ -134,7 +159,8 @@ nobody made.
 
 ## What has not been tested
 
-Everything here is tested against injected positions —
-`tests/location.test.mjs` supplies its own `geolocation` — and none of it has
-been run on a phone that moved. The arithmetic is verified; the experience of
-carrying it around is not.
+Everything here is tested against injected positions and an injected plugin —
+`tests/location.test.mjs` supplies both — and the APK is compiled on every push
+so the manifest and the plugin are known to build. **None of it has been run on
+a phone that moved.** The arithmetic is verified, the permissions are asserted,
+and the experience of carrying it around is not.

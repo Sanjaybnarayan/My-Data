@@ -71,4 +71,32 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+        Location, for Phase 15: safe zones and the "where is everyone" screen.
+        Both are asked for at runtime by @capacitor/geolocation, and the app
+        works without them — every screen degrades to "no reading on this
+        device" rather than breaking.
+
+        COARSE is listed as well as FINE deliberately. Android lets a person
+        grant the approximate one only, and a household that would rather say
+        "the right neighbourhood" than "the right doorstep" should be able to:
+        a coarse fix still decides a 3 km zone, and `domain/geo.js` refuses to
+        place it against a 200 m one instead of guessing.
+
+        ACCESS_BACKGROUND_LOCATION is NOT here, and its absence is the design.
+        It would need a foreground service, a persistent notification and a
+        Play policy declaration, and it would change what this application is:
+        something that watches a family rather than something a family opens.
+        docs/LOCATION.md says so, and nothing in the app claims otherwise.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!--
+        Declared not-required so the Play listing does not exclude devices
+        without GPS hardware. The feature is optional here in the real sense:
+        a device that cannot fix a position gets a screen that says so.
+    -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>

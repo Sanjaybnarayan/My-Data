@@ -6,7 +6,7 @@ import {
   FRESHNESS, CROSSING, RETAIN_DAYS, STALE_MINUTES,
   readingsFor, freshness, lastKnown, transitions, expired, describeLastKnown, sosMessage,
 } from '../js/domain/safety.js';
-import { read, fromBrowser, describeRefusal, DENIED, UNAVAILABLE, TIMED_OUT, UNSUPPORTED } from '../js/core/position.js';
+import { read, fromPosition, describeRefusal, DENIED, UNAVAILABLE, TIMED_OUT, UNSUPPORTED } from '../js/core/position.js';
 import { policyFor } from '../js/data/retention.js';
 import { entity } from '../js/data/schema.js';
 
@@ -306,7 +306,7 @@ describe('reading a position', () => {
   test('an accuracy the device did not give is null, not zero', () => {
     // Zero would mean "perfectly certain", which is the opposite of what a
     // missing value says.
-    assert.equal(fromBrowser(browserPosition({ latitude: 1, longitude: 2 })).accuracyMetres, null);
+    assert.equal(fromPosition(browserPosition({ latitude: 1, longitude: 2 })).accuracyMetres, null);
   });
 
   test('each refusal is its own reason', async () => {
@@ -329,6 +329,74 @@ describe('reading a position', () => {
     for (const why of [DENIED, UNAVAILABLE, TIMED_OUT, UNSUPPORTED, 'something else']) {
       assert.ok(describeRefusal(why).length > 10, why);
     }
+  });
+
+  test('the native plugin is preferred over the WebView, when there is one', async () => {
+    // `navigator.geolocation` exists inside a Capacitor WebView and looks like
+    // it works. Without an Android runtime grant behind it the prompt is
+    // answered no before a person sees it, so the plugin has to win.
+    const asked = [];
+    const result = await read({
+      // The fake WebView answers — with an error, but it answers. A stub that
+      // recorded the call and never called back would leave the promise
+      // unsettled, and removing the native path would then *hang* this suite
+      // rather than fail it. A test that hangs proves less than one that
+      // fails, and this project has been caught by that before.
+      geolocation: fakeGeolocation((_ok, err) => { asked.push('webview'); err({ code: 2 }); }),
+      plugin: () => ({
+        checkPermissions: async () => ({ location: 'granted' }),
+        getCurrentPosition: async () => {
+          asked.push('plugin');
+          return browserPosition({ latitude: 12.97, longitude: 77.59, accuracy: 9 });
+        },
+      }),
+    });
+
+    assert.deep(asked, ['plugin']);
+    assert.ok(result.ok);
+    assert.equal(result.fix.accuracyMetres, 9);
+  });
+
+  test('the native permission is asked for when it has not been granted', async () => {
+    const calls = [];
+    const result = await read({
+      plugin: () => ({
+        checkPermissions: async () => { calls.push('check'); return { location: 'prompt' }; },
+        requestPermissions: async () => { calls.push('request'); return { location: 'granted' }; },
+        getCurrentPosition: async () => browserPosition({ latitude: 1, longitude: 2, accuracy: 5 }),
+      }),
+    });
+
+    assert.deep(calls, ['check', 'request']);
+    assert.ok(result.ok);
+  });
+
+  test('a native refusal is denied on the permission state, not on a parsed message', async () => {
+    const result = await read({
+      plugin: () => ({
+        checkPermissions: async () => ({ location: 'denied' }),
+        requestPermissions: async () => ({ location: 'denied' }),
+        getCurrentPosition: async () => { throw new Error('should never be asked'); },
+      }),
+    });
+
+    assert.not(result.ok);
+    assert.equal(result.why, DENIED);
+  });
+
+  test('a native failure below that falls back to unavailable rather than to ok', async () => {
+    // The direction that matters: a reason this cannot classify puts a
+    // slightly wrong sentence on a screen; a wrong `ok` puts a position there
+    // that does not exist.
+    const result = await read({
+      plugin: () => ({
+        checkPermissions: async () => ({ location: 'granted' }),
+        getCurrentPosition: async () => { throw new Error('location services disabled'); },
+      }),
+    });
+
+    assert.not(result.ok);
+    assert.equal(result.why, UNAVAILABLE);
   });
 
   test('a callback that fires twice settles once', async () => {

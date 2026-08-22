@@ -246,3 +246,57 @@ describe('the Android resource directories', () => {
       `${light.length} light launch screens and ${dark.length} dark ones`);
   });
 });
+
+setSuite('what the native build asks a phone for');
+
+/**
+ * The permissions are the claim.
+ *
+ * Everything the application *says* about location is prose — in
+ * docs/LOCATION.md, on the Safety screen, in the manifest's own comment — and
+ * prose does not stop anybody adding a line to an XML file. The manifest is
+ * where "we do not watch your family in the background" is either true or not,
+ * so it is asserted here rather than described.
+ */
+describe('the location permissions', () => {
+  const manifest = () => readFile(join(ROOT, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
+  const asks = (xml, name) =>
+    new RegExp(`<uses-permission[^>]*android:name="android\\.permission\\.${name}"`).test(xml);
+
+  test('it asks for the two the plugin needs, at runtime', async () => {
+    const xml = await manifest();
+    assert.ok(asks(xml, 'ACCESS_FINE_LOCATION'), 'fine location is not declared');
+    assert.ok(asks(xml, 'ACCESS_COARSE_LOCATION'),
+      'coarse is not declared — a person who grants only the approximate '
+      + 'permission would get nothing at all');
+  });
+
+  test('and does not ask for background location', async () => {
+    // The one that matters. Adding this line is a small edit and a different
+    // application: it needs a foreground service, a persistent notification
+    // and a Play policy declaration, and it turns something a family opens
+    // into something that watches them. docs/LOCATION.md, the Safety screen
+    // and js/core/position.js all state it is absent. This is what makes that
+    // true rather than merely written down.
+    const xml = await manifest();
+    assert.not(asks(xml, 'ACCESS_BACKGROUND_LOCATION'),
+      'background location was added — three documents and a screen say this '
+      + 'application does not do that. Change them first, or remove the line.');
+  });
+
+  test('a device without GPS is not excluded from the store listing', async () => {
+    const xml = await manifest();
+    assert.ok(/android\.hardware\.location\.gps"\s+android:required="false"/.test(xml),
+      'the GPS feature should be declared optional — the app degrades to '
+      + '"no reading on this device" rather than needing the hardware');
+  });
+
+  test('the plugin that owns the runtime grant is actually installed', async () => {
+    // Without it `navigator.geolocation` inside the WebView is answered no
+    // before a person sees a prompt, and the feature looks broken rather than
+    // unpermitted.
+    const pkg = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'));
+    assert.ok(pkg.dependencies['@capacitor/geolocation'],
+      '@capacitor/geolocation is what asks Android for the permission');
+  });
+});
