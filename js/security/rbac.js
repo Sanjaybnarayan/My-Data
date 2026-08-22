@@ -32,12 +32,23 @@ const GUEST_READABLE = new Set(['emergencyContact']);
  * one of them an action this file permits and the backend refuses. See
  * `docs/OWN_RECORDS.md`.
  */
-export const OWN_RECORD_ENTITIES = new Set([
-  'person', 'healthRecord', 'medication', 'vaccination', 'appointment',
-  'education', 'certificate', 'task', 'note', 'event',
-]);
-
-/** Which field on an entity names the person a record is about. */
+/**
+ * Which field on an entity names the person a record is about.
+ *
+ * This is the only table. `OWN_RECORD_ENTITIES` is derived from it below,
+ * because they were two lists that had to agree and a mutation proved they
+ * did not have to: adding an entity to the set without a field here changed
+ * nothing at all, so somebody could believe they had granted access and be
+ * wrong with no test disagreeing.
+ *
+ * `staffLeave` is deliberately absent. Row-level filtering needs the subject
+ * named on the row, and a leave row names the *employment record*, not the
+ * person. Adding a `person` column to make it work would be a second copy of
+ * who a leave belongs to, free to disagree with the first — the fault this
+ * pair had. So a staff member sees their employment record and not their
+ * leave, and `docs/OWN_RECORDS.md` says so rather than leaving somebody to
+ * discover it.
+ */
 export const SUBJECT_FIELD = {
   person: 'id',
   healthRecord: 'person',
@@ -49,7 +60,22 @@ export const SUBJECT_FIELD = {
   task: 'assignee',
   note: 'createdBy',
   event: 'createdBy',
+  // The employment record a household holds *about* somebody who works for
+  // them, so the person can be shown it — which was previously impossible
+  // without handing over the household's records.
+  staff: 'person',
 };
+
+/**
+ * Entities where somebody may read and edit rows that are about them.
+ *
+ * Derived, not typed twice. Exported because `tools/policy.mjs` generates the
+ * backend's copy from these — until it did, the server had no own-record rule
+ * at all and the two layers disagreed on fourteen (role, action, entity)
+ * combinations, every one an action this file permits and the backend
+ * refuses. See `docs/OWN_RECORDS.md`.
+ */
+export const OWN_RECORD_ENTITIES = new Set(Object.keys(SUBJECT_FIELD));
 
 export function isRole(role) {
   return Object.hasOwn(RANK, role);

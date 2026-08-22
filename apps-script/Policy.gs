@@ -11,7 +11,7 @@
  * decides what actually reaches the workbook.
  */
 
-var ROLES = ["owner","spouse","adult","child","guest"];
+var ROLES = ["owner","spouse","adult","child","guest","staff"];
 
 var POLICY = {
   "account": { read: ["owner","spouse","adult"], write: ["owner","spouse"] },
@@ -109,6 +109,7 @@ var OWN_RECORD = {
   "healthRecord": "person",
   "medication": "person",
   "note": "createdBy",
+  "staff": "person",
   "task": "assignee",
   "vaccination": "person"
 };

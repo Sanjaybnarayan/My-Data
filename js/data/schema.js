@@ -37,7 +37,16 @@
 import { CATEGORIES } from '../domain/categorise.js';
 
 /** Roles, most privileged first. `rbac.js` reads the order. */
-export const ROLES = ['owner', 'spouse', 'adult', 'child', 'guest'];
+/**
+ * Access roles, most privileged first — `rbac.js` ranks them by this order.
+ *
+ * `staff` is last, below `guest`, and is on **no entity's ACL**. That is the
+ * design rather than an omission: `can()` falls through to the own-record
+ * branch for a role it does not recognise on a list, so a staff member sees
+ * the rows that are about them and nothing else, without a special case
+ * anybody has to remember to write.
+ */
+export const ROLES = ['owner', 'spouse', 'adult', 'child', 'guest', 'staff'];
 
 const ALL_ADULTS = ['owner', 'spouse', 'adult'];
 const HOUSEHOLD = ['owner', 'spouse', 'adult', 'child'];
