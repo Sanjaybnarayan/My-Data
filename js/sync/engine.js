@@ -35,6 +35,7 @@ import { schemaFingerprint } from '../data/migrations.js';
 import { unsyncedAudit } from '../data/audit.js';
 import { refused } from '../data/consent.js';
 import { config } from '../core/config.js';
+import { record as recordDiagnostic, KIND } from '../data/diagnostics.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { TransportError } from '../core/errors.js';
 
@@ -169,6 +170,20 @@ export class SyncEngine {
       // Not rethrown: sync failing is a normal condition in an offline-first
       // app, and a caller on a timer has nowhere useful to put the exception.
       result.error = err.message;
+
+      // Recorded, because *one* failed sync is a normal condition and the same
+      // failure every day for a week is not — and until this existed there was
+      // no way to tell those apart. `lastError` holds one; this holds the run.
+      await recordDiagnostic(this.#db.adapter, {
+        kind: KIND.sync,
+        where: 'sync.run',
+        // Status first, then the code. Every transport failure carries
+        // `code: 'transport'`, which distinguishes nothing — a backend that is
+        // down and one that rejected the request would group together, and
+        // grouping is the entire point of recording these.
+        code: err.status != null ? `http-${err.status}` : (err.code ?? err.name ?? ''),
+        message: err.message,
+      });
     }
 
     bus.emit(TOPIC.syncProgress, result);

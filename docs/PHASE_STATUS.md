@@ -12,9 +12,18 @@ critical defect is still open.
 
 Completion is weighted as the audit brief specifies: architecture 20,
 implementation 30, integration 15, testing 15, security 10, documentation 5,
-observability 5. **Observability scores 0 for every phase** — there is none
-anywhere in the repository, which costs every row 5 points and is why nothing
+observability 5. **Observability scored 0 for every phase** — there was none
+anywhere in the repository, which cost every row 5 points and is why nothing
 reaches 100.
+
+That is now partly untrue and is corrected here rather than left standing.
+`js/data/diagnostics.js` records failures, refusals and failed syncs on the
+device, redacted, and Settings shows them — so *the application* has an
+operational record where it had none. Individual phases have **not** been
+re-scored for it: a general facility is not per-phase instrumentation, and
+adding 5 points to twenty-seven rows for one module would be exactly the
+unearned inflation this table exists to avoid. Only Phase 20, where the
+control lives, moves.
 
 Two caps are applied as instructed: a phase whose core implementation is missing
 cannot exceed 50%, and no phase is COMPLETE if it depends on a fabricated
@@ -43,7 +52,7 @@ external integration or has an open critical security or data-integrity defect.
 | 17 | Knowledge graph / search / timeline | **MOSTLY_COMPLETE** | 76 | `search` store, `connections.js`, `timeline.js` + screen, "what changed", authorization-aware search | Graph is derived, not stored | Low |
 | 18 | AI family assistant | **PARTIALLY_COMPLETE** | 55 | `ai/assistant.js`, `intents.js`, `mcp.js`, `summary.js`; **read-only, no model, no network** | No language model by design; capability is narrow | Low |
 | 19 | Advanced analytics | **MOSTLY_COMPLETE** | 70 | `charts.js`, forecasting, anomaly detection, trends, actual/projected labels | No ML | Low |
-| 20 ↑ | Security / privacy / compliance hardening | **PARTIALLY_COMPLETE** | 72 | AES-GCM + PBKDF2, 36 encrypted fields, sanitiser, rate limiting, device trust; **audit trail hash-chained per device** with a verifier a person can run; 68 compliance controls, **0 VERIFIED** | No external cryptographic review; the chain is tamper-*evidence* only and has no anchor outside the device; no control has been verified, and none may be called compliant until one is | Medium |
+| 20 ↑ | Security / privacy / compliance hardening | **PARTIALLY_COMPLETE** | 76 | AES-GCM + PBKDF2, 36 encrypted fields, sanitiser, rate limiting, device trust; **audit trail hash-chained per device** with a verifier a person can run; **local diagnostics**, redacted and never transmitted; 68 compliance controls, **0 VERIFIED** | No external cryptographic review; the chain is tamper-*evidence* only and has no anchor outside the device; no control has been verified, and none may be called compliant until one is | Medium |
 | 21 | Backup / restore / portability | **COMPLETE** | 88 | `domain/archive.js` + `services/archive.js`; encrypted archive, verified read-back, restore refuses to merge, keyring travels, deleted rows preserved | No scheduling; on-disk bytes unverifiable from a page | Low |
 | 22 | PWA optimisation | **COMPLETE** | 84 | Manifest, 167-entry precache, offline shell, IndexedDB, sync queue, update mechanism, `tools/webroot.mjs` two-way check | No push, no background sync | Low |
 | 23 ↑ | Android companion | **PARTIALLY_COMPLETE** | 64 | Capacitor 8.5.0; **debug APK builds in CI**; back button, Filesystem, Share; `allowBackup` off; coarse and fine location; **a first-party SMS plugin**, telephony declared non-required | No background location or geofencing, no screen time, no camera; the SMS permission makes this a sideload build | Medium |

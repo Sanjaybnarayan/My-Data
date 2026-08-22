@@ -61,6 +61,7 @@ const SHELL = [
   './js/data/lineage.js',
   './js/data/provenance.js',
   './js/data/database.js',
+  './js/data/diagnostics.js',
   './js/data/formats.js',
   './js/data/integrity.js',
   './js/data/idb.js',

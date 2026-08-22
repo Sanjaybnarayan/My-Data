@@ -20,6 +20,7 @@ import { validateOrThrow } from './validate.js';
 import { upgradeRecord } from './migrations.js';
 import { indexEntry, indexKey } from './search.js';
 import { auditEntry, changedFields, ACTIONS, shouldLogRead } from './audit.js';
+import { record as recordDiagnostic, KIND } from './diagnostics.js';
 import {
   unresolved, refuseUnresolved, dependents, blocking, refuseBlocked,
 } from './integrity.js';
@@ -126,9 +127,43 @@ export class Repository {
   /* ----------------------------------------------------------------- write */
 
   async create(input) {
-    const planned = await this.stageCreate(input);
-    await this.#run(planned);
-    return planned.record;
+    return this.#attempt('create', async () => {
+      const planned = await this.stageCreate(input);
+      await this.#run(planned);
+      return planned.record;
+    });
+  }
+
+  /**
+   * Run a write, and record it if it fails.
+   *
+   * Wrapping the whole public method rather than only the transaction,
+   * because most failures never reach the transaction: a permission refusal, a
+   * validation error and a dangling reference all throw while the write is
+   * still being prepared. An earlier version recorded only in `#run` and a
+   * test caught that it saw none of them — the same blind spot a mutation
+   * found in the audit chain an hour earlier, in the same file.
+   *
+   * The error is always rethrown. This makes a failure visible afterwards; it
+   * never makes one disappear.
+   */
+  async #attempt(what, fn) {
+    try {
+      return await fn();
+    } catch (error) {
+      await recordDiagnostic(this.#ctx.adapter, {
+        // A rule saying no is not a fault. Telling the two apart matters:
+        // a run of refusals means somebody is fighting the application, and a
+        // run of errors means the application is broken.
+        kind: error?.name === 'ValidationError' || error?.code === 'forbidden'
+          ? KIND.refusal : KIND.error,
+        where: `repository.${what}`,
+        entity: this.#name,
+        code: error?.code ?? error?.name ?? '',
+        message: error?.message ?? '',
+      });
+      throw error;
+    }
   }
 
   /**
@@ -201,9 +236,11 @@ export class Repository {
    * not have to round-trip the rest and risk clobbering another device's edit.
    */
   async update(id, patch) {
-    const planned = await this.stageUpdate(id, patch);
-    await this.#run(planned);
-    return planned.record;
+    return this.#attempt('update', async () => {
+      const planned = await this.stageUpdate(id, patch);
+      await this.#run(planned);
+      return planned.record;
+    });
   }
 
   /** An update, prepared and not written. See `stageCreate`. */
@@ -246,10 +283,12 @@ export class Repository {
    * month learns about it instead of resurrecting the record on its next push.
    */
   async remove(id) {
-    const planned = await this.stageRemove(id);
-    if (!planned) return false;
-    await this.#run(planned);
-    return true;
+    return this.#attempt('remove', async () => {
+      const planned = await this.stageRemove(id);
+      if (!planned) return false;
+      await this.#run(planned);
+      return true;
+    });
   }
 
   /** A soft delete, prepared and not written. `null` when there is no such row. */
@@ -421,6 +460,9 @@ export class Repository {
       // The head advanced when the entry was planned. Nothing was written, so
       // forget it and re-read the committed one next time.
       this.#ctx.chain.reset();
+      // Not recorded here: `#attempt` wraps every public write and would
+      // otherwise log the same failure twice, which would make one bad night
+      // look like two.
       throw error;
     }
     planned.emit();

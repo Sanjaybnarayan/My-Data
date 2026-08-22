@@ -37,6 +37,7 @@ import {
   GOOGLE_METHOD,
 } from '../auth/google-unlock.js';
 import { recentActivity, describe as describeAudit, ACTIONS } from '../data/audit.js';
+import { recent as recentDiagnostics, summarise as summariseDiagnostics } from '../data/diagnostics.js';
 import { report as consentReport, record, PURPOSES, DECISIONS } from '../data/consent.js';
 import { MAILBOXES_KEY, readMailbox } from '../domain/mailboxes.js';
 
@@ -53,6 +54,7 @@ async function paint(host) {
   const stats = await db.statistics();
   const usage = await db.adapter.usage?.();
   const activity = await recentActivity(db.adapter, { limit: 12 });
+  const diagnostics = await recentDiagnostics(db.adapter, { limit: 100 });
   const methods = await db.keyring.methods();
   const people = Object.fromEntries(
     (await db.repo('person').list({ decrypt: false })).map((p) => [p.id, p.name]),
@@ -86,6 +88,7 @@ async function paint(host) {
       deletedCard(db),
       conflictsCard(db),
       activityCard(activity, people, db),
+      diagnosticsCard(diagnostics),
       aboutCard(),
     ]),
   ]);
@@ -1413,6 +1416,72 @@ function activityCard(activity, people, db) {
         trailing: entry.synced ? null : badge('local', 'warning'),
       })))
       : empty({ title: 'No activity yet', iconName: 'clock' }),
+  ]);
+}
+
+/* ----------------------------------------------------- how this is going */
+
+/**
+ * What has gone wrong on this device lately.
+ *
+ * The card exists to answer one question nothing could answer before: *has
+ * this been happening?* A single failed sync is a bad minute; the same failure
+ * every day for a week is something a household should be told, and until this
+ * existed those looked identical the moment somebody reloaded.
+ *
+ * The two sentences at the bottom are not decoration. A screen headed
+ * "problems" invites the assumption that somebody is watching them, and
+ * nobody is — no alerting, no aggregate across devices, and nothing sent
+ * anywhere. Saying so here costs three lines and prevents a false belief that
+ * would otherwise be perfectly reasonable to hold.
+ */
+function diagnosticsCard(events) {
+  const roll = summariseDiagnostics(events);
+  const kinds = Object.entries(roll.byKind);
+
+  return card({ class: 'card--quiet' }, [
+    cardHeader('How this device is doing',
+      badge(roll.total ? `${roll.total} in ${roll.days} days` : 'nothing recently',
+        roll.total ? 'warning' : 'positive'),
+      { iconName: 'activity' }),
+
+    roll.total
+      ? h('div', { class: 'stack stack--tight' }, [
+        h('p', { class: 'small' }, kinds
+          .map(([kind, n]) => `${n} ${kind}${n === 1 ? '' : 's'}`).join(', ')),
+
+        // The part worth surfacing: the same thing failing again and again.
+        roll.repeated.length
+          ? h('div', { class: 'list' }, roll.repeated.slice(0, 5).map((r) => listItem({
+            title: r.key.replace(':', ' · '),
+            subtitle: `${r.count} times`,
+            trailing: badge(String(r.count), 'warning'),
+          })))
+          : h('p', { class: 'small faint' },
+            'Nothing has happened more than once, so none of it looks like a '
+            + 'pattern.'),
+
+        // The messages themselves, already redacted on the way in. Shown
+        // because "sync · http-501" alone is thin — and because a card that
+        // never renders a message would let the redaction rot unnoticed:
+        // nothing on any screen would change if it stopped working.
+        h('p', { class: 'small faint', style: { marginBottom: 0 } }, 'Most recent:'),
+        h('div', { class: 'list' }, events.slice(0, 3).map((e) => listItem({
+          title: e.message || `${e.where} ${e.code}`.trim(),
+          subtitle: `${e.where}${e.entity ? ` · ${e.entity}` : ''}`,
+        }))),
+      ])
+      : h('p', { class: 'small faint' },
+        `Nothing has gone wrong in the last ${roll.days} days.`
+        + (roll.full ? ' The record is full, so it may not reach back further.' : '')),
+
+    h('p', { class: 'small faint', style: { marginTop: 'var(--space-4)', marginBottom: 0 } },
+      'None of this leaves the device, and the values are stripped out before '
+      + 'anything is written — amounts, names and account numbers never reach '
+      + 'this record.'),
+    h('p', { class: 'small faint', style: { marginBottom: 0 } },
+      'Nobody is watching it but you. Nothing alerts anyone, and there is no '
+      + 'view across your other devices.'),
   ]);
 }
 

@@ -857,6 +857,43 @@ async function main() {
       check('and does not offer a picker with one entry in it',
         (await page.getByRole('button', { name: /^English/ }).count()) === 0);
 
+      // The diagnostics card. It says two things that must survive contact
+      // with a real render, because both are claims about what this
+      // application does not do.
+      {
+        const said = (await page.locator('.app-content').innerText()).trim();
+
+        check('Settings says how the device is doing',
+          /How this device is doing/.test(said), said.slice(0, 300));
+        check('and says the record never leaves the device',
+          /leaves the device/.test(said), said.slice(0, 300));
+        check('and says nobody is watching it',
+          /Nobody is watching it but you/.test(said), said.slice(0, 300));
+
+        // Drive a real failure, then require the card to have counted it and
+        // to hold none of what caused it.
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          try {
+            await app().db.repo('transaction').create({
+              date: '2026-08-22', amount: 50_000_00, direction: 'out',
+              description: 'Rent to landlord@okicici', account: 'acc_nowhere',
+            });
+          } catch { /* expected */ }
+        }, IN_PAGE.context);
+
+        await go(page, '#/finance');
+        await go(page, '#/settings');
+        await page.waitForTimeout(500);
+        const after = (await page.locator('.app-content').innerText()).trim();
+
+        check('a real failure is counted on the card',
+          /1 in 7 days|refusals?|errors?/.test(after), after.slice(0, 600));
+        check('and none of what caused it is shown',
+          !/landlord@okicici/.test(after) && !/50,000/.test(after)
+          && !/acc_nowhere/.test(after), after.slice(0, 600));
+      }
+
       // The audit chain, driven rather than asserted in a unit test. Both ends
       // of this have tests; the wiring between them is where this codebase
       // keeps finding holes.

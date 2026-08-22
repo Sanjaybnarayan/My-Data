@@ -1949,6 +1949,15 @@ export const systemStores = Object.freeze({
   meta: { keyPath: 'key', indexes: [] },
   blobs: { keyPath: 'id', indexes: [] },
   search: { keyPath: 'id', indexes: [['byTerm', 'term', { multiEntry: true }]] },
+  /**
+   * Things that went wrong on this device, redacted and bounded.
+   *
+   * A system store rather than an entity: it does not sync, is not encrypted
+   * because it must not contain anything worth encrypting, and nothing points
+   * at it. See `js/data/diagnostics.js` for why the redaction is the whole
+   * safety argument.
+   */
+  diagnostics: { keyPath: 'id', indexes: [] },
 });
 
 /* ----------------------------------------------------------------- helpers */

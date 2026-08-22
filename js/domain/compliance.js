@@ -449,9 +449,16 @@ export const REGIMES = Object.freeze([
       control('cc6-logical-access', 'CC6 Logical and physical access',
         STATUS.TESTED, { file: 'js/security/rbac.js', test: 'tests/security.test.mjs' }),
       control('cc7-monitoring', 'CC7 System operations and monitoring',
-        STATUS.NOT_STARTED, {},
-        'No observability of any kind. The audit is a record of changes, not of '
-        + 'system health, and there is no OBSERVABILITY document.'),
+        STATUS.TESTED,
+        { file: 'js/data/diagnostics.js', test: 'tests/diagnostics.test.mjs' },
+        // TESTED for the observability half and honest about the rest. There
+        // is no operator here, so "monitoring" in CC7's sense cannot exist —
+        // which is the same reason this whole regime carries NOT_TO_THIS.
+        'Failures, refusals and failed syncs are recorded on the device, '
+        + 'redacted, and shown in Settings — so a run of the same failure is '
+        + 'tellable from a one-off. Nobody is watching them: no alerting, no '
+        + 'view across devices, and nothing is transmitted anywhere. See '
+        + 'docs/OBSERVABILITY.md.'),
       control('a1-availability', 'A1 Availability',
         STATUS.NOT_APPLICABLE, {}, 'Nothing is served to anybody.'),
     ],

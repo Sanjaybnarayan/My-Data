@@ -92,6 +92,17 @@ const HOUSEKEEPING = new Set([
  *
  * This comment cannot spell out the sequence it is about, for the same reason.
  */
+/** Whether a `/` here can only be a regex, rather than division. */
+function startsValue(out) {
+  const before = out.replace(/\s+$/, '');
+  if (!before) return true;
+  const last = before[before.length - 1];
+  if ('([{,;=:!&|?+-~*%<>^'.includes(last)) return true;
+  // `return /x/` and friends: a keyword, then a value.
+  return /\b(return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/
+    .test(before);
+}
+
 export function withoutComments(source) {
   const text = String(source ?? '');
   let out = '';
@@ -111,6 +122,35 @@ export function withoutComments(source) {
     }
 
     if (ch === "'" || ch === '"' || ch === '`') { quote = ch; out += ch; i += 1; continue; }
+
+    // A regex literal, which is neither a comment nor a string and used to be
+    // treated as both. `/'[^']*'/` holds three apostrophes; the scanner took
+    // the third as the start of a string and stopped stripping comments for
+    // the rest of the file. Prose then counted as code, and a field nothing
+    // reads was reported as read — this ratchet failing *open*, which is the
+    // worst way for one to fail. It was found because a new file happened to
+    // contain such a literal and the word `diagnosis` in a comment.
+    //
+    // Whether a `/` opens a regex or is division cannot be decided without
+    // parsing, so this uses the usual heuristic: a regex may only start where
+    // a value may start, which is after an operator, an opening bracket, a
+    // comma or a keyword — never after a name, a number or a closing bracket.
+    if (ch === '/' && next !== '/' && next !== '*' && startsValue(out)) {
+      out += ch;
+      i += 1;
+      let inClass = false;
+      while (i < text.length) {
+        const c = text[i];
+        if (c === '\\') { out += c + (text[i + 1] ?? ''); i += 2; continue; }
+        if (c === '\n') break;              // an unterminated literal: it was division
+        if (c === '[') inClass = true;
+        else if (c === ']') inClass = false;
+        else if (c === '/' && !inClass) { out += c; i += 1; break; }
+        out += c;
+        i += 1;
+      }
+      continue;
+    }
 
     if (ch === '/' && next === '/') {
       while (i < text.length && text[i] !== '\n') i += 1;
