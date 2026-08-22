@@ -37,7 +37,7 @@ This is the same shape as two findings already recorded:
 | Field | Collected by | Read by |
 | --- | --- | --- |
 | `transaction.category` | the transaction form | nothing — `docs/ENTERED_CATEGORIES.md` |
-| `transaction.person` | the transaction form | nothing — still open |
+| `transaction.person` | the transaction form | `services/records.js`, `services/conflict.js`, `services/finance.js` — **closed** |
 | `person.relationship` | the person form | nothing — this document |
 
 **This application collects more than it reads.** Each instance looks like a

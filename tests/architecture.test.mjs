@@ -9,7 +9,7 @@
 
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { readFileSync } from 'node:fs';
-import { probesIn, checkProbe, uiDatabaseCalls, budgetProblem } from '../tools/architecture.mjs';
+import { probesIn, checkProbe, uiDatabaseCalls, budgetProblem, DOCS } from '../tools/architecture.mjs';
 
 setSuite('architecture');
 
@@ -53,6 +53,46 @@ describe('reading the claims out of the document', () => {
     assert.equal(probe.target, 'grep:alpha,beta');
   });
 
+  test('a probe may sit at the end of prose, after a separator', () => {
+    // The phase scorecard's gap column has to stay readable. A row that had
+    // to choose between being legible and being checked would simply not be
+    // checked, which is how four of its twenty-seven rows went stale.
+    const [probe] = probesIn(
+      '| 8 | Investments | 42 | evidence | **No broker connector** · `absent:grep:kiteconnect` | Low |',
+    );
+    assert.equal(probe.kind, 'absent');
+    assert.equal(probe.target, 'grep:kiteconnect');
+  });
+
+  test('and is found whatever column it sits in', () => {
+    // Not `cells.at(-2)`. The architecture table puts evidence second from
+    // the end; the phase scorecard has a Risk column after its gaps, so a
+    // fixed position read `Low` and reported a malformed probe on a row whose
+    // probe was fine. A rule that depends on a table's shape breaks silently
+    // when a column is added, because a probe that is not found is a claim
+    // that cannot fail.
+    const [probe] = probesIn('| A | B | `file:js/data/consent.js` | C | D |');
+    assert.equal(probe.kind, 'file');
+    assert.equal(probe.target, 'js/data/consent.js');
+  });
+
+  test('a probe buried mid-sentence is reported rather than quietly obeyed', () => {
+    // The match is anchored to the end of the cell, so this does not become a
+    // claim by accident. It does not vanish either: a cell that looks like a
+    // probe and does not parse is the tool's worst case, because it reads as
+    // a claim and can never fail. Reported as malformed, same as a pipe.
+    const [probe] = probesIn('| A | B | `file:js/x.js` is what a probe looks like | C |');
+    assert.equal(probe.kind, 'malformed');
+    assert.includes(checkProbe(probe), 'silently not a claim');
+  });
+
+  test('two probes in one row are both claims', () => {
+    const probes = probesIn('| A | `file:js/data/consent.js` | done · `absent:grep:zzz` |');
+    assert.length(probes, 2);
+    assert.equal(probes[0].kind, 'file');
+    assert.equal(probes[1].kind, 'absent');
+  });
+
   test('a prose line containing pipes is still prose', () => {
     // Markdown prose can carry a pipe — in a code sample, or a table drawn
     // inside a fence. Without the leading-pipe guard the cell arithmetic below
@@ -60,6 +100,38 @@ describe('reading the claims out of the document', () => {
     assert.length(probesIn(
       'Run `a | b`, then see | Consent engine | exists | `file:js/data/consent.js` |',
     ), 0);
+  });
+});
+
+describe('which documents carry claims', () => {
+  test('the phase scorecard is one of them', () => {
+    // Dropping it from the list changed no test, which is the failure this
+    // whole change is about: the scorecard was the document nothing checked,
+    // and four of its twenty-seven rows had gone stale.
+    assert.equal(DOCS.some((doc) => doc.endsWith('PHASE_STATUS.md')), true,
+      'the phase scorecard is not being checked');
+    assert.equal(DOCS.some((doc) => doc.endsWith('FAMILY_OS_MASTER_ARCHITECTURE.md')), true);
+  });
+
+  test('and the scorecard actually yields claims, not just a filename', () => {
+    // A document in the list with no probes in it is a document that cannot
+    // fail — the same shape as the malformed cell, one level up.
+    const doc = DOCS.find((one) => one.endsWith('PHASE_STATUS.md'));
+    const probes = probesIn(readFileSync(doc, 'utf8'));
+    assert.equal(probes.length >= 3, true,
+      `the scorecard carries ${probes.length} probes`);
+    assert.equal(probes.every((one) => one.kind !== 'malformed'), true);
+  });
+
+  test('the refusals that must never quietly become false are among them', () => {
+    // Never fabricate a broker, a CKYCRR or an ABDM integration. Those are
+    // the rows where a document going stale would be a safety claim going
+    // stale, so they are the rows that carry probes.
+    const doc = DOCS.find((one) => one.endsWith('PHASE_STATUS.md'));
+    const targets = probesIn(readFileSync(doc, 'utf8')).map((one) => one.target).join(' ');
+    for (const term of ['cersai', 'zerodha', 'abdm']) {
+      assert.includes(targets, term);
+    }
   });
 });
 
