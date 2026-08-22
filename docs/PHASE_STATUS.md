@@ -3,6 +3,13 @@
 **Audit base:** `1c8d97d` · 22 August 2026. Companion to
 `docs/PHASE_AUDIT_REPORT.md`, which carries the evidence.
 
+**Rows refreshed to `367f84f`.** Six phases have changed since the audit base
+and are marked ↑ below. The evidence in `PHASE_AUDIT_REPORT.md` still describes
+`1c8d97d`; where the two disagree, this table is the later reading. Leaving the
+audit's numbers standing would have been the exact fault the audit exists to
+catch — a document asserting that built things are unbuilt, and that a fixed
+critical defect is still open.
+
 Completion is weighted as the audit brief specifies: architecture 20,
 implementation 30, integration 15, testing 15, security 10, documentation 5,
 observability 5. **Observability scores 0 for every phase** — there is none
@@ -16,7 +23,7 @@ external integration or has an open critical security or data-integrity defect.
 | # | Name | Status | % | Evidence | Critical gaps | Risk |
 |---|---|---|---|---|---|---|
 | 0 | Repository audit | **COMPLETE** | 90 | 85 docs; `PROJECT_AUDIT.md`, `ARCHITECTURE.md`, `DATA_GOVERNANCE.md`, `SECURITY.md`; 10 ratchet tools in `tools/` | No observability audit | Low |
-| 0.5 | Trust & governance | **PARTIALLY_COMPLETE** | 60 | `security/rbac.js`, `data/consent.js`, `classification.js`, `provenance.js`, `lineage.js`, `retention.js`, `audit` store, device registry | **§8.1** — server authz never sees the role; child consent and staff/tenant notice undecided | **Critical** |
+| 0.5 ↑ | Trust & governance | **PARTIALLY_COMPLETE** | 72 | `security/rbac.js`, `data/consent.js`, `classification.js`, `provenance.js`, `lineage.js`, `retention.js`, `audit` store, device registry; **§8.1 fixed in `76b946f`** — the caller's identity now reaches `dispatch` | Child consent and staff/tenant notice still undecided — both are the household's calls, not code | Medium |
 | 1 | Database / API / auth / authz | **REQUIRES_REWORK** | 55 | IndexedDB + 15-action Apps Script API; OAuth + PKCE; RBAC client and server; **referential integrity enforced on local writes**, RESTRICT deletes, deferred constraints in a unit of work | No PostgreSQL, no relational model; the store enforces nothing itself; **sync is exempt** | **Critical** |
 | 2 | Family / people / identity / CKYC | **MOSTLY_COMPLETE** | 80 | `person`, `relationship`, `identityDocument`, `kycRecord`, `employment`; `person_id` is the master key; CKYC conflicts modelled | No family-tree view; no per-person profile screen; no CKYCRR (correctly refused) | Low |
 | 3 | Document AI / OCR / DOCX | **MOSTLY_COMPLETE** | 78 | `pdf-read.js` (816 lines), `docx.js`, `xlsx`, `extract.js`, `classification`, confidence, versioning, duplicate detection | Image OCR requires the Drive round-trip; no on-device OCR | Low |
@@ -30,28 +37,28 @@ external integration or has an open critical security or data-integrity defect.
 | 11 | Health / ABDM | **BLOCKED** | 35 | `healthRecord`, `medication`, `vaccination`, `appointment` all real and encrypted | **ABDM is architecture only** — correctly classified, needs participant status | Low |
 | 12 | Legal / estate / digital life | **MOSTLY_COMPLETE** | 75 | `will`, `beneficiary`, `legalDocument`, `digitalAsset`, `subscription`, `vaultItem`; secrets encrypted, never plaintext | No crypto-wallet metadata model | Low |
 | 13 | Household staff | **MOSTLY_COMPLETE** | 72 | `staff`, `staffLeave`, wages, agreements, documents; role-limited exposure | No notice or access path for the recorded person | Medium |
-| 14 | Family chat / media / E2EE | **NOT_STARTED** | 0 | `docs/CHAT_AND_E2EE.md` records the refusal | One household data key, no per-person keypairs. **Correctly refuses to claim E2EE** | — |
-| 15 | Location / safe zones / SOS | **NOT_STARTED** | 0 | Zero references in `js/` | Needs a device permission and a privacy decision | — |
+| 14 ↑ | Family chat / media / E2EE | **PARTIALLY_COMPLETE** | 65 | `js/security/e2ee.js` — ECDH P-256 + HKDF-SHA-256, per-device keypairs, private half never in a synced table, safety numbers, forward-only revocation, recovery-phrase escrow | **No external cryptographic review**, so it may not be called COMPLETE; no media sharing; escrow means the phrase opens everything, and the screen says so | Medium |
+| 15 ↑ | Location / safe zones / SOS | **MOSTLY_COMPLETE** | 70 | `js/domain/geo.js`, `js/core/position.js`, `js/services/safety.js`; native Geolocation preferred over the WebView, accuracy-aware INSIDE/OUTSIDE/**UNCERTAIN**, position history with retention | **No background location** — `ACCESS_BACKGROUND_LOCATION` is deliberately absent and a test enforces it, so zones only evaluate with the app open | Low |
 | 16 | Notifications / tasks / reminders / automation | **MOSTLY_COMPLETE** | 73 | `project`, `task`, `event`, `reminders.js` (schema-driven), automation rules, outbox retries, idempotency | No push (no server); background jobs are client-side | Medium |
 | 17 | Knowledge graph / search / timeline | **MOSTLY_COMPLETE** | 76 | `search` store, `connections.js`, `timeline.js` + screen, "what changed", authorization-aware search | Graph is derived, not stored | Low |
 | 18 | AI family assistant | **PARTIALLY_COMPLETE** | 55 | `ai/assistant.js`, `intents.js`, `mcp.js`, `summary.js`; **read-only, no model, no network** | No language model by design; capability is narrow | Low |
 | 19 | Advanced analytics | **MOSTLY_COMPLETE** | 70 | `charts.js`, forecasting, anomaly detection, trends, actual/projected labels | No ML | Low |
-| 20 | Security / privacy / compliance hardening | **PARTIALLY_COMPLETE** | 58 | AES-GCM + PBKDF2, 36 encrypted fields, sanitiser, rate limiting, device trust, 68 compliance controls, 0 VERIFIED | **§8.1**; no external cryptographic review | **Critical** |
+| 20 ↑ | Security / privacy / compliance hardening | **PARTIALLY_COMPLETE** | 68 | AES-GCM + PBKDF2, 36 encrypted fields, sanitiser, rate limiting, device trust, 68 compliance controls, **0 VERIFIED**; §8.1 fixed in `76b946f` | No external cryptographic review; no control has been verified, and none may be called compliant until one is | Medium |
 | 21 | Backup / restore / portability | **COMPLETE** | 88 | `domain/archive.js` + `services/archive.js`; encrypted archive, verified read-back, restore refuses to merge, keyring travels, deleted rows preserved | No scheduling; on-disk bytes unverifiable from a page | Low |
 | 22 | PWA optimisation | **COMPLETE** | 84 | Manifest, 167-entry precache, offline shell, IndexedDB, sync queue, update mechanism, `tools/webroot.mjs` two-way check | No push, no background sync | Low |
-| 23 | Android companion | **PARTIALLY_COMPLETE** | 52 | Capacitor 8.5.0; **debug APK builds in CI**; back button, Filesystem, Share; `allowBackup` off | No SMS, location, geofencing, SOS, screen time, camera | Medium |
+| 23 ↑ | Android companion | **PARTIALLY_COMPLETE** | 58 | Capacitor 8.5.0; **debug APK builds in CI**; back button, Filesystem, Share; `allowBackup` off; **coarse and fine location**, GPS declared non-required | No SMS, no background location or geofencing, no screen time, no camera | Medium |
 | 24 | iOS companion | **BLOCKED** | 30 | Project generated and synced; RGB icons; no usage descriptions needed | **Never compiled** — no macOS available | Medium |
-| 25 | Internationalisation | **NOT_STARTED** | 0 | Nothing on `main` | Locale layer exists on PR #99, unmerged. On `main` there is no layer at all | — |
+| 25 ↑ | Internationalisation | **PARTIALLY_COMPLETE** | 45 | `js/core/locale.js` merged in `e5b45df`; schema labels and dates route through it; a translation that drops a placeholder is **refused**; `tools/strings.mjs` measures the rest | **One language.** 3,319 strings are still written into the source, and nothing has been translated | Low |
 
 ## Distribution
 
 ```
 COMPLETE              4   (10, 21, 22, and 0)
-MOSTLY_COMPLETE      10   (2, 3, 5, 7, 9, 12, 13, 16, 17, 19)
-PARTIALLY_COMPLETE    7   (0.5, 4, 6, 8, 18, 20, 23)
+MOSTLY_COMPLETE      11   (2, 3, 5, 7, 9, 12, 13, 15, 16, 17, 19)
+PARTIALLY_COMPLETE    9   (0.5, 4, 6, 8, 14, 18, 20, 23, 25)
 REQUIRES_REWORK       1   (1)
 BLOCKED               2   (11, 24)
-NOT_STARTED           3   (14, 15, 25)
+NOT_STARTED           0
 ```
 
 ## What the percentages do and do not mean

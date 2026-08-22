@@ -8,6 +8,7 @@
  */
 
 import { test, describe, assert, setSuite } from './harness.mjs';
+import { readFileSync } from 'node:fs';
 import { probesIn, checkProbe, uiDatabaseCalls, budgetProblem } from '../tools/architecture.mjs';
 
 setSuite('architecture');
@@ -207,5 +208,62 @@ describe('the one forbidden edge that is open', () => {
     });
     assert.equal(count, 0);
     assert.equal(Object.keys(byFile).length, 0);
+  });
+});
+
+/* ------------------------------------------------ the scorecard's own totals */
+
+describe('the phase scorecard counts itself', () => {
+  // The recurring fault in this repository, found for the seventh time: a
+  // hand-maintained list beside a derivable one. `docs/PHASE_STATUS.md` has a
+  // table of 27 phases and, below it, a distribution block someone types by
+  // hand. The first time this was refreshed the block said 10 where the table
+  // said 9, and nothing could have noticed.
+
+  const doc = readFileSync(new URL('../docs/PHASE_STATUS.md', import.meta.url), 'utf8');
+
+  /** Status of every phase, read out of the table rather than the summary. */
+  const fromTable = () => {
+    const counts = new Map();
+    for (const line of doc.split('\n')) {
+      // A phase row: `| 15 ↑ | Name | **STATUS** | 70 | …`
+      const row = /^\|\s*([\d.]+)\s*↑?\s*\|[^|]*\|\s*\*\*([A-Z_]+)\*\*\s*\|/.exec(line);
+      if (!row) continue;
+      counts.set(row[2], (counts.get(row[2]) ?? 0) + 1);
+    }
+    return counts;
+  };
+
+  /** What the distribution block claims. */
+  const fromSummary = () => {
+    const block = /```\n([\s\S]*?)```/.exec(doc.split('## Distribution')[1] ?? '');
+    const counts = new Map();
+    for (const line of (block?.[1] ?? '').split('\n')) {
+      const row = /^([A-Z_]+)\s+(\d+)/.exec(line.trim());
+      if (row) counts.set(row[1], Number(row[2]));
+    }
+    return counts;
+  };
+
+  test('the table has every phase exactly once', () => {
+    const seen = [...doc.matchAll(/^\|\s*([\d.]+)\s*↑?\s*\|/gm)].map((m) => m[1]);
+    const expected = ['0', '0.5', ...Array.from({ length: 25 }, (_, i) => String(i + 1))];
+    assert.equal(seen.join(','), expected.join(','));
+  });
+
+  test('and the distribution block agrees with it, status by status', () => {
+    const table = fromTable();
+    const summary = fromSummary();
+
+    const statuses = new Set([...table.keys(), ...summary.keys()]);
+    for (const status of statuses) {
+      assert.equal(summary.get(status) ?? 0, table.get(status) ?? 0,
+        `${status}: the summary says ${summary.get(status) ?? 0}, the table has ${table.get(status) ?? 0}`);
+    }
+  });
+
+  test('and they add up to the number of phases there are', () => {
+    const total = [...fromTable().values()].reduce((a, b) => a + b, 0);
+    assert.equal(total, 27, 'phases 0 and 0.5 through 25');
   });
 });
