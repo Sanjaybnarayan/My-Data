@@ -20,7 +20,7 @@ import { describeConnections } from '../domain/connections.js';
 import { RecordsService } from '../services/records.js';
 import { entityTable, filterBar, cellFor } from '../ui/components/table.js';
 import { entityForm } from '../ui/components/form.js';
-import { modal, confirm } from '../ui/components/modal.js';
+import { modal, confirm, inform } from '../ui/components/modal.js';
 import { toast } from '../ui/components/toast.js';
 import {
   card, cardHeader, button, badge, pageHeader, empty, reveal, dueBadge, chip, listItem,
@@ -259,16 +259,27 @@ export async function recordDetail(entityName, id, options = {}) {
   }
 
   async function remove() {
-    // A spreadsheet has no foreign keys, so the check that would be a database
-    // constraint elsewhere happens here, before the user commits to it.
+    // The repository refuses a delete that would leave a *required* reference
+    // dangling. This dialog asks the same question first, so the answer
+    // arrives before somebody presses Delete rather than as an error after.
     //
-    // The service makes the distinction this dialog could not: a dangling
-    // *optional* reference is untidy, a dangling *required* one leaves the
-    // referring record unable to pass its own validation. Deleting an account
-    // and deleting a person are different acts, and used to produce the same
-    // sentence.
+    // The distinction matters and this is where it is drawn: a dangling
+    // *optional* reference is untidy and the delete goes through, a dangling
+    // *required* one leaves the referring record unable to pass its own
+    // validation and the delete does not happen at all.
     const records = new RecordsService(db);
     const impact = await records.impactOfDeleting(entityName, id);
+
+    if (impact.breaking) {
+      // No Delete button, because there is no delete to offer. Showing one and
+      // then failing would be the same refusal delivered less honestly.
+      await inform({
+        title: t('record.deleteBlockedTitle', { one: noun(entityLabel(def)) }),
+        message: records.describeImpact(impact),
+      });
+      return;
+    }
+
     const ok = await confirm({
       title: t('record.deleteTitle', { one: noun(entityLabel(def)) }),
       message: `${impact.total ? `${records.describeImpact(impact)} ` : ''}`

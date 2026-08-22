@@ -17,7 +17,7 @@ external integration or has an open critical security or data-integrity defect.
 |---|---|---|---|---|---|---|
 | 0 | Repository audit | **COMPLETE** | 90 | 85 docs; `PROJECT_AUDIT.md`, `ARCHITECTURE.md`, `DATA_GOVERNANCE.md`, `SECURITY.md`; 10 ratchet tools in `tools/` | No observability audit | Low |
 | 0.5 | Trust & governance | **PARTIALLY_COMPLETE** | 60 | `security/rbac.js`, `data/consent.js`, `classification.js`, `provenance.js`, `lineage.js`, `retention.js`, `audit` store, device registry | **§8.1** — server authz never sees the role; child consent and staff/tenant notice undecided | **Critical** |
-| 1 | Database / API / auth / authz | **REQUIRES_REWORK** | 40 | IndexedDB + 15-action Apps Script API; OAuth + PKCE; RBAC client and server | No PostgreSQL, no relational model, no FKs; **§8.1** | **Critical** |
+| 1 | Database / API / auth / authz | **REQUIRES_REWORK** | 55 | IndexedDB + 15-action Apps Script API; OAuth + PKCE; RBAC client and server; **referential integrity enforced on local writes**, RESTRICT deletes, deferred constraints in a unit of work | No PostgreSQL, no relational model; the store enforces nothing itself; **sync is exempt** | **Critical** |
 | 2 | Family / people / identity / CKYC | **MOSTLY_COMPLETE** | 80 | `person`, `relationship`, `identityDocument`, `kycRecord`, `employment`; `person_id` is the master key; CKYC conflicts modelled | No family-tree view; no per-person profile screen; no CKYCRR (correctly refused) | Low |
 | 3 | Document AI / OCR / DOCX | **MOSTLY_COMPLETE** | 78 | `pdf-read.js` (816 lines), `docx.js`, `xlsx`, `extract.js`, `classification`, confidence, versioning, duplicate detection | Image OCR requires the Drive round-trip; no on-device OCR | Low |
 | 4 | Gmail / Drive / Calendar | **PARTIALLY_COMPLETE** | 62 | `apps-script/Gmail.gs`, `Drive.gs`, `js/sync/calsync.js`, real scopes, optional Gmail | Incremental sync partial; revocation handling thin; multi-account not supported | Medium |
@@ -64,7 +64,13 @@ higher and be worse.
 
 Three phases are held below where their code alone would put them:
 
-- **Phase 1 (40)** — capped because its core, as the spec defines it, is absent.
+- **Phase 1 (55)** — raised from 40 by `js/data/integrity.js`, which gives the
+  constraint *behaviour* a foreign key would: references are checked on create
+  and update, a delete that would break a required one is refused, and a unit
+  of work defers the check the way a relational database does. Still capped,
+  because the store enforces none of it and sync bypasses it —
+  `docs/REFERENTIAL_INTEGRITY.md` states both limits. The remaining half is a
+  hosting decision, not code.
 - **Phase 0.5 and 20** — capped by the open critical defect in §8.1 of the
   report. Neither may be COMPLETE while server-side authorization does not
   receive the caller's identity.

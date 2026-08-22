@@ -69,12 +69,14 @@ export class Unit {
    * has to point at a transaction that does not exist yet.
    */
   async create(entityName, input) {
-    return this.#stage(await this.#repo(entityName).stageCreate(input));
+    return this.#stage(await this.#repo(entityName).stageCreate(input, { pending: this.#pending() }));
   }
 
   /** Stage an update. */
   async update(entityName, id, patch) {
-    return this.#stage(await this.#repo(entityName).stageUpdate(id, patch));
+    return this.#stage(
+      await this.#repo(entityName).stageUpdate(id, patch, { pending: this.#pending() }),
+    );
   }
 
   /**
@@ -91,6 +93,20 @@ export class Unit {
 
   #repo(entityName) {
     return this.#db.repo(entityName);
+  }
+
+  /**
+   * What this unit has staged so far, as `entity:id`.
+   *
+   * Handed to the repository so a reference to a row created earlier in the
+   * same unit resolves. Without it, staging a receipt that points at a
+   * transaction staged one line above is refused for naming something that
+   * "is not here" — true of the database and false of the act being recorded.
+   */
+  #pending() {
+    return new Set(this.#planned
+      .filter((p) => !p.record?.deletedAt)
+      .map((p) => `${p.entity}:${p.record.id}`));
   }
 
   #stage(planned) {

@@ -1137,6 +1137,47 @@ async function main() {
       if (SHOTS) await shot(page, 'identity-completion');
     }
 
+    /* ------------------------------------------- a delete that cannot happen */
+
+    {
+      // The repository refuses a delete that would leave a required reference
+      // dangling. This checks the screen agrees *before* the person commits:
+      // a Delete button that is going to fail teaches somebody the button lies.
+      const personId = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const person = await app().db.repo('person').create({ name: 'Blocked Someone' });
+        await app().db.repo('healthRecord').create({
+          person: person.id, date: '2026-08-01', kind: 'consultation', title: 'Check-up',
+        });
+        return person.id;
+      }, IN_PAGE.context);
+
+      await go(page, `#/identity/person/${personId}`);
+      await page.locator('.app-content button:has-text("Delete")').first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+
+      const dialog = await page.locator('.modal').innerText();
+      check('a delete blocked by a required reference says so instead of offering Delete',
+        /cannot be deleted/.test(dialog), dialog.slice(0, 300));
+      // One dependent, so every count in the sentence is singular. Agreement
+      // is checked because this dialog is the whole of what somebody is told,
+      // and "1 health records need it" is how a screen loses their trust.
+      check('and the sentence agrees with the number it is reporting',
+        /1 record needs it/.test(dialog) && /1 health record\b/.test(dialog)
+        && !/health records/.test(dialog), dialog.slice(0, 300));
+      check('and the dialog offers no Delete button',
+        (await page.locator('.modal-footer button:has-text("Delete")').count()) === 0, dialog.slice(0, 300));
+
+      await page.locator('.modal-footer button').first().click();
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      const survived = await page.evaluate(async ({ spec, id }) => {
+        const { app } = await import(spec);
+        return Boolean(await app().db.repo('person').get(id));
+      }, { spec: IN_PAGE.context, id: personId });
+      check('and the person is still there afterwards', survived, String(survived));
+    }
+
     /* ------------------------------------------------ masked identifiers */
 
     {

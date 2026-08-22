@@ -1,6 +1,7 @@
 # Data Integrity Audit
 
-**Base:** `1c8d97d` · 22 August 2026.
+**Base:** `1c8d97d` · 22 August 2026. Two rows updated after Phase 1 — see
+`docs/REFERENTIAL_INTEGRITY.md` for what changed and what still has not.
 
 ## What is enforced, and where
 
@@ -11,8 +12,8 @@
 | Idempotency | Yes | outbox keyed by record + revision | `js/sync/engine.js` |
 | Duplicate detection | Yes | statements, rows, documents | `js/domain/import.js` |
 | Unique constraints | Application level | `js/data/validate.js` | not the store |
-| Referential integrity | Application level | `ref` / `multiref` validation | not the store |
-| Cascading behaviour | Application level | `RecordsService.impactOfDeleting` | shown to the user before deleting |
+| Referential integrity | Application level | `js/data/integrity.js` | the repository, on create/update/delete — **not** on `applyRemote` |
+| Cascading behaviour | RESTRICT, never CASCADE | `js/data/integrity.js` | delete refused when a required reference would dangle |
 | Soft delete | Yes | `deletedAt` | deleted rows survive into the archive |
 | Versioning | Yes | records and Drive documents | `apps-script/Drive.gs:214-243` |
 | Source preservation | Yes | originals never overwritten | `blobs` store + Drive versions |

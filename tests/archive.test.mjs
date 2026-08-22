@@ -219,8 +219,11 @@ describe('taking one', () => {
     // records rather than a copy of them — and the restored rows would no
     // longer match the keyring that travelled with them.
     const db = await makeDb();
+    // The person has to exist: a reference naming nothing is refused now, and
+    // this fixture used to point at an id that was never created.
+    const asha = await makePerson(db, { name: 'Asha' });
     await db.repo('identityDocument').create({
-      person: 'per_owner', kind: 'Passport', number: 'Z1234567',
+      person: asha.id, kind: 'Passport', number: 'Z1234567',
     });
 
     const taken = await (new ArchiveService(db)).gather();
@@ -284,8 +287,11 @@ describe('putting one back', () => {
     // restore from a very tidy way of losing data.
     const PIN = '482913';
     const source = await makeDb({ pin: PIN });
+    // The person has to exist: a reference that names nothing is refused now,
+    // and this fixture used to rely on one.
+    const owner = await makePerson(source, { name: 'Asha' });
     await source.repo('identityDocument').create({
-      person: 'per_owner', kind: 'Passport', number: 'Z1234567',
+      person: owner.id, kind: 'Passport', number: 'Z1234567',
     });
 
     const taken = await (new ArchiveService(source)).gather();

@@ -329,7 +329,8 @@ describe('what deleting a record would break', () => {
     assert.equal(impact.total, 1);
     assert.equal(impact.breaking, 0);
     assert.includes(service.describeImpact(impact), 'pointing at nothing');
-    assert.not(/will not pass validation/.test(service.describeImpact(impact)));
+    assert.not(/cannot be deleted/.test(service.describeImpact(impact)),
+      'an optional reference was described as blocking the delete');
   });
 
   test('breaking references are listed first', async () => {
