@@ -15,6 +15,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { datesInRange, expiryReminders } from '../js/domain/reminders.js';
 import { billsInRange, upcomingBills } from '../js/domain/finance.js';
+import { addMonths, startOfMonth, endOfMonth } from '../js/core/dates.js';
 
 setSuite('calendar');
 
@@ -281,6 +282,11 @@ describe('renewals recur only when they renew themselves', () => {
 });
 
 describe('the card bill this refuses to guess', () => {
+  // Pinned, because the horizon is measured from today and these fixtures are
+  // dated. Left to the real clock these two checks quietly changed meaning as
+  // the date moved — which is how a card bill came to be projected onto every
+  // future month without any test objecting.
+  const NOW = { now: '2026-08-01' };
   const card = {
     id: 'a1', name: 'HDFC Regalia', kind: 'credit card', active: true,
     statementDay: 18, dueDay: 5, deletedAt: null,
@@ -295,7 +301,9 @@ describe('the card bill this refuses to guess', () => {
   }];
 
   test('the next bill is stated, and the ones after it are not', () => {
-    const { bills } = billsInRange([], [], { ...YEAR, accounts: [card], transactions: spend });
+    const { bills } = billsInRange([], [], {
+      ...YEAR, ...NOW, accounts: [card], transactions: spend,
+    });
     const cards = bills.filter((b) => b.source === 'card');
     // A statement balance is the rows inside a cycle that has closed. Next
     // year's cycles have not happened, so there is no balance to state.
@@ -304,7 +312,7 @@ describe('the card bill this refuses to guess', () => {
 
   test('and the day it stops being knowable is reported, not left silent', () => {
     const { bills, cardBillsStopAt } = billsInRange([], [], {
-      ...YEAR, accounts: [card], transactions: spend,
+      ...YEAR, ...NOW, accounts: [card], transactions: spend,
     });
     const last = bills.filter((b) => b.source === 'card').at(-1);
     assert.equal(cardBillsStopAt, '2026-08-06');
@@ -313,5 +321,113 @@ describe('the card bill this refuses to guess', () => {
 
   test('with no card there is no boundary to report', () => {
     assert.equal(billsInRange(RECURRING, [], YEAR).cardBillsStopAt, null);
+  });
+
+  /**
+   * The refusal above was written and not implemented.
+   *
+   * `cardBills` was anchored to the window's `from`, and the calendar redraws
+   * with `from` set to whichever month it is showing. So paging forward asked
+   * the question again from February and got February's answer: one ₹3,000
+   * purchase in August was reported as a ₹3,000 bill due on the first of every
+   * month, to the horizon, each claiming to be the balance of a cycle that had
+   * not closed.
+   *
+   * Nothing caught it because every existing check drew one window. The
+   * browser check that should have — "a month past the last closed statement
+   * says why no card bill is on it" — passed for four months by luck: the
+   * fixture builds `dueDay` from today plus ten days, and while that landed on
+   * the 31st the projected bill fell outside a 30-day month and left the
+   * square empty for the wrong reason. On 22 August it became the 1st, the
+   * bill landed inside the month, and the check finally failed.
+   *
+   * So these page, which is the thing that was never done.
+   */
+  describe('paged forward, month after month', () => {
+    const NOW = '2026-08-22';
+    const monthly = { id: 'a1', name: 'HDFC Card', kind: 'credit card', active: true,
+      statementDay: 22, dueDay: 1, deletedAt: null };
+    const oneSpend = [{ id: 't1', account: 'a1', date: '2026-08-20',
+      amount: 3_000_00, kind: 'expense', deletedAt: null }];
+
+    /** Every card bill the calendar would draw, paging a month at a time. */
+    const pageThrough = (months) => {
+      const drawn = [];
+      for (let m = 0; m <= months; m += 1) {
+        const month = addMonths(NOW, m);
+        const { bills } = billsInRange([], [], {
+          from: startOfMonth(month), to: endOfMonth(month), now: NOW,
+          accounts: [monthly], transactions: oneSpend,
+        });
+        for (const bill of bills.filter((b) => b.source === 'card')) drawn.push(bill);
+      }
+      return drawn;
+    };
+
+    test('one purchase produces one bill, not one for every month to the horizon', () => {
+      const drawn = pageThrough(6);
+      assert.length(drawn, 1, drawn.map((b) => `${b.dueOn} ${b.amount}`).join(' | '));
+      assert.equal(drawn[0].dueOn, '2026-09-01');
+    });
+
+    test('and every month past it says why it is empty', () => {
+      // The other half. Refusing to draw the bill and refusing to explain the
+      // empty square would leave a household reading "nothing due" where the
+      // truth is "nothing knowable yet".
+      for (let m = 2; m <= 6; m += 1) {
+        const from = startOfMonth(addMonths(NOW, m));
+        const { cardBillsStopAt } = billsInRange([], [], {
+          from, to: endOfMonth(from), now: NOW,
+          accounts: [monthly], transactions: oneSpend,
+        });
+        assert.ok(cardBillsStopAt && from >= cardBillsStopAt,
+          `${from} did not report itself past the horizon (stopAt ${cardBillsStopAt})`);
+      }
+    });
+
+    test('the horizon does not move when the reader pages', () => {
+      // It used to be recomputed from the drawn month, which is exactly why
+      // paging changed the answer.
+      const stopAts = new Set();
+      for (let m = 0; m <= 6; m += 1) {
+        const from = startOfMonth(addMonths(NOW, m));
+        stopAts.add(billsInRange([], [], {
+          from, to: endOfMonth(from), now: NOW,
+          accounts: [monthly], transactions: oneSpend,
+        }).cardBillsStopAt);
+      }
+      assert.equal(stopAts.size, 1, [...stopAts].join(' | '));
+    });
+
+    test('a month already past keeps the bill it really had', () => {
+      // The refusal is about the future, and a rule that reached backwards
+      // would delete history. Spent on 20 July, inside the cycle that closed
+      // on 22 July and fell due on 1 August — all of it behind `now`, all of
+      // it knowable, and it must survive.
+      const julySpend = [{ id: 't2', account: 'a1', date: '2026-07-20',
+        amount: 3_000_00, kind: 'expense', deletedAt: null }];
+      const { bills } = billsInRange([], [], {
+        from: '2026-08-01', to: '2026-08-31', now: NOW,
+        accounts: [monthly], transactions: julySpend,
+      });
+      const cards = bills.filter((b) => b.source === 'card');
+      assert.length(cards, 1, cards.map((b) => b.dueOn).join(' | '));
+      assert.equal(cards[0].dueOn, '2026-08-01');
+    });
+
+    test('a card with nothing owed reports a horizon of today, not of never', () => {
+      // Nothing owed on the closed cycle means no bill to measure from, and
+      // the fallback has to be today. Asserted on the horizon itself rather
+      // than on the bills it filters: with no spend there are no bills either
+      // way, so a check on those cannot tell a horizon of today from one of
+      // the year 9999 — it would pass against a version that had fallen open.
+      const { bills, cardBillsStopAt } = billsInRange([], [], {
+        from: startOfMonth(addMonths(NOW, 4)), to: endOfMonth(addMonths(NOW, 4)),
+        now: NOW, accounts: [monthly], transactions: [],
+      });
+
+      assert.length(bills.filter((b) => b.source === 'card'), 0);
+      assert.equal(cardBillsStopAt, '2026-08-23');
+    });
   });
 });
