@@ -7,24 +7,30 @@
  * while the application is open and in front of somebody. That is the whole of
  * the capability here, and everything in Phase 15 is built on top of it.
  *
- * **There is no background location.** Not "not yet" — a web page and a
- * Capacitor WebView with no foreground service are both suspended when the
- * screen goes off, and a suspended page does not report anything. A safe-zone
- * alert that fires while the phone is in a pocket needs a native service,
- * which needs `@capacitor/geolocation`, a foreground-service notification, and
- * on Android 10+ a separate `ACCESS_BACKGROUND_LOCATION` grant with a Play
- * policy declaration attached to it. None of that is in this repository, and
- * `docs/LOCATION.md` says so rather than leaving somebody to discover it.
+ * **This module still only reads a position when asked, and that has not
+ * changed.** A web page and a Capacitor WebView are both suspended when the
+ * screen goes off, so nothing here can report anything then.
  *
- * **There is no OS geofencing.** A real geofence is registered with the
+ * What changed is that something else can. `js/core/backgroundlocation.js`
+ * drives an Android foreground service that records while the app is closed —
+ * a separate module on purpose, because the two have genuinely different
+ * properties and collapsing them would let a caller think this one had grown
+ * a capability it has not. That service is off until somebody turns it on,
+ * shows a notification the whole time it runs, and has never been run on a
+ * phone. `docs/LOCATION.md` carries what it cost.
+ *
+ * **There is still no OS geofencing.** A real geofence is registered with the
  * platform and wakes the app on a crossing. What this does instead is compare
  * a position it was given against circles it knows about — the same arithmetic
  * with none of the wake-ups. `domain/geo.js` does the comparing; nothing here
- * or there is registered with anything.
+ * or there is registered with anything. The trail narrows the gap without
+ * closing it: a crossing is noticed when the trail is next read, not at the
+ * moment it happens.
  *
- * So a position exists only when somebody opens the application and it is
- * asked for. Every screen that shows one shows when it was taken, because a
+ * Every screen that shows a position shows when it was taken, because a
  * location with no timestamp reads as *now* and this one frequently is not.
+ * That matters more since the trail existed, not less: a fix drained from the
+ * service can be hours old.
  *
  * ## The permission
  *

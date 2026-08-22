@@ -13,6 +13,8 @@ public class MainActivity extends BridgeActivity {
         // report it unavailable and fall back — a silent no-op rather than an
         // error, which is the hardest kind of wiring mistake to notice.
         registerPlugin(SmsInboxPlugin.class);
+        registerPlugin(BackgroundLocationPlugin.class);
+        registerPlugin(ScreenTimePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
