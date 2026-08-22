@@ -106,7 +106,9 @@ async function staffDocuments(id) {
 
   const pay = await service.paymentsForStaff(id);
 
-  return h('div', {}, [staffPay(pay), card({}, [
+  const held = await service.whatIsHeldAbout(person.id);
+
+  return h('div', {}, [staffPay(pay), theirCopy(person, held), card({}, [
     cardHeader('Their documents', badge(String(documents.length), 'muted')),
     documents.length
       ? h('div', { class: 'list' }, documents.slice(0, 10).map((document) => listItem({
@@ -118,6 +120,53 @@ async function staffDocuments(id) {
         'Nothing filed against them yet. Documents are attached to the person, '
         + 'not to the job, so they follow them between roles.'),
   ])]);
+}
+
+/**
+ * What this person can be shown about themselves.
+ *
+ * The other half of asking whether they agreed: somebody who is told what is
+ * kept about them is entitled to see it, and before this there was no way to
+ * show them without handing over the household's records.
+ *
+ * ## It is supervised, and says so
+ *
+ * There is no per-person credential anywhere in this application — the role
+ * follows a stored choice of who is using the device, so anybody who can
+ * unlock it can be anybody. A role switch would be reversible by whoever it
+ * was meant to restrict, and would strand a household who handed their phone
+ * over and could not get back.
+ *
+ * So this is the household opening it in their own session and showing it.
+ * The rows are the ones a `staff` role would be permitted, filtered through
+ * the same `rowFilter` the role uses, so the screen cannot claim more or less
+ * than the rule does.
+ */
+function theirCopy(person, held) {
+  return card({ class: 'card--quiet' }, [
+    cardHeader(`What ${person.name || 'they'} can be shown`, null, { iconName: 'shield' }),
+
+    held.held.length
+      ? h('div', { class: 'list' }, held.held.map((group) => listItem({
+        title: group.label,
+        subtitle: `${group.rows.length} ${group.rows.length === 1 ? 'record' : 'records'}`,
+      })))
+      : h('p', { class: 'small muted' }, 'Nothing is filed against them yet.'),
+
+    // Named rather than omitted. A list of what somebody may see is only half
+    // an answer to "what do you hold about me".
+    held.notShown.length
+      ? h('p', { class: 'small' },
+        `Also held about them, and not in this list: ${held.notShown.join(', ')}. `
+        + 'Those records name the job rather than the person, so the rule that '
+        + 'shows somebody their own records cannot reach them.')
+      : null,
+
+    h('p', { class: 'small faint', style: { marginBottom: 0 } },
+      'This is you showing them, not them signing in. FamilyOS has no separate '
+      + 'password for anybody, so there is no account they could use to see '
+      + 'this on their own.'),
+  ].filter(Boolean));
 }
 
 /**

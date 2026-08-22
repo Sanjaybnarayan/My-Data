@@ -30,6 +30,7 @@ import {
   entities, entity, referenceFields, referencedIds,
 } from '../data/schema.js';
 import { connectionsOf } from '../domain/connections.js';
+import { OWN_RECORD_ENTITIES, rowFilter } from '../security/rbac.js';
 import { summariseHistory } from '../data/audit.js';
 
 export class RecordsService extends Service {
@@ -145,6 +146,57 @@ export class RecordsService extends Service {
     return connectionsOf(entityName, record, references, {
       titleOf: (name, id) => titles.get(`${name}:${id}`) ?? null,
     });
+  }
+
+  /**
+   * Exactly what somebody who works for this household could be shown.
+   *
+   * ## Why this is a supervised view and not a login
+   *
+   * `STAFF/staff-access` asks for an access path for the person the records
+   * are about. This is half of it, and the half that is missing is stated
+   * rather than implied: **there is no per-person credential anywhere in this
+   * application.** The role follows a stored choice of who is using the
+   * device, so anybody who can unlock it can be anybody.
+   *
+   * A role switch would therefore be reversible by whoever it was meant to
+   * restrict, and worse, it would strand a household who handed their phone
+   * over and could not get back. So the household opens this, in their own
+   * session, and shows it to the person — supervised, and honest about being
+   * supervised.
+   *
+   * ## What is shown is decided by the RBAC, not by this method
+   *
+   * The rows are filtered through `rowFilter` with a staff actor, so this
+   * cannot drift from what the role actually permits. If somebody widens the
+   * role tomorrow, this widens with it; if they narrow it, this narrows. A
+   * second hand-written idea of "what staff may see" would be a second answer
+   * to one question.
+   */
+  async whatIsHeldAbout(personId) {
+    const actor = { personId, role: 'staff' };
+    const held = [];
+
+    for (const name of OWN_RECORD_ENTITIES) {
+      const keep = rowFilter(actor, name);
+      const rows = (await this.repo(name).list({ limit: 500 }).catch(() => []))
+        .filter((row) => keep(row));
+      if (rows.length) held.push({ entity: name, label: entity(name).labels.many, rows });
+    }
+
+    return {
+      held,
+      // Named, because a list of what somebody may see is only half an answer
+      // to "what do you hold about me". `staffLeave` is the live example: the
+      // household holds it and the role cannot reach it.
+      // Derived: anything that points at a `staff` record, and so is about
+      // this person, but which the role cannot reach. `staffLeave` is the
+      // live example — the household holds it and the person cannot see it.
+      notShown: Object.values(entities)
+        .filter((def) => !OWN_RECORD_ENTITIES.has(def.name)
+          && (def.fields ?? []).some((f) => f.ref === 'staff'))
+        .map((def) => def.labels.many),
+    };
   }
 
   async impactOfDeleting(entityName, id) {

@@ -361,8 +361,20 @@ export const REGIMES = Object.freeze([
         + 'The person themselves still has no way to see or dispute it — that '
         + 'is `staff-access`, and it is not built. It gates nothing.'),
       control('staff-access', 'A staff member seeing what is held about them',
-        STATUS.NOT_STARTED, {},
-        'There is no role for a staff member and no access path.'),
+        STATUS.IMPLEMENTED,
+        { file: 'js/security/rbac.js', test: 'tests/security.test.mjs' },
+        // IMPLEMENTED and not TESTED, because the control asks for an access
+        // *path* and what exists is a supervised view. The role is real and
+        // isolates properly — a staff actor reaches their employment record
+        // and nothing else, proved against the household's own records. What
+        // does not exist is any way for the person to reach it themselves.
+        'There is a `staff` role that sees the employment record about them '
+        + 'and nothing else, and a screen the household opens to show them. '
+        + 'It is **not** a login: this application has no per-person '
+        + 'credential, so the person cannot see it on their own and a role '
+        + 'switch would be reversible by whoever it was meant to restrict. '
+        + 'Their leave is held and not shown — a leave row names the job, not '
+        + 'the person, and the rule needs the subject on the row.'),
     ],
   },
   {
