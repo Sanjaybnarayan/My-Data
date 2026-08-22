@@ -32,7 +32,7 @@ external integration or has an open critical security or data-integrity defect.
 | # | Name | Status | % | Evidence | Critical gaps | Risk |
 |---|---|---|---|---|---|---|
 | 0 | Repository audit | **COMPLETE** | 90 | 85 docs; `PROJECT_AUDIT.md`, `ARCHITECTURE.md`, `DATA_GOVERNANCE.md`, `SECURITY.md`; 10 ratchet tools in `tools/` | No observability audit | Low |
-| 0.5 ↑ | Trust & governance | **PARTIALLY_COMPLETE** | 72 | `security/rbac.js`, `data/consent.js`, `classification.js`, `provenance.js`, `lineage.js`, `retention.js`, `audit` store, device registry; **§8.1 fixed in `76b946f`** — the caller's identity now reaches `dispatch` | Child consent and staff/tenant notice still undecided — both are the household's calls, not code | Medium |
+| 0.5 ↑ | Trust & governance | **MOSTLY_COMPLETE** | 80 | `security/rbac.js`, `data/consent.js`, `classification.js`, `provenance.js`, `lineage.js`, `retention.js`, `audit` store, device registry; §8.1 fixed in `76b946f`; **consent for staff and children** — recorded per person, surfaced as a gap until answered, and gating nothing | Not *verifiable* parental consent: nothing checks the adult is the guardian. A staff member still has no way to see or dispute what is held — no staff role, no access path | Medium |
 | 1 | Database / API / auth / authz | **REQUIRES_REWORK** | 55 | IndexedDB + 15-action Apps Script API; OAuth + PKCE; RBAC client and server; **referential integrity enforced on local writes**, RESTRICT deletes, deferred constraints in a unit of work | No PostgreSQL, no relational model; the store enforces nothing itself; **sync is exempt** | **Critical** |
 | 2 | Family / people / identity / CKYC | **MOSTLY_COMPLETE** | 80 | `person`, `relationship`, `identityDocument`, `kycRecord`, `employment`; `person_id` is the master key; CKYC conflicts modelled | No family-tree view; no per-person profile screen; no CKYCRR (correctly refused) | Low |
 | 3 | Document AI / OCR / DOCX | **MOSTLY_COMPLETE** | 78 | `pdf-read.js` (816 lines), `docx.js`, `xlsx`, `extract.js`, `classification`, confidence, versioning, duplicate detection | Image OCR requires the Drive round-trip; no on-device OCR | Low |
@@ -63,8 +63,8 @@ external integration or has an open critical security or data-integrity defect.
 
 ```
 COMPLETE              4   (10, 21, 22, and 0)
-MOSTLY_COMPLETE      14   (2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 19)
-PARTIALLY_COMPLETE    6   (0.5, 8, 18, 20, 23, 25)
+MOSTLY_COMPLETE      15   (0.5, 2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 19)
+PARTIALLY_COMPLETE    5   (8, 18, 20, 23, 25)
 REQUIRES_REWORK       1   (1)
 BLOCKED               2   (11, 24)
 NOT_STARTED           0

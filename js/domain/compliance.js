@@ -104,9 +104,19 @@ export const REGIMES = Object.freeze([
         STATUS.NOT_STARTED, {},
         'There is no breach-detection or notification path at all.'),
       control('children', 'Verifiable parental consent for a child under 18',
-        STATUS.NOT_STARTED, {},
-        'Child records are created by an adult with no consent flow of any kind. '
-        + 'See COMPLIANCE/DPDP.md — this is the largest single gap in the list.'),
+        STATUS.IMPLEMENTED,
+        { file: 'js/data/consent.js', test: 'tests/consent.test.mjs' },
+        // IMPLEMENTED, not TESTED, and deliberately not more. There is now a
+        // purpose, a record naming which adult decided and when, and a screen
+        // that raises the question — which is more than nothing and less than
+        // the control asks for. **Verifiable** is the word doing the work:
+        // nothing here verifies that the person recording the decision is the
+        // child's parent or guardian, and this application has no way to.
+        'An adult can now record a decision about a child\'s records, and the '
+        + 'gap is surfaced until they do. Nothing *verifies* the adult is the '
+        + 'parent or guardian — the application has no means to — so this is '
+        + 'a recorded decision, not verifiable parental consent. It gates '
+        + 'nothing: records are kept either way.'),
     ],
   },
   {
@@ -340,8 +350,16 @@ export const REGIMES = Object.freeze([
       control('leave-recorded', 'Paid and unpaid leave distinguished',
         STATUS.TESTED, { file: 'js/data/schema.js', test: 'tests/household.test.mjs' }),
       control('staff-consent', "A staff member's consent to being recorded",
-        STATUS.NOT_STARTED, {},
-        'Nothing asks. The consent engine exists and is not wired to staff records.'),
+        STATUS.IMPLEMENTED,
+        { file: 'js/data/consent.js', test: 'tests/consent.test.mjs' },
+        // The engine is wired now and the question is raised. What is still
+        // missing is the other half: the staff member has no way to see this
+        // themselves, so the record says the household asked, on the
+        // household's word alone. See `staff-access`.
+        'Adding someone who works for the household now raises the question, '
+        + 'and an unanswered one is reported as happening without a record. '
+        + 'The person themselves still has no way to see or dispute it — that '
+        + 'is `staff-access`, and it is not built. It gates nothing.'),
       control('staff-access', 'A staff member seeing what is held about them',
         STATUS.NOT_STARTED, {},
         'There is no role for a staff member and no access path.'),

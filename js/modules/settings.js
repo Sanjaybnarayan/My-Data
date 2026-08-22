@@ -39,7 +39,9 @@ import {
 import { recentActivity, describe as describeAudit, ACTIONS } from '../data/audit.js';
 import { recent as recentDiagnostics, summarise as summariseDiagnostics } from '../data/diagnostics.js';
 import { attention as connectorsNeedingAttention } from '../data/connectors.js';
-import { report as consentReport, record, PURPOSES, DECISIONS } from '../data/consent.js';
+import {
+  report as consentReport, record, PURPOSES, DECISIONS, peopleWithRecordsAbout,
+} from '../data/consent.js';
 import { MAILBOXES_KEY, readMailbox } from '../domain/mailboxes.js';
 
 export async function render() {
@@ -69,6 +71,10 @@ async function paint(host) {
     // another and the record has to name which.
     mailboxes: ((await db.meta(MAILBOXES_KEY, [])) ?? [])
       .map(readMailbox).filter(Boolean).map((m) => m.email).filter(Boolean),
+    // The people the household holds records *about* rather than records
+    // *for*. An empty list is the honest answer for a household with neither,
+    // and produces no rows rather than a purpose nobody owes.
+    people: await peopleWithRecordsAbout(db),
   });
 
   replace(host, [
