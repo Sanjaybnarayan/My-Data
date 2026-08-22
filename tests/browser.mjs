@@ -567,6 +567,24 @@ async function main() {
         check('nothing is said to have been kept for the one-time code',
           !/Kept, so the link/i.test(otp), otp.slice(0, 600));
 
+        // A second alert for the same payment, naming a different figure.
+        // The bank's own two messages about one debit disagreeing is not
+        // exotic — it is what happens when an authorisation is followed by a
+        // settlement — and it is the specification's Case 3 arriving through
+        // the screen a household actually uses rather than through a fixture.
+        await page.locator('#sms-text').fill(
+          'Rs 50,500.00 debited from a/c XX8963 on 15-08-26 to VPA landlord@okicici '
+          + 'UPI Ref 412345678901. Avl Bal Rs 1,40,000.00',
+        );
+        await page.getByRole('button', { name: /^Read$/ }).click();
+        await page.waitForTimeout(400);
+        const second = (await page.locator('.app-content').innerText()).trim();
+
+        check('a second alert naming a different figure is kept, not merged',
+          /Kept, so the link/i.test(second), second.slice(0, 600));
+        check('and the screen does not decide which of the two is right',
+          !/is the right|should be|use the statement/i.test(second), second.slice(0, 600));
+
         // A record's own history, on the record screen. The log has carried
         // `recordId` since Phase 0.5 and nothing could ask it.
         await go(page, '#/finance/account');
@@ -602,6 +620,37 @@ async function main() {
         // invite a household to type what a bank said.
         check('and there is no form offering to invent one',
           (await page.getByRole('button', { name: /^Add$/ }).count()) === 0, list.slice(0, 200));
+
+        // Every disagreement, in one place. Before this the amount two
+        // sources named differently was reported above this table, a payment
+        // with no ledger row on the same card, and a month of wages short of
+        // what was agreed on a staff member's record — three shapes, two
+        // screens, and no way to ask "what does not add up".
+        {
+          check('the banner points at one screen rather than restating part of it',
+            /Records that disagree/i.test(list), list.slice(0, 1500));
+
+          await go(page, '#/finance/conflicts');
+          await page.waitForTimeout(1200);
+          const seen = (await page.locator('.app-content').innerText()).trim();
+
+          check('the disagreement is listed with both figures named',
+            /50,000/.test(seen) && /50,500/.test(seen), seen.slice(0, 900));
+          check('and each figure is named beside the thing that stated it',
+            /bank-statement/.test(seen) && /sms/.test(seen), seen.slice(0, 900));
+
+          // The one thing this screen must never do. A list that quietly
+          // preferred the higher-ranked source would undo, in one place, the
+          // refusal every module feeding it makes.
+          check('and nothing on it says which figure to believe',
+            !/is the right|should be|trust the|we recommend|verified|confirmed/i.test(seen),
+            seen.slice(0, 900));
+          check('and it says outright that nothing has been decided',
+            /Nothing on this screen has been decided/i.test(seen), seen.slice(-900));
+          check('and there is no form offering to record a disagreement',
+            (await page.getByRole('button', { name: /^Add$/ }).count()) === 0,
+            seen.slice(0, 300));
+        }
 
         // Movements, reachable for the first time. `economicEvent` has existed
         // since Phase 5 and no tab has ever linked to it — the same gap the

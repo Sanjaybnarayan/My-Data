@@ -157,6 +157,39 @@ export const strings = {
   'chat.devices.verifiedBadge': 'verified',
   'chat.devices.unverifiedBadge': 'unverified',
 
+  // Every place the household's own records disagree about money. A whole
+  // sentence per key, because each of these ends with what the application
+  // deliberately did *not* do, and a translator handed the halves separately
+  // would have no way to keep the refusal attached to the finding.
+  'conflict.title': 'Disagreements',
+  'conflict.none.title': 'Nothing disagrees',
+  'conflict.none.body': 'Every payment with more than one source states the same figure on every one of them, and the wages recorded match the wages agreed. That is the records agreeing with each other \u2014 not a person having checked that any of them is true.',
+  'conflict.heading.amount': 'Sources that name different amounts',
+  'conflict.heading.date': 'Sources that name different days',
+  'conflict.heading.missing-row': 'Paid, and not in the ledger',
+  'conflict.heading.wages': 'Wages that are not the wages agreed',
+  'conflict.why.amount': 'Two things that describe the same payment do not state the same figure. Every figure is kept exactly as it was recorded \u2014 correcting one means opening that record and changing it.',
+  'conflict.why.date': 'These were matched on a reference both sources copied from the same rail, so they are one payment described twice. A gap of a day is a posting delay and is not listed; a wider one is worth a look.',
+  'conflict.why.missing-row': 'An email receipt and a bank alert agree about a payment, and no imported statement row matches it. Nothing has been added \u2014 import the statement it belongs to, or record the payment yourself.',
+  'conflict.why.wages': 'A whole month where what is recorded as paid is not what was agreed. Months that cannot honestly be judged \u2014 a part month, or one touched by unpaid leave \u2014 are left out rather than guessed at.',
+  'conflict.said.amount': 'the sources for this payment do not state the same amount. Every figure is kept as it was recorded; nothing here decides which is right.',
+  'conflict.said.date': 'the sources for this payment name days {n} apart. They were matched on a shared reference rather than a date, so this is one payment described twice \u2014 a delay between the alert and the posting is the usual reason. Neither date is changed.',
+  'conflict.said.missing-row': '{finding}. Nothing has been added to the ledger.',
+  'conflict.said.wages': 'wages recorded for {month} are not the wages agreed. Both figures are kept; nothing here decides which is right.',
+  'conflict.said.wagesNone': 'nothing is recorded as paid for {month}, and this month was not one of the ones left unjudged.',
+  'conflict.figure.noAmount': 'no figure',
+  'conflict.figure.date': '{source} {date}',
+  'conflict.figure.amount': '{source} {amount}',
+  'conflict.sentence': '{figures} \u2014 {why}',
+  'conflict.banner.title': 'Records that disagree',
+  'conflict.banner.body': '{n} things the household\u2019s own records do not agree about, including payments the ledger has never seen. They are all on one screen, with every figure named beside whatever stated it.',
+  'conflict.banner.go': 'Open Disagreements',
+  'evidence.corroborated': '{n} of {total} payments have more than one thing saying they happened. That is corroboration, not verification \u2014 none of these sources is a person having checked it.',
+  'conflict.row.payment': 'A payment',
+  'conflict.row.staff': 'A staff member',
+  'conflict.more': '{n} more, not listed here.',
+  'conflict.nothingDecided': 'Nothing on this screen has been decided. Every figure is still recorded as whatever stated it, and this list disappears when the record that is wrong is corrected \u2014 there is nothing here to tick off.',
+
   // The language picker itself.
   'locale.title': 'Language',
   'locale.english': 'English',

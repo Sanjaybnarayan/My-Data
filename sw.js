@@ -109,6 +109,7 @@ const SHELL = [
   './js/domain/categorise.js',
   './js/domain/costbasis.js',
   './js/domain/commitments.js',
+  './js/domain/conflict.js',
   './js/domain/connector.js',
   './js/domain/docxtemplate.js',
   './js/domain/events.js',
@@ -175,6 +176,7 @@ const SHELL = [
   './js/services/evidence.js',
   './js/services/explain.js',
   './js/services/identity.js',
+  './js/services/conflict.js',
   './js/services/finance.js',
   './js/services/cfo.js',
   './js/services/goals.js',
@@ -187,6 +189,7 @@ const SHELL = [
 
   './js/modules/assistant-screen.js',
   './js/modules/calendar.js',
+  './js/modules/conflicts.js',
   './js/modules/crud.js',
   './js/modules/documents.js',
   './js/modules/family.js',

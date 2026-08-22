@@ -338,6 +338,13 @@ is the evidence path, not the pairing path. `js/domain/evidence.js` does compare
 amounts across sources and reports disagreement. The gap is that no single
 `FINANCIAL_DATA_CONFLICT` record type unifies the two. **P2.**
 
+> **Closed after this report.** `js/domain/conflict.js` is that record type.
+> Measuring first found the gap was wider than stated — four findings in three
+> shapes across two screens, plus a fifth kind nothing detected at all, where
+> two sources matched on a shared reference named days apart and the evidence
+> path reported them as agreeing because it compared only amounts.
+> `docs/FINANCIAL_CONFLICTS.md`.
+
 **Ambiguity handling — checked because the spec demands it.** One debit that
 could pair with either of two credits produced **two `possible` proposals and
 zero `probable`**, and `movementTotal` counts only `probable`. An ambiguous

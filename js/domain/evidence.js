@@ -48,8 +48,15 @@ export const KIND = Object.freeze({
   SMS: 'sms',
 });
 
-/** How near two dates have to be to describe the same payment. */
-const DAYS = 1;
+/**
+ * How near two dates have to be to describe the same payment.
+ *
+ * Exported because `domain/conflict.js` needs the same number to decide when
+ * two sources are naming *different* days rather than the same one posted
+ * late. A second copy of it there would drift, and the two modules would
+ * disagree about what "the same day" means.
+ */
+export const MATCH_DAYS = 1;
 
 const plain = (value) => String(value ?? '').trim();
 const live = (rows) => (rows ?? []).filter((row) => row && !row.deletedAt);
@@ -180,7 +187,7 @@ export function orphanEvents({ receipts = [], messages = [] } = {}) {
       if (taken.has(message.id)) return false;
       if (message.amount !== receipt.amount) return false;
       const apart = daysApart(receipt.date, message.transactionDate ?? message.receivedAt);
-      return apart !== null && apart <= DAYS;
+      return apart !== null && apart <= MATCH_DAYS;
     });
     if (!match) continue;
 

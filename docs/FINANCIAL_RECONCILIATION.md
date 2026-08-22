@@ -57,21 +57,25 @@ onto one payment, reports how many sources describe it and whether they agree,
 and — the useful part — flags a receipt plus an alert with **no** bank row
 between them as a real payment missing from the ledger. 20 tests.
 
-### Case 3 — SMS ₹5,000 vs statement ₹5,500 → `FINANCIAL_DATA_CONFLICT` · **PARTIAL**
+### Case 3 — SMS ₹5,000 vs statement ₹5,500 → `FINANCIAL_DATA_CONFLICT` · **PASS**
 
 ```
 proposals=0  (₹500 exceeds the ₹100 near-window)
+conflicts=1  kind=amount  figures: bank-statement ₹5,500, sms ₹5,000
 ```
 
 The transfer-pairing path is *right* to decline — two amounts ₹500 apart may be
 two unrelated payments, and `events.js` documents that unequal amounts never
-match automatically. But the specification's case is about the same transaction
-seen by two sources, which is the **evidence** path, and that path does compare
-amounts and report disagreement.
+match automatically. The specification's case is about the same transaction
+seen by two sources, which is the **evidence** path.
 
-**The gap:** no single `FINANCIAL_DATA_CONFLICT` record type joins the two
-paths. A household sees a disagreement in one place and an unmatched leg in
-another. **P2.**
+**The gap, now closed.** `js/domain/conflict.js` is the single record type,
+and it turned out to join four findings rather than two: an amount two sources
+disagree about, a corroborated payment with no ledger row, a month of wages
+that is not the wages agreed, and — new, because nothing looked — two sources
+naming different *days*. `docs/FINANCIAL_CONFLICTS.md` carries the design and
+what it refuses. One derived list, one screen, and no figure preferred over
+another.
 
 ### Case 4 — bank → credit card → `CREDIT_CARD_SETTLEMENT` · **PASS, with a caveat**
 
