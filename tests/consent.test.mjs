@@ -338,3 +338,124 @@ describe('evidence is kept beside the decision, not mistaken for it', () => {
       'no record was written, whatever Google returned');
   });
 });
+
+/* ------------------------------------------- people who are not the household */
+
+describe('consent about a person, rather than about Google', () => {
+  test('the two person purposes name no processor, because nothing leaves', async () => {
+    for (const name of ['staffRecords', 'childRecords']) {
+      assert.length(PURPOSES[name].processors, 0);
+      assert.ok(PURPOSES[name].localOnly);
+      assert.ok(PURPOSES[name].aboutAPerson);
+    }
+    assert.length(assertSound(), 0, 'the new purposes broke the shape check');
+  });
+
+  test('but local-only does NOT make them agreed', async () => {
+    // The whole point. A local-only purpose is true without a record because
+    // nothing leaves the device — there is nobody to have agreed with. When
+    // the third party is a person, there is somebody, and reading "granted"
+    // off an empty log manufactures a conversation that never happened.
+    const db = await makeDb();
+    assert.not(await hasConsent(db, 'staffRecords', 'per_someone'));
+    assert.not(await hasConsent(db, 'childRecords', 'per_someone'));
+
+    // Whereas an ordinary local-only purpose still is.
+    assert.ok(await hasConsent(db, 'assistant'));
+  });
+
+  test('a record with nobody named is refused', async () => {
+    // A consent record naming no subject is a record about nobody.
+    const db = await makeDb();
+    let threw = false;
+    try { await grant(db, 'staffRecords'); } catch { threw = true; }
+    assert.ok(threw, 'a consent record was written naming nobody');
+  });
+
+  test('recorded, it is granted for that person and nobody else', async () => {
+    const db = await makeDb();
+    await grant(db, 'staffRecords', { subject: 'per_cook' });
+
+    assert.ok(await hasConsent(db, 'staffRecords', 'per_cook'));
+    assert.not(await hasConsent(db, 'staffRecords', 'per_gardener'),
+      'one person agreeing was read as everybody agreeing');
+  });
+
+  test('and withdrawing it is honoured', async () => {
+    const db = await makeDb();
+    await grant(db, 'childRecords', { subject: 'per_kid' });
+    await withdraw(db, 'childRecords', { subject: 'per_kid' });
+
+    assert.not(await hasConsent(db, 'childRecords', 'per_kid'));
+    assert.ok(await refused(db, 'childRecords', 'per_kid'));
+  });
+
+  test('the report lists people, not mailboxes, for these', async () => {
+    // Reading a person purpose off `state.mailboxes` would have reported every
+    // staff consent as belonging to a Gmail account.
+    const db = await makeDb();
+    await grant(db, 'staffRecords', { subject: 'per_cook' });
+
+    const { purposes } = await report(db, { people: ['per_cook'], mailboxes: ['gm_a@b.c'] });
+    const staff = purposes.filter((r) => r.purpose === 'staffRecords');
+
+    assert.length(staff, 1);
+    assert.equal(staff[0].subject, 'per_cook');
+  });
+
+  test('and somebody with no recorded decision is reported as a gap', async () => {
+    // `gaps` skips local-only purposes because nothing leaves the device and
+    // there is nobody to ask. These are local *and* have somebody, so
+    // excluding them would make the one gap this pair exists to surface
+    // permanently invisible.
+    const db = await makeDb();
+    const { gaps } = await report(db, { people: ['per_cook'] });
+
+    assert.ok(gaps.some((g) => g.purpose === 'staffRecords' && g.subject === 'per_cook'),
+      JSON.stringify(gaps));
+  });
+
+  test('and stops being a gap once it is recorded', async () => {
+    const db = await makeDb();
+    await grant(db, 'staffRecords', { subject: 'per_cook' });
+
+    const { gaps } = await report(db, { people: ['per_cook'] });
+    assert.not(gaps.some((g) => g.purpose === 'staffRecords'), JSON.stringify(gaps));
+  });
+
+  test('who consent is owed to is derived from the records, not a list', async () => {
+    // A stored flag would start disagreeing with the records it describes the
+    // first time somebody added a staff member without ticking it.
+    const { peopleWithRecordsAbout } = await import('../js/data/consent.js');
+    const db = await makeDb();
+
+    const cook = await makePerson(db, { name: 'Cook' });
+    const child = await makePerson(db, { name: 'Kiran', role: 'child' });
+    await makePerson(db, { name: 'Adult' });
+    await db.repo('staff').create({ person: cook.id, role: 'Cook', startedOn: '2026-01-01' });
+
+    const owed = (await peopleWithRecordsAbout(db)).sort();
+    assert.deep(owed, [cook.id, child.id].sort());
+  });
+
+  test('and a household with neither owes nothing', async () => {
+    const { peopleWithRecordsAbout } = await import('../js/data/consent.js');
+    const db = await makeDb();
+    await makePerson(db, { name: 'Adult' });
+    assert.length(await peopleWithRecordsAbout(db), 0);
+  });
+
+  test('nothing is gated by any of it, and that is still true', async () => {
+    // The module has always said it gates nothing. Adding a purpose about a
+    // person is exactly the moment somebody would assume otherwise.
+    const db = await makeDb();
+    const person = await makePerson(db, { name: 'Cook' });
+
+    // No consent recorded, and the record is still writable.
+    const staff = await db.repo('staff').create({
+      person: person.id, role: 'Cook', startedOn: '2026-01-01',
+    });
+    assert.ok(staff.id, 'a staff record was refused for want of consent');
+    assert.not(await hasConsent(db, 'staffRecords', person.id));
+  });
+});

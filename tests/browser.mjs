@@ -913,6 +913,50 @@ async function main() {
       check('and does not offer a picker with one entry in it',
         (await page.getByRole('button', { name: /^English/ }).count()) === 0);
 
+      // Consent for the people whose records are somebody else's to agree to.
+      // A member of household staff is another person; before this, nothing
+      // in the application asked, and nothing recorded that nobody had.
+      {
+        const before = (await page.locator('.app-content').innerText()).trim();
+        check('a household with no staff and no children is not asked about either',
+          !/works for you/.test(before), before.slice(0, 400));
+
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          const person = await app().db.repo('person').create({ name: 'Test Cook' });
+          await app().db.repo('staff').create({
+            person: person.id, role: 'Cook', startedOn: '2026-01-01',
+          });
+        }, IN_PAGE.context);
+
+        await go(page, '#/finance');
+        await go(page, '#/settings');
+        await page.waitForTimeout(600);
+        const after = (await page.locator('.app-content').innerText()).trim();
+
+        check('adding someone who works for you raises the question',
+          /works for you/.test(after), after.slice(0, 900));
+
+        // And it is a gap, not a silent yes. Nothing leaves the device, but
+        // there is still somebody whose records these are.
+        check('and it counts as happening without a record',
+          /without a record/.test(after), after.slice(0, 900));
+
+        // Put the household back. A later check asserts this copy has no
+        // gaps, and it is right to: nothing is configured here. Leaving the
+        // staff record behind would make that check fail for a reason that
+        // has nothing to do with what it is testing.
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          for (const row of await app().db.repo('staff').list({ limit: 50 })) {
+            await app().db.repo('staff').remove(row.id);
+          }
+          for (const person of await app().db.repo('person').list({ limit: 50 })) {
+            if (person.name === 'Test Cook') await app().db.repo('person').remove(person.id);
+          }
+        }, IN_PAGE.context);
+      }
+
       // The diagnostics card. It says two things that must survive contact
       // with a real render, because both are claims about what this
       // application does not do.

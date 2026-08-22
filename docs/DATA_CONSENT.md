@@ -151,3 +151,74 @@ The card also lists **every** purpose rather than only the active ones.
 Somebody reading a card headed "What you agreed to" wants the whole list of
 what this application can do with their records; the on/off badge carries which
 are happening now, and only active ones count toward the gap total.
+
+
+## People, rather than Google (later tranche)
+
+### What was measured
+
+```
+purposes recorded  : identity, backup, documents, mail, escrow, assistant
+any about a person : NO
+```
+
+All six purposes were about the household's own data going to Google. None was
+about a person whose data the household *holds* — a member of staff, a child.
+Those records were created by an adult, and nothing anywhere asked, recorded
+that nobody had asked, or made the absence visible.
+
+### The distinction that made this more than adding two rows
+
+A local-only purpose returns **true** from `hasConsent` with no record at all,
+and that is correct for the reason the code gives: nothing leaves the device,
+so there is no third party for anybody to have agreed with.
+
+That reasoning fails completely when the third party is a **person**. Nothing
+leaves the device and there is still somebody whose records these are, who
+either was told or was not. Reading "granted" off an empty log there would
+manufacture a consent record for a conversation that never happened — the exact
+failure the top of `js/data/consent.js` exists to name.
+
+So `aboutAPerson` marks the two new purposes, and `hasConsent` short-circuits
+only for local purposes that are *not* about a person. A mutation restoring the
+old line fails four tests.
+
+The same distinction was wrong in two more places, and both were found by
+following it rather than by a test failing:
+
+- **`gaps`** excluded every local-only purpose, which would have made the one
+  gap this pair exists to surface permanently invisible.
+- **`report`** read per-subject purposes off `state.mailboxes`, which would
+  have listed every staff consent as belonging to a Gmail account.
+
+### Who is owed one, derived and not listed
+
+Everyone on the staff list, and every person whose role is `child`. Derived
+from the records themselves, because a stored flag starts disagreeing with the
+records it describes the first time somebody adds a staff member without
+ticking it.
+
+A household with neither is asked nothing. An empty list produces no rows,
+rather than a purpose nobody owes.
+
+### What this is not
+
+**It gates nothing**, and the module has always said so. A staff record is
+writable with no consent recorded, and a test asserts exactly that — this is
+the moment somebody would assume otherwise.
+
+**It is not verifiable parental consent.** An adult records a decision about a
+child's records and the record says which adult and when. Nothing verifies that
+adult is the parent or guardian, and this application has no means to. The
+DPDP control therefore moves to `IMPLEMENTED` and **not** `TESTED`, with that
+sentence on the control itself.
+
+**The staff member cannot see it.** The record says the household asked, on the
+household's word alone. `STAFF/staff-access` — a role and an access path for
+the person the records are about — remains `NOT_STARTED`, and this work does
+not pretend to have touched it.
+
+**9 of 9 mutations caught**, including *local-only making a person purpose
+agreed*, *a record naming nobody*, *person purposes excluded from the gap
+count*, *read off mailboxes instead of people*, *children or staff left out of
+who is owed one*, and *the screen never passing anybody*.
