@@ -11,7 +11,7 @@
  */
 
 import { sum, changePercent } from '../core/money.js';
-import { cardBills } from './cards.js';
+import { cardBills, isBillableCard } from './cards.js';
 import { subscriptionBills, commitmentSummary } from './commitments.js';
 import {
   today, range, withinRange, startOfMonth, addMonths, endOfMonth, addDays,
@@ -367,16 +367,31 @@ function occurrence(anchor, frequency, n) {
  *
  * @param {object[]} recurring
  * @param {object[]} loans
+ * `now` is the day the card horizon is measured from, and it is a parameter
+ * rather than a call to the clock so a test can page a calendar forward
+ * without waiting for the calendar to arrive. It is not the window: the window
+ * is what is being drawn, and `now` is what is knowable.
+ *
  * @param {{from: string, to: string, accounts?: object[]|null,
  *          transactions?: object[]|null, subscriptions?: object[]|null,
- *          digitalAssets?: object[]|null}} window inclusive, in calendar days
+ *          digitalAssets?: object[]|null, now?: string}} window
+ *   inclusive, in calendar days
  * @returns {{bills: object[], cardBillsStopAt: string|null}}
  */
+/**
+ * How far past today to look for the one card bill that can be stated.
+ *
+ * A due day recurs monthly, so the next occurrence is at most 31 days out; 62
+ * is two of those, which covers a card whose cycle has just rolled without
+ * inviting a second bill into the answer.
+ */
+const CARD_HORIZON_DAYS = 62;
+
 // No default for the window: `from` and `to` are the question, and a bill
 // range with no bounds is not a smaller version of one.
 export function billsInRange(recurring, loans, {
   from, to, accounts = null, transactions = null,
-  subscriptions = null, digitalAssets = null,
+  subscriptions = null, digitalAssets = null, now = today(),
 }) {
   const out = [];
   // 500 steps is a weekly bill running for nine years; a window that long is
@@ -478,10 +493,31 @@ export function billsInRange(recurring, loans, {
   }
 
   // Only the next one — see the refusal above.
+  //
+  // "Next" means next from *today*, and that is the whole of this. It used to
+  // mean next from `from`, which is the start of whichever month the calendar
+  // happens to be drawing — so paging forward re-asked the question from
+  // February and got February's answer. One ₹3,000 purchase in August was
+  // reported as a ₹3,000 bill due on the first of every month to the horizon,
+  // each one claiming to be the balance of a cycle that had not closed. The
+  // refusal above was written and never implemented.
+  //
+  // So the horizon is computed once, from today, and does not move when the
+  // reader pages. Past months keep their bills, because those cycles really
+  // did close; it is only the future that cannot be stated.
+  const stateable = cardBills(accounts, transactions, { from: now, days: CARD_HORIZON_DAYS });
+
+  // The last due date that can honestly be stated. With nothing owed on the
+  // closed cycle there is no bill at all, and the horizon is today — which
+  // still refuses the future rather than falling open.
+  const horizon = stateable.length
+    ? stateable.reduce((last, b) => (b.dueOn > last ? b.dueOn : last), stateable[0].dueOn)
+    : now;
+
   const cards = cardBills(accounts, transactions, {
     from,
     days: Math.max(0, daysBetween(from, to)),
-  });
+  }).filter((bill) => bill.dueOn <= horizon);
 
   for (const bill of cards) {
     emit({
@@ -505,9 +541,13 @@ export function billsInRange(recurring, loans, {
     bills: out.sort((a, b) => a.dueOn.localeCompare(b.dueOn)),
     // The day after the last card bill this can honestly state. Null when
     // there are no cards to be silent about.
-    cardBillsStopAt: cards.length
-      ? addDays(cards.reduce((last, b) => (b.dueOn > last ? b.dueOn : last), cards[0].dueOn), 1)
-      : null,
+    //
+    // Derived from the horizon rather than from what landed in this window,
+    // because the two are different questions and only the first survives
+    // paging. Taken from the window, a month with no card bill in it reported
+    // `null` — and a null reads as "no cards here" rather than "no cycle has
+    // closed", which is the distinction the caption exists to draw.
+    cardBillsStopAt: (accounts ?? []).some(isBillableCard) ? addDays(horizon, 1) : null,
   };
 }
 
