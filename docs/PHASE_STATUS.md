@@ -36,7 +36,7 @@ external integration or has an open critical security or data-integrity defect.
 | 1 | Database / API / auth / authz | **REQUIRES_REWORK** | 55 | IndexedDB + 15-action Apps Script API; OAuth + PKCE; RBAC client and server; **referential integrity enforced on local writes**, RESTRICT deletes, deferred constraints in a unit of work | No PostgreSQL, no relational model; the store enforces nothing itself; **sync is exempt** | **Critical** |
 | 2 | Family / people / identity / CKYC | **MOSTLY_COMPLETE** | 80 | `person`, `relationship`, `identityDocument`, `kycRecord`, `employment`; `person_id` is the master key; CKYC conflicts modelled | No family-tree view; no per-person profile screen; no CKYCRR (correctly refused) | Low |
 | 3 | Document AI / OCR / DOCX | **MOSTLY_COMPLETE** | 78 | `pdf-read.js` (816 lines), `docx.js`, `xlsx`, `extract.js`, `classification`, confidence, versioning, duplicate detection | Image OCR requires the Drive round-trip; no on-device OCR | Low |
-| 4 ↑ | Gmail / Drive / Calendar | **PARTIALLY_COMPLETE** | 70 | `apps-script/Gmail.gs`, `Drive.gs`, `js/sync/calsync.js`, real scopes, optional Gmail; **per-mailbox connector health** — `EXPIRED` told apart from `ERROR`, persisted, recorded in diagnostics, shown with what to do | Scanning is date-windowed, not `historyId`-based; Drive and Calendar have no health of their own; the sync backend is still one deployment for one account | Medium |
+| 4 ↑ | Gmail / Drive / Calendar | **MOSTLY_COMPLETE** | 78 | `apps-script/Gmail.gs`, `Drive.gs`, `js/sync/calsync.js`, real scopes, optional Gmail; **connector health for Gmail, Drive and Calendar** through one recorder — `EXPIRED` told apart from `ERROR`, persisted, in diagnostics, and surfaced in Settings only when something needs a person | Scanning is date-windowed, not `historyId`-based; the sync engine is not in the model; the backend is still one deployment for one account | Medium |
 | 5 | Financial foundation | **MOSTLY_COMPLETE** | 82 | `categorise.js` (927), `events.js`, `evidence.js`, `settlement.js`, `ledger.js`; statements, CSV/XLS/PDF; Cases 1, 2, 4, 5 pass | No unified conflict record (Case 3); headline not corrected for settlements | Medium |
 | 6 ↑ | SMS intelligence | **MOSTLY_COMPLETE** | 72 | `domain/sms.js`, `services/sms.js`, `smsMessage` entity, OTP refusal, `SOURCE_PRIORITY`; **native inbox capture** via `SmsInboxPlugin.java` + `js/core/smsinbox.js`, watermarked sweeps, every count reported | **Never run on a device** — compiles in CI, all JS tested against a fake plugin; `READ_SMS` is a Play restricted permission, so this build is for sideloading; no `SMSEvent`/`SMSSource` entities | Medium |
 | 7 | Cards / loans / EMI / FD / RD / ledger | **MOSTLY_COMPLETE** | 76 | `loan`, `card bills`, `amortise.js`, `accrual.js`, `settlement.js`, family ledger, splits | FD/RD classification imprecise (`p2p-out`) | Medium |
@@ -63,8 +63,8 @@ external integration or has an open critical security or data-integrity defect.
 
 ```
 COMPLETE              4   (10, 21, 22, and 0)
-MOSTLY_COMPLETE      13   (2, 3, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 19)
-PARTIALLY_COMPLETE    7   (0.5, 4, 8, 18, 20, 23, 25)
+MOSTLY_COMPLETE      14   (2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 19)
+PARTIALLY_COMPLETE    6   (0.5, 8, 18, 20, 23, 25)
 REQUIRES_REWORK       1   (1)
 BLOCKED               2   (11, 24)
 NOT_STARTED           0

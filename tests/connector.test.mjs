@@ -4,6 +4,9 @@ import {
   statusOf, healthOf, describe as describeConnector, needingAttention,
 } from '../js/domain/connector.js';
 import { CONNECTOR_STATUS as FROM_SMS } from '../js/domain/sms.js';
+import { makeDb } from './fixture.mjs';
+import { health, attempted, attention, DRIVE, CALENDAR } from '../js/data/connectors.js';
+import { recent as recentDiagnostics } from '../js/data/diagnostics.js';
 
 setSuite('connector');
 
@@ -212,5 +215,142 @@ describe('which ones need attention', () => {
     assert.length(needingAttention(noteSuccess({}, 'mb1', { at: T1 })), 0);
     assert.length(needingAttention({}), 0);
     assert.length(needingAttention(undefined), 0);
+  });
+});
+
+
+/* --------------------------------------------------- through the database */
+
+describe('recording an attempt', () => {
+  // One function, three connectors. The Gmail scan did all four steps inline;
+  // adding Drive and Calendar would have made three copies, and the last time
+  // this repository had two copies of one decision a mutation showed one could
+  // be deleted with nothing noticing.
+
+  test('a failure is remembered and recorded in diagnostics', async () => {
+    const db = await makeDb();
+    await attempted(db, DRIVE, {
+      error: Object.assign(new Error('invalid_grant'), { status: 401 }),
+      where: 'drive.upload',
+    });
+
+    assert.equal(healthOf(await health(db), DRIVE), CONNECTOR_STATUS.EXPIRED);
+
+    const [event] = await recentDiagnostics(db.adapter);
+    assert.equal(event.kind, 'connector');
+    assert.equal(event.where, 'drive.upload');
+    assert.includes(event.code, '401');
+  });
+
+  test('a success is remembered and records nothing', async () => {
+    // A log that fills up when everything works is a log nobody reads.
+    const db = await makeDb();
+    await attempted(db, CALENDAR, { where: 'calendar.push' });
+
+    assert.equal(healthOf(await health(db), CALENDAR), CONNECTOR_STATUS.SYNCED);
+    assert.length(await recentDiagnostics(db.adapter), 0);
+  });
+
+  test('and a success clears a connector that had expired', async () => {
+    const db = await makeDb();
+    await attempted(db, CALENDAR, {
+      error: Object.assign(new Error('gone'), { status: 401 }), where: 'calendar.push',
+    });
+    assert.equal(healthOf(await health(db), CALENDAR), CONNECTOR_STATUS.EXPIRED);
+
+    await attempted(db, CALENDAR, { where: 'calendar.push' });
+    assert.equal(healthOf(await health(db), CALENDAR), CONNECTOR_STATUS.SYNCED);
+  });
+
+  test('one connector failing does not mark the others', async () => {
+    const db = await makeDb();
+    await attempted(db, DRIVE, { where: 'drive.upload' });
+    await attempted(db, CALENDAR, {
+      error: Object.assign(new Error('gone'), { status: 403 }), where: 'calendar.push',
+    });
+
+    const need = await attention(db);
+    assert.deep(need.map((c) => c.id), [CALENDAR]);
+  });
+
+  test('the message reaching diagnostics is redacted', async () => {
+    // `meta` is not encrypted and neither is the diagnostics store. A
+    // connector error can carry an address.
+    const db = await makeDb();
+    await attempted(db, DRIVE, {
+      error: new Error('could not upload for asha@example.com'), where: 'drive.upload',
+    });
+
+    const dump = JSON.stringify(await recentDiagnostics(db.adapter))
+      + JSON.stringify(await health(db));
+    assert.not(dump.includes('asha@example.com'), dump.slice(0, 200));
+  });
+
+  test('nothing needs attention when nothing has been tried', async () => {
+    assert.length(await attention(await makeDb()), 0);
+  });
+});
+
+
+describe('the Drive flush reports its own health', () => {
+  test('a failed upload marks Drive, once for the run', async () => {
+    // Once for the flush, not once per file. Five documents failing because
+    // one grant expired is one problem, and counting it five times would make
+    // a single revoked authorisation look like a crisis.
+    const db = await makeDb();
+    const { DocumentStore } = await import('../js/sync/drive.js');
+
+    const document = await db.repo('document').create({
+      title: 'Passport', category: 'identity', fileName: 'p.pdf',
+      mimeType: 'application/pdf', sizeBytes: 10, versionCount: 1,
+    });
+    // Sealed the way the store seals them, so the flush reaches the upload
+    // rather than failing at decryption — which would have made this test
+    // measure a broken fixture instead of a revoked grant.
+    const { encryptBytes } = await import('../js/security/crypto.js');
+    for (const n of [1, 2, 3]) {
+      const sealed = await encryptBytes(
+        db.keyring.key, new TextEncoder().encode('pretend pdf'),
+        `familyos:blob:${document.id}`,
+      );
+      await db.adapter.write('blobs', {
+        id: `blb_${n}`, documentId: document.id, iv: sealed.iv, data: sealed.data,
+        uploaded: false, createdAt: new Date().toISOString(),
+      });
+    }
+
+    const store = new DocumentStore({
+      db,
+      transport: {
+        configured: true,
+        upload: async () => {
+          throw Object.assign(new Error('invalid_grant'), { status: 401 });
+        },
+      },
+    });
+    await store.flush({ limit: 5 }).catch(() => {});
+
+    assert.equal(healthOf(await health(db), DRIVE), CONNECTOR_STATUS.EXPIRED);
+
+    const events = (await recentDiagnostics(db.adapter, { limit: 50 }))
+      .filter((e) => e.where === 'drive.upload');
+    assert.length(events, 1, `${events.length} events for one flush`);
+  });
+
+  test('a flush with nothing to upload says nothing about the connector', async () => {
+    // Not a success and not a failure. Recording it as a success would clear
+    // a genuinely expired grant the next time somebody opened the app.
+    const db = await makeDb();
+    const { DocumentStore } = await import('../js/sync/drive.js');
+
+    await attempted(db, DRIVE, {
+      error: Object.assign(new Error('gone'), { status: 401 }), where: 'drive.upload',
+    });
+
+    const store = new DocumentStore({ db, transport: { configured: true } });
+    await store.flush({ limit: 5 }).catch(() => {});
+
+    assert.equal(healthOf(await health(db), DRIVE), CONNECTOR_STATUS.EXPIRED,
+      'an empty flush cleared an expired grant');
   });
 });

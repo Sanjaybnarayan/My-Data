@@ -27,6 +27,7 @@ import { newId } from '../core/ids.js';
 import { encryptBytes, decryptBytes, toBase64 } from '../security/crypto.js';
 import { AppError, TransportError } from '../core/errors.js';
 import { safeFileName } from '../security/sanitize.js';
+import { attempted, DRIVE } from '../data/connectors.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { canReadText, indexableText } from '../domain/filing.js';
 import { readDocument, suggestions } from '../domain/extract.js';
@@ -347,6 +348,9 @@ export class DocumentStore {
     });
 
     let uploaded = 0;
+    /** What stopped the flush, or null. One outcome for the whole run. */
+    let failure = null;
+
     for (const blob of pending) {
       const document = await this.#db.repo('document').get(blob.documentId);
       if (!document) {
@@ -406,8 +410,20 @@ export class DocumentStore {
         if (!(err instanceof TransportError) || !err.retryable) {
           await this.#db.adapter.write('blobs', { ...blob, lastError: err.message });
         }
+        failure = err;
         break; // one failure usually means the network; stop rather than thrash
       }
+    }
+
+    // Recorded once for the flush, not once per file: five documents failing
+    // because one grant expired is one problem, and counting it five times
+    // would make a single revoked authorisation look like a crisis.
+    //
+    // A flush that uploaded nothing because there was nothing to upload is
+    // not a success and not a failure — it says nothing about the connector,
+    // so it records nothing.
+    if (pending.length) {
+      await attempted(this.#db, DRIVE, { error: failure, where: 'drive.upload' });
     }
 
     return { uploaded, pending: pending.length - uploaded };

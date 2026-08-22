@@ -38,6 +38,7 @@ import {
 } from '../auth/google-unlock.js';
 import { recentActivity, describe as describeAudit, ACTIONS } from '../data/audit.js';
 import { recent as recentDiagnostics, summarise as summariseDiagnostics } from '../data/diagnostics.js';
+import { attention as connectorsNeedingAttention } from '../data/connectors.js';
 import { report as consentReport, record, PURPOSES, DECISIONS } from '../data/consent.js';
 import { MAILBOXES_KEY, readMailbox } from '../domain/mailboxes.js';
 
@@ -55,6 +56,7 @@ async function paint(host) {
   const usage = await db.adapter.usage?.();
   const activity = await recentActivity(db.adapter, { limit: 12 });
   const diagnostics = await recentDiagnostics(db.adapter, { limit: 100 });
+  const needing = await connectorsNeedingAttention(db);
   const methods = await db.keyring.methods();
   const people = Object.fromEntries(
     (await db.repo('person').list({ decrypt: false })).map((p) => [p.id, p.name]),
@@ -87,6 +89,7 @@ async function paint(host) {
       await backupCard(db, host),
       deletedCard(db),
       conflictsCard(db),
+      connectionsCard(needing),
       activityCard(activity, people, db),
       diagnosticsCard(diagnostics),
       aboutCard(),
@@ -1416,6 +1419,47 @@ function activityCard(activity, people, db) {
         trailing: entry.synced ? null : badge('local', 'warning'),
       })))
       : empty({ title: 'No activity yet', iconName: 'clock' }),
+  ]);
+}
+
+/* ---------------------------------------------------------- connections */
+
+/**
+ * The connections that have stopped working.
+ *
+ * One place for all of them. Gmail says so on the receipts screen, which is
+ * right where somebody is already looking for receipts — but Drive and
+ * Calendar have no screen of their own, and a household that has not opened
+ * Shops in a month should not have to go looking.
+ *
+ * Absent when everything works. A card that is permanently present and
+ * permanently green is a card people stop reading, and the one time it turns
+ * red they will not notice.
+ */
+function connectionsCard(needing) {
+  if (!needing.length) return null;
+
+  const LABEL = {
+    'google:drive': 'Google Drive',
+    'google:calendar': 'Google Calendar',
+  };
+
+  return card({}, [
+    cardHeader('Connections that need you',
+      badge(String(needing.length), 'warning'), { iconName: 'alert' }),
+
+    h('div', { class: 'list' }, needing.map((c) => listItem({
+      // A mailbox id is `gm_someone@example.com`, which is already the
+      // clearest name it has. Everything else gets a real one.
+      title: LABEL[c.id] ?? c.id.replace(/^gm_/, ''),
+      subtitle: c.why,
+      trailing: c.action ? badge(c.action, 'warning') : null,
+    }))),
+
+    h('p', { class: 'small faint', style: { marginBottom: 0 } },
+      'Nothing here has been lost. A connection that stops working stops '
+      + 'bringing new things in; what it already brought is still on this '
+      + 'device.'),
   ]);
 }
 

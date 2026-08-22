@@ -2645,6 +2645,48 @@ async function main() {
       check('a renewal beyond its reminder lead is on the month it falls in',
         far.includes('Star Health floater'), far.slice(0, 700));
 
+      // Calendar connector health, driven through the real button. Nothing is
+      // signed in, so the push raises a 401 — the same shape as a grant the
+      // household has withdrawn, and the state that used to be invisible.
+      {
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          await app().db.setMeta('connector.health', {});
+        }, IN_PAGE.context);
+
+        await go(page, '#/calendar');
+        await page.waitForTimeout(400);
+
+        const sync = page.getByRole('button', { name: 'Sync to Google' });
+        if (await sync.count()) {
+          await sync.click();
+          await page.waitForTimeout(1200);
+
+          const stored = await page.evaluate(async (spec) => {
+            const { app } = await import(spec);
+            const health = await app().db.meta('connector.health', {});
+            return health['google:calendar']?.status ?? null;
+          }, IN_PAGE.context);
+
+          check('a calendar push that fails is remembered, not just toasted',
+            stored !== null, JSON.stringify(stored));
+
+          // And it reaches the one place a household would look for it.
+          await go(page, '#/settings');
+          await page.waitForTimeout(600);
+          const settings = (await page.locator('.app-content').innerText()).trim();
+
+          check('and a broken connection is named in Settings',
+            /Connections that need you/.test(settings)
+            || /Google Calendar/.test(settings), settings.slice(0, 500));
+        }
+
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          await app().db.setMeta('connector.health', {});
+        }, IN_PAGE.context);
+      }
+
       // The export path, end to end: collect -> toICalendar -> download. The
       // toast only appears if the whole chain ran, and it is also where the
       // snapshot-not-sync wording lives.
