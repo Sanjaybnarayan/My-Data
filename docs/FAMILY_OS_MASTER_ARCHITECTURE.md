@@ -63,7 +63,7 @@ rather than a promise: `tools/architecture-budget.json` holds the count,
 moves a screen onto `js/services/` lowers it permanently.
 
 The service layer exists and is adopted in part:
-**17**<!--live:serviceModules--> service modules against those
+**18**<!--live:serviceModules--> service modules against those
 **58**<!--live:uiDatabaseCalls--> direct calls. Naming the number is what turns
 "we should migrate someday" into something with a direction.
 
@@ -110,7 +110,7 @@ and applies no role.
 
 ## Layer 2 — Experience
 
-21<!--live:modules--> modules exist: dashboard, identity, family, finance, investments,
+22<!--live:modules--> modules exist: dashboard, identity, family, finance, investments,
 documents, vehicles, health, insurance, property, education, tasks, calendar,
 notes, vault, digital, emergency, reports, settings.
 
@@ -121,13 +121,21 @@ notes, vault, digital, emergency, reports, settings.
 | Domain-service layer | **exists, barely adopted** | `file:js/services/service.js` |
 | Household staff (distinct from family) | **exists — the role, not a second identity** | `wired:js/services/records.js#documentsForStaff` |
 | Chat | missing | `absent:grep:chatMessage` |
-| Safety | missing | `absent:grep:geofence` |
+| Safety | **exists — foreground only, no background capture** | `wired:js/services/safety.js#whereEveryone` |
 
 Privacy is reachable through Settings rather than as a top-level entry, and the
-assistant is routed at `#/assistant`. Chat and safety are genuinely absent —
-and safety is one of the things `PROJECT_AUDIT.md` records as **deliberately
-not scheduled**, because a PWA cannot deliver location or SOS. Staff was
-absent when this was written and is not any more.
+assistant is routed at `#/assistant`. Chat is genuinely absent. Staff was
+absent when this was written and is not any more, and so is safety — with a
+qualification that matters more than the row above can carry.
+
+**Safety exists, and the reason it was once recorded as "deliberately not
+scheduled" has not gone away.** A PWA still cannot deliver background location
+or send an SOS. What Phase 15 built is what a foreground application honestly
+can: a position read while somebody is looking at the screen, zones compared
+against it in arithmetic rather than registered with the operating system, and
+an SOS that composes a message for a person to send. Crossing a zone with the
+app closed still produces nothing, and `docs/LOCATION.md` opens with that
+rather than burying it.
 
 **The architectural debt here is the missing domain-service layer.** Screens
 call the repository directly, so every module added before the layer exists is
@@ -199,7 +207,7 @@ verification* means the deterministic path must stay the one that writes.
 
 ## Layer 4 — Data & Economic Events
 
-47<!--live:entities--> entities, 566<!--live:fields--> fields, declared once in `js/data/schema.js` and used to
+50<!--live:entities--> entities, 594<!--live:fields--> fields, declared once in `js/data/schema.js` and used to
 derive stores, indexes, validators, forms, columns, Sheets tabs, reminders and
 report fields.
 

@@ -31,13 +31,13 @@ What it is not is a copy of your records that anything can put back.
 
 ## What it carries, measured
 
-There are 47<!--live:entities--> entities holding
-566<!--live:fields--> fields between them, and an export is one file per
+There are 50<!--live:entities--> entities holding
+594<!--live:fields--> fields between them, and an export is one file per
 entity — so a complete one is forty-three files and eighty-six button presses.
 
 Of those fields:
 
-- **36<!--live:encryptedFields-->** are encrypted, and are left out unless you
+- **40<!--live:encryptedFields-->** are encrypted, and are left out unless you
   tick *Include encrypted fields in the clear*. Ticking it writes your document
   numbers, passwords and medical notes to a file in plain text, which is the
   right thing to offer and the wrong thing to do casually.

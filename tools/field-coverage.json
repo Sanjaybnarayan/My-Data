@@ -29,7 +29,6 @@
     "identityDocument.placeOfIssue",
     "legalDocument.concerns",
     "legalDocument.custodian",
-    "legalDocument.registered",
     "loan.collateral",
     "loan.tenureMonths",
     "medication.dosage",
@@ -54,6 +53,7 @@
     "property.tenantPhone",
     "purchase.seller",
     "purchase.serialNumber",
+    "sosAlert.resolvedAt",
     "tenant.agreements",
     "tenant.depositReturnedOn",
     "tenant.rentDueOn",
@@ -81,7 +81,6 @@
     "warranty.claimPhone",
     "warranty.claimUrl",
     "will.executorPerson",
-    "will.registered",
     "will.witnesses"
   ]
 }
