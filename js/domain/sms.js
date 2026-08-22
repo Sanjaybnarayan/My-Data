@@ -54,18 +54,19 @@ export const CATEGORY = Object.freeze([
   'OTHER',
 ]);
 
-/** What a connector may report. Nothing here ever reports `CONNECTED`. */
-export const CONNECTOR_STATUS = Object.freeze({
-  NOT_CONNECTED: 'NOT_CONNECTED',
-  AUTH_REQUIRED: 'AUTH_REQUIRED',
-  CONNECTED: 'CONNECTED',
-  SYNCING: 'SYNCING',
-  SYNCED: 'SYNCED',
-  EXPIRED: 'EXPIRED',
-  ERROR: 'ERROR',
-  NOT_SUPPORTED: 'NOT_SUPPORTED',
-  LEGAL_REVIEW_REQUIRED: 'LEGAL_REVIEW_REQUIRED',
-});
+/**
+ * What a connector may report.
+ *
+ * Defined in `domain/connector.js` and re-exported here. It was written in
+ * this file for Phase 6, where only SMS could reach it — and then Phase 4
+ * needed the same words for Gmail, so it moved somewhere both can see. One
+ * vocabulary, one meaning of `EXPIRED`.
+ */
+// Imported as well as re-exported: a bare `export ... from` forwards the name
+// without binding it in this module, and `nativeStatus` below reads it.
+import { CONNECTOR_STATUS } from './connector.js';
+
+export { CONNECTOR_STATUS };
 
 export const SOURCE = Object.freeze({
   /** Read from this device's inbox by the Android companion build. */
