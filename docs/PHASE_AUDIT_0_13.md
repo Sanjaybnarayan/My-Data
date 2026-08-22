@@ -130,7 +130,7 @@ not a second expense.
 | **Android SMS Capability** | **not built, deliberately.** `nativeStatus()` returns `NOT_SUPPORTED` with the reason: a browser cannot read an SMS inbox, an Android companion does not exist, and the permission must not be requested without a current check of Play policy (rule 54) |
 | **Real-Time Processing** | **not built** — it depends on native ingestion. Messages arrive by paste or by an exported backup |
 | SMS Reconciliation | **working** — linked by UTR/UPI reference first, then account tail and day |
-| SMS Security | **working** — the OTP gate runs *before any field is read*, and nothing is stored. Proved across all 60<!--live:stores--> stores, not the one table it would most likely land in |
+| SMS Security | **working** — the OTP gate runs *before any field is read*, and nothing is stored. Proved across all 61<!--live:stores--> stores, not the one table it would most likely land in |
 | SMS Privacy | **working** — the schema has nowhere to put a one-time code |
 | SMS Conflict Engine | **working** — ₹5,000 against ₹5,500 is a `CONFLICT` with both figures shown, never a silent choice |
 

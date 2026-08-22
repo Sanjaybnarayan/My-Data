@@ -595,6 +595,42 @@ describe('a field name in a comment is not a field being read', () => {
   test('a comment marker inside a string survives', () => {
     assert.includes(withoutComments('const u = "https://example.test/x";'), 'example.test');
   });
+
+  test('a regex holding an odd number of quotes does not swallow the rest', () => {
+    // The one that got past. `/'[^']*'/` contains three apostrophes; the
+    // scanner read the third as opening a string and stopped stripping
+    // comments for the remainder of the file. Prose then counted as code and
+    // a field nothing reads was reported as read — the ratchet failing open.
+    const source = [
+      "const rule = /'[^']*'/g;",
+      '// diagnosis is only mentioned in prose here',
+      'const keep = record.confidential;',
+    ].join('\n');
+
+    const out = withoutComments(source);
+    assert.not(out.includes('diagnosis'), out);
+    assert.includes(out, 'confidential');
+  });
+
+  test('and the same for a backtick or a double quote in a literal', () => {
+    for (const literal of ['/`[^`]*`/g', '/"[^"]*"/g', '/["\'`]/g']) {
+      const out = withoutComments(`const r = ${literal};\n// upiId in prose\nconst k = 1;`);
+      assert.not(out.includes('upiId'), `${literal}: ${out}`);
+    }
+  });
+
+  test('but division is still division, not a regex swallowing the line', () => {
+    // The other direction. If every `/` opened a regex, `a / b` would eat the
+    // rest of the line and take real code with it.
+    const out = withoutComments('const rate = total / count;\nconst k = record.upiId;');
+    assert.includes(out, 'upiId');
+    assert.includes(out, 'total / count');
+  });
+
+  test('and an apostrophe in prose still cannot open a string', () => {
+    const out = withoutComments("// the household's records\nconst k = record.upiId;");
+    assert.includes(out, 'upiId');
+  });
 });
 
 /**

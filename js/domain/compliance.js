@@ -314,9 +314,16 @@ export const REGIMES = Object.freeze([
       control('one-letting-or-none', 'A payment is attributed to one letting or to none',
         STATUS.TESTED, { file: 'js/domain/rentreceipt.js', test: 'tests/docx.test.mjs' }),
       control('tenant-records', 'A tenant record with its own ledger',
-        STATUS.NOT_STARTED, {},
-        'Three fields on `property`. No tenant entity, no lease history, no '
-        + 'arrears figure — see docs/COMPLIANCE/PROPERTY.md.'),
+        STATUS.IMPLEMENTED,
+        { file: 'js/data/schema.js', test: 'tests/phase10.test.mjs' },
+        // Was NOT_STARTED with "no tenant entity, no lease history", both of
+        // which Phase 10 built and neither of which anybody came back to
+        // correct. What is still missing is the *ledger* half, and that is
+        // now what this says.
+        'The `tenant` entity carries the letting, its dates, rent and deposit. '
+        + 'There is still no per-tenant ledger and no arrears figure — rent '
+        + 'received is attributed by `js/domain/rentreceipt.js`, not totalled '
+        + 'against what was due.'),
     ],
   },
   {
@@ -355,9 +362,18 @@ export const REGIMES = Object.freeze([
       control('original-preserved', 'The source file is kept unmodified',
         STATUS.TESTED, { file: 'js/services/documents.js', test: 'tests/provenance.test.mjs' }),
       control('tamper-evidence', 'A record that has been altered can be shown to have been',
-        STATUS.NOT_STARTED, {},
-        'The audit trail is a log in the same database as the records. Nothing '
-        + 'signs or chains it, so it establishes history, not tamper-evidence.'),
+        STATUS.TESTED,
+        { file: 'js/data/chain.js', test: 'tests/chain.test.mjs' },
+        // TESTED, not VERIFIED, and the gap is stated rather than left for
+        // somebody to discover: this detects tampering, it does not prevent
+        // it, and it is defeated by anybody who can recompute the chain —
+        // which is anybody who can unlock the application. Closing that needs
+        // an anchor outside the device. docs/AUDIT_CHAIN.md sets out what
+        // that would take and does not pretend it is here.
+        'Each entry carries the hash of the one before it from the same device, '
+        + 'so an alteration, a deletion or an insertion is detectable. It is '
+        + 'not prevented, and it is defeated by anybody who can write to this '
+        + 'database and recompute the chain. There is no external anchor.'),
     ],
   },
   {
@@ -433,9 +449,16 @@ export const REGIMES = Object.freeze([
       control('cc6-logical-access', 'CC6 Logical and physical access',
         STATUS.TESTED, { file: 'js/security/rbac.js', test: 'tests/security.test.mjs' }),
       control('cc7-monitoring', 'CC7 System operations and monitoring',
-        STATUS.NOT_STARTED, {},
-        'No observability of any kind. The audit is a record of changes, not of '
-        + 'system health, and there is no OBSERVABILITY document.'),
+        STATUS.TESTED,
+        { file: 'js/data/diagnostics.js', test: 'tests/diagnostics.test.mjs' },
+        // TESTED for the observability half and honest about the rest. There
+        // is no operator here, so "monitoring" in CC7's sense cannot exist —
+        // which is the same reason this whole regime carries NOT_TO_THIS.
+        'Failures, refusals and failed syncs are recorded on the device, '
+        + 'redacted, and shown in Settings — so a run of the same failure is '
+        + 'tellable from a one-off. Nobody is watching them: no alerting, no '
+        + 'view across devices, and nothing is transmitted anywhere. See '
+        + 'docs/OBSERVABILITY.md.'),
       control('a1-availability', 'A1 Availability',
         STATUS.NOT_APPLICABLE, {}, 'Nothing is served to anybody.'),
     ],

@@ -205,12 +205,37 @@ describe("the prompt's SMS tests, which could not run before", () => {
 });
 
 describe('what a browser can honestly claim', () => {
-  test('the native capability reports NOT_SUPPORTED rather than pretending', () => {
+  test('a build that cannot read an inbox says so rather than pretending', () => {
     // The same refusal `docs/KYC.md` makes about CKYCRR, for the same reason.
-    const status = nativeStatus();
+    // This is a browser and iOS, permanently.
+    const status = nativeStatus({ available: false });
     assert.equal(status.status, CONNECTOR_STATUS.NOT_SUPPORTED);
     assert.includes(status.why, 'cannot read an SMS inbox');
     assert.ok(status.alternatives.length > 0, 'and it says what does work instead');
+  });
+
+  test('and the default answer, with nothing known, is the refusing one', () => {
+    // Whatever a caller forgets to pass, it must not accidentally claim a
+    // capability. The unsafe direction has to be the one you have to ask for.
+    assert.equal(nativeStatus().status, CONNECTOR_STATUS.NOT_SUPPORTED);
+  });
+
+  test('a device that can read but has not been allowed to is AUTH_REQUIRED', () => {
+    // Distinct from NOT_SUPPORTED, because the two need different sentences:
+    // one is "this will never work here", the other is "say yes".
+    const status = nativeStatus({ available: true, permission: 'prompt' });
+    assert.equal(status.status, CONNECTOR_STATUS.AUTH_REQUIRED);
+    assert.ok(status.alternatives.length > 0);
+  });
+
+  test('and a granted device says CONNECTED without claiming it is watching', () => {
+    // Rule 51 does not stop applying because capture got easier. The word
+    // "connected" on a screen must not come to mean "intercepting".
+    const status = nativeStatus({ available: true, permission: 'granted' });
+    assert.equal(status.status, CONNECTOR_STATUS.CONNECTED);
+    assert.includes(status.why, 'when you ask');
+    assert.includes(status.why, 'never authoritative');
+    assert.not(/background/.test(status.why) && !/Nothing runs in the/.test(status.why));
   });
 
   test('the status vocabulary is the prompt\'s, so a future connector has words', () => {

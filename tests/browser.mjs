@@ -499,6 +499,26 @@ async function main() {
       // Phase 6's reading exists in `domain/sms.js`; this is the half that
       // proves a household can reach it.
       {
+        // Phase 6's native half, from the browser's side. There is no plugin
+        // here, so the honest outcome is that the card says reading an inbox
+        // is not possible and offers pasting instead — not a button that
+        // silently does nothing when tapped.
+        const card = (await page.locator('.app-content').innerText()).trim();
+
+        check('a browser is told it cannot read an inbox rather than shown a dead button',
+          /cannot read an SMS inbox/i.test(card), card.slice(0, 600));
+        check('and no read-this-device button is offered where it cannot work',
+          (await page.getByRole('button', { name: /Read this device/ }).count()) === 0,
+          card.slice(0, 600));
+        check('and no permission prompt is offered either',
+          (await page.getByRole('button', { name: /Allow reading messages/ }).count()) === 0,
+          card.slice(0, 600));
+        // The alternative rule 55 asks for is still right there.
+        check('and pasting is still offered',
+          (await page.locator('#sms-text').count()) === 1, card.slice(0, 600));
+      }
+
+      {
         const smsBefore = consoleErrors.length;
 
         await page.locator('#sms-text').fill(
@@ -836,6 +856,81 @@ async function main() {
         /Language/.test(body) && /English only/.test(body), body.slice(0, 1200));
       check('and does not offer a picker with one entry in it',
         (await page.getByRole('button', { name: /^English/ }).count()) === 0);
+
+      // The diagnostics card. It says two things that must survive contact
+      // with a real render, because both are claims about what this
+      // application does not do.
+      {
+        const said = (await page.locator('.app-content').innerText()).trim();
+
+        check('Settings says how the device is doing',
+          /How this device is doing/.test(said), said.slice(0, 300));
+        check('and says the record never leaves the device',
+          /leaves the device/.test(said), said.slice(0, 300));
+        check('and says nobody is watching it',
+          /Nobody is watching it but you/.test(said), said.slice(0, 300));
+
+        // Drive a real failure, then require the card to have counted it and
+        // to hold none of what caused it.
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          try {
+            await app().db.repo('transaction').create({
+              date: '2026-08-22', amount: 50_000_00, direction: 'out',
+              description: 'Rent to landlord@okicici', account: 'acc_nowhere',
+            });
+          } catch { /* expected */ }
+        }, IN_PAGE.context);
+
+        await go(page, '#/finance');
+        await go(page, '#/settings');
+        await page.waitForTimeout(500);
+        const after = (await page.locator('.app-content').innerText()).trim();
+
+        check('a real failure is counted on the card',
+          /1 in 7 days|refusals?|errors?/.test(after), after.slice(0, 600));
+        check('and none of what caused it is shown',
+          !/landlord@okicici/.test(after) && !/50,000/.test(after)
+          && !/acc_nowhere/.test(after), after.slice(0, 600));
+      }
+
+      // The audit chain, driven rather than asserted in a unit test. Both ends
+      // of this have tests; the wiring between them is where this codebase
+      // keeps finding holes.
+      {
+        await page.getByRole('button', { name: 'Check the log' }).click();
+        await page.waitForTimeout(600);
+        const said = (await page.locator('.app-content').innerText()).trim();
+
+        check('the audit log can be checked from Settings and says it adds up',
+          /link up correctly|links up correctly/.test(said), said.slice(0, 400));
+
+        // The whole honesty of the feature. A screen that said "verified" or
+        // "proven" would be claiming more than a hash chain inside its own
+        // database can deliver.
+        check('and says plainly who could still defeat it',
+          /anybody who can unlock/i.test(said), said.slice(0, 400));
+        check('and does not use the word verified or proven',
+          !/\bverified\b|\bproven\b/i.test(said), said.slice(0, 400));
+
+        // Now break it, through the adapter, and require the screen to notice.
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          const rows = await app().db.adapter.query('audit', {});
+          const target = rows.find((r) => r.hash);
+          await app().db.adapter.write('audit', { ...target, actorId: 'somebody-else' });
+        }, IN_PAGE.context);
+
+        await page.getByRole('button', { name: 'Check the log' }).click();
+        await page.waitForTimeout(600);
+        const broken = (await page.locator('.app-content').innerText()).trim();
+
+        check('and a rewritten entry is reported on the screen, not only in a test',
+          /does not add up/.test(broken), broken.slice(0, 400));
+        check('and the screen says what kind of tampering it was',
+          /changed after it was written|not attached|no beginning|same place/.test(broken),
+          broken.slice(0, 400));
+      }
 
       // The layer is wired to the boot sequence, not merely present. `dir` is
       // the half that proves it: index.html already carries a static

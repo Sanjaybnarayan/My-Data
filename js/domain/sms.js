@@ -14,8 +14,15 @@
  * native companion. The reading is the same; only the source differs, and the
  * source says which it was.
  *
- * `SOURCE.NATIVE` therefore reports `NOT_SUPPORTED` here rather than pretending,
- * which is the same refusal `docs/KYC.md` makes about CKYCRR.
+ * `SOURCE.NATIVE` was `NOT_SUPPORTED` for exactly as long as that was true. It
+ * is now real on the Android companion build — `js/core/smsinbox.js` reads the
+ * inbox through a plugin — and still `NOT_SUPPORTED` in a browser and on iOS,
+ * which has no inbox API for a third-party app and is not going to get one.
+ *
+ * The permission that makes it work is a Play restricted permission, so the
+ * companion build is for sideloading. `AndroidManifest.xml` and
+ * `docs/SMS_INTELLIGENCE.md` both say so at the point where somebody would
+ * need to know.
  *
  * ## The rule that mattered most while writing this
  *
@@ -61,9 +68,9 @@ export const CONNECTOR_STATUS = Object.freeze({
 });
 
 export const SOURCE = Object.freeze({
-  /** A native Android companion. Does not exist. */
+  /** Read from this device's inbox by the Android companion build. */
   NATIVE: 'native',
-  /** Text a person pasted or a file they imported. The only one that works. */
+  /** Text a person pasted or a file they imported. Works everywhere. */
   IMPORTED: 'imported',
 });
 
@@ -175,7 +182,15 @@ const minor = (text) => {
  * values"*, and that is the same rule `domain/extract.js` follows for
  * documents — a wrong value is a claim, a missing one is a gap.
  */
-export function read(message, { source = SOURCE.IMPORTED } = {}) {
+/**
+ * @param {{text?: string, sender?: string, receivedAt?: string}} message
+ * @param {{source?: string}} [options] which of `SOURCE` this came from.
+ *   Typed as a string rather than inferred from the default, because the
+ *   default is `'imported'` and inference would make `'native'` — the whole
+ *   point of the option — an error at every call site that passes it.
+ */
+export function read(message, options = {}) {
+  const { source = SOURCE.IMPORTED } = options;
   const text = String(message?.text ?? '');
 
   // First, and before anything reads a field. A message that carries a
@@ -346,19 +361,49 @@ export function reconcileWithStatement(reading, transactions, { days = 1 } = {})
 }
 
 /**
- * What the native capability can honestly report.
+ * What the native capability can honestly report, on this device.
  *
- * There is no Android companion, so this is `NOT_SUPPORTED` — the same answer
- * `docs/KYC.md` gives about CKYCRR, for the same reason. It is a function
- * rather than a constant so that the day a companion exists, one place changes.
+ * Answered from what is actually present rather than from a constant. A
+ * browser and the iOS shell get `NOT_SUPPORTED` and always will — iOS has no
+ * inbox API for a third-party app. An Android build with the plugin compiled
+ * in reports against the permission, because "can read" and "is allowed to
+ * read" are different facts and a screen needs to tell them apart.
+ *
+ * @param {{available?: boolean, permission?: string}} [device] what the
+ *   platform reports; `js/core/smsinbox.js` supplies it. Injected rather than
+ *   read here so this stays a pure function about a situation.
  */
-export function nativeStatus() {
+export function nativeStatus(device = {}) {
+  if (!device.available) {
+    return {
+      status: CONNECTOR_STATUS.NOT_SUPPORTED,
+      why: 'this build cannot read an SMS inbox. A browser has no such API, and '
+        + 'neither does iOS for an application that is not the messages app. '
+        + 'On Android it needs the companion build, which carries a permission '
+        + 'that decides where the application can be distributed.',
+      alternatives: ['paste a message', 'import an exported backup'],
+    };
+  }
+
+  if (device.permission !== 'granted') {
+    return {
+      status: CONNECTOR_STATUS.AUTH_REQUIRED,
+      why: 'this device can read the inbox but has not been given permission. '
+        + 'Android asks once, and a refusal is final until it is changed in '
+        + 'system settings.',
+      alternatives: ['paste a message', 'import an exported backup'],
+    };
+  }
+
   return {
-    status: CONNECTOR_STATUS.NOT_SUPPORTED,
-    why: 'a browser cannot read an SMS inbox. Reading messages needs an Android '
-      + 'companion application, which does not exist — and requesting the '
-      + 'permission would need a current check of Play policy against what this '
-      + 'application actually is.',
+    status: CONNECTOR_STATUS.CONNECTED,
+    // Said here because this is the string a screen shows. A household reading
+    // "connected" is entitled to know it means "read when you ask", not
+    // "watching", and rule 51 does not stop applying because capture got
+    // easier.
+    why: 'messages are read from this device when you ask. Nothing runs in the '
+      + 'background, no message is intercepted as it arrives, and a message is '
+      + 'still never authoritative — it is checked against a statement.',
     alternatives: ['paste a message', 'import an exported backup'],
   };
 }
