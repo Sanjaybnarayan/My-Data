@@ -1,5 +1,14 @@
 # Phases 0–13, Audited Against Build Prompt v6.0
 
+> **Partly stale, kept for its reasoning.** Re-checked 22 August 2026 against
+> `1c8d97d`. Two statuses here are now wrong: Phase 12 (Legal) is recorded as
+> not built when `will`, `beneficiary` and `legalDocument` all exist, and
+> `docs/COMPLIANCE/ABDM.md` is recorded as missing when it is present. The
+> current, measured position is `docs/PHASE_STATUS.md`. What remains valuable
+> here is the record of *which* v6.0 is authoritative — see the trap it
+> documents below.
+
+
 Checked against the **MASTER CLAUDE CODE BUILD PROMPT, VERSION 6.0** — the
 pasted text itself, not a summary of it. Every status below was measured
 against the source tree, not read off `docs/IMPLEMENTATION_ROADMAP.md`, because
