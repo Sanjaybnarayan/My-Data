@@ -943,8 +943,22 @@ async function main() {
       await page.waitForTimeout(400);
 
       const body = (await page.locator('.app-content').innerText()).trim();
-      check('Safety says there is no background tracking',
-        /no background tracking/i.test(body), body.slice(0, 500));
+      // This used to assert the screen said "no background tracking". It no
+      // longer does, because that stopped being true — so what is checked
+      // instead is the set of promises that replaced it, each of which is
+      // enforced somewhere in the code by its own test.
+      check('Safety says a trail is off until somebody switches it on',
+        /off until you turn it on|nothing starts it by itself/i.test(body),
+        body.slice(0, 700));
+      check('and that a phone which is recording always says so',
+        /notification you cannot dismiss/i.test(body), body.slice(0, 700));
+
+      // A browser cannot record a trail, and the card knows it: no switch is
+      // drawn here at all. A dead "Start recording" button in a browser would
+      // be the exact failure the SMS card was built to avoid.
+      check('and a browser is not offered a switch that cannot work',
+        (await page.getByRole('button', { name: /Start recording/i }).count()) === 0,
+        body.slice(0, 400));
       check('and that a zone is not registered with the phone',
         /not registered with the phone/i.test(body), body.slice(0, 800));
       check('it offers to record a position rather than doing it unasked',

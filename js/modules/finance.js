@@ -105,12 +105,12 @@ export async function render(route) {
   })));
 
   replace(host, [
-    pageHeader('Finance', {
-      subtitle: 'Where the money is, and where it went',
+    pageHeader(t('finance.title'), {
+      subtitle: t('finance.subtitle'),
       actions: NO_ADD.has(active) ? []
         : active !== 'overview'
-        ? [button('Add', { variant: 'primary', iconName: 'plus', onClick: () => section?.openForm() })]
-        : [button('Add transaction', {
+        ? [button(t('crud.add'), { variant: 'primary', iconName: 'plus', onClick: () => section?.openForm() })]
+        : [button(t('finance.addTransaction'), {
           variant: 'primary',
           iconName: 'plus',
           onClick: () => app().router.navigate({ module: 'finance', entity: 'transaction', id: 'new' }),

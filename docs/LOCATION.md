@@ -2,13 +2,41 @@
 
 Phase 15. Read the limits first, because they are most of the design.
 
-## What this does not do
+## What changed, and what it cost
 
-**There is no background tracking.** A position is read only while somebody has
-the application open and asks for one. A web page and a Capacitor WebView with
-no foreground service are both suspended when the screen goes off, and a
-suspended page reports nothing. Nothing is recorded while a phone is in a
-pocket.
+**There is now background tracking on Android, and there was not.** Every
+sentence in this file used to say the opposite, and a test failed if
+`ACCESS_BACKGROUND_LOCATION` ever appeared in the manifest. The household
+asked for it, the reasons against were put to them, and they chose it anyway.
+This section records what was given up rather than quietly dropping the old
+paragraph.
+
+What was given up: an application that could not watch a family even if
+somebody wanted it to. That property is gone and cannot be got back by
+switching the feature off, because the permission is now declared and the
+service is now written.
+
+What is kept, and enforced rather than promised:
+
+- **It is off until somebody turns it on.** Nothing starts it at boot —
+  there is no `BOOT_COMPLETED` receiver and a test asserts it — and the
+  service is `START_NOT_STICKY`, so Android will not restart it unasked.
+- **It says so while it runs.** A foreground-service notification that cannot
+  be dismissed. Android requires it; so does honesty.
+- **It refuses to half-work.** Without the background grant the service is not
+  started at all, rather than recording foreground-only and calling it a
+  trail — which is what the application already did, and would make the
+  switch a lie.
+- **It writes nothing itself.** Fixes are held in memory and handed to the
+  WebView, which puts them in the encrypted store. A service that wrote to
+  disk would be a second, plaintext copy of a household's movements. The
+  cost is stated rather than hidden: fixes still buffered when the process
+  dies are lost.
+
+**It has never run on a phone.** It compiles. That is a different claim, and
+`docs/PHASE_STATUS.md` says which is which.
+
+## What this still does not do
 
 **There is no OS geofencing.** A real geofence is registered with the platform
 and wakes the app when it is crossed. What this has instead is arithmetic:
@@ -22,12 +50,16 @@ gateway and no push. An SOS composes a message and records that it was raised;
 a person sends it from their own phone. `sentVia` records what they say they
 did, and its default is `not sent`.
 
-What a background implementation would need, stated so nobody has to discover
-it: a foreground-service notification and, on Android 10+, a separate
-`ACCESS_BACKGROUND_LOCATION` grant with a Play policy declaration attached to
-it. Neither is in this repository, and `tests/native.test.mjs` fails if that
-permission is ever added — so the absence is enforced rather than merely
-described.
+On Android 10+ the background grant cannot be obtained from the same prompt as
+the foreground ones, and on 11+ not from a prompt at all — the person has to
+choose *Allow all the time* on the application's settings page.
+`BackgroundLocationPlugin.openSettings()` takes them there rather than raising
+a request Android will deny without showing anything.
+
+A Play Store background-location declaration and demonstration video would
+also be required. This build already cannot go to Play because of `READ_SMS`,
+so nothing new is foreclosed — but a build that dropped `READ_SMS` would still
+need it.
 
 ## On a phone
 

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       allowBackup is off, and that is a decision rather than a default.
@@ -57,6 +58,17 @@
 
         </activity>
 
+        <!--
+          The location trail's foreground service. `exported="false"` because
+          nothing outside this application has any business starting it, and
+          the location type is required from Android 14 for a service that
+          reads a position.
+        -->
+        <service
+            android:name=".LocationTrailService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -84,11 +96,12 @@
         a coarse fix still decides a 3 km zone, and `domain/geo.js` refuses to
         place it against a 200 m one instead of guessing.
 
-        ACCESS_BACKGROUND_LOCATION is NOT here, and its absence is the design.
-        It would need a foreground service, a persistent notification and a
-        Play policy declaration, and it would change what this application is:
-        something that watches a family rather than something a family opens.
-        docs/LOCATION.md says so, and nothing in the app claims otherwise.
+        ACCESS_BACKGROUND_LOCATION *is* now here, above, and the paragraph
+        that used to stand in this place said its absence was the design. That
+        changed on a deliberate decision, not by accident — everything that
+        asserted the opposite was rewritten in the same change rather than
+        left to contradict the manifest. docs/LOCATION.md carries what was
+        given up and what was gained.
     -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -128,6 +141,58 @@
         somebody opens the screen and asks.
     -->
     <uses-permission android:name="android.permission.READ_SMS" />
+
+    <!--
+      Background location, added deliberately and against the advice recorded
+      in the previous version of this file. It is what makes a safe zone mean
+      anything when the phone is in a pocket, which is the only state a person
+      actually cares about being told they crossed one in.
+
+      What it costs, written down rather than discovered:
+
+        * A foreground service with a notification the person cannot dismiss
+          while it runs. `LocationTrailService` provides one. Android requires
+          it and so does honesty — a phone recording positions should say so
+          on its own screen.
+        * On Android 10+ this is a SEPARATE grant from the foreground ones,
+          which the system will not show in the same prompt. The person has to
+          choose "Allow all the time" in system settings, and
+          `BackgroundLocationPlugin` sends them there rather than pretending a
+          runtime request can do it.
+        * A Play Store background-location declaration and a demonstration
+          video. This build already cannot go to Play because of READ_SMS, so
+          nothing new is foreclosed — but a build that dropped READ_SMS would
+          still need this.
+
+      OFF BY DEFAULT AND STAYS OFF until somebody turns it on. Nothing starts
+      the service at boot, nothing starts it on launch, and a test asserts
+      both. See docs/LOCATION.md.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!--
+      The foreground service's notification. On Android 13+ posting one needs
+      a runtime grant, so without this the service starts and is invisible —
+      which is the one thing a background recorder must never be.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      Screen time. PACKAGE_USAGE_STATS is a *special access* permission: it
+      cannot be requested at runtime and the system will not prompt for it.
+      A person has to grant it in Settings, and `ScreenTimePlugin` opens that
+      page rather than failing silently. `tools:ignore` because the linter
+      flags it as not-runtime-grantable, which is the point.
+
+      Gated by consent, not by the permission alone. Reading which
+      applications somebody used is a record *about that person*, so
+      `js/services/screentime.js` refuses unless `js/data/consent.js` holds a
+      decision for them. The grant is necessary and not sufficient.
+    -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <!--
         Same reasoning as GPS: a device or profile with no telephony still runs

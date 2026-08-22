@@ -23,6 +23,7 @@
 import { h, replace } from '../ui/dom.js';
 import { card, cardHeader, badge, listItem, chip, pageHeader, button } from '../ui/components/basics.js';
 import { listSection, recordDetail } from './crud.js';
+import { t } from '../core/locale.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { entitiesOfModule } from '../data/schema.js';
@@ -46,8 +47,8 @@ export async function render(route) {
   let section = null;
 
   const host = h('div', {}, [
-    pageHeader('Identity', {
-      subtitle: 'Who everyone is, and what each institution holds',
+    pageHeader(t('identity.title'), {
+      subtitle: t('identity.subtitle'),
       actions: [button('Add', {
         variant: 'primary', iconName: 'plus', onClick: () => section?.openForm(),
       })],
@@ -138,10 +139,7 @@ async function kycBanner() {
 function provenanceNote() {
   return card({ class: 'card--quiet kyc-provenance' }, [
     h('p', { class: 'small muted', style: { margin: 0 } },
-      'These are your own notes on what each institution holds, taken from '
-      + 'statements, portals and letters. Nothing here is fetched from the '
-      + 'Central KYC Records Registry, and nothing here is verified — only '
-      + 'compared.'),
+      t('identity.provenanceNote')),
   ]);
 }
 

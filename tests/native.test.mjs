@@ -271,17 +271,76 @@ describe('the location permissions', () => {
       + 'permission would get nothing at all');
   });
 
-  test('and does not ask for background location', async () => {
-    // The one that matters. Adding this line is a small edit and a different
-    // application: it needs a foreground service, a persistent notification
-    // and a Play policy declaration, and it turns something a family opens
-    // into something that watches them. docs/LOCATION.md, the Safety screen
-    // and js/core/position.js all state it is absent. This is what makes that
-    // true rather than merely written down.
+  /**
+   * Background location is now declared, on a deliberate decision.
+   *
+   * The check that stood here refused it, and said: "three documents and a
+   * screen say this application does not do that. Change them first, or
+   * remove the line." They were changed first. What replaces the refusal is
+   * not nothing — it is the set of properties that made the refusal
+   * arguable in the first place, each asserted separately.
+   */
+  test('background location is declared, with everything it drags in', async () => {
     const xml = await manifest();
-    assert.not(asks(xml, 'ACCESS_BACKGROUND_LOCATION'),
-      'background location was added — three documents and a screen say this '
-      + 'application does not do that. Change them first, or remove the line.');
+    assert.ok(asks(xml, 'ACCESS_BACKGROUND_LOCATION'));
+    assert.ok(asks(xml, 'FOREGROUND_SERVICE'),
+      'a background recorder without a foreground service is one Android kills');
+    assert.ok(asks(xml, 'FOREGROUND_SERVICE_LOCATION'),
+      'Android 14+ refuses a location foreground service without its type');
+    assert.ok(asks(xml, 'POST_NOTIFICATIONS'),
+      'without this the service runs and its notification never appears — a '
+      + 'phone recording a position and not saying so');
+  });
+
+  test('the service is declared, not exported, and typed as location', async () => {
+    const xml = await manifest();
+    assert.ok(/<service[^>]*android:name="\.LocationTrailService"/s.test(xml));
+    assert.ok(/android:name="\.LocationTrailService"[\s\S]{0,200}?android:exported="false"/.test(xml),
+      'nothing outside this application should be able to start it');
+    assert.ok(/android:name="\.LocationTrailService"[\s\S]{0,200}?android:foregroundServiceType="location"/.test(xml));
+  });
+
+  test('and nothing starts it by itself', async () => {
+    // The property that keeps this a thing a household switched on rather
+    // than a thing that happens to them. No boot receiver, and the service
+    // does not ask Android to restart it.
+    const xml = await manifest();
+    assert.not(/BOOT_COMPLETED/.test(xml),
+      'a boot receiver would start recording before anybody opened the app');
+    const service = await readFile(
+      join(ROOT, 'android/app/src/main/java/com/familyos/app/LocationTrailService.java'),
+      'utf8');
+    assert.ok(/START_NOT_STICKY/.test(service),
+      'START_STICKY would have Android restart the recorder unasked');
+    assert.not(/START_STICKY[^_]/.test(service));
+  });
+
+  test('the service never writes records itself', async () => {
+    // The reason it hands fixes to the WebView instead: the database is
+    // encrypted with a key the service does not have. A service that wrote
+    // would be a second, plaintext copy of a household's movements.
+    const service = await readFile(
+      join(ROOT, 'android/app/src/main/java/com/familyos/app/LocationTrailService.java'),
+      'utf8');
+    for (const forbidden of ['FileOutputStream', 'openFileOutput', 'SharedPreferences',
+      'SQLiteDatabase', 'getExternalFilesDir']) {
+      assert.not(new RegExp(forbidden).test(service),
+        `${forbidden} in the service means a second copy of the trail on disk`);
+    }
+  });
+
+  test('screen time is declared as the special access it is', async () => {
+    const xml = await manifest();
+    assert.ok(asks(xml, 'PACKAGE_USAGE_STATS'));
+    // It cannot be requested at runtime, so a plugin that tried would look
+    // to a caller like the person refused.
+    const plugin = await readFile(
+      join(ROOT, 'android/app/src/main/java/com/familyos/app/ScreenTimePlugin.java'),
+      'utf8');
+    assert.ok(/ACTION_USAGE_ACCESS_SETTINGS/.test(plugin),
+      'the only way to get this grant is to open the settings page');
+    assert.not(/requestPermissionForAliases|requestPermissions\(/.test(plugin),
+      'Android shows no prompt for PACKAGE_USAGE_STATS');
   });
 
   test('it asks to read SMS, because Phase 6 needs it', async () => {
@@ -361,13 +420,15 @@ setSuite('the two native projects agree');
 /**
  * Plugins this repository writes itself, which are not npm packages.
  *
- * `SmsInbox` is `android/app/.../SmsInboxPlugin.java`, registered by hand in
- * `MainActivity`. It is not in `capacitor.settings.gradle` because that file
- * lists npm plugins, and it has **no iOS counterpart because iOS has no
- * SMS inbox to read** — not an omission, a platform fact. Naming it here is
- * what lets the parity checks below be strict about everything else.
+ * All three are `android/app/.../*Plugin.java`, registered by hand in
+ * `MainActivity`, so none appears in `capacitor.settings.gradle` — that file
+ * lists npm plugins. None has an iOS counterpart, and in each case that is a
+ * platform fact rather than an omission: iOS has no SMS inbox to read, no
+ * usage-stats API of this kind, and its background-location model is
+ * different enough that a shared plugin would be a pretence. Naming them here
+ * is what lets the parity checks below stay strict about everything else.
  */
-const FIRST_PARTY = new Set(['SmsInbox']);
+const FIRST_PARTY = new Set(['SmsInbox', 'BackgroundLocation', 'ScreenTime']);
 
 /** Every plugin name the application asks for, read off the source. */
 async function pluginsCalled() {
@@ -395,7 +456,8 @@ describe('every plugin the app calls is wired into both platforms', () => {
     // Named so a new plugin arriving is a deliberate change to this line
     // rather than something the checks below silently absorb.
     assert.deep([...called].sort(),
-      ['App', 'Browser', 'Filesystem', 'Geolocation', 'Share', 'SmsInbox']);
+      ['App', 'BackgroundLocation', 'Browser', 'Filesystem', 'Geolocation',
+        'ScreenTime', 'Share', 'SmsInbox']);
   });
 
   test('and Android links every npm one of them', async () => {
@@ -425,12 +487,14 @@ describe('every plugin the app calls is wired into both platforms', () => {
     }
   });
 
-  test('and iOS is expected not to have it, because iOS has no SMS inbox', async () => {
+  test('and iOS is expected to have none of them', async () => {
     // Stated rather than skipped. A reader who finds SmsInbox missing from
     // the iOS project should find out here that it is a platform limit, not
     // the same drift that left Browser and Geolocation behind.
     const swift = await readFile(join(ROOT, 'ios', 'App', 'CapApp-SPM', 'Package.swift'), 'utf8');
-    assert.equal(/SmsInbox/i.test(swift), false);
+    for (const name of FIRST_PARTY) {
+      assert.equal(new RegExp(name, 'i').test(swift), false, `${name} on iOS`);
+    }
   });
 
   test('and the two platforms link the same set as each other', async () => {

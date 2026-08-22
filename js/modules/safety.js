@@ -24,6 +24,10 @@ import { app } from '../context.js';
 import { SafetyService } from '../services/safety.js';
 import { FRESHNESS } from '../domain/safety.js';
 import { t } from '../core/locale.js';
+import {
+  status as trailStatus, start as trailStart, stop as trailStop,
+  openSettings as trailSettings, requestForeground,
+} from '../core/backgroundlocation.js';
 
 export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity) return recordDetail(route.entity, route.id);
@@ -41,6 +45,7 @@ export async function render(route) {
     replace(host, [
       pageHeader(t('safety.title'), { subtitle: t('safety.subtitle') }),
       limitsCard(),
+      trailCard(await trailStatus(), paint),
       whereCard(everyone, safety, paint),
       crossingsCard(crossings),
       await listSection('safeZone', route),
@@ -49,6 +54,71 @@ export async function render(route) {
 
   await paint();
   return { node: host };
+}
+
+/**
+ * Recording where this phone is while nobody is looking.
+ *
+ * Drawn immediately under the card that says what the application will not
+ * do, because this is the thing that card used to promise. A person reading
+ * downwards meets the limit and the exception to it in that order.
+ *
+ * The switch shows what is actually granted rather than what was asked for.
+ * Android 11+ will not hand over background location from a prompt at all, so
+ * when that is what is missing this offers the settings page and says why —
+ * a button labelled "Allow" that silently cannot is worse than no button.
+ */
+function trailCard(state, repaint) {
+  if (!state.supported) return null;
+
+  const controls = [];
+  if (state.running) {
+    controls.push(button(t('safety.trail.stop'), {
+      variant: 'subtle',
+      onClick: async () => { await trailStop(); await repaint(); },
+    }));
+  } else if (state.canRun) {
+    controls.push(button(t('safety.trail.start'), {
+      variant: 'primary',
+      onClick: async () => {
+        const out = await trailStart();
+        if (!out.ok) toast(out.why);
+        await repaint();
+      },
+    }));
+  } else if (!state.foreground) {
+    controls.push(button(t('safety.where.readMine'), {
+      variant: 'primary',
+      onClick: async () => { await requestForeground(); await repaint(); },
+    }));
+  } else {
+    // The background grant, or notifications. Neither can be obtained from a
+    // prompt this application is allowed to raise.
+    controls.push(button(t('safety.trail.settings'), {
+      variant: 'primary',
+      onClick: async () => { await trailSettings(); },
+    }));
+  }
+
+  return card({ class: 'trail-card' }, [
+    cardHeader(t('safety.trail.title'),
+      badge(state.running ? 'on' : 'off', state.running ? 'warning' : 'muted'),
+      { iconName: 'alert' }),
+    h('p', { class: 'small' },
+      state.running ? t('safety.trail.on') : t('safety.trail.off')),
+    state.blocked ? h('p', { class: 'small muted' }, state.blocked) : null,
+    state.pending
+      ? h('p', { class: 'small muted' }, t('safety.trail.pending', { n: state.pending }))
+      : null,
+    h('div', { class: 'row' }, controls),
+    // Said on the screen, not only in a document. Somebody deciding whether
+    // to switch this on should know it has never run on a phone.
+    state.running
+      ? h('p', { class: 'small muted' }, t('safety.trail.warning'))
+      : null,
+    h('p', { class: 'small faint', style: { marginBottom: 0 } },
+      t('safety.trail.untested')),
+  ].filter(Boolean));
 }
 
 /**

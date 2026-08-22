@@ -29,13 +29,20 @@
  *
  * ## What this does not do, said plainly
  *
- * **It gates nothing today.** Nothing in this codebase refuses to act because
- * consent is unrecorded, and this module does not make it. That is a deliberate
- * limit rather than an oversight: a household already syncing has no record —
- * because there was nothing to record with — and a gate would silently stop
- * their backups on upgrade, which is a data-loss bug wearing a privacy
- * costume. What it does instead is make the gap *visible* and countable, so the
- * screen that asks can be built against something true.
+ * **It gates almost nothing, and the exception is marked.** For every purpose
+ * but one, an unrecorded decision stops nothing: a household already syncing
+ * has no record — because there was nothing to record with — and a gate would
+ * silently stop their backups on upgrade, which is a data-loss bug wearing a
+ * privacy costume. What it does instead is make the gap *visible* and
+ * countable, so the screen that asks can be built against something true.
+ *
+ * `screenTime` is the exception and carries `withoutStops: true`. That
+ * argument does not hold for it: screen time is not a record the household
+ * already has, it is a reading this application would go and take about a
+ * person from a device that hands it over without them noticing. There is
+ * nothing to lose by refusing. `js/services/screentime.js` enforces it, and
+ * makes no native call at all when the answer is no — a reading taken and
+ * then discarded is still a reading that happened.
  *
  * **It is per device.** Consent records live in the local meta store, which
  * does not sync. A second device has its own history and starts with none. That
@@ -48,6 +55,7 @@
 
 import { newId } from '../core/ids.js';
 import { SCOPES } from '../core/scopes.js';
+import { t } from '../core/locale.js';
 
 /** Where the log lives. One key, one array, appended to. */
 export const CONSENT_KEY = 'consent.records';
@@ -152,6 +160,38 @@ export const PURPOSES = Object.freeze({
     moment: 'When an adult records it on their behalf, from the child’s record.',
     without: 'You keep the records anyway. This only says an adult decided, '
       + 'and when.',
+  },
+
+  /**
+   * Screen time is the sharpest thing in this list.
+   *
+   * Wages and school records are things a household writes down about
+   * somebody. This is a household *watching* somebody — what applications
+   * they opened and for how long, collected by the phone whether or not they
+   * thought about it. It is the one purpose here where the answer "no" has to
+   * actually stop something, and it does: `js/services/screentime.js` refuses
+   * to read at all without a recorded decision, rather than reading and
+   * noting that nobody agreed.
+   *
+   * `withoutStops` marks that difference. Every other local purpose keeps the
+   * records either way and only records whether anybody was asked, which is
+   * honest for data a household already holds. It would not be honest here.
+   */
+  // The only purpose whose words route through the catalogue. The rest are
+  // written here and counted as unroutable by `tools/strings.mjs`; this one
+  // arrived after that ratchet existed, and a new purpose that raised the
+  // count would have been the application growing English no translator can
+  // reach. The others are a separate, larger job.
+  screenTime: {
+    title: t('consent.screenTime.title'),
+    what: t('consent.screenTime.what'),
+    processors: [],
+    scopes: [],
+    localOnly: true,
+    aboutAPerson: true,
+    withoutStops: true,
+    moment: t('consent.screenTime.moment'),
+    without: t('consent.screenTime.without'),
   },
 
   identity: {

@@ -51,6 +51,8 @@ const SHELL = [
   './js/core/money.js',
   './js/locale/en.js',
   './js/core/native.js',
+  './js/core/backgroundlocation.js',
+  './js/core/screentime.js',
   './js/core/smsinbox.js',
 
   './js/data/audit.js',
@@ -177,6 +179,7 @@ const SHELL = [
   './js/services/explain.js',
   './js/services/identity.js',
   './js/services/conflict.js',
+  './js/services/screentime.js',
   './js/services/finance.js',
   './js/services/cfo.js',
   './js/services/goals.js',
