@@ -187,11 +187,10 @@ export class RecordsService extends Service {
     return {
       held,
       // Named, because a list of what somebody may see is only half an answer
-      // to "what do you hold about me". `staffLeave` is the live example: the
-      // household holds it and the role cannot reach it.
-      // Derived: anything that points at a `staff` record, and so is about
-      // this person, but which the role cannot reach. `staffLeave` is the
-      // live example — the household holds it and the person cannot see it.
+      // to "what do you hold about me". Derived: anything that points at a
+      // `staff` record, and so is about this person, but which the role
+      // cannot reach. `staffLeave` is the live example — the household holds
+      // it and the person cannot see it.
       notShown: Object.values(entities)
         .filter((def) => !OWN_RECORD_ENTITIES.has(def.name)
           && (def.fields ?? []).some((f) => f.ref === 'staff'))

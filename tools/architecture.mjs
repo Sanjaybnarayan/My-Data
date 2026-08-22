@@ -76,7 +76,20 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const DOC = join(ROOT, 'docs', 'FAMILY_OS_MASTER_ARCHITECTURE.md');
+/**
+ * The documents whose table rows carry checkable claims.
+ *
+ * `PHASE_STATUS.md` joined after four of its twenty-seven rows were found
+ * stale in one afternoon — two claiming things were missing that had been
+ * built and tested, one describing a defect fixed four lines above it, and
+ * one carrying a number that had moved. A scorecard that overstates what is
+ * missing causes work to be planned that is already done, which is the exact
+ * failure the audit exists to prevent, arriving inside the audit.
+ */
+export const DOCS = [
+  join(ROOT, 'docs', 'FAMILY_OS_MASTER_ARCHITECTURE.md'),
+  join(ROOT, 'docs', 'PHASE_STATUS.md'),
+];
 const BUDGET_FILE = join(ROOT, 'tools', 'architecture-budget.json');
 
 /** Every `.js` file under a directory, recursively. */
@@ -105,32 +118,39 @@ export function probesIn(markdown) {
     // is prose, and treating it as a claim would make the document unwritable.
     if (!line.startsWith('|')) return;
     const cells = line.split('|').map((cell) => cell.trim());
-    const evidence = cells.at(-2) ?? '';
-    const match = /^`(file|export|absent|wired):(.+)`$/.exec(evidence);
-    if (!match) {
+
+    // Every cell, not one position. The architecture table puts its evidence
+    // second from the end; the phase scorecard has a Risk column after its
+    // gaps, so a fixed position found `Low` and reported a malformed probe on
+    // a row whose probe was fine. A rule that depends on a table's shape is a
+    // rule that breaks when a column is added — and it breaks *silently*,
+    // because a probe that is not found is a claim that cannot fail.
+    for (const cell of cells.slice(1, -1)) {
+      const match = /(?:^|·\s*)`(file|export|absent|wired):(.+)`$/.exec(cell);
+      if (match) {
+        out.push({
+          line: index + 1,
+          component: cells[1] ?? '',
+          state: (cells[2] ?? '').replace(/\*/g, '').trim(),
+          kind: match[1],
+          target: match[2],
+        });
+        continue;
+      }
       // A cell that *looks* like a probe and does not parse is the worst case:
       // it is silently not a claim, so the row can never fail. That is exactly
       // how `absent:grep:forecast|projection` sat in this document doing
       // nothing — a pipe inside a markdown table cell splits the cell.
-      if (/`?(file|export|absent|wired):/.test(line)) {
+      if (/`(file|export|absent|wired):/.test(cell)) {
         out.push({
           line: index + 1,
           component: cells[1] ?? '',
           state: (cells[2] ?? '').replace(/\*/g, '').trim(),
           kind: 'malformed',
-          target: evidence || line.trim(),
+          target: cell,
         });
       }
-      return;
     }
-
-    out.push({
-      line: index + 1,
-      component: cells[1] ?? '',
-      state: (cells[2] ?? '').replace(/\*/g, '').trim(),
-      kind: match[1],
-      target: match[2],
-    });
   });
 
   return out;
@@ -242,14 +262,17 @@ export function budgetProblem(count, budget) {
 
 function main() {
   const update = process.argv.includes('--update');
-  const markdown = readFileSync(DOC, 'utf8');
-  const probes = probesIn(markdown);
   const sources = sourceFiles();
 
   const failures = [];
-  for (const probe of probes) {
-    const problem = checkProbe(probe, { sources });
-    if (problem) failures.push(`  ${DOC.replace(`${ROOT}/`, '')}:${probe.line}  ${probe.component} ${problem}`);
+  let probes = [];
+  for (const doc of DOCS) {
+    const found = probesIn(readFileSync(doc, 'utf8'));
+    probes = probes.concat(found);
+    for (const probe of found) {
+      const problem = checkProbe(probe, { sources });
+      if (problem) failures.push(`  ${doc.replace(`${ROOT}/`, '')}:${probe.line}  ${probe.component} ${problem}`);
+    }
   }
 
   const { count, byFile } = uiDatabaseCalls();
