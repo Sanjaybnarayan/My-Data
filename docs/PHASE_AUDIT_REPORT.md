@@ -330,6 +330,16 @@ expense.** What fails is *precision*: the `sweep` pattern
 `FD BOOKING`, so a new fixed deposit reads as "Sent to people" rather than an
 asset allocation. Wrong label, safe number. **P2.**
 
+> **Closed after this report, and it was worse than "wrong label".** Measuring
+> found the deposit listed **in the people ledger** with
+> `counterpartyKind: 'person'` beside it, a field the CSV export dumps. The
+> cause was three tables in `categorise.js` each carrying their own pattern
+> for a deposit: for `FD BOOKING` the rail table recognised it and the
+> category table called it a person anyway, and every `sweep` was anchored to
+> the start of the narration so `AUTO SWEEP` matched none of the three. Eight
+> of twelve deposit narrations read as "Sent to people". One `DEPOSIT` pattern
+> now, read by all three. `docs/DEPOSITS.md`.
+
 **Case 3 in detail.** The transfer-pairing path is *correct* to decline: two
 amounts ₹500 apart may be two unrelated payments, and
 `js/domain/events.js` documents that unequal amounts never match automatically.

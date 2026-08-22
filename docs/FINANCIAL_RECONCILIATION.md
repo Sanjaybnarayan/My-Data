@@ -108,17 +108,27 @@ summary: expense=₹0  internal=₹50,000
 
 Funding a broker is never counted as spending.
 
-### Case 6 — bank → FD → `ASSET_ALLOCATION` · **PARTIAL**
+### Case 6 — bank → FD → `ASSET_ALLOCATION` · **PASS**
 
 ```
-"FD BOOKING HDFC DEPOSIT"  →  p2p-out   kind=transfer
+"FD BOOKING HDFC DEPOSIT"  →  sweep   kind=internal   isP2P=false
 ```
 
-**The invariant holds** — `transfer` is not `spending`, so an FD booking is
-never reported as an expense. What fails is precision: the `sweep` pattern
-(`categorise.js:336`) matches `^sweep|FD PREMAT|term deposit` but not
-`FD BOOKING`, so a new deposit reads as "Sent to people" instead of an asset
-allocation. **Wrong label, safe number. P2.**
+**The invariant held and still holds** — `internal` is not `spending`, so an
+FD booking was never reported as an expense and is not now.
+
+What failed was worse than the "wrong label" this document used to call it: a
+fixed deposit appeared **in the people ledger**, listed among those the
+household sends money to, with `counterpartyKind: 'person'` beside it in the
+CSV export. The cause was three tables each carrying their own pattern for the
+same concept, disagreeing — for `FD BOOKING` the rail table recognised the
+deposit while the category table called it a person. There is now one
+`DEPOSIT` pattern that all three read, and a test that fails if a fourth copy
+appears. `docs/DEPOSITS.md`.
+
+The direction split the specification's `ASSET_ALLOCATION` implies — booking
+and maturity as separate events — is deliberately **not** done, and
+`docs/DEPOSITS.md` says why.
 
 ## Ambiguity — checked because the specification demands it
 

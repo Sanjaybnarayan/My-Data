@@ -234,6 +234,7 @@ prose — see `docs/PROMPT_TESTS.md` and `docs/MULTI_LEG.md`.
 | Economic events, on a screen | **exists** | `wired:js/modules/finance.js#ExplainService` |
 | Rule 57 — every financial event explainable | **exists** | `export:js/domain/explain.js#explainEvent` |
 | Every disagreement about money, in one list | **exists** | `export:js/domain/conflict.js#conflicts` |
+| One pattern for a deposit, read by every table that needs it | **exists** | `export:js/domain/categorise.js#DEPOSIT` |
 | That list, on a screen a household can reach | **exists** | `wired:js/modules/finance.js#ConflictService` |
 | A conflict that picks the right figure | missing, deliberately | `absent:grep:preferredFigure` |
 | A record screen can carry an answer its fields cannot | **exists** | `wired:js/modules/crud.js#options.extra` |

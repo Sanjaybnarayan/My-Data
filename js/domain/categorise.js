@@ -88,13 +88,55 @@ export const CATEGORIES = [
   // largest consumer. What it actually is — capital in, drawings out — needs
   // both directions netted, which is what `businessLedger` is for.
   { key: 'business-outlay', label: 'Into your business', kind: 'internal' },
-  { key: 'sweep', label: 'Sweep to and from deposits', kind: 'internal' },
+  { key: 'sweep', label: 'To and from your own deposits', kind: 'internal' },
 ];
 
 const BY_KEY = new Map(CATEGORIES.map((category) => [category.key, category]));
 
 export const categoryLabel = (key) => BY_KEY.get(key)?.label ?? key;
 export const categoryKind = (key) => BY_KEY.get(key)?.kind ?? 'spending';
+
+/**
+ * Money moving into or out of one of the household's own deposits.
+ *
+ * **One pattern, because there used to be three and they disagreed.** A
+ * deposit is a concept three separate tables in this file needed to recognise
+ * — the rail it travelled on, who the counterparty was, and what category it
+ * belongs in — and each carried its own version:
+ *
+ *     CHANNELS      /^sweep|sweep transfer|FD PREMAT|^FD [A-Z]/i
+ *     COUNTERPARTY  /^sweep|^fd (premat|proceeds)/i
+ *     RULES         /^sweep|FD PREMAT|term deposit/i
+ *
+ * So `FD BOOKING HDFC DEPOSIT` matched the first and neither of the others:
+ * the application knew it had travelled on the deposit rail and called it a
+ * **person** anyway. `AUTO SWEEP DEPOSIT` matched none of the three, because
+ * every `sweep` was anchored to the start of the narration. The result was a
+ * fixed deposit listed in the people ledger as somebody the household sends
+ * money to, and `counterpartyKind: 'person'` written out to CSV beside it.
+ *
+ * The number was never wrong — `p2p-out` is `transfer` and `summarise` counts
+ * only `spending`, so a deposit was never reported as an expense. What was
+ * wrong is everything a person actually reads.
+ *
+ * ## What it deliberately does not match
+ *
+ * `CASH DEPOSIT` and `SECURITY DEPOSIT` are not deposits in this sense: one
+ * is money paid in at a machine and the other is money a landlord is holding.
+ * Neither is the household's own savings moving to its own deposit, and
+ * matching the bare word `deposit` would have swept up both.
+ *
+ * `\bRD\b` on its own is not used either. Indian addresses abbreviate *road*
+ * that way, so `MG RD BRANCH` would have become a recurring deposit — which
+ * is why every short form here requires the word that follows it.
+ */
+export const DEPOSIT =
+  // A fixed or term deposit, however the bank shortens it; then a recurring
+  // deposit; then a sweep, which is the bank moving the household's own
+  // balance in or out of a deposit without being asked each time. Every short
+  // form requires the word that follows it, which is what keeps `MG RD` a
+  // road and `TD WATERHOUSE` a consultancy.
+  /\bFD\s*(?:booking|premat|proceeds|closure|renewal|maturity|instal|a\/?c\b|no\b)|^FD\s+\d|fixed deposit|term deposit|\bTD\s*(?:booking|renewal|closure|proceeds|maturity)|recurring deposit|\bRD\s*(?:instal|instl|deposit|credit|debit|a\/?c\b)|^sweep\b|\bauto ?sweep\b|\bsweep (?:transfer|in|out|to|from|cr|dr)\b/i;
 
 /* ----------------------------------------------------------------- rails */
 
@@ -103,7 +145,7 @@ export const categoryKind = (key) => BY_KEY.get(key)?.kind ?? 'spending';
  * most of these; the rest are the prefixes it uses without explaining them.
  */
 const CHANNELS = [
-  { key: 'sweep', match: /^sweep|sweep transfer|FD PREMAT|^FD [A-Z]/i },
+  { key: 'sweep', match: DEPOSIT },
   { key: 'interest', match: /^int\.?\s?pd|interest credit/i },
   { key: 'charge', match: /^(chrg|rem[- ]|rem chrgs|charges)|:.*charges for/i },
   { key: 'upi', match: /^upi[/:]|^erupee\//i },
@@ -165,7 +207,10 @@ const PARTIES = [
   { match: /^(?:chrg|rem)[-:\s]+(.*?)(?:\s+on\s+\d|\s+for\s|\s+TBMS|$)/i, take: 1 },
   // Sweeps and interest name a deposit account number, which is noise in a
   // report; what matters is that it was the same household's own money.
-  { match: /^sweep|^fd (premat|proceeds)/i, take: 0, literal: 'Fixed deposit' },
+  // `Your own deposit` rather than `Fixed deposit`: the same pattern now
+  // recognises recurring deposits, and calling one of those fixed would be a
+  // new wrong label in place of the old one.
+  { match: DEPOSIT, take: 0, literal: 'Your own deposit' },
   { match: /^int\.?\s?pd/i, take: 0, literal: 'Savings interest' },
   { match: /^cc%20payment|^cc payment/i, take: 0, literal: 'Credit card' },
   { match: /^upi_cradj/i, take: 0, literal: 'UPI credit adjustment' },
@@ -333,7 +378,7 @@ export function counterpartyKey(name) {
 export const RULES = [
   // Internal first: money moving between your own pockets is not spending, and
   // mistaking it for spending is what makes an analysis report double.
-  { key: 'sweep', out: 'sweep', in: 'sweep', match: /^sweep|FD PREMAT|term deposit/i },
+  { key: 'sweep', out: 'sweep', in: 'sweep', match: DEPOSIT },
   { key: 'interest', out: 'charges', in: 'interest', match: /^int\.?\s?pd|interest (credit|paid)/i },
   { key: 'reversal', out: 'other-spend', in: 'refund', match: /^rev\b|reversal|refund|cashback|^dis\b|upi_cradj|chq rtn|cheque return|transfer inward/i },
   { key: 'charges', out: 'charges', in: 'refund', match: /^(chrg|charges|rem[-\s]|rem chrgs)|annual fee|ecs (return|mandate)|sms charges|bal alerts|dcc fee|chq issue/i },
