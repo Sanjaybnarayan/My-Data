@@ -341,3 +341,153 @@ describe('the location permissions', () => {
       '@capacitor/geolocation is what asks Android for the permission');
   });
 });
+
+setSuite('the two native projects agree');
+
+/**
+ * Three lists of Capacitor plugins that have to say the same thing.
+ *
+ * The JavaScript asks for a plugin by name. Android wires its list in
+ * `capacitor.settings.gradle`. iOS wires its own in the generated
+ * `Package.swift`. All three are written by different tools at different
+ * times, and nothing compared them — so iOS sat **two plugins behind**
+ * Android: `Browser`, which OAuth sign-in opens, and `Geolocation`, which
+ * every safe zone depends on.
+ *
+ * The failure is silent by construction. `plugin('Geolocation')` returns
+ * undefined on a platform that never linked it, `position.js` falls back to
+ * the WebView, and the feature looks unpermitted rather than unbuilt.
+ */
+/**
+ * Plugins this repository writes itself, which are not npm packages.
+ *
+ * `SmsInbox` is `android/app/.../SmsInboxPlugin.java`, registered by hand in
+ * `MainActivity`. It is not in `capacitor.settings.gradle` because that file
+ * lists npm plugins, and it has **no iOS counterpart because iOS has no
+ * SMS inbox to read** — not an omission, a platform fact. Naming it here is
+ * what lets the parity checks below be strict about everything else.
+ */
+const FIRST_PARTY = new Set(['SmsInbox']);
+
+/** Every plugin name the application asks for, read off the source. */
+async function pluginsCalled() {
+  const names = new Set();
+  const walk = async (dir) => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) { await walk(full); continue; }
+      if (!entry.name.endsWith('.js')) continue;
+      const text = await readFile(full, 'utf8');
+      for (const [, name] of text.matchAll(/\bplugin\??\.?\(\s*'([A-Z][A-Za-z]*)'\s*\)/g)) {
+        names.add(name);
+      }
+    }
+  };
+  await walk(join(ROOT, 'js'));
+  return names;
+}
+
+describe('every plugin the app calls is wired into both platforms', () => {
+  const fromNpm = async () => [...await pluginsCalled()].filter((n) => !FIRST_PARTY.has(n));
+
+  test('the JavaScript asks for a known set', async () => {
+    const called = await pluginsCalled();
+    // Named so a new plugin arriving is a deliberate change to this line
+    // rather than something the checks below silently absorb.
+    assert.deep([...called].sort(),
+      ['App', 'Browser', 'Filesystem', 'Geolocation', 'Share', 'SmsInbox']);
+  });
+
+  test('and Android links every npm one of them', async () => {
+    const gradle = await readFile(join(ROOT, 'android', 'capacitor.settings.gradle'), 'utf8');
+    for (const name of await fromNpm()) {
+      assert.ok(gradle.includes(`@capacitor/${name.toLowerCase()}/android`),
+        `${name} is called by the app and not linked into Android`);
+    }
+  });
+
+  test('and iOS links every npm one of them', async () => {
+    // The check that was missing. iOS had App, Filesystem and Share; the app
+    // also calls Browser and Geolocation, and had done since Phase 15.
+    const swift = await readFile(join(ROOT, 'ios', 'App', 'CapApp-SPM', 'Package.swift'), 'utf8');
+    for (const name of await fromNpm()) {
+      assert.ok(swift.includes(`Capacitor${name}`),
+        `${name} is called by the app and not linked into iOS`);
+    }
+  });
+
+  test('the first-party plugin is registered by hand, since no package lists it', async () => {
+    const main = await readFile(
+      join(ROOT, 'android/app/src/main/java/com/familyos/app/MainActivity.java'), 'utf8');
+    for (const name of FIRST_PARTY) {
+      assert.ok(main.includes(`registerPlugin(${name}Plugin.class)`),
+        `${name} is called by the app and registered nowhere`);
+    }
+  });
+
+  test('and iOS is expected not to have it, because iOS has no SMS inbox', async () => {
+    // Stated rather than skipped. A reader who finds SmsInbox missing from
+    // the iOS project should find out here that it is a platform limit, not
+    // the same drift that left Browser and Geolocation behind.
+    const swift = await readFile(join(ROOT, 'ios', 'App', 'CapApp-SPM', 'Package.swift'), 'utf8');
+    assert.equal(/SmsInbox/i.test(swift), false);
+  });
+
+  test('and the two platforms link the same set as each other', async () => {
+    // Read off both files rather than compared to a third list here, so this
+    // cannot pass because somebody updated the test.
+    const gradle = await readFile(join(ROOT, 'android', 'capacitor.settings.gradle'), 'utf8');
+    const swift = await readFile(join(ROOT, 'ios', 'App', 'CapApp-SPM', 'Package.swift'), 'utf8');
+    const onAndroid = [...gradle.matchAll(/@capacitor\/([a-z]+)\/android/g)].map((m) => m[1]).sort();
+    const onIos = [...swift.matchAll(/\.package\(name: "Capacitor([A-Za-z]+)"/g)]
+      .map((m) => m[1].toLowerCase()).sort();
+    assert.deep(onIos, onAndroid);
+  });
+
+  test('both native projects are actually present', async () => {
+    // The first version of this asserted the keys of a constant declared four
+    // lines above it, which is a check that cannot fail. This reads the disk.
+    for (const [path, what] of [
+      ['android/app/build.gradle', 'the Android module'],
+      ['ios/App/App.xcodeproj/project.pbxproj', 'the Xcode project'],
+      ['ios/App/CapApp-SPM/Package.swift', "iOS's plugin package"],
+    ]) {
+      const text = await readFile(join(ROOT, path), 'utf8').catch(() => null);
+      assert.ok(text, `${what} is missing (${path})`);
+    }
+  });
+});
+
+describe('what iOS has to declare before it may ask for a location', () => {
+  const plist = () => readFile(join(ROOT, 'ios', 'App', 'App', 'Info.plist'), 'utf8');
+
+  test('a usage description exists, or iOS terminates the app', async () => {
+    // Not a warning and not a denied prompt: iOS kills the process on a
+    // location request with no `NSLocationWhenInUseUsageDescription`. Both
+    // paths need it — the Geolocation plugin and the WebView fallback in
+    // `js/core/position.js`.
+    const xml = await plist();
+    assert.ok(/<key>NSLocationWhenInUseUsageDescription<\/key>/.test(xml),
+      'iOS will terminate the app the first time it asks for a position');
+  });
+
+  test('and it says the position is never read in the background', async () => {
+    const xml = await plist();
+    const value = /<key>NSLocationWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/
+      .exec(xml)?.[1] ?? '';
+    assert.ok(/background/i.test(value),
+      'the string a person reads should say what the app will not do');
+    assert.ok(value.length > 60, 'a usage description is read by a person, not a linter');
+  });
+
+  test('and the always-on variant is absent, like ACCESS_BACKGROUND_LOCATION', async () => {
+    // The iOS half of a rule the Android manifest already keeps, enforced
+    // there by its own test: FamilyOS reads a position only while somebody
+    // has the app open and asks it to. Declaring the always key would be
+    // asking for a capability the application does not have.
+    const xml = await plist();
+    assert.equal(/<key>NSLocationAlwaysAndWhenInUseUsageDescription<\/key>/.test(xml), false,
+      'background location is deliberately not built, so it must not be requested');
+    assert.equal(/<key>NSLocationAlwaysUsageDescription<\/key>/.test(xml), false);
+  });
+});

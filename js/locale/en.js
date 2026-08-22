@@ -190,6 +190,10 @@ export const strings = {
   'conflict.more': '{n} more, not listed here.',
   'conflict.nothingDecided': 'Nothing on this screen has been decided. Every figure is still recorded as whatever stated it, and this list disappears when the record that is wrong is corrected \u2014 there is nothing here to tick off.',
 
+  // A tab that does not exist. Reachable by editing the address bar, so it
+  // is a sentence a person can actually see.
+  'finance.unknownSection': 'Unknown section',
+
   // The language picker itself.
   'locale.title': 'Language',
   'locale.english': 'English',

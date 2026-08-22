@@ -1,0 +1,106 @@
+name: ios
+
+# Compile the iOS app.
+#
+# This exists for the same reason `android.yml` does, one platform later. The
+# machine the integration was written on runs Linux, so Xcode cannot run on it
+# and **"the iOS project compiles" was a claim nobody was entitled to make** —
+# `docs/PHASE_STATUS.md` has carried Phase 24 as BLOCKED / "Never compiled"
+# since the audit, which was the honest thing to write and is now testable.
+#
+# A GitHub macOS runner can make it. This is the first place the iOS build is
+# actually exercised.
+#
+# ## What this does not produce
+#
+# **No installable app.** A build for a device has to be signed with an Apple
+# developer identity, and this repository holds no certificate and no
+# provisioning profile — it should not. So this builds for the **simulator**,
+# with signing switched off. That is enough to answer the question the audit
+# asked (does it compile, do the plugins link, does the app bundle) and is not
+# enough to put on a phone. Anyone who needs that needs an Apple Developer
+# account and their own signing material.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Printed before anything depends on it, for the same reason the Android
+      # job prints its toolchain: a build that fails on a missing SDK should
+      # say so here rather than a hundred lines into xcodebuild.
+      - name: Show the toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun simctl list runtimes | head -20
+
+      - run: npm ci --no-audit --no-fund
+
+      # The production web root, not `npm run build` — the same distinction the
+      # Android job makes, and for the same reason.
+      - name: Assemble the web root
+        run: node tools/webroot.mjs
+
+      - name: Sync the iOS project
+        run: npx cap sync ios
+
+      # The web assets are copied into the native project rather than
+      # committed, so a broken sync shows up here as a missing index.html
+      # rather than as a blank screen on somebody's phone.
+      - name: Check the app was actually copied in
+        run: |
+          test -f ios/App/App/public/index.html
+          echo "$(find ios/App/App/public -type f | wc -l) files bundled"
+
+      # Every plugin the JavaScript asks for by name has to be in the generated
+      # package, or `plugin('Geolocation')` is undefined at runtime and the
+      # failure is silent. This is the check that would have caught the iOS
+      # project sitting three plugins behind Android.
+      - name: Check every plugin the app calls is linked in
+        run: |
+          for name in App Browser Filesystem Geolocation Share; do
+            grep -q "Capacitor$name" ios/App/CapApp-SPM/Package.swift \
+              || { echo "::error::Capacitor$name is missing from Package.swift"; exit 1; }
+          done
+          echo "all five plugins present"
+
+      # Simulator, unsigned. See the note at the top: no certificate lives in
+      # this repository and none should.
+      - name: Build for the simulator
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Say what came out
+        run: |
+          find build/ios/Build/Products -maxdepth 2 -name '*.app' -print
+          du -sh build/ios/Build/Products/*/*.app || true

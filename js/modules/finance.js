@@ -179,7 +179,7 @@ export async function render(route) {
 
   const known = entitiesOfModule('finance').some((e) => e.name === active);
   if (!known) {
-    replace(body, empty({ title: 'Unknown section', iconName: 'info' }));
+    replace(body, empty({ title: t('finance.unknownSection'), iconName: 'info' }));
     return { node: host };
   }
 
