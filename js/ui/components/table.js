@@ -18,6 +18,8 @@ import { formatDay } from '../../core/dates.js';
 import { sortBy } from '../../data/repository.js';
 import { config } from '../../core/config.js';
 import { maskable, mask, classify } from '../../data/classification.js';
+import { t, noun } from '../../core/locale.js';
+import { entityLabel, fieldLabel } from '../../core/labels.js';
 
 const ROW_HEIGHT = 49;
 const OVERSCAN = 6;
@@ -109,7 +111,7 @@ export function entityTable(entityName, rows, options = {}) {
     onKeydown: (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSort(field.key); }
     },
-  }, field.label))));
+  }, fieldLabel(def.name, field)))));
 
   const body = h('tbody');
   const table = h('table', { class: 'table table--responsive' }, [head, body]);
@@ -147,7 +149,7 @@ export function entityTable(entityName, rows, options = {}) {
       dataset: { id: record.id, ...(onOpen ? { clickable: 'true' } : {}) },
       ...(onOpen ? { tabindex: '0', role: 'button' } : {}),
     }, fields.map((field) => h('td', {
-      'data-label': field.label,
+      'data-label': fieldLabel(def.name, field),
       class: field.type === 'currency' || field.type === 'number' ? 'cell--numeric' : '',
     }, cellFor(field, record, { currency }))));
   }
@@ -157,7 +159,7 @@ export function entityTable(entityName, rows, options = {}) {
 
     if (!sorted.length) {
       replace(host, empty({
-        title: `No ${def.labels.many.toLowerCase()} yet`,
+        title: t('record.emptyTitle', { many: noun(entityLabel(def, 'many')) }),
         message: emptyAction ? null : 'Nothing has been recorded here.',
         iconName: def.icon,
         action: emptyAction,
@@ -257,8 +259,8 @@ export function filterBar(entityName, { onChange, extra } = {}) {
   const search = h('input', {
     class: 'input',
     type: 'search',
-    placeholder: `Search ${def.labels.many.toLowerCase()}`,
-    'aria-label': `Search ${def.labels.many}`,
+    placeholder: t('record.search', { many: noun(entityLabel(def, 'many')) }),
+    'aria-label': t('record.search', { many: entityLabel(def, 'many') }),
     onInput: (e) => {
       state.text = e.target.value.trim().toLowerCase();
       onChange(makeFilter());
@@ -268,14 +270,14 @@ export function filterBar(entityName, { onChange, extra } = {}) {
   const chips = enumFields.map((field) => h('div', { class: 'chip-row' }, [
     h('select', {
       class: 'select',
-      'aria-label': field.label,
+      'aria-label': fieldLabel(def.name, field),
       style: { width: 'auto', minWidth: '9rem' },
       onChange: (e) => {
         state[field.key] = e.target.value;
         onChange(makeFilter());
       },
     }, [
-      h('option', { value: '' }, `All ${field.label.toLowerCase()}`),
+      h('option', { value: '' }, t('record.allOf', { many: noun(fieldLabel(def.name, field)) })),
       ...field.options.map((o) => h('option', { value: o }, o)),
     ]),
   ]));

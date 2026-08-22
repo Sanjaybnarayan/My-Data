@@ -43,9 +43,12 @@ const SHELL = [
   './js/core/bus.js',
   './js/core/config.js',
   './js/core/dates.js',
+  './js/core/labels.js',
+  './js/core/locale.js',
   './js/core/errors.js',
   './js/core/ids.js',
   './js/core/money.js',
+  './js/locale/en.js',
   './js/core/native.js',
 
   './js/data/audit.js',

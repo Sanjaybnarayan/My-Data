@@ -788,6 +788,29 @@ async function main() {
       check('and offers to keep it on this device',
         (await page.getByRole('button', { name: 'Keep everything local' }).count()) === 1);
 
+      // The language card. It exists to say one true thing — that there is
+      // only English — and a card that silently failed to render would say
+      // nothing at all, which reads exactly like a card that was never built.
+      // This session has already had `card()` called wrong take a whole screen
+      // down, so the card is checked by its text rather than by its absence
+      // of an error.
+      check('Settings names the language, and says English is the only one',
+        /Language/.test(body) && /English only/.test(body), body.slice(0, 1200));
+      check('and does not offer a picker with one entry in it',
+        (await page.getByRole('button', { name: /^English/ }).count()) === 0);
+
+      // The layer is wired to the boot sequence, not merely present. `dir` is
+      // the half that proves it: index.html already carries a static
+      // `lang="en"`, so that attribute would survive `start()` being deleted
+      // and asserting on it alone would prove nothing. Removing the boot call
+      // leaves `dir=null`, which is what this actually catches — and it means
+      // the stored preference would go unread on the day a second catalogue
+      // arrives.
+      check('the document declares its language and direction',
+        (await page.locator('html').getAttribute('lang')) === 'en'
+        && (await page.locator('html').getAttribute('dir')) === 'ltr',
+        `lang=${await page.locator('html').getAttribute('lang')} dir=${await page.locator('html').getAttribute('dir')}`);
+
       // The sentence that stops somebody assuming more than is true. If this
       // ever stops being shown, the application is overclaiming.
       check('it says plainly that not every field is encrypted',

@@ -24,11 +24,21 @@ honest half: the line between what is built and what is not.
 | **Backend** | Apps Script, loaded into Node and tested against literal stubs: admission, the member list, the cache, the request contract |
 | **Reports** | CSV, XLSX and PDF writers, all hand-rolled and dependency-free |
 | **Delivery** | PWA with a service worker and offline shell; a single-file build (`npm run build`) for handing the whole application to somebody |
-| **Tests** | 1,808 checks with no browser and nothing installed; 283 more in a real Chromium. Both in CI. These two are the only figures in this table that `tools/self-description.mjs` cannot guard, so they are the two most likely to go stale — see `docs/SELF_DESCRIPTION.md` |
+| **Tests** | 2,084 checks with no browser and nothing installed; 328 more in a real Chromium. Both in CI. These two are the only figures in this table that `tools/self-description.mjs` cannot guard, so they are the two most likely to go stale — see `docs/SELF_DESCRIPTION.md` |
 
 ## Deliberately not built
 
 Stated plainly so nothing is mistaken for finished.
+
+**One language, and a door for a second.** There is a locale layer, the schema
+labels and the dates go through it, and `tools/strings.mjs` measures what does
+not: 3,270<!--live:unroutedStrings--> English strings across 136<!--live:unroutedFiles--> files, a
+count that may only fall. What there is not is a second catalogue, because
+machine-translating Indian financial and legal vocabulary would produce
+confident false statements about a household's money that the household cannot
+check. A language below complete coverage cannot present itself as complete,
+and a translation that drops a `{amount}` is refused rather than shown.
+`docs/LOCALISATION.md` measures it.
 
 **No language model.** The assistant is a deterministic intent parser over
 local records. It answers the questions it recognises, shows the rows behind

@@ -13,6 +13,8 @@
  * Everything below that takes or returns a day works on the local calendar.
  */
 
+import { t } from './locale.js';
+
 const DAY_MS = 86_400_000;
 
 export function nowIso(clock = Date.now) {
@@ -208,15 +210,20 @@ export function withinRange(day, { from, to }) {
   return isDay(day) && day >= from && day <= to;
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/** `2025-03-09` → `9 Mar 2025`. Empty string for anything unparseable. */
+/**
+ * `2025-03-09` → `9 Mar 2025`. Empty string for anything unparseable.
+ *
+ * The order of day, month and year is in the catalogue rather than here, so a
+ * language that writes the year first can say so without this function
+ * knowing which language it is.
+ */
 export function formatDay(day, { withYear = true } = {}) {
   const d = fromDay(day);
   if (!d) return '';
-  const base = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
-  return withYear ? `${base} ${d.getFullYear()}` : base;
+  const month = t(`month.${d.getMonth() + 1}`);
+  return withYear
+    ? t('date.dayWithYear', { d: d.getDate(), month, year: d.getFullYear() })
+    : t('date.day', { d: d.getDate(), month });
 }
 
 export function formatInstant(iso) {
@@ -224,15 +231,21 @@ export function formatInstant(iso) {
   if (Number.isNaN(d.getTime())) return '';
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${formatDay(toDay(d))}, ${hh}:${mm}`;
+  return t('date.instant', { day: formatDay(toDay(d)), hh, mm });
 }
 
-/** "in 12 days", "3 days ago", "today". */
+/**
+ * "in 12 days", "3 days ago", "today".
+ *
+ * One and many are separate keys rather than a conditional `s`. English is one
+ * of the few languages where that rule holds, and a plural built by appending
+ * a letter cannot be translated into any of the others.
+ */
 export function relativeDays(day, clock = Date.now) {
   const n = daysUntil(day, clock);
   if (!Number.isFinite(n)) return '';
-  if (n === 0) return 'today';
-  if (n === 1) return 'tomorrow';
-  if (n === -1) return 'yesterday';
-  return n > 0 ? `in ${n} days` : `${-n} days ago`;
+  if (n === 0) return t('date.today');
+  if (n === 1) return t('date.tomorrow');
+  if (n === -1) return t('date.yesterday');
+  return n > 0 ? t('date.inDays', { n }) : t('date.daysAgo', { n: -n });
 }

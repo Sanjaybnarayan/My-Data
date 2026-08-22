@@ -21,6 +21,8 @@ import { toMinor, toMajor, format } from '../../core/money.js';
 import { today } from '../../core/dates.js';
 import { generatePassword, passwordStrength } from '../../security/crypto.js';
 import { userMessage, ValidationError } from '../../core/errors.js';
+import { t, noun } from '../../core/locale.js';
+import { entityLabel, fieldLabel } from '../../core/labels.js';
 
 /**
  * @param {string} entityName
@@ -33,7 +35,7 @@ export async function entityForm(entityName, options) {
   const def = entity(entityName);
   const {
     record = null, db, currency = 'INR', onSubmit, onCancel,
-    submitLabel = record ? 'Save changes' : `Add ${def.labels.one.toLowerCase()}`,
+    submitLabel = record ? t('record.save') : t('record.add', { one: noun(entityLabel(def)) }),
     hide = [], preset = {},
   } = options;
 
@@ -92,7 +94,7 @@ export async function entityForm(entityName, options) {
       hidden: !isShown(field),
     }, [
       field.type === 'boolean' ? null : h('label', { class: 'field-label', for: id }, [
-        field.label,
+        fieldLabel(def.name, field),
         field.required ? h('span', { class: 'required', 'aria-hidden': 'true' }, '*') : null,
       ]),
       control,
@@ -147,7 +149,7 @@ export async function entityForm(entityName, options) {
             checked: Boolean(values[field.key]),
             onChange: (e) => set(field.key, e.target.checked),
           }),
-          h('span', {}, field.label),
+          h('span', {}, fieldLabel(def.name, field)),
         ]);
 
       case 'enum':
@@ -266,7 +268,7 @@ export async function entityForm(entityName, options) {
 
   function checkboxSet(field, items) {
     const selected = new Set(values[field.key] ?? []);
-    return h('div', { class: 'chip-row', role: 'group', 'aria-label': field.label },
+    return h('div', { class: 'chip-row', role: 'group', 'aria-label': fieldLabel(def.name, field) },
       items.map((item) => {
         const input = h('input', {
           type: 'checkbox',

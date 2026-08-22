@@ -21,6 +21,7 @@ import {
 import { Database } from './data/database.js';
 import { setContext } from './context.js';
 import { applyTheme, storedTheme, watchSystemTheme } from './ui/theme.js';
+import { start as startLocale } from './core/locale.js';
 import { buildShell } from './ui/shell.js';
 import { lockScreen, recoveryKitScreen } from './auth/lock.js';
 import { Session, AttemptLimiter } from './security/session.js';
@@ -42,6 +43,11 @@ const root = () => document.getElementById('app');
 export async function boot() {
   applyTheme(storedTheme());
   watchSystemTheme();
+  // Reads the stored language and puts `lang` and `dir` on the root element.
+  // With one catalogue this only ever selects English — but a mechanism that
+  // is not wired up is a mechanism nobody finds out is broken until the day it
+  // is supposed to matter.
+  startLocale();
   mountToasts();
 
   await loadConfig();

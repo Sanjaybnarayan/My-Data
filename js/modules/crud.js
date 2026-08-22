@@ -34,6 +34,8 @@ import { isEncrypted } from '../security/crypto.js';
 import { maskable, mask, classify } from '../data/classification.js';
 import { formatInstant } from '../core/dates.js';
 import { describe as describeAudit } from '../data/audit.js';
+import { t, noun } from '../core/locale.js';
+import { entityLabel, fieldLabel, moduleLabel } from '../core/labels.js';
 
 /**
  * @param {{module: string, entity?: string, id?: string}} route
@@ -67,7 +69,7 @@ async function moduleScreen(moduleDef, entities, entityName, route) {
 
   const tabs = entities.length > 1
     ? h('div', { class: 'chip-row', role: 'tablist', style: { marginBottom: 'var(--space-4)' } },
-      entities.map((e) => chip(e.labels.many, {
+      entities.map((e) => chip(entityLabel(e, 'many'), {
         pressed: e.name === entityName,
         onClick: () => app().router.navigate({ module: moduleDef.id, entity: e.name }),
       })))
@@ -76,10 +78,10 @@ async function moduleScreen(moduleDef, entities, entityName, route) {
   const writable = can(db.actor, 'write', entityName);
 
   const node = h('div', {}, [
-    pageHeader(moduleDef.label, {
-      subtitle: def.labels.many,
+    pageHeader(moduleLabel(moduleDef), {
+      subtitle: entityLabel(def, 'many'),
       actions: writable
-        ? [button(`Add ${def.labels.one.toLowerCase()}`, {
+        ? [button(t('record.add', { one: noun(entityLabel(def)) }), {
           variant: 'primary', iconName: 'plus', onClick: () => section.openForm(),
         })]
         : null,
@@ -126,7 +128,7 @@ export async function listSection(entityName, {
     }),
     currency: app().currency,
     emptyAction: can(db.actor, 'write', entityName)
-      ? button(`Add the first ${def.labels.one.toLowerCase()}`, {
+      ? button(t('record.addFirst', { one: noun(entityLabel(def)) }), {
         variant: 'primary', iconName: 'plus', onClick: () => openForm(),
       })
       : null,
@@ -161,14 +163,16 @@ export async function listSection(entityName, {
         if (record) await db.repo(entityName).update(record.id, values);
         else await db.repo(entityName).create(values);
         close();
-        toast(record ? 'Saved' : `${def.labels.one} added`, { kind: 'success' });
+        toast(record ? t('record.saved') : t('record.added', { One: entityLabel(def) }), { kind: 'success' });
         await load();
       },
       onCancel: () => close(),
     });
 
     const { close } = modal({
-      title: record ? `Edit ${def.labels.one.toLowerCase()}` : `New ${def.labels.one.toLowerCase()}`,
+      title: record
+        ? t('record.editTitle', { one: noun(entityLabel(def)) })
+        : t('record.newTitle', { one: noun(entityLabel(def)) }),
       body: form.node,
       wide: def.fields.length > 12,
     });
@@ -248,7 +252,7 @@ export async function recordDetail(entityName, id, options = {}) {
       onCancel: () => close(),
     });
     const { close } = modal({
-      title: `Edit ${def.labels.one.toLowerCase()}`,
+      title: t('record.editTitle', { one: noun(entityLabel(def)) }),
       body: form.node,
       wide: def.fields.length > 12,
     });
@@ -266,7 +270,7 @@ export async function recordDetail(entityName, id, options = {}) {
     const records = new RecordsService(db);
     const impact = await records.impactOfDeleting(entityName, id);
     const ok = await confirm({
-      title: `Delete this ${def.labels.one.toLowerCase()}?`,
+      title: t('record.deleteTitle', { one: noun(entityLabel(def)) }),
       message: `${impact.total ? `${records.describeImpact(impact)} ` : ''}`
         + 'It can be restored from Settings → Deleted items.',
       confirmLabel: 'Delete',
@@ -279,7 +283,7 @@ export async function recordDetail(entityName, id, options = {}) {
       if (options.onDelete) detail = (await options.onDelete(id)) || '';
       else await db.repo(entityName).remove(id);
 
-      toast(detail || `${def.labels.one} deleted`, {
+      toast(detail || t('record.deleted', { One: entityLabel(def) }), {
         action: {
           label: 'Undo',
           onClick: async () => {
@@ -305,7 +309,7 @@ export async function recordDetail(entityName, id, options = {}) {
   }
 
   replace(host, [
-    pageHeader(String(def.title(record) ?? def.labels.one), {
+    pageHeader(String(def.title(record) ?? entityLabel(def)), {
       subtitle: String(def.subtitle(record) ?? ''),
       actions: [
         button('Back', {
@@ -331,7 +335,7 @@ export async function recordDetail(entityName, id, options = {}) {
       cardHeader(groupName),
       h('dl', { class: 'stack stack--tight', style: { margin: 0 } },
         fields.map((field) => h('div', { class: 'row row--between' }, [
-          h('dt', { class: 'small muted' }, field.label),
+          h('dt', { class: 'small muted' }, fieldLabel(def.name, field)),
           h('dd', { style: { margin: 0, textAlign: 'right' } }, detailValue(field, record, labels)),
         ]))),
     ]))),
