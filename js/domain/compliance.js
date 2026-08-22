@@ -101,8 +101,32 @@ export const REGIMES = Object.freeze([
         'Local and Drive copies are removed; the household Sheet is a backup '
         + 'this application does not prune on erasure.'),
       control('breach-notice', 'Notify the Board and affected people of a breach',
-        STATUS.NOT_STARTED, {},
-        'There is no breach-detection or notification path at all.'),
+        STATUS.DESIGNED,
+        { file: 'js/domain/breach.js', test: 'tests/breach.test.mjs' },
+        // DESIGNED, and deliberately not higher. The control asks for two
+        // things and only one of them is software's job.
+        //
+        // **Detection is not built and will not be.** No application can tell
+        // that a copy of a household's records was taken — a stolen phone, a
+        // shared Drive link, a photograph of a screen produce no event here.
+        // What exists reports *indicators* that already existed, each saying
+        // what it does not mean, and says in as many words that finding none
+        // is not evidence that nothing happened.
+        //
+        // **Notifying the Board is refused outright**, on the screen and in
+        // the module: a filing generated from a household's guess would be
+        // worse than none.
+        //
+        // What is genuinely done is the affected-people half — who would have
+        // to be told, which this application knows because it holds the
+        // records, and which now includes people whose data is not the
+        // household's own.
+        'Not detection, and it does not claim to be. Indicators that already '
+        + 'existed — an audit log that does not add up, a signed-out device '
+        + 'that synced since, a burst of exports, a run of refusals — are '
+        + 'gathered with what each does *not* mean. Who would have to be told '
+        + 'is answered, including staff and children. Detecting a breach and '
+        + 'notifying a regulator are both absent, and both say so.'),
       control('children', 'Verifiable parental consent for a child under 18',
         STATUS.IMPLEMENTED,
         { file: 'js/data/consent.js', test: 'tests/consent.test.mjs' },
