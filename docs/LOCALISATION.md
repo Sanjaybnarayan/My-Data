@@ -46,7 +46,7 @@ with strings the application will never show. A refused line counts as zero.
 
 ## What still cannot be translated
 
-**3,391<!--live:unroutedStrings--> English strings, across 144<!--live:unroutedFiles--> files.** That is the measured count from
+**3,402<!--live:unroutedStrings--> English strings, across 145<!--live:unroutedFiles--> files.** That is the measured count from
 `node tools/strings.mjs`, and it is the number that matters. They are written
 directly into the source, so no catalogue can reach them and no translator will
 ever see them.
@@ -66,7 +66,7 @@ something a translator is told about rather than something they discover.
 ## Why no second language ships
 
 Not because the mechanism is not ready. Because nobody has translated anything,
-and machine-translating 3,391<!--live:unroutedStrings--> strings of Indian financial and legal vocabulary
+and machine-translating 3,402<!--live:unroutedStrings--> strings of Indian financial and legal vocabulary
 would have produced something worse than English.
 
 The application says things like *a credit-card settlement is not an expense*,

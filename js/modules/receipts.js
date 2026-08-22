@@ -47,6 +47,10 @@ import { toast } from '../ui/components/toast.js';
 import { confirm } from '../ui/components/modal.js';
 import { app } from '../context.js';
 import { MERCHANTS, searchQuery, customMerchant } from '../domain/merchants.js';
+import {
+  HEALTH_KEY, CONNECTOR_STATUS, afterScan, describe as describeConnector,
+} from '../domain/connector.js';
+import { record as recordDiagnostic, KIND } from '../data/diagnostics.js';
 import { planScan, enrich, byMerchant, subscriptions, reconcile } from '../domain/inbox.js';
 import {
   BACKEND, readMailbox, googleMailbox, scriptMailbox,
@@ -111,6 +115,16 @@ export async function render() {
   const links = new Map();
   /** One sign-in per mailbox, kept so a scan does not re-authorise per run. */
   const auths = new Map();
+
+  /**
+   * Whether each mailbox is still working.
+   *
+   * Kept beside the mailboxes rather than inside them: `readMailbox` rebuilds
+   * a stored entry from a fixed shape and deliberately drops anything it does
+   * not recognise, so health living inside one would be thrown away on the
+   * next read.
+   */
+  let health = await db.meta(HEALTH_KEY, {});
 
   let receipts = await db.repo('receipt').list({ limit: 20_000 });
   let transactions = [];
@@ -199,6 +213,9 @@ export async function render() {
     let added = 0;
 
     for (const mailbox of mailboxes) {
+      /** What this mailbox's scan threw, or null. One variable, one outcome. */
+      let failure = null;
+
       try {
         const run = {
           mailbox, searched: 0, recognised: 0, added: 0, passes: 0, truncated: false,
@@ -254,9 +271,28 @@ export async function render() {
 
         runs.push(run);
       } catch (err) {
+        failure = err;
         runs.push({ mailbox, error: userMessage(err) });
+
+        // Recorded, so a mailbox that has been failing for a fortnight is
+        // tellable from one that failed this morning. Until this existed the
+        // toast was the whole record and it did not survive a reload.
+        await recordDiagnostic(db.adapter, {
+          kind: KIND.connector,
+          where: 'gmail.scan',
+          code: err?.status != null ? `http-${err.status}` : (err?.code ?? ''),
+          message: err?.message ?? '',
+        });
       }
+
+      // One call, both outcomes. A scan that finished clears whatever was
+      // wrong with this mailbox because it is no longer wrong; one that did
+      // not records why. Per mailbox, not per run — one account's revoked
+      // grant says nothing about another's.
+      health = afterScan(health, mailbox.id, failure);
     }
+
+    await db.setMeta(HEALTH_KEY, health);
 
     receipts = await db.repo('receipt').list({ limit: 20_000 });
     lastScan = { runs, added, query };
@@ -633,16 +669,30 @@ export async function render() {
       }),
 
       mailboxes.length
-        ? h('div', {}, mailboxes.map((mailbox) => listItem({
-          title: mailbox.label,
-          subtitle: [
-            ROUTE[mailbox.kind],
-            `${counts.get(mailbox.id) ?? 0} receipts`,
-          ].filter(Boolean).join(' · '),
-          leading: badge(mailbox.kind === 'google' ? 'signed in' : 'deployment',
-            mailbox.kind === 'google' ? 'success' : 'info'),
-          trailing: button('Remove', { onClick: () => forgetMailbox(mailbox) }),
-        })))
+        ? h('div', {}, mailboxes.map((mailbox) => {
+          // What Google will actually let this mailbox do, rather than what it
+          // was set up to do. A revoked grant used to look exactly like a
+          // mailbox nobody had scanned yet, which is why no receipts arriving
+          // was impossible to explain.
+          const state = describeConnector(health[mailbox.id]);
+          const broken = state.status === CONNECTOR_STATUS.EXPIRED
+            || state.status === CONNECTOR_STATUS.ERROR;
+
+          return listItem({
+            title: mailbox.label,
+            subtitle: [
+              ROUTE[mailbox.kind],
+              `${counts.get(mailbox.id) ?? 0} receipts`,
+              broken ? state.why : null,
+            ].filter(Boolean).join(' · '),
+            leading: broken
+              ? badge(state.status === CONNECTOR_STATUS.EXPIRED
+                ? 'needs signing in again' : 'not working', 'warning')
+              : badge(mailbox.kind === 'google' ? 'signed in' : 'deployment',
+                mailbox.kind === 'google' ? 'success' : 'info'),
+            trailing: button('Remove', { onClick: () => forgetMailbox(mailbox) }),
+          });
+        }))
         : h('p', { class: 'muted' },
           'Press “Add a Gmail account” and choose the account your receipts arrive '
           + 'at. Add as many as you have — food and shopping at one address, bills '

@@ -732,6 +732,62 @@ async function main() {
         /from:zomato\.com/i.test(body) && /-in:trash/.test(body), body.slice(0, 400));
       check('it says plainly that account linking is not on offer',
         /do not offer one|will not hold those passwords/i.test(body));
+
+      // Connector health, driven through the real screen. A mailbox whose
+      // grant Google has withdrawn used to look exactly like one nobody had
+      // scanned yet — which is why "no receipts have appeared this month" was
+      // impossible for a household to explain.
+      //
+      // Attaching a google mailbox with nothing signed in produces exactly
+      // that failure: `getToken` returns nothing and the client raises a 401.
+      {
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          await app().db.setMeta('inbox.mailboxes',
+            [{ kind: 'google', email: 'nobody@example.com', label: 'Test mailbox' }]);
+        }, IN_PAGE.context);
+
+        await go(page, '#/finance');
+        await go(page, '#/finance/shops');
+        await page.waitForTimeout(400);
+
+        const fresh = (await page.locator('.app-content').innerText()).trim();
+        check('a mailbox nobody has scanned is not reported as broken',
+          !/needs signing in again/.test(fresh), fresh.slice(0, 400));
+
+        await page.getByRole('button', { name: /Scan mail/ }).click();
+        await page.waitForTimeout(1200);
+
+        const after = (await page.locator('.app-content').innerText()).trim();
+        check('a mailbox whose grant is gone says so on the screen',
+          /needs signing in again/.test(after), after.slice(0, 800));
+        check('and says what to do rather than only that it failed',
+          /no longer letting FamilyOS read this mailbox/.test(after), after.slice(0, 800));
+
+        // And it survives the screen closing, which is the whole point: the
+        // toast did not.
+        const stored = await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          const health = await app().db.meta('connector.health', {});
+          const diagnostics = await app().db.adapter.query('diagnostics', {});
+          return {
+            status: health['gm_nobody@example.com']?.status ?? null,
+            connectorEvents: diagnostics.filter((d) => d.kind === 'connector').length,
+          };
+        }, IN_PAGE.context);
+
+        check('the failure is remembered rather than living in a toast',
+          stored.status === 401, JSON.stringify(stored));
+        check('and it is recorded in diagnostics too',
+          stored.connectorEvents >= 1, JSON.stringify(stored));
+
+        // Leave the screen as it was for anything after this.
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          await app().db.setMeta('inbox.mailboxes', []);
+          await app().db.setMeta('connector.health', {});
+        }, IN_PAGE.context);
+      }
       check('the shops screen loads without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 

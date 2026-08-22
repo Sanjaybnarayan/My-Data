@@ -39,6 +39,7 @@ be an API.
 | Provenance | Yes — `js/data/provenance.js`, source links preserved |
 | Audit | Yes — `audit` action, and the `audit` store travels into the archive |
 | Error handling | Typed `TransportError` with status and retryability; zero silent catches |
+| **Connector state** | `js/domain/connector.js` — per mailbox, persisted, `EXPIRED` told apart from `ERROR`, shown on the screen with what to do |
 
 ## The SMS position
 
@@ -53,8 +54,13 @@ Rule 53 is honoured structurally: the security classification runs **first and
 independently**, and a message classified `AUTHENTICATION_SECRET` never reaches
 extraction, never reaches a notification, and carries no text forward.
 
-The Android manifest requests **`INTERNET` and nothing else** — no `READ_SMS`,
-no `RECEIVE_SMS`. There is no native capture path, and none is implied.
+That paragraph described the position until Phase 6, and is corrected here
+rather than left standing. The Android manifest now requests **`READ_SMS`**,
+and `js/core/smsinbox.js` reads the inbox on the companion build. It does
+**not** request `RECEIVE_SMS` or `SEND_SMS`, and `tests/native.test.mjs` fails
+if either is ever added — nothing wakes on an arriving message. `READ_SMS` is
+a Play restricted permission, so that build is for sideloading;
+`docs/SMS_INTELLIGENCE.md` sets out the policy check and its limits.
 
 ## What a household can actually connect today
 

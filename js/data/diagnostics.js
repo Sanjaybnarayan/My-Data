@@ -62,6 +62,15 @@ export const KIND = Object.freeze({
   refusal: 'refusal',
   /** A sync attempt that did not complete. */
   sync: 'sync',
+  /**
+   * A connector — Gmail, Drive, Calendar — that could not be read.
+   *
+   * Its own kind rather than folded into `sync`, because they fail for
+   * different reasons and are fixed by different people. A failing sync is
+   * usually the backend; a failing connector is usually an authorisation the
+   * household has to renew, and the summary groups by kind.
+   */
+  connector: 'connector',
   /** The device is running out of room. */
   storage: 'storage',
 });

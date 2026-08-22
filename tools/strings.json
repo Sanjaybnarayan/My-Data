@@ -1,7 +1,7 @@
 {
   "note": "Unrouted English strings — see tools/strings.mjs. This number may only fall.",
-  "unrouted": 3391,
-  "files": 144,
+  "unrouted": 3402,
+  "files": 145,
   "byFile": {
     "js/ai/assistant.js": 4,
     "js/ai/intents.js": 75,
@@ -51,6 +51,7 @@
     "js/domain/commitments.js": 18,
     "js/domain/compliance.js": 193,
     "js/domain/connections.js": 4,
+    "js/domain/connector.js": 9,
     "js/domain/costbasis.js": 8,
     "js/domain/docxtemplate.js": 7,
     "js/domain/estate.js": 20,
@@ -104,7 +105,7 @@
     "js/modules/imports.js": 53,
     "js/modules/investments.js": 40,
     "js/modules/ledgers.js": 58,
-    "js/modules/receipts.js": 151,
+    "js/modules/receipts.js": 153,
     "js/modules/reports.js": 44,
     "js/modules/safety.js": 1,
     "js/modules/settings.js": 356,
