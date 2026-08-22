@@ -626,27 +626,39 @@ async function main() {
         // with no ledger row on the same card, and a month of wages short of
         // what was agreed on a staff member's record — three shapes, two
         // screens, and no way to ask "what does not add up".
+        //
+        // What a browser can reach here is the empty state, and only that:
+        // this fixture never imports a statement, so the two alerts above are
+        // linked to nothing and there is no disagreement for the screen to
+        // list. The populated screen is driven in `tests/services.test.mjs`
+        // against a real database, where a statement row, an alert naming a
+        // different figure and a month of wages paid short all exist.
+        //
+        // The empty state is worth checking on its own account. It is the
+        // sentence most likely to overclaim — "all clear" is what an
+        // application says here — and the one this screen must not say.
         {
-          check('the banner points at one screen rather than restating part of it',
-            /Records that disagree/i.test(list), list.slice(0, 1500));
+          check('the banner stays quiet when nothing disagrees',
+            !/Records that disagree/i.test(list), list.slice(0, 1500));
 
           await go(page, '#/finance/conflicts');
           await page.waitForTimeout(1200);
           const seen = (await page.locator('.app-content').innerText()).trim();
 
-          check('the disagreement is listed with both figures named',
-            /50,000/.test(seen) && /50,500/.test(seen), seen.slice(0, 900));
-          check('and each figure is named beside the thing that stated it',
-            /bank-statement/.test(seen) && /sms/.test(seen), seen.slice(0, 900));
-
-          // The one thing this screen must never do. A list that quietly
-          // preferred the higher-ranked source would undo, in one place, the
-          // refusal every module feeding it makes.
-          check('and nothing on it says which figure to believe',
-            !/is the right|should be|trust the|we recommend|verified|confirmed/i.test(seen),
+          check('Disagreements is reachable from the Finance tabs',
+            /Disagreements/.test(seen), seen.slice(0, 400));
+          check('and says nothing disagrees rather than that everything is fine',
+            /Nothing disagrees/i.test(seen)
+              && !/all clear|all good|everything (is )?(fine|checks out)/i.test(seen),
             seen.slice(0, 900));
-          check('and it says outright that nothing has been decided',
-            /Nothing on this screen has been decided/i.test(seen), seen.slice(-900));
+
+          // The claim the empty state must make, and the reason this screen
+          // exists at all: records agreeing with each other is not somebody
+          // having checked that any of them is true.
+          check('and says agreement between records is not verification',
+            /not a person having checked/i.test(seen), seen.slice(0, 900));
+          check('and never says a figure has been verified or confirmed',
+            !/verified|confirmed|is the right|trust the/i.test(seen), seen.slice(0, 900));
           check('and there is no form offering to record a disagreement',
             (await page.getByRole('button', { name: /^Add$/ }).count()) === 0,
             seen.slice(0, 300));

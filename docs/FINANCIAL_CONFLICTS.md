@@ -119,6 +119,22 @@ Two tests were weak in the same way and were fixed rather than left:
 
 Fourteen mutations, all caught.
 
+## What the browser can and cannot check
+
+The browser fixture never imports a statement, so the two alerts pasted
+through the real box are linked to nothing and there is no disagreement for
+the screen to list. Rather than fabricate one through a form that cannot set
+the hidden `reference` field a bank match needs, the browser checks the
+**empty state** and the populated screen is driven in `tests/services.test.mjs`
+against a real database.
+
+The empty state is worth checking on its own account: it is the sentence most
+likely to overclaim. *All clear* is what an application says here, and this
+one must not. Three checks assert it says *nothing disagrees*, that it says
+agreement between records is not a person having checked any of them, and
+that the words *verified* and *confirmed* appear nowhere. Rewriting the copy
+to say `All clear` and `and that has been verified` fails all three.
+
 ## What it still does not do
 
 It does not reconcile. It does not rank. It cannot tell a household which of
