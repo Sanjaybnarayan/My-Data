@@ -67,10 +67,12 @@ It now has a child push their own health record, which their role alone may not
 write and only the person id can permit. **The test matters more than the fix**:
 without it the same class of defect returns.
 
-## P3 · A scratch file is committed
+## P3 · A scratch file is committed · **fixed**
 
 `mask-check.tmp.mjs`, 2,647 bytes at the repository root, tracked since
-`0aeb46a`. No functional risk.
+`0aeb46a`. No functional risk. Deleted, after confirming `tests/browser.mjs`
+already makes every check it made — the same document, the same number, the
+list, the record and the reveal.
 
 ## P3 · Dev-only advisories
 

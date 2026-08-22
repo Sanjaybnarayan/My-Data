@@ -78,7 +78,19 @@ describe('what the documents say about restoring', () => {
     // the two to agree in both directions.
     const service = await readFile(join(ROOT, 'js/services/archive.js'), 'utf8')
       .catch(() => '');
-    const settings = await readFile(join(ROOT, 'js/modules/settings.js'), 'utf8');
+    // Every settings file, not one path. The first version read
+    // `js/modules/settings.js` alone, and splitting that file moved the
+    // Restore button into `js/modules/settings/data.js` — at which point the
+    // guard reported no restore existed and demanded the document say so.
+    // A check that a file move can flip is a check about file layout, and
+    // this one is meant to be about whether a restore exists.
+    const settingsDir = join(ROOT, 'js/modules/settings');
+    const cardFiles = await readdir(settingsDir).catch(() => []);
+    const settings = (await Promise.all([
+      readFile(join(ROOT, 'js/modules/settings.js'), 'utf8'),
+      ...cardFiles.filter((f) => f.endsWith('.js'))
+        .map((f) => readFile(join(settingsDir, f), 'utf8')),
+    ])).join('\n');
     const portability = await readFile(join(ROOT, 'docs/PORTABILITY.md'), 'utf8');
 
     const canRestore = /async restore\s*\(/.test(service)

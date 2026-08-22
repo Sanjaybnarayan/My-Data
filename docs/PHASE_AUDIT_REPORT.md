@@ -262,10 +262,18 @@ only.*
 standard, and correctly used — **but it has not been independently reviewed, and
 this audit does not constitute one.**
 
-### 8.3 · P3 — a temporary file was committed
+### 8.3 · P3 — a temporary file was committed · **fixed**
 
-`mask-check.tmp.mjs` sits at the repository root and is tracked, committed in
-`0aeb46a`. It is 2,647 bytes of scratch verification. Harmless, untidy.
+`mask-check.tmp.mjs` sat at the repository root, tracked since `0aeb46a`:
+2,647 bytes of scratch verification. Harmless, untidy.
+
+Deleted, after checking what it verified was not lost with it. It drove a
+browser through PIN setup, created an `identityDocument` with number
+`Z1234567`, and asserted the number was masked in the list, masked on the
+record, and revealed on request. `tests/browser.mjs` runs every one of those
+checks against the same document and the same number — so the file was
+redundant, not load-bearing, and that was established before deleting rather
+than assumed.
 
 ---
 
@@ -491,7 +499,7 @@ card-based, profile-centric):
 | `css/tokens.css` | **KEEP** — the token layer the target design needs |
 | Profile screen | **BUILD_NEW** — no per-person profile page with completion % exists |
 | Entity cards (identity/vehicle/insurance as Wallet-style cards) | **BUILD_NEW** |
-| `js/modules/settings.js` (1,597 lines) | **REFACTOR** — the largest module; a god component |
+| `js/modules/settings.js` (110 lines) | **DONE** — the cards moved to `js/modules/settings/`; `tools/module-size.mjs` holds it there |
 | `js/data/schema.js` (1,852 lines) | **REFINE** — large but it is a declarative table, not logic |
 
 **Can the existing UI evolve toward the target?** **Yes.** The token layer,
@@ -601,41 +609,71 @@ Full per-regime table: `docs/COMPLIANCE_READINESS.md`.
 
 ## 23. Critical risks
 
+This register was itself a source of drift. Five of its twelve entries went on
+describing fixed problems, and one described a problem that had grown by 297
+lines while listed here — a risk register nobody re-measures is the same fault
+as an architecture document nobody checks. Each row now says which it is, and
+`tools/module-size.mjs` exists because item 8 proved that writing a number in
+prose does not hold it.
+
 **P0**
 
-1. **Server-side authorization receives no role (§8.1).** Sync push and pull are
-   non-functional for every user. Confirmed by experiment.
+1. ~~**Server-side authorization receives no role (§8.1).**~~ **Fixed** in
+   `76b946f`. The caller's identity now reaches the server.
 
-**P1**
+**P1** — all three are open, and none of them is code this repository can write.
 
 2. **No relational backend.** The spec's Phase 1 is unbuilt in the form it
-   describes. Everything downstream inherits this.
+   describes. Everything downstream inherits this. **A hosting decision, not a
+   coding task** — it is waiting on the owner.
 3. **iOS never compiled.** Unknown unknowns until a macOS build runs.
 4. **Sheets as a sync target enforces no financial constraints.** Integrity is
-   entirely application-side.
+   entirely application-side. Same decision as 2.
 
 **P2**
 
-5. Credit-card settlement is explained but the headline figure is uncorrected (§10).
-6. `FD BOOKING` misclassifies as `p2p-out` — wrong label, safe number (§10).
-7. No unified `FINANCIAL_DATA_CONFLICT` record joining the pairing and evidence paths.
-8. `js/modules/settings.js` is 1,597 lines — a god component.
-9. No observability of any kind.
+5. Credit-card settlement is explained but the headline figure is uncorrected
+   (§10). **Open, and deliberate** — `docs/CARD_BILLS.md` argues a total that
+   quietly shrank because a second file was imported would be worse than the
+   double count. Recorded as a divergence from a literal reading of the spec,
+   not as a defect to fix.
+6. ~~`FD BOOKING` misclassifies as `p2p-out`.~~ **Fixed.** It was worse than
+   the label: the deposit was listed in the people ledger as somebody money
+   had been sent to. `docs/DEPOSITS.md`.
+7. ~~No unified `FINANCIAL_DATA_CONFLICT` record.~~ **Fixed** — and it joined
+   four findings rather than the two named here, plus a fifth nothing had ever
+   detected. `docs/FINANCIAL_CONFLICTS.md`.
+8. ~~`js/modules/settings.js` is 1,597 lines — a god component.~~ **Fixed**,
+   at 1,894 lines — it grew 297 while listed here, because nothing measured
+   it. Now an assembly of ~110 lines over seven card files, with
+   `tools/module-size.mjs` refusing any crowded file the room to grow again.
+9. ~~No observability of any kind.~~ **Fixed** — `js/data/diagnostics.js`
+   keeps a bounded, redacted, local-only record of failures and refusals, and
+   Settings shows it. It is not per-phase instrumentation and `PHASE_STATUS.md`
+   declines to score it as such.
 
 **P3**
 
-10. `mask-check.tmp.mjs` committed at the repository root.
-11. 3 moderate dev-only advisories under `@capacitor/cli`.
-12. 165 type findings held at budget — a ratchet, not a defect, but it is debt.
+10. ~~`mask-check.tmp.mjs` committed at the repository root.~~ **Fixed** —
+    deleted after confirming `tests/browser.mjs` makes every check it made.
+11. 3 moderate dev-only advisories under `@capacitor/cli`. **Open**, and never
+    shipped to a browser or a device.
+12. ~~165 type findings held at budget.~~ Still debt, but the ratchet has only
+    tightened: **160**, from 169 → 167 → 165 → 161 → 160.
 
 ---
 
 ## 24. Technical debt
 
-- 165 typecheck findings (budgeted, only ever lowered: 169 → 167 → 165).
-- 82 schema fields stored and never read by name (inventoried, deliberate).
-- 22 fields no export carries at any setting, 3 of them references.
-- `settings.js` 1,597 lines; `schema.js` 1,852 lines.
+- 160 typecheck findings (budgeted, only ever lowered: 169 → 167 → 165 → 161
+  → 160).
+- 83 schema fields stored and never read by name (inventoried, deliberate).
+- 24 fields no export carries at any setting, 3 of them references.
+- `schema.js` 2,099 lines. `settings.js` is now 110 — the cards moved to
+  `js/modules/settings/`, and `tools/module-size.mjs` records every file over
+  800 lines and refuses to let any of them grow. `schema.js` is frozen at its
+  size rather than excused: it is fifty-three entity declarations, which is
+  what a schema looks like, and it should not get bigger either.
 - 3,282 English strings unreachable by any translation catalogue (measured on
   the PR #99 branch; not present on `main`).
 

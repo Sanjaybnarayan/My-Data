@@ -42,7 +42,7 @@ information architecture, card-based entities, profile-centric layouts.
 | Modal / toast | `js/ui/components/modal.js`, `toast.js` | **KEEP** |
 | Token layer | `css/tokens.css` | **KEEP** — exactly the foundation the target needs |
 | Icons | `js/ui/icons.js` | **KEEP** — inline SVG paths, no asset dependency |
-| Settings | `js/modules/settings.js` (1,597 lines) | **REFACTOR** — a god component; split by concern |
+| Settings | `js/modules/settings.js` (110 lines) + 7 files in `js/modules/settings/` | **DONE** — split by concern; it had grown to 1,894 first, because nothing measured it |
 | Per-person profile | — | **BUILD_NEW** |
 | Wallet-style entity cards (identity, vehicle, insurance, document) | — | **BUILD_NEW** |
 | Family-member switcher | — | **BUILD_NEW** |
