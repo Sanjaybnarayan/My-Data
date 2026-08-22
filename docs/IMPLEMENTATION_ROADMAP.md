@@ -1,7 +1,14 @@
 # Implementation Roadmap
 
 Sequenced against the master prompt's phases, adjusted for what this
-repository already has. **Nothing past Phase 0 is authorised to start.**
+repository already has.
+
+> **Status note, 22 August 2026.** The line that used to sit here — *"nothing
+> past Phase 0 is authorised to start"* — was written when this file was, and
+> has been false for some time: phases 2, 3, 5, 7, 9, 10, 12, 13, 16, 17, 18,
+> 19, 20, 21, 22 and 23 have since been built. The measured position is in
+> `docs/PHASE_STATUS.md`, and the recommended next phase — **Phase 1, repair the
+> server tier** — is in `docs/PHASE_AUDIT_REPORT.md` §30.
 
 ## Gate — answered
 

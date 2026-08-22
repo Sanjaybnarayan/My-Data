@@ -1,5 +1,12 @@
 # Phase 0 — Repository Audit
 
+> **Superseded for current status.** This document is the Phase 0 audit of
+> commit `68b9b65`, 13 August 2026, and is kept as the historical record. For
+> the repository's status today see **`docs/PHASE_AUDIT_REPORT.md`** (base
+> `1c8d97d`, 22 August 2026) and **`docs/PHASE_STATUS.md`** for the scorecard.
+> The governing finding below — that this repository has no server in the sense
+> the specification means — still holds.
+
 Audit only. No features were built, no functionality removed, no data migrated.
 
 Commit audited: `68b9b65` (main), plus open PR #18.
