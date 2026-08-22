@@ -41,6 +41,15 @@ export async function platformAuthenticatorAvailable() {
  *
  * @returns {Promise<{credentialId: string, rawKey: Uint8Array|null, prf: boolean}>}
  */
+/**
+ * Enrol this device's biometric.
+ *
+ * `displayName` is optional and defaults to `userName` below — declared here
+ * because a bare destructure reads as three required fields to the checker,
+ * and every call site that sensibly omitted it was reported as an error.
+ *
+ * @param {{userId: string, userName: string, displayName?: string}} who
+ */
 export async function enrolBiometric({ userId, userName, displayName }) {
   if (!webAuthnAvailable()) {
     throw new AppError('This browser has no biometric support.', { code: 'no-webauthn' });
