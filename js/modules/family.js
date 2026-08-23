@@ -99,7 +99,15 @@ export async function render(route) {
  * employs has their papers filed against them like anybody else, and the
  * staff record is where a person looks for them.
  */
-async function staffDocuments(id) {
+async function staffDocuments(record) {
+  // The record, not its id. `recordDetail` calls `extra(record)` and this took
+  // the argument as an id from the day it was written, so `repo('staff').get`
+  // was handed a whole object: IndexedDB refused it as "not a valid key", the
+  // route threw, and clicking a staff member left you on the screen you were
+  // already looking at. Pay, their copy and their documents have never drawn.
+  const id = record?.id;
+  if (!id) return null;
+
   const service = new RecordsService(app().db);
   const { documents, person } = await service.documentsForStaff(id);
   if (!person) return null;

@@ -139,3 +139,89 @@ honest — they are navigation, not tabs over one panel — but it means the
 5. Add your control's selector to the touch block at the end of
    `css/components.css`, then let `tests/browser.mjs` confirm the size rather
    than assuming it.
+
+## UI-7: the screen that had never opened, and the sweep that found it
+
+### A staff member's record has never rendered
+
+`recordDetail` calls `options.extra(record)`. `staffDocuments` took that
+argument as an **id** from the day it was written, so `repo('staff').get()` was
+handed a whole object. IndexedDB refused it — *the parameter is not a valid
+key* — the route threw, and clicking a staff member left you looking at
+whatever screen you were already on.
+
+Three cards had therefore never drawn: the pay reconciliation against what was
+agreed, what that person can be shown about themselves, and the documents filed
+against them. `extra(record)` arrived in #76 and `staffDocuments(id)` in #81,
+so the contract was wrong from the first commit that used it.
+
+Nothing walked there. The module sweep opens `#/family`, and the index renders
+perfectly well.
+
+### Why four hundred passing checks pointed nowhere near it
+
+The only symptom that reached the console was `transaction aborted` — no store,
+no key, no stack past `idb.js`.
+
+`IdbAdapter.tx` aborts the transaction deliberately when the function inside it
+throws, then rethrows the real error. But the abort rejects the transaction's
+`done` promise, and on that path nobody awaits it. The unhandled rejection is
+what surfaced; the informative error did not. Claiming the rejection before
+aborting makes the real message the only one reported, which is how
+`DataError: The parameter is not a valid key` finally became visible.
+
+A second, smaller fault in the same call: `documentsForStaff` returned the
+person's **id** where the screen read `.name` and `.id` off it. The card was
+headed *"What they can be shown"* for everybody, and asked what was held about
+`undefined`. It now returns the person record.
+
+### Are identifiers masked? Three attempts at a check that can fail
+
+The brief requires Aadhaar, PAN, bank account, CKYC and card numbers masked by
+default, and forbids sensitive values in a URL or the page title. Three
+existing checks covered one entity. The sweep now covers **23 fields across 16
+entities**, and getting there took three tries:
+
+1. **Ask `maskable()` which fields to watch.** That is the function under test.
+   Unmasking `accountNumber` made the sweep stop seeding a sentinel into it, so
+   the leak became invisible and the run passed clean. *A check that derives its
+   own subject from the code under test cannot fail.*
+2. **A key-shape regex.** It flagged `receipt.orderId` and `deviceKey.deviceId`
+   — an order number off a shop receipt, and the id that tells two of your own
+   phones apart. Neither is a secret, and `classification.js` explains at length
+   why masking everything is a visible bug.
+3. **A named list.** Hand-maintained, which this repository normally treats as a
+   defect; the mitigation is that every pair is checked to still exist in the
+   schema, so a rename fails loudly rather than leaving the sweep watching
+   nothing.
+
+### Masked, unmasked, and never shown are three different answers
+
+Sentinels end in four uppercase letters because `mask()` keeps the last four
+characters. That separates the outcomes:
+
+| What the sweep sees | What it means |
+| --- | --- |
+| the full token | shown in full — a leak |
+| the tail only | masked, on a real screen, proven |
+| neither | never displayed at all; the sweep proves nothing here |
+
+Today: **19 of 23 proven masked**, 4 never displayed —
+`vaultItem.password`, `vaultItem.totpSecret`, `digitalAsset.licenceKey` and
+`beneficiary.assetId`. The first two are `CRITICAL_SECRET` and have no partial
+form by design.
+
+That third row is why the first mutation appeared to survive. Unmasking
+`account.accountNumber` changed nothing visible until the sweep learned to tell
+"masked" from "never rendered".
+
+### The control that makes the negative result mean something
+
+Every non-identifier text field is seeded too, and at least 50 of them must be
+found on a screen. If ordinary values never reach the DOM, the absence of the
+masked ones says nothing — and an earlier version of this sweep was in exactly
+that state for seven entities without reporting it.
+
+**521 browser checks pass. 2 of 2 mutations caught**: identifiers rendered in
+full (19 leaks reported, 0 proven masked), and the record handed back as an id
+(five failures, and the console error now names the real cause).

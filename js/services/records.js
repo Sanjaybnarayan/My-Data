@@ -93,12 +93,20 @@ export class RecordsService extends Service {
    * second path to the same thing.
    */
   async documentsForStaff(staffId) {
-    const record = await this.db.repo('staff').get(staffId, { decrypt: false });
+    const record = await this.repo('staff').get(staffId);
     if (!record?.person) return { person: null, documents: [] };
 
-    const all = await this.db.repo('document').list({ decrypt: false, limit: 500 });
+    const [person, all] = await Promise.all([
+      this.repo('person').get(record.person),
+      this.repo('document').list({ decrypt: false, limit: 500 }),
+    ]);
+
     return {
-      person: record.person,
+      // The person, not their id. The screen needs their name for the heading
+      // and their id to ask what is held about them; returning the id made it
+      // read `person.name` off a string, so the card was headed "What they can
+      // be shown" for everybody and asked what was held about `undefined`.
+      person: person ?? null,
       documents: all.filter((row) => row.person === record.person),
     };
   }

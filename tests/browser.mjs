@@ -43,6 +43,7 @@ const IN_PAGE = Object.freeze({
   context: './js/context.js',
   pdfRead: './js/data/pdf-read.js',
   chat: './js/services/chat.js',
+  schema: './js/data/schema.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -1083,12 +1084,16 @@ async function main() {
         check('a household with no staff and no children is not asked about either',
           !/works for you/.test(before), before.slice(0, 400));
 
-        await page.evaluate(async (spec) => {
+        const cook = await page.evaluate(async (spec) => {
           const { app } = await import(spec);
           const person = await app().db.repo('person').create({ name: 'Test Cook' });
-          await app().db.repo('staff').create({
+          const role = await app().db.repo('staff').create({
             person: person.id, role: 'Cook', startedOn: '2026-01-01',
           });
+          await app().db.repo('document').create({
+            title: 'Her ID copy', person: person.id, category: 'identity',
+          });
+          return { staff: role.id, person: person.id };
         }, IN_PAGE.context);
 
         await go(page, '#/finance');
@@ -1104,6 +1109,49 @@ async function main() {
         check('and it counts as happening without a record',
           /without a record/.test(after), after.slice(0, 900));
 
+        /*
+         * The staff member's own record screen.
+         *
+         * It had never opened. `recordDetail` calls `extra(record)` and
+         * `staffDocuments` took the argument as an id, so IndexedDB was handed
+         * a whole object, refused it as "not a valid key", and the route threw
+         * — leaving you on whatever screen you were already looking at. The
+         * unhandled abort that reached the console said `transaction aborted`
+         * and named neither the store nor the key, which is why four hundred
+         * passing checks never pointed at it.
+         *
+         * Nothing walked here before: the module sweep visits `#/family`, and
+         * the index renders fine.
+         */
+        await go(page, `#/family/staff/${cook.staff}`);
+        await page.waitForTimeout(800);
+
+        const record = await page.evaluate(() => ({
+          hash: location.hash,
+          text: /** @type {any} */ (document.querySelector('.app-content'))?.innerText ?? '',
+        }));
+
+        check('a staff member’s own record screen opens at all',
+          record.hash.includes(`staff/`), record.hash);
+        check('and it is the staff record, not the screen you came from',
+          record.text.includes('Cook'), record.text.slice(0, 200));
+
+        // The three cards `extra` draws. Each one is a claim the screen makes
+        // about somebody the household employs, and none of them had ever
+        // reached a browser.
+        check('it reconciles what was paid against what was agreed',
+          /what was agreed/i.test(record.text), record.text.slice(0, 400));
+        check('and heads their copy with their name, not “they”',
+          record.text.includes('What Test Cook can be shown'), record.text.slice(0, 500));
+        check('and lists the documents filed against the person',
+          record.text.includes('Her ID copy'), record.text.slice(-400));
+
+        // Back to Settings. The suite is one long session on one page, and
+        // the three checks after this block read the Settings screen — this
+        // navigation cost them all three before it was put back.
+        await go(page, '#/settings');
+        await page.waitForTimeout(500);
+
         // Put the household back. A later check asserts this copy has no
         // gaps, and it is right to: nothing is configured here. Leaving the
         // staff record behind would make that check fail for a reason that
@@ -1112,6 +1160,9 @@ async function main() {
           const { app } = await import(spec);
           for (const row of await app().db.repo('staff').list({ limit: 50 })) {
             await app().db.repo('staff').remove(row.id);
+          }
+          for (const doc of await app().db.repo('document').list({ limit: 50 })) {
+            if (doc.title === 'Her ID copy') await app().db.repo('document').remove(doc.id);
           }
           for (const person of await app().db.repo('person').list({ limit: 50 })) {
             if (person.name === 'Test Cook') await app().db.repo('person').remove(person.id);
@@ -4305,6 +4356,186 @@ async function main() {
       }
 
       await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+    }
+
+    /* -------------------------------------------- identifiers, everywhere */
+
+    /*
+     * Is any identifier shown in full, anywhere?
+     *
+     * The brief requires Aadhaar, PAN, bank account, CKYC and card numbers
+     * masked by default, and forbids sensitive values in a URL or the page
+     * title. Nothing checked it. Three attempts were needed to get a check
+     * that can actually fail:
+     *
+     * 1. **Ask `maskable()` which fields to watch.** That is the function
+     *    under test. Unmasking `accountNumber` made the sweep stop seeding a
+     *    sentinel into it, so the leak became invisible and the run passed
+     *    clean. A check that derives its own subject from the code under test
+     *    cannot fail.
+     * 2. **A key-shape regex.** It flagged `receipt.orderId` and
+     *    `deviceKey.deviceId` — an order number off a shop receipt and the id
+     *    that tells two of your own phones apart. Neither is secret, and
+     *    `classification.js` explains at length why masking everything is a
+     *    visible bug.
+     * 3. **A named list**, below. It is hand-maintained, which this repository
+     *    normally treats as a defect; the mitigation is that every pair is
+     *    checked to still exist in the schema, so a rename fails here loudly
+     *    instead of quietly leaving the sweep watching nothing.
+     *
+     * The sentinels end in four uppercase letters because `mask()` keeps the
+     * last four characters. That is what separates the three outcomes:
+     * **full token seen** is a leak, **tail only** is masking proven on a real
+     * screen, and **neither** means the field is never displayed at all — for
+     * which this sweep proves nothing and says so.
+     *
+     * Runs last for a reason: it writes a record for every entity that has a
+     * text field, and any check after it would be reading a household full of
+     * probe data.
+     */
+    {
+      const MUST_BE_MASKED = [
+        ['account', 'accountNumber'], ['loan', 'accountNumber'],
+        ['identityDocument', 'number'], ['kycRecord', 'kin'], ['kycRecord', 'pan'],
+        ['employment', 'uan'], ['employment', 'pfNumber'], ['employment', 'employeeId'],
+        ['policy', 'policyNumber'],
+        ['vehicle', 'chassisNumber'], ['vehicle', 'engineNumber'], ['vehicle', 'fastagId'],
+        ['property', 'surveyNumber'], ['property', 'khataNumber'],
+        ['education', 'registrationNumber'], ['certificate', 'credentialId'],
+        ['legalDocument', 'registrationNumber'], ['purchase', 'serialNumber'],
+        ['vaccination', 'batchNumber'],
+        ['vaultItem', 'password'], ['vaultItem', 'totpSecret'],
+        ['digitalAsset', 'licenceKey'], ['beneficiary', 'assetId'],
+      ];
+
+      // Format-checked fields cannot hold a sentinel: the write would be
+      // refused and the whole entity would drop out of the sweep unnoticed.
+      const FORMATTED = {
+        registration: 'KA01AB1234', ifsc: 'HDFC0001234', phone: '9876500000',
+        upiId: 'probe@bank', latitude: 12.9, longitude: 77.6,
+      };
+
+      await page.setViewportSize({ width: 390, height: 844 });
+
+      const seeded = await page.evaluate(async (input) => {
+        const { spec, schemaSpec, wanted, formatted } = input;
+        const watched = new Set(wanted.map(([e, k]) => `${e}.${k}`));
+        const { app } = await import(spec);
+        const { entities } = await import(schemaSpec);
+        const db = app().db;
+
+        const gone = wanted
+          .filter(([e, k]) => !(entities[e]?.fields || []).some((f) => f.key === k))
+          .map(([e, k]) => `${e}.${k}`);
+
+        const person = await db.repo('person').create({ name: 'Probe Person', role: 'owner' });
+        let will = null;
+        try {
+          will = await db.repo('will').create({ testator: person.id, title: 'Probe will' });
+        } catch { /* the entity may not require what this assumes */ }
+
+        const plan = [];
+        const made = [];
+        let n = 0;
+
+        for (const [name, e] of Object.entries(entities)) {
+          const row = {};
+          const mine = [];
+
+          for (const f of e.fields || []) {
+            const text = f.type === 'text' || f.type === 'password';
+            if (text && !Array.isArray(f.options) && !formatted[f.key]) {
+              n += 1;
+              const tail = String.fromCharCode(
+                65 + Math.floor(n / 676) % 26, 65 + Math.floor(n / 26) % 26, 65 + (n % 26), 90,
+              );
+              row[f.key] = `SNTL${tail}`;
+              mine.push({ token: `SNTL${tail}`, tail, entity: name, key: f.key,
+                watched: watched.has(`${name}.${f.key}`) });
+              continue;
+            }
+            if (formatted[f.key] !== undefined) { row[f.key] = formatted[f.key]; continue; }
+            if (!f.required) continue;
+            if (f.default !== undefined && f.default !== 'today') { row[f.key] = f.default; continue; }
+            if (Array.isArray(f.options) && f.options.length) {
+              // `Other`, so the number is free-form rather than checked as a
+              // PAN — otherwise the brief's own example drops out of the sweep.
+              row[f.key] = name === 'identityDocument' && f.key === 'kind' ? 'Other' : f.options[0];
+              continue;
+            }
+            if (f.type === 'ref') row[f.key] = f.key === 'will' && will ? will.id : person.id;
+            else if (f.type === 'multiref') row[f.key] = [person.id];
+            else if (['date', 'day', 'datetime'].includes(f.type)) row[f.key] = new Date().toISOString().slice(0, 10);
+            else if (['number', 'money', 'currency', 'percent'].includes(f.type)) row[f.key] = 1000;
+            else row[f.key] = `Probe ${name}`;
+          }
+
+          if (!mine.length) continue;
+          try {
+            const created = await db.repo(name).create(row);
+            made.push({ entity: name, module: e.module, id: created.id });
+            plan.push(...mine);
+          } catch { /* a record whose refs cannot be satisfied here */ }
+        }
+        return { made, plan, gone };
+      }, {
+        spec: IN_PAGE.context, schemaSpec: IN_PAGE.schema,
+        wanted: MUST_BE_MASKED, formatted: FORMATTED,
+      });
+
+      check('every field this sweep watches still exists in the schema',
+        seeded.gone.length === 0, seeded.gone.join(', '));
+
+      const watchedPlan = seeded.plan.filter((one) => one.watched);
+      check('and every one of them was actually seeded',
+        watchedPlan.length === MUST_BE_MASKED.length,
+        `${watchedPlan.length} of ${MUST_BE_MASKED.length}`);
+
+      const hashes = [
+        ...SCHEMA_MODULES.map((one) => `#/${one.id}`),
+        // The same two registered outside the schema that the module walk
+        // names. Written out because that walk's copy is block-scoped to it.
+        '#/assistant', '#/timeline',
+        ...seeded.made.map((one) => `#/${one.module}/${one.entity}/${one.id}`),
+      ];
+
+      const seen = new Set();
+      const tails = new Set();
+      const elsewhere = [];
+      for (const hash of hashes) {
+        await go(page, hash);
+        const found = await page.evaluate(() => {
+          const body = document.body.innerText || '';
+          return {
+            hits: [...new Set(body.match(/SNTL[A-Z]{3}Z/g) || [])],
+            tails: [...new Set(body.match(/\b[A-Z]{3}Z\b/g) || [])],
+            away: [...new Set(`${location.href} ${document.title}`.match(/SNTL[A-Z]{3}Z/g) || [])],
+          };
+        });
+        for (const one of found.hits) seen.add(one);
+        for (const one of found.tails) tails.add(one);
+        if (found.away.length) elsewhere.push(`${hash}: ${found.away.join(',')}`);
+      }
+
+      const byToken = new Map(seeded.plan.map((one) => [one.token, one]));
+      const leaked = [...seen].map((one) => byToken.get(one)).filter((one) => one?.watched);
+      const controls = seeded.plan.filter((one) => !one.watched);
+      const controlsSeen = controls.filter((one) => seen.has(one.token)).length;
+      const proven = watchedPlan.filter((one) => !seen.has(one.token) && tails.has(one.tail));
+
+      // The control. If ordinary field values never reach a screen, the
+      // absence of the masked ones says nothing at all.
+      check('the sweep can see field values at all', controlsSeen > 50,
+        `${controlsSeen} of ${controls.length} ordinary values were found on a screen`);
+
+      check('and it found identifiers displayed in their masked form',
+        proven.length >= 15, `${proven.length} of ${watchedPlan.length} proven masked`);
+
+      check('no identifier is shown in full on any screen', leaked.length === 0,
+        leaked.map((one) => `${one.entity}.${one.key}`).join(', '));
+
+      check('and none reaches a URL or the page title', elsewhere.length === 0,
+        elsewhere.join(' | '));
     }
 
     await go(page, '#/dashboard');
