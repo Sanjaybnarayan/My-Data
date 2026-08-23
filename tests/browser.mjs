@@ -3780,6 +3780,143 @@ async function main() {
         !/\bread\b.*\u2713|seen|delivered/i.test(thread.text),
         thread.text.slice(0, 160));
 
+      /* ------------------------------- search, filters, pins and stars */
+
+      /*
+       * The per-device chat state.
+       *
+       * All three flags live in `meta`, which never reaches the outbox, and
+       * every screen that shows them says so. What is checked here is that
+       * they do something: a filter that hides nothing and a star that
+       * survives no repaint are decoration.
+       */
+      {
+        // A second conversation, so filtering has something to exclude.
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          const db = app().db;
+          const me = db.actor?.personId ?? '';
+          // `.id`, not the record. A multiref holding an object fails
+          // integrity with "points at a person that is not here — Between
+          // names [object Object]", which is a long way from saying so.
+          const one = await db.repo('person').create({ name: 'Chat Second' });
+          const two = await db.repo('person').create({ name: 'Chat Third' });
+          const day = new Date().toISOString().slice(0, 10);
+
+          await db.repo('conversation').create({
+            title: 'Plumber', participants: [me], startedAt: day,
+          });
+          // Three participants, so the Groups filter has one to find.
+          await db.repo('conversation').create({
+            title: 'Parents', participants: [me, one.id, two.id], startedAt: day,
+          });
+        }, IN_PAGE.context);
+
+        await go(page, '#/chat');
+        await page.waitForTimeout(800);
+
+        // Scoped to the thread blocks. `.app-content .list-item-title` also
+        // matches the linked-devices card further down the screen, so the
+        // search check was reading "This device" as a conversation.
+        const titles = () => page.evaluate(() =>
+          [...document.querySelectorAll('.thread-block .list-item-title')]
+            .map((el) => /** @type {any} */ (el).innerText.trim()));
+
+        const before = await titles();
+        check('every conversation is listed under All', before.length >= 3,
+          before.join(' | '));
+
+        // Search, on the title.
+        await page.locator('.chat-tools input[type="search"]').fill('Plumb');
+        await page.waitForTimeout(500);
+        const found = await titles();
+        check('searching narrows the conversations',
+          found.length === 1 && /Plumber/.test(found[0]), found.join(' | '));
+
+        // A term nothing matches must not read as "you have no conversations".
+        await page.locator('.chat-tools input[type="search"]').fill('zzzznothing');
+        await page.waitForTimeout(500);
+        const none = await page.evaluate(() => /** @type {any} */ (
+          document.querySelector('.app-content'))?.innerText ?? '');
+        check('a search matching nothing says nothing matches, not that there are none',
+          /Nothing matches/.test(none) && !/No conversations yet/.test(none),
+          none.slice(0, 200));
+
+        await page.locator('.chat-tools input[type="search"]').fill('');
+        await page.waitForTimeout(500);
+
+        // Pin. The row must move to the top, not merely gain a badge.
+        const rows = page.locator('.thread-block');
+        const lastIndex = (await rows.count()) - 1;
+        const lastTitle = (await rows.nth(lastIndex).locator('.list-item-title').innerText()).trim();
+        await rows.nth(lastIndex).getByRole('button', { name: 'Pin' }).click();
+        await page.waitForTimeout(700);
+
+        const pinned = await titles();
+        check('pinning moves a conversation to the top',
+          pinned[0] === lastTitle, `${pinned[0]} vs ${lastTitle}`);
+        check('and the row says so in a word, not only a colour',
+          (await page.evaluate(() => /** @type {any} */ (
+            document.querySelector('.thread-block'))?.innerText ?? '')).includes('pinned'),
+          'no pinned badge');
+
+        // Archive. It must leave All and appear under Archived, not vanish.
+        await page.locator('.thread-block').first()
+          .getByRole('button', { name: 'Archive' }).click();
+        await page.waitForTimeout(700);
+
+        const afterArchive = await titles();
+        check('archiving takes a conversation out of All',
+          !afterArchive.includes(lastTitle), afterArchive.join(' | '));
+
+        await page.getByRole('button', { name: /^Archived \(/ }).click();
+        await page.waitForTimeout(600);
+        const inArchive = await titles();
+        check('and it is in the archive rather than gone',
+          inArchive.includes(lastTitle), inArchive.join(' | '));
+
+        await page.getByRole('button', { name: /^All \(/ }).click();
+        await page.waitForTimeout(600);
+
+        /*
+         * Starring, and the screen it feeds.
+         *
+         * The star has to survive a navigation, because the whole point of a
+         * per-device flag is that it is stored rather than held in a variable
+         * that a repaint discards.
+         */
+        await page.getByRole('link', { name: 'Household' }).first().click();
+        await page.waitForTimeout(700);
+
+        const starButton = page.getByRole('button', { name: 'Star' }).first();
+        const canStar = await starButton.count();
+        check('a message can be starred', canStar > 0, `${canStar} star controls`);
+
+        if (canStar) {
+          await starButton.click();
+          await page.waitForTimeout(700);
+
+          check('and the control then offers to unstar it',
+            (await page.getByRole('button', { name: 'Unstar' }).count()) > 0);
+
+          await go(page, '#/chat/starred');
+          await page.waitForTimeout(700);
+          const starred = await page.evaluate(() => /** @type {any} */ (
+            document.querySelector('.app-content'))?.innerText ?? '');
+
+          check('the starred screen shows it, with the conversation it came from',
+            /Household/.test(starred) && !/Nothing starred yet/.test(starred),
+            starred.slice(0, 250));
+
+          // The one thing this screen must not let anybody assume.
+          check('and says the stars are on this device only',
+            /this device only/i.test(starred), starred.slice(0, 250));
+        }
+
+        await go(page, '#/chat');
+        await page.waitForTimeout(600);
+      }
+
       /* ---------------------------------------------- the chat settings */
 
       await go(page, '#/chat/settings');
@@ -3991,8 +4128,22 @@ async function main() {
           el.querySelector('.badge')?.textContent?.trim() ?? '',
         ])));
 
-      check('the storage card counts the conversation',
-        storage.Conversations === '1', JSON.stringify(storage).slice(0, 200));
+      /*
+       * Compared against the database, not against a number typed here.
+       *
+       * This asserted `'1'` and broke the moment another block seeded a second
+       * conversation — a check coupled to a fixture rather than to the thing
+       * it is about. What the card must do is agree with what is stored.
+       */
+      const reallyThere = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const rows = await app().db.repo('conversation').list({ limit: 500, decrypt: false });
+        return rows.filter((one) => !one.deletedAt).length;
+      }, IN_PAGE.context);
+
+      check('the storage card counts the conversations that are actually stored',
+        storage.Conversations === String(reallyThere),
+        `card says ${storage.Conversations}, database has ${reallyThere}`);
       check('and counts the withdrawn message separately from the readable ones',
         storage['Withdrawn messages'] === '1'
         && storage['Messages held on this device'] === '0',

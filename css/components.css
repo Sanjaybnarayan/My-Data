@@ -1633,3 +1633,31 @@ a.wallet-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 
  */
 .wallet-strip .carousel { padding: 0 var(--space-4) var(--space-4); }
 .wallet-strip .wallet-card { min-width: 15rem; }
+
+/* Search and filter chips above the conversations. */
+.chat-tools { margin-bottom: var(--space-4); }
+.chat-tools .search-box { margin-bottom: var(--space-3); }
+
+/* A conversation row with its pin and archive controls under it. */
+.thread-block { border-bottom: 1px solid var(--border); }
+.thread-block:last-child { border-bottom: 0; }
+.thread-block .list-item { border-bottom: 0; }
+.thread-actions {
+  padding: 0 var(--space-4) var(--space-3);
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/*
+ * A starred bubble.
+ *
+ * The pressed state is carried by the label and `aria-pressed`, not by the
+ * tint — the tint is a second signal for people who read one, never the only
+ * one.
+ */
+.bubble-star { margin-top: var(--space-2); width: 100%; }
+.bubble-star--on { background: var(--warning-subtle); }
+
+/* One starred message, with the conversation it came from named above it. */
+.starred-block { padding-bottom: var(--space-4); }
+.starred-where { margin: 0 0 var(--space-2); }

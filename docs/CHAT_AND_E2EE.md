@@ -345,3 +345,60 @@ cryptographer.
 unconditionally, enrolment as a no-op, the size attribute never set, withdrawn
 messages double-counted, `withdraw` keeping the ciphertext, `markVerified` not
 recording, and `revoke` not recording.
+
+## Chat, continued: search, filters, pins, stars
+
+Per-device chat state, and a search box over the conversations.
+
+### Why none of it is in the schema
+
+Three reasons, and the third decides it.
+
+1. Starring a message is a personal act, not a household fact. Two people
+   sharing a conversation do not share a view about which lines mattered.
+2. `message.readBy` is the cautionary tale — a field declared in the schema and
+   written by nothing, looking like a feature for as long as anybody believed
+   it.
+3. Syncing it would mean deciding what happens when two devices disagree, and
+   there is no honest answer worth a merge rule for a bookmark.
+
+So it lives in `meta`, written straight to the adapter and never reaching the
+outbox. **It stays on this device**, and every screen that shows it says so.
+
+### What is deliberately absent
+
+**Mute.** A muted conversation is one that stops notifying you, and nothing
+here notifies you about a message at all. A mute switch's only effect would be
+to make somebody believe the un-muted ones are reaching them.
+
+**Unread.** There is no read state to filter on. Four filters exist — All,
+Pinned, Groups, Archived — and every one is derivable from what is already
+stored: a participant count, a local flag, a message's own text.
+
+### The search box searches what it can
+
+A thread row already holds the last message *this device could open*. Searching
+every message would mean opening every envelope in the household to answer a
+keystroke, so search covers the title, that last line, and a filename.
+
+A sealed line is not searchable and the reason it is sealed is not either. An
+earlier version read `last` — an object — as a string, so **every search
+matched nothing, silently**, which is the worst way for a search box to fail.
+
+A search that matches nothing says *nothing matches*, not *no conversations
+yet*. Telling a household with nine conversations that they have none is a
+different and much worse sentence.
+
+### Enter is send, off by default
+
+The opposite of most messengers, deliberately: a household typing a multi-line
+note about a policy renewal loses it to a stray Enter. Shift+Enter is always a
+new line whichever is chosen, and the preference is read on every keystroke
+rather than captured once.
+
+### A guard that is a test rather than a `throw`
+
+`setFlag` used to throw for an unknown flag kind. That sentence was a new piece
+of untranslated English for a branch the typecheck already prevents, so the
+guard is now a test: `KINDS` and the shape `emptyFlags()` produces must agree,
+and adding a fourth to one and not the other fails the suite.

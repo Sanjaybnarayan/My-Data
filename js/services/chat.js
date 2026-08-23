@@ -28,9 +28,13 @@ import {
 } from '../security/e2ee.js';
 import { AppError } from '../core/errors.js';
 import { newId } from '../core/ids.js';
+import { readFlags, setFlag } from '../domain/chatstate.js';
 
 const DEVICE_KEY = 'chat.deviceIdentity';
 const ESCROW_KEY = 'chat.escrowIdentity';
+
+/** Where per-device chat state lives. Never reaches the outbox. */
+const FLAGS_KEY = 'chat.flags';
 
 export class ChatService extends Service {
   /* ------------------------------------------------------------- identity */
@@ -403,6 +407,58 @@ export class ChatService extends Service {
     // the bottom rather than being hidden — an empty one is still a place to
     // start talking.
     return out.sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')));
+  }
+
+  /* --------------------------------------------- per-device chat state */
+
+  /**
+   * Starred, archived and pinned — read from `meta`, so on this device only.
+   *
+   * Not schema fields. `message.readBy` is what a schema field written by
+   * nothing looks like, and syncing a bookmark would mean writing a merge rule
+   * for two devices disagreeing about which lines mattered.
+   */
+  async flags() {
+    return readFlags(await this.db.meta(FLAGS_KEY, null));
+  }
+
+  /**
+   * @param {'starred'|'archived'|'pinned'} kind
+   * @param {string} id
+   * @param {boolean} [on] omit to toggle
+   */
+  async setFlag(kind, id, on = undefined) {
+    const next = setFlag(await this.flags(), kind, id, on);
+    await this.db.setMeta(FLAGS_KEY, next);
+    return next;
+  }
+
+  /**
+   * Every starred message, opened as far as this device can open it.
+   *
+   * Reads only the conversations that actually hold a starred message rather
+   * than the whole household — a bookmark list should not cost a full decrypt.
+   */
+  async starred({ escrow = null } = {}) {
+    const { starred } = await this.flags();
+    if (!starred.length) return [];
+
+    const wanted = new Set(starred);
+    const rows = await this.repo('message').list({ limit: 5000, decrypt: false });
+    const holding = [...new Set(rows.filter((one) => wanted.has(one.id))
+      .map((one) => one.conversation))];
+
+    const out = [];
+    for (const conversationId of holding) {
+      const view = await this.view(conversationId, { escrow });
+      for (const message of view.messages) {
+        if (!wanted.has(message.row?.id)) continue;
+        out.push({ ...message, conversation: view.conversation, nameOf: view.nameOf });
+      }
+    }
+
+    return out.sort((a, b) =>
+      String(b.row?.sentAt ?? '').localeCompare(String(a.row?.sentAt ?? '')));
   }
 
   /**
