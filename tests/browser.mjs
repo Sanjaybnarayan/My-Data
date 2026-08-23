@@ -3281,46 +3281,65 @@ async function main() {
       const MINIMUM = 44;
       const smallest = new Map();
 
-      for (const module of ['dashboard', 'finance', 'family', 'documents', 'vault',
-        'calendar', 'safety', 'settings', 'reports', 'belongings', 'investments']) {
-        await go(page, `#/${module}`);
-        await page.waitForTimeout(400);
+      /*
+       * Both widths, because they are now genuinely different layouts rather
+       * than the same one scaled. Below 360px the calendar's month grid drops
+       * its gaps and bleeds to both screen edges, which is the only way seven
+       * days reach 44px on a 320px phone — at 390px none of those rules apply.
+       * A control can therefore be sound at one width and not the other, and
+       * the day cell was: 44px at 390px, 36px at 320px.
+       */
+      const SCREENS = ['dashboard', 'finance', 'family', 'documents', 'vault',
+        'calendar', 'safety', 'settings', 'reports', 'belongings', 'investments'];
 
-        const measured = await page.evaluate(() => {
-          const rows = [];
-          for (const el of document.querySelectorAll(
-            'button, a[href], input, select, textarea, [role="button"]')) {
-            const box = el.getBoundingClientRect();
-            if (box.width === 0 || box.height === 0) continue;
-            const style = getComputedStyle(el);
-            if (style.visibility === 'hidden' || style.display === 'none') continue;
-            const control = /** @type {any} */ (el);
-            if (control.disabled) continue;
+      for (const viewport of [390, 320]) {
+        await page.setViewportSize({ width: viewport, height: 844 });
+        await page.waitForTimeout(150);
 
-            const classes = typeof el.className === 'string' ? el.className : '';
-            // Deliberately not tap targets. See the comment above.
-            if (/(^|\s)(sr-only|skip-link)(\s|$)/.test(classes)) continue;
-            if (control.type === 'hidden') continue;
+        for (const module of SCREENS) {
+          await go(page, `#/${module}`);
+          await page.waitForTimeout(400);
 
-            rows.push({
-              kind: classes.trim().split(/\s+/).filter(Boolean).slice(0, 3).join('.')
-                || el.tagName.toLowerCase(),
-              width: Math.round(box.width),
-              height: Math.round(box.height),
-              label: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 40),
-            });
-          }
-          return rows;
-        });
+          const measured = await page.evaluate(() => {
+            const rows = [];
+            for (const el of document.querySelectorAll(
+              'button, a[href], input, select, textarea, [role="button"]')) {
+              const box = el.getBoundingClientRect();
+              if (box.width === 0 || box.height === 0) continue;
+              const style = getComputedStyle(el);
+              if (style.visibility === 'hidden' || style.display === 'none') continue;
+              const control = /** @type {any} */ (el);
+              if (control.disabled) continue;
 
-        for (const row of measured) {
-          const least = Math.min(row.width, row.height);
-          const known = smallest.get(row.kind);
-          if (!known || least < known.least) {
-            smallest.set(row.kind, { least, ...row, module });
+              const classes = typeof el.className === 'string' ? el.className : '';
+              // Deliberately not tap targets. See the comment above.
+              if (/(^|\s)(sr-only|skip-link)(\s|$)/.test(classes)) continue;
+              if (control.type === 'hidden') continue;
+
+              rows.push({
+                kind: classes.trim().split(/\s+/).filter(Boolean).slice(0, 3).join('.')
+                  || el.tagName.toLowerCase(),
+                width: Math.round(box.width),
+                height: Math.round(box.height),
+                label: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 40),
+              });
+            }
+            return rows;
+          });
+
+          for (const row of measured) {
+            const least = Math.min(row.width, row.height);
+            const known = smallest.get(row.kind);
+            // `viewport`, not `width` — `row.width` is the element's own width
+            // and overwriting it would report the phone's size as the control's.
+            if (!known || least < known.least) {
+              smallest.set(row.kind, { least, ...row, module, viewport });
+            }
           }
         }
       }
+
+      await page.setViewportSize({ width: 390, height: 844 });
 
       // If this finds nothing it has proved nothing, and a selector typo or a
       // failed navigation would look exactly like a pass.
@@ -3335,7 +3354,7 @@ async function main() {
         undersized.length === 0,
         undersized.map((one) =>
           `${one.kind} is ${one.width}\u00d7${one.height} in ${one.module}`
-          + `${one.label ? ` (${one.label})` : ''}`).join('; '));
+          + ` at ${one.viewport}px${one.label ? ` (${one.label})` : ''}`).join('; '));
 
       // The one that started this: the controls that unmask an identifier.
       const reveal = smallest.get('btn.btn--icon.btn--small')

@@ -1231,4 +1231,30 @@
 
   .month-day { padding: var(--space-1); min-height: 76px; }
   .month-day--blank { min-height: 76px; }
+
+  /*
+   * Below 360px, full bleed to both screen edges and no gap at all.
+   *
+   * Measured on a 320px phone: the grid was getting 278px and each day 40px,
+   * under the 44px minimum. The page takes 12px a side, the card 24px and its
+   * border 1px — 37px a side the seven columns never see — and six gaps take
+   * another 24. Seven days at 44px need 308px and there is no other 30px to
+   * find, so both the gaps and all three paddings go. Each day then measures
+   * 45px. The cell borders still separate one day from the next.
+   *
+   * Deliberately exact: one pixel more of bleed and the page would scroll
+   * sideways, which `tests/browser.mjs` checks at this width. It has to come
+   * after the rules above rather than before them, or the shorthand `margin`
+   * two rules up wins on source order and none of this applies — which is
+   * exactly what happened on the first attempt.
+   */
+  @media (max-width: 360px) {
+    .month-weekdays,
+    .month-grid {
+      gap: 0;
+      margin-inline: calc((var(--space-5) + var(--space-3) + 1px) * -1);
+    }
+
+    .month-day { border-radius: var(--radius-sm); }
+  }
 }
