@@ -146,6 +146,21 @@ export class Database {
     await this.adapter.remove('attachments', id);
   }
 
+  /**
+   * How much sealed attachment data this device is holding.
+   *
+   * Counted from the rows rather than from a running total kept somewhere: a
+   * stored total and the rows it describes are two facts that drift, and the
+   * one a settings screen shows should be the one that is true.
+   */
+  async attachmentUsage() {
+    const rows = await this.adapter.query('attachments', {});
+    return {
+      count: rows.length,
+      bytes: rows.reduce((sum, row) => sum + (Number(row.bytes) || 0), 0),
+    };
+  }
+
   /* ----------------------------------------------------------------- audit */
 
   /**

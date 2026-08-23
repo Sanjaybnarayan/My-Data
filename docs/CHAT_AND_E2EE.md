@@ -244,3 +244,104 @@ reviewed by a cryptographer.
 filename put in a column*, *withdrawing leaving the bytes*, *the file's
 description leaking to the screen as raw JSON*, and *the document sweep
 reclaiming attachments as orphans*.
+
+## UI-6: the chat, end to end
+
+The whole messenger, as a household would use one — and every capability on
+the screen traced back to something the service can actually do.
+
+### The composer no longer takes typing it cannot use
+
+The fault the browser suite found first. A device with no chat key drew a text
+box and a Send button, accepted a message, and only then failed with an error
+toast. `ChatService.send` throws `notEnrolled` before it touches anything, so
+the answer was known before a single keystroke.
+
+The conversation view now loads the identity alongside the messages. Without
+one there is no box and no Send button — the card says the device has no chat
+key and offers **Enrol this device**, which is the way out, in the place
+somebody who wanted to say something is standing. `enrolButton` is shared with
+the settings screen so the two cannot come to disagree about the three
+outcomes: no linked person, enrolment failed, enrolled.
+
+Three checks hold it: no box, the reason on screen, no Send button. All three
+fail when the composer is drawn unconditionally.
+
+### Three service methods that no screen had ever called
+
+`markVerified`, `revoke` and `withdraw` had existed since the encryption was
+written with no caller anywhere in the application — the same fault as `send`
+before the conversation view, three times over.
+
+- **Safety numbers** are computed on demand, per device, and shown in a
+  monospace face. Two people read the number aloud; a face that renders `1`
+  and `l` identically turns a mismatch into a shrug.
+- **Revoking** asks first, and the confirmation says what it does *not* do:
+  everything already sealed to that key stays readable by it. Revoked devices
+  stay on the screen under a disclosure rather than disappearing — a key that
+  was trusted and is not any more is something a household should see it did.
+- **Withdrawing** is offered on my own messages only. The sealed body and any
+  attached file are deleted; the row stays, marked withdrawn, because that row
+  is how every other device learns what happened.
+
+### The withdraw check that proved nothing
+
+The first version asserted the screen no longer showed the text. It **passed
+against a deliberately broken `withdraw` that set the flag and kept the
+ciphertext** — because `read` returns `withdrawn` from the flag alone and never
+looks at the body, so the screen is identical either way.
+
+Withdrawing that leaves the text on the device is the exact failure the feature
+exists to prevent, and only the stored row can say whether it happened. The
+check now reads the row back and requires the body to be empty. It fails
+against that mutation.
+
+### Two stored preferences, both applied at boot
+
+The bubble tint, and the message size — three fixed steps, not a slider,
+because the browser suite sweeps overflow and tap targets at multipliers that
+have actually been measured. Both are applied to the root before any chat
+module loads: somebody who chose the largest size did so because the normal one
+is hard to read, and showing it to them for half a second is the failure the
+setting exists to prevent.
+
+The size check measures the computed font size on a real bubble, before and
+after. Its first version measured from the settings screen and read `0px` —
+a "before" of zero passes for any "after" at all.
+
+### Storage, counted
+
+Conversations, readable messages, withdrawn messages, and attached files with
+their bytes — read from the rows, not from a running total kept somewhere. A
+stored total and the rows it describes are two facts that drift.
+
+Withdrawn messages are counted **separately**, because the row survives the
+body and the space does not come back. Folding the two together would tell
+somebody who deleted a message that they had reclaimed something they had not.
+
+### What the screen still refuses to claim
+
+Unchanged, and each one on the screen rather than only in this document:
+
+- **No read receipts and no unread counts.** `message.readBy` is declared in
+  the schema and written by nothing — it appears in exactly one file, the
+  schema itself.
+- **Nothing reaches the notification tray.** `POST_NOTIFICATIONS` is in the
+  Android manifest and the only thing that posts is the location foreground
+  service.
+- **No typing indicator and no online status.** Nothing observes either.
+- **No invitation links.** Adding somebody is real but it is two deliberate
+  steps — a person record here, a device enrolled on their own phone — because
+  a link would carry a key over a channel this application does not control.
+- **No screen reader has ever been run against this application.** The
+  accessibility card says so itself. The roles and labels are written for one
+  and checked by machine; checked markup and a tested experience are different
+  claims and only the first is true here.
+
+Escrow still opens everything, and nothing here has been reviewed by a
+cryptographer.
+
+**510 browser checks pass. 7 of 7 mutations caught** — the composer drawn
+unconditionally, enrolment as a no-op, the size attribute never set, withdrawn
+messages double-counted, `withdraw` keeping the ciphertext, `markVerified` not
+recording, and `revoke` not recording.

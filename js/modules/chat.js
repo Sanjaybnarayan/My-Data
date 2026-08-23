@@ -16,9 +16,13 @@ import { card, cardHeader, badge, pageHeader, listItem, empty, button } from '..
 import { toast } from '../ui/components/toast.js';
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
+import { bus, TOPIC } from '../core/bus.js';
+import { Router } from '../ui/router.js';
 import { ChatService } from '../services/chat.js';
 import { userMessage } from '../core/errors.js';
 import { t } from '../core/locale.js';
+import { icon } from '../ui/icons.js';
+import { formatDay } from '../core/dates.js';
 
 export async function render(route) {
   // A conversation opens into its own view rather than the generic record
@@ -27,6 +31,14 @@ export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity === 'conversation') {
     return conversationView(route.id);
   }
+  // `#/chat/settings` is a screen, not an entity list — checked before the
+  // generic entity handling below, which would otherwise look for an entity
+  // called "settings" and throw.
+  if (route.entity === 'settings') {
+    const view = await import('./chat-settings.js');
+    return view.render();
+  }
+
   if (route.id && route.id !== 'new' && route.entity) return recordDetail(route.entity, route.id);
 
   const host = h('div', {});
@@ -40,21 +52,62 @@ export async function render(route) {
   const section = await listSection('conversation', { autoOpenNew: route.id === 'new' });
 
   async function paint() {
-    const [identity, devices] = await Promise.all([
+    const [identity, devices, threads] = await Promise.all([
       chat.identity(),
       chat.devices(),
+      chat.threads(),
     ]);
 
     replace(host, [
-      pageHeader(t('chat.title'), { subtitle: t('chat.subtitle') }),
+      pageHeader(t('chat.title'), {
+        subtitle: t('chat.subtitle'),
+        actions: [h('a', {
+          class: 'btn btn--subtle btn--small',
+          href: Router.href({ module: 'chat', entity: 'settings' }),
+        }, t('chat.settings.open'))],
+      }),
+
+      threadList(threads, section),
+
+      // The generic list stays: it is how a conversation is created, renamed
+      // or has its participants changed, and none of that is worth
+      // reimplementing to make a prettier list above it.
+      /*
+       * Open when there is nothing yet.
+       *
+       * Folding the conversation list away is right once there are threads to
+       * read — but with none, this disclosure held the only way to make one,
+       * and the empty state above pointed at a control nobody could see.
+       */
+      h('details', { class: 'chat-manage', open: threads.length === 0 }, [
+        h('summary', {}, t('chat.manage')),
+        section.node,
+      ]),
+
       honestyCard(),
       deviceCard(identity, devices, chat, paint),
-      section.node,
     ]);
   }
 
   await paint();
-  return { node: host, destroy: section.destroy };
+
+  /*
+   * Repaint when anything changes.
+   *
+   * `listSection` subscribes for itself, so creating a conversation refreshed
+   * the management list below and left the thread list above showing "no
+   * conversations yet" — the screen disagreeing with itself about whether the
+   * thing had been created.
+   */
+  const off = bus.on(`${TOPIC.dataChanged}:chat`, () => void paint());
+
+  return {
+    node: host,
+    destroy: () => {
+      off();
+      section.destroy();
+    },
+  };
 }
 
 /* ------------------------------------------------------ one conversation */
@@ -141,8 +194,29 @@ async function conversationView(conversationId) {
     }
   }
 
+  async function withdrawMessage(messageId) {
+    try {
+      await chat.withdraw(messageId);
+      toast(t('chat.withdrawn'), { kind: 'success' });
+      await paint();
+    } catch (error) {
+      toast(userMessage(error), { kind: 'error' });
+    }
+  }
+
   async function paint() {
-    const { conversation, messages, nameOf: named } = await chat.view(conversationId);
+    /*
+     * The identity is loaded with the conversation, not checked on Send.
+     *
+     * Without it `chat.send` throws, and the only way to find that out was to
+     * type a message and press Send: the composer looked ready, took the
+     * typing, and failed afterwards. What a device cannot do it should not
+     * offer.
+     */
+    const [{ conversation, messages, nameOf: named }, identity] = await Promise.all([
+      chat.view(conversationId),
+      chat.identity(),
+    ]);
     const nameOf = (id) => named(id) ?? t('chat.someone');
 
     replace(host, [
@@ -151,26 +225,35 @@ async function conversationView(conversationId) {
       }),
       honestyCard(),
 
-      card({}, [
+      card({ class: 'card--flush thread' }, [
         messages.length
-          ? h('div', { class: 'list' }, messages.map((m) => messageItem(m, nameOf, saveFile)))
-          : empty({ title: t('chat.empty'), iconName: 'message' }),
+          ? h('div', { class: 'thread-scroll' },
+            messages.map((m) => messageItem(
+              m, nameOf, saveFile, db.actor?.personId ?? null, withdrawMessage,
+            )))
+          : h('div', { class: 'thread-empty' },
+            empty({ title: t('chat.empty'), iconName: 'chat' })),
       ]),
 
-      card({}, [
-        box,
-        pending
-          ? h('p', { class: 'small' }, t('chat.file.chosen', { name: pending.name }))
-          : null,
-        picker,
-        h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-3)' } }, [
-          button(t('chat.send'), { variant: 'primary', onClick: () => void sendText() }),
-          button(t('chat.file.choose'), { variant: 'subtle', onClick: () => picker.click() }),
+      identity
+        ? card({ class: 'composer' }, [
+          box,
           pending
-            ? button(t('chat.file.send'), { variant: 'subtle', onClick: () => void sendFile() })
+            ? h('p', { class: 'small' }, t('chat.file.chosen', { name: pending.name }))
             : null,
-        ].filter(Boolean)),
-      ]),
+          picker,
+          h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-3)' } }, [
+            button(t('chat.send'), { variant: 'primary', onClick: () => void sendText() }),
+            button(t('chat.file.choose'), { variant: 'subtle', onClick: () => picker.click() }),
+            pending
+              ? button(t('chat.file.send'), { variant: 'subtle', onClick: () => void sendFile() })
+              : null,
+          ].filter(Boolean)),
+        ])
+        : card({ class: 'composer composer--blocked' }, [
+          h('p', { class: 'small' }, t('chat.devices.notEnrolled')),
+          enrolButton(chat, paint),
+        ]),
     ]);
   }
 
@@ -178,13 +261,112 @@ async function conversationView(conversationId) {
   return { node: host };
 }
 
-/** One line of a conversation, including the ones this device cannot read. */
-function messageItem(message, nameOf, saveFile) {
-  const who = nameOf(message.row.sender);
+/**
+ * The conversations, most recently spoken in first.
+ *
+ * Each row is who it is with, the last thing said, and when. No unread count:
+ * `message.readBy` is declared in the schema and written by nothing, so a
+ * number there would be read off a field that has never held a value.
+ */
+function threadList(threads, section) {
+  if (!threads.length) {
+    return card({}, empty({
+      title: t('chat.none.title'),
+      message: t('chat.none.message'),
+      iconName: 'chat',
+      // The action, not a sentence pointing at one. `listSection` hands back
+      // `openForm` precisely so a screen can offer its own way in.
+      action: button(t('chat.none.action'), {
+        variant: 'primary',
+        iconName: 'plus',
+        onClick: () => section.openForm(),
+      }),
+    }));
+  }
 
-  // Said in place, and each reason differently. "Could not decrypt" would send
-  // somebody looking for damage in three situations where there is none.
-  const REASONS = {
+  return card({ class: 'card--flush' }, [
+    h('div', { class: 'list' }, threads.map(({ conversation, last, at }) => listItem({
+      title: conversation.title || t('chat.untitled'),
+      subtitle: last
+        ? (last.why ? t('chat.lastSealed') : (last.file ? last.file.name : last.text))
+        : t('chat.nothingSaid'),
+      trailing: at
+        ? h('span', { class: 'small faint' }, formatDay(String(at).slice(0, 10)))
+        : null,
+      href: Router.href({ module: 'chat', entity: 'conversation', id: conversation.id }),
+    }))),
+  ]);
+}
+
+/**
+ * One message, as a bubble.
+ *
+ * ## What a bubble can and cannot say here
+ *
+ * Mine or theirs, when it was sent, and — for the ones this device cannot open
+ * — why. That is everything the store knows about a message.
+ *
+ * It does **not** say delivered, read, or seen. `message.readBy` is declared in
+ * the schema and written by nothing: it appears in exactly one file, the schema
+ * itself. A tick claiming somebody read this would be drawn from a field that
+ * has never held a value, which is worse than no tick at all — somebody would
+ * act on it.
+ *
+ * Nor is there a reaction, a reply, a forward or a voice note. None of them
+ * exist in the service, and drawing a control that cannot work is how a screen
+ * teaches somebody to distrust the whole application.
+ *
+ * @param {object} message
+ * @param {(id: string) => string} nameOf
+ * @param {(file: object) => void} saveFile
+ * @param {string|null} me the signed-in person, or null — decides which side
+ * @param {((id: string) => void)|null} withdraw offered on my own messages only
+ */
+function messageItem(message, nameOf, saveFile, me = null, withdraw = null) {
+  const who = nameOf(message.row.sender);
+  const mine = Boolean(me) && message.row.sender === me;
+
+  const stamp = String(message.row.sentAt ?? '');
+  const at = stamp.length >= 16 ? stamp.slice(11, 16) : '';
+
+  /*
+   * Withdrawing is offered on my own messages and nobody else's.
+   *
+   * `ChatService.withdraw` has existed since the encryption was written and
+   * no screen had ever called it — the same fault as `send` before the
+   * conversation view. It is a real capability: the sealed body and any
+   * attached file are deleted, and the row stays behind marked withdrawn so
+   * every other device learns what happened rather than watching a message
+   * silently vanish.
+   *
+   * What it cannot do is said before it happens, not after. A device that had
+   * already opened the message is beyond this application's reach, and
+   * somebody deleting something they regret is entitled to know that while
+   * they can still change their mind.
+   */
+  const canWithdraw = mine && withdraw && !message.why;
+
+  /** The shell every bubble shares: side, who said it, and when. */
+  const bubble = (body, { tone = '' } = {}) => h('div', {
+    class: ['bubble-row', mine ? 'bubble-row--mine' : 'bubble-row--theirs'],
+  }, h('div', { class: ['bubble', tone && `bubble--${tone}`] }, [
+    // Their name, not mine — on my own messages it is noise.
+    mine ? null : h('p', { class: 'bubble-who' }, who),
+    body,
+    h('p', { class: 'bubble-meta' }, at || formatDay(stamp.slice(0, 10))),
+    canWithdraw
+      ? button(t('chat.withdraw'), {
+        variant: 'subtle',
+        class: 'btn btn--subtle btn--small bubble-withdraw',
+        onClick: () => {
+          if (!globalThis.confirm?.(t('chat.withdrawConfirm'))) return;
+          withdraw(message.row.id);
+        },
+      })
+      : null,
+  ]));
+
+  const REASONS_BUBBLE = {
     withdrawn: t('chat.why.withdrawn'),
     sentBefore: t('chat.why.sentBefore'),
     keyChanged: t('chat.why.keyChanged'),
@@ -193,24 +375,28 @@ function messageItem(message, nameOf, saveFile) {
   };
 
   if (message.why) {
-    return listItem({
-      title: h('em', { class: 'muted' }, REASONS[message.why] ?? REASONS.unreadable),
-      subtitle: who,
-    });
+    return bubble(h('p', { class: 'bubble-text' },
+      h('em', { class: 'muted' }, REASONS_BUBBLE[message.why] ?? REASONS_BUBBLE.unreadable)),
+    { tone: 'quiet' });
   }
 
   if (message.file) {
-    return listItem({
-      title: message.file.name,
-      subtitle: `${who} · ${Math.max(1, Math.round(message.file.size / 1024))} KB`,
-      trailing: button(t('chat.file.open'), {
+    return bubble(h('div', { class: 'bubble-file' }, [
+      icon('file', { size: 18 }),
+      h('div', { class: 'spacer' }, [
+        h('p', { class: 'bubble-text' }, message.file.name),
+        h('p', { class: 'bubble-size' },
+          `${Math.max(1, Math.round(message.file.size / 1024))} KB`),
+      ]),
+      button(t('chat.file.open'), {
         variant: 'subtle',
+        class: 'btn--small',
         onClick: () => void saveFile(message.file),
       }),
-    });
+    ]));
   }
 
-  return listItem({ title: message.text, subtitle: who });
+  return bubble(h('p', { class: 'bubble-text' }, message.text));
 }
 
 /**
@@ -255,25 +441,37 @@ function deviceCard(identity, devices, chat, repaint) {
       : empty({ title: t('chat.devices.none'), iconName: 'shield' }),
 
     h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-4)' } }, [
-      button(identity ? t('chat.devices.enrolled') : t('chat.devices.enrol'), {
-        variant: identity ? 'subtle' : 'primary',
-        iconName: 'shield',
-        disabled: Boolean(identity),
-        onClick: async () => {
-          const me = app().db.actor?.personId;
-          if (!me) {
-            toast(t('chat.devices.noPerson'), { kind: 'error' });
-            return;
-          }
-          try {
-            await chat.enrol(me, { label: t('chat.devices.thisDevice') });
-            toast(t('chat.devices.done'), { kind: 'success' });
-            await repaint();
-          } catch (error) {
-            toast(userMessage(error), { kind: 'error' });
-          }
-        },
-      }),
+      enrolButton(chat, repaint, { done: Boolean(identity) }),
     ]),
   ]);
+}
+
+/**
+ * Give this device a chat key.
+ *
+ * Shared between the settings card and the composer because both need the
+ * same three outcomes: no linked person, enrolment failed, enrolled. Writing
+ * it twice is how the two would come to disagree about which of those the
+ * person is told about.
+ */
+function enrolButton(chat, repaint, { done = false } = {}) {
+  return button(done ? t('chat.devices.enrolled') : t('chat.devices.enrol'), {
+    variant: done ? 'subtle' : 'primary',
+    iconName: 'shield',
+    disabled: done,
+    onClick: async () => {
+      const me = app().db.actor?.personId;
+      if (!me) {
+        toast(t('chat.devices.noPerson'), { kind: 'error' });
+        return;
+      }
+      try {
+        await chat.enrol(me, { label: t('chat.devices.thisDevice') });
+        toast(t('chat.devices.done'), { kind: 'success' });
+        await repaint();
+      } catch (error) {
+        toast(userMessage(error), { kind: 'error' });
+      }
+    },
+  });
 }

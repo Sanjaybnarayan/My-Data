@@ -42,6 +42,7 @@ const BASE = `http://localhost:${PORT}`;
 const IN_PAGE = Object.freeze({
   context: './js/context.js',
   pdfRead: './js/data/pdf-read.js',
+  chat: './js/services/chat.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -63,6 +64,11 @@ async function go(page, hash) {
  * right one: importing the application's formatter to check the application's
  * output would make the assertion agree with itself no matter what either did.
  */
+/** Today as the schema stores a day: `YYYY-MM-DD`. */
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function todayLabel() {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -3422,6 +3428,345 @@ async function main() {
         reveal ? `${reveal.kind} is ${reveal.width}\u00d7${reveal.height}` : '');
     }
 
+    /* --------------------------------------------------------- the chat */
+
+    /*
+     * A real conversation, sent and read back.
+     *
+     * Bubbles are the part of a chat that can look right and be wrong: a
+     * message on the wrong side, or on the right side because every message is
+     * on that side. So this sends one and asserts it lands as *mine* and that
+     * the thread knows which side that is.
+     *
+     * It also asserts what the screen refuses to claim. Read receipts, unread
+     * counts, typing and presence do not exist — `message.readBy` is declared
+     * in the schema and written by nothing — and a screen that grew a tick
+     * would be reading it off a field that has never held a value.
+     */
+    {
+      await page.setViewportSize({ width: 1280, height: 900 });
+
+      // Through the empty state's own button, which is the path somebody with
+      // no conversations actually has. Reaching for the list's Add button
+      // instead is how this check first failed: that control sits inside a
+      // disclosure that is folded away, so the test was clicking something
+      // nobody could see — and so, at the time, was the empty state's advice.
+      await go(page, '#/chat');
+      await page.waitForTimeout(600);
+      await page.getByRole('button', { name: 'Start a conversation' }).click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      // Title, a participant and a start date — the three the schema requires.
+      // `participants` is a multiref, which the form draws as a checkbox set.
+      await page.locator('#f-conversation-title').fill('Household');
+      // The label, not the input. `checkboxSet` renders the input `sr-only` and
+      // puts the visible chip on the label, so the input is exactly what a
+      // person cannot click — and a test that forced it would be exercising a
+      // path the application does not offer.
+      //
+      // The person using this device, by name, rather than whichever chip is
+      // first. A conversation between two other people is sealed to *their*
+      // devices, so sending into one from here fails — correctly — with
+      // "nobody in this conversation has a device that can read a message
+      // yet". Picking the first chip made that the thing under test by
+      // accident, and 0 bubbles looked like a rendering bug.
+      const meName = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        return app().db.actor?.name ?? '';
+      }, IN_PAGE.context);
+      check('the sign-in is linked to a named person', Boolean(meName), meName);
+      await page.locator('.modal [data-field="participants"] label.chip')
+        .filter({ hasText: meName }).first().click();
+      await page.locator('#f-conversation-startedAt').fill(todayIso());
+      await page.locator('#f-conversation-title').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 8000 });
+
+      await go(page, '#/chat');
+      await page.waitForTimeout(700);
+
+      const listed = await page.evaluate(() => /** @type {any} */ (
+        document.querySelector('.app-content'))?.innerText ?? '');
+      check('a conversation appears in the thread list', listed.includes('Household'),
+        listed.slice(0, 120));
+      check('and says nothing has been said in it yet',
+        listed.includes('Nothing said yet'), listed.slice(0, 200));
+
+      await page.getByRole('link', { name: 'Household' }).first().click();
+      await page.waitForTimeout(700);
+
+      /*
+       * The composer before this device has a chat key.
+       *
+       * This is where the check found a real fault. The composer drew a text
+       * box and a Send button on a device with no chat identity, took the
+       * typing, and only then failed with an error toast. So the box and the
+       * button must both be absent, the reason must be on screen, and the way
+       * out of it must be a control here rather than advice to go elsewhere.
+       */
+      const cold = await page.evaluate(() => ({
+        box: document.querySelectorAll('#chat-text').length,
+        text: /** @type {any} */ (document.querySelector('.composer'))?.innerText ?? '',
+      }));
+      check('a device with no chat key is offered no message box',
+        cold.box === 0, `${cold.box} boxes`);
+      check('and is told why', cold.text.includes('no chat key'), cold.text.slice(0, 160));
+
+      const sendBefore = await page.getByRole('button', { name: /^Send$/ }).count();
+      check('and no Send button that would fail', sendBefore === 0, `${sendBefore} found`);
+
+      // Enrol from the composer, which is where somebody who wanted to say
+      // something is standing.
+      await page.locator('.composer').getByRole('button', { name: 'Enrol this device' }).click();
+      await page.waitForTimeout(900);
+
+      const warm = await page.evaluate(() => ({
+        box: document.querySelectorAll('#chat-text').length,
+      }));
+      check('enrolling from the composer gives it a message box',
+        warm.box === 1, `${warm.box} boxes`);
+
+      await page.locator('#chat-text').fill('Rent is paid');
+      await page.getByRole('button', { name: /Send/ }).first().click();
+      await page.waitForTimeout(900);
+
+      const thread = await page.evaluate(() => ({
+        bubbles: document.querySelectorAll('.bubble').length,
+        mine: document.querySelectorAll('.bubble-row--mine').length,
+        theirs: document.querySelectorAll('.bubble-row--theirs').length,
+        text: /** @type {any} */ (document.querySelector('.app-content'))?.innerText ?? '',
+      }));
+
+      check('a sent message appears as a bubble', thread.bubbles > 0,
+        `${thread.bubbles} bubbles`);
+      check('and on the sender’s own side', thread.mine > 0 && thread.theirs === 0,
+        `${thread.mine} mine, ${thread.theirs} theirs`);
+      check('carrying its text', thread.text.includes('Rent is paid'));
+
+      // Nothing may claim delivery or reading.
+      check('no bubble claims a read receipt',
+        !/\bread\b.*\u2713|seen|delivered/i.test(thread.text),
+        thread.text.slice(0, 160));
+
+      /* ---------------------------------------------- the chat settings */
+
+      await go(page, '#/chat/settings');
+      await page.waitForTimeout(600);
+
+      const before = await page.evaluate(() =>
+        document.documentElement.getAttribute('data-bubble'));
+      check('a chat theme is applied', Boolean(before), String(before));
+
+      const swatches = await page.locator('.bubble-swatch').count();
+      check('four tints are offered', swatches === 4, `${swatches} swatches`);
+
+      await page.getByRole('button', { name: 'Teal' }).click();
+      await page.waitForTimeout(250);
+      const after = await page.evaluate(() => ({
+        attr: document.documentElement.getAttribute('data-bubble'),
+        stored: localStorage.getItem('familyos.chat.bubble'),
+        pressed: document.querySelectorAll('.bubble-swatch[aria-pressed="true"]').length,
+      }));
+
+      check('choosing a tint changes the theme and is remembered',
+        after.attr === 'secondary' && after.stored === 'secondary',
+        JSON.stringify(after));
+      check('and exactly one tint reads as chosen', after.pressed === 1,
+        `${after.pressed} pressed`);
+
+      const settingsText = await page.evaluate(() => /** @type {any} */ (
+        document.querySelector('.app-content'))?.innerText ?? '');
+
+      // The four things it must not imply it has.
+      for (const [what, phrase] of [
+        ['read receipts', 'No read receipts'],
+        ['push', 'notification tray'],
+        ['presence', 'No typing indicator'],
+        ['invitations', 'No invitation links'],
+      ]) {
+        check(`the settings screen says it has no ${what}`,
+          settingsText.includes(phrase), settingsText.slice(0, 120));
+      }
+
+      /* ------------------------------------- message size, and devices */
+
+      /*
+       * The size control, measured on a real bubble.
+       *
+       * Storing the choice and setting an attribute proves nothing: the
+       * question is whether the text somebody could not read is bigger
+       * afterwards. So this reads the computed font size off a message that
+       * exists, changes the setting, and reads it again.
+       */
+      const readBubbleSize = () => page.evaluate(() => {
+        const el = document.querySelector('.bubble-text');
+        return el ? parseFloat(getComputedStyle(el).fontSize) : 0;
+      });
+
+      // On the conversation, where a bubble exists. Measuring from the
+      // settings screen returned 0 and made the comparison meaningless — a
+      // check whose "before" is zero passes for any "after" at all.
+      await go(page, '#/chat');
+      await page.waitForTimeout(500);
+      await page.getByRole('link', { name: 'Household' }).first().click();
+      await page.waitForTimeout(600);
+      const sizeBefore = await readBubbleSize();
+
+      await go(page, '#/chat/settings');
+      await page.waitForTimeout(500);
+      await page.getByRole('button', { name: 'Largest' }).click();
+      await page.waitForTimeout(250);
+
+      const sized = await page.evaluate(() => ({
+        attr: document.documentElement.getAttribute('data-chat-size'),
+        stored: localStorage.getItem('familyos.chat.size'),
+      }));
+      check('choosing the largest message size is remembered',
+        sized.attr === 'largest' && sized.stored === 'largest', JSON.stringify(sized));
+
+      await go(page, '#/chat');
+      await page.waitForTimeout(500);
+      await page.getByRole('link', { name: 'Household' }).first().click();
+      await page.waitForTimeout(600);
+
+      const sizeAfter = await readBubbleSize();
+      check('and the text in a conversation is actually larger',
+        sizeBefore > 0 && sizeAfter > sizeBefore,
+        `${sizeBefore}px then ${sizeAfter}px`);
+
+      /*
+       * Withdrawing my own message.
+       *
+       * `ChatService.withdraw` had no caller anywhere in the application, so
+       * nothing had ever checked that it does what it says. It must delete the
+       * text and leave the row behind saying it was withdrawn — a message that
+       * simply disappeared would look, to everybody else, like one that was
+       * never sent.
+       */
+      page.once('dialog', (dialog) => void dialog.accept());
+      await page.getByRole('button', { name: 'Withdraw' }).first().click();
+      await page.waitForTimeout(800);
+
+      const gone = await page.evaluate(() => ({
+        bubbles: document.querySelectorAll('.bubble').length,
+        text: /** @type {any} */ (document.querySelector('.app-content'))?.innerText ?? '',
+      }));
+      check('withdrawing a message removes its text', !gone.text.includes('Rent is paid'),
+        gone.text.slice(0, 160));
+      check('and leaves a line saying it was withdrawn',
+        gone.bubbles > 0 && gone.text.includes('withdrawn'), gone.text.slice(0, 200));
+
+      /*
+       * And the sealed body is gone from the row, not merely hidden.
+       *
+       * The screen check above passed against a deliberately broken
+       * `withdraw` that set the flag and kept the ciphertext: `read` returns
+       * "withdrawn" from the flag alone and never looks at the body, so the
+       * screen looks identical either way. Withdrawing that leaves the text
+       * on the device is the failure this feature exists to prevent, and only
+       * the stored row can say whether it happened.
+       */
+      const rows = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const all = await app().db.repo('message').list({ limit: 50 });
+        return all.map((one) => ({
+          withdrawn: Boolean(one.deletedForEveryone),
+          body: String(one.body ?? ''),
+        }));
+      }, IN_PAGE.context);
+
+      const dropped = rows.find((one) => one.withdrawn);
+      check('and the sealed body is deleted from the stored row',
+        Boolean(dropped) && dropped.body.length <= 2,
+        JSON.stringify(dropped ?? rows).slice(0, 200));
+
+      /*
+       * Another household device, and the three things this screen can do
+       * to one.
+       *
+       * Written straight into the table because a second phone is the one
+       * thing a browser cannot be. `safetyNumberWith`, `markVerified` and
+       * `revoke` had all existed with no screen calling any of them.
+       */
+      await page.evaluate(async ([spec, chatSpec]) => {
+        const { app } = await import(spec);
+        const { ChatService } = await import(chatSpec);
+        const chat = new ChatService(app().db);
+        const mine = await chat.identity();
+        const me = app().db.actor?.personId ?? '';
+        await app().db.repo('deviceKey').create({
+          person: me,
+          deviceId: 'other-phone',
+          label: 'Second phone',
+          // A different key from this device's, so the safety number between
+          // them is a real comparison rather than a hash of one key twice.
+          publicKey: `${String(mine.publicKey).slice(0, -4)}zzzz`,
+          addedAt: new Date().toISOString(),
+        });
+      }, [IN_PAGE.context, IN_PAGE.chat]);
+
+      await go(page, '#/chat/settings');
+      await page.waitForTimeout(700);
+
+      const devices = await page.evaluate(() => /** @type {any} */ (
+        document.querySelector('.app-content'))?.innerText ?? '');
+      check('another enrolled device is listed', devices.includes('Second phone'),
+        devices.slice(0, 200));
+      check('and is marked unverified until somebody checks it',
+        devices.includes('unverified'), devices.slice(0, 260));
+
+      await page.getByRole('button', { name: 'Show safety number' }).first().click();
+      await page.waitForTimeout(400);
+      const number = await page.evaluate(() => {
+        const el = /** @type {any} */ (document.querySelector('.safety-number'));
+        return { shown: el ? !el.hidden : false, text: el?.textContent?.trim() ?? '' };
+      });
+      check('its safety number can be shown', number.shown && number.text.length > 8,
+        JSON.stringify(number).slice(0, 140));
+
+      await page.getByRole('button', { name: 'It matched' }).first().click();
+      await page.waitForTimeout(700);
+
+      // That row's own badge. Asserting the page does not contain the word
+      // "unverified" was wrong: this device's key is unverified too and
+      // always will be — nobody compares a device with itself.
+      const badgeFor = (label) => page.evaluate((want) => [...document.querySelectorAll('.device-block')]
+        .find((el) => el.textContent?.includes(want))
+        ?.querySelector('.badge')?.textContent?.trim() ?? '', label);
+
+      const badge = await badgeFor('Second phone');
+      check('and recording that it matched marks that device verified',
+        badge === 'verified', badge || 'no badge');
+
+      page.once('dialog', (dialog) => void dialog.accept());
+      await page.getByRole('button', { name: 'Revoke' }).first().click();
+      await page.waitForTimeout(800);
+      const revoked = await page.evaluate(() => /** @type {any} */ (
+        document.querySelector('.app-content'))?.innerText ?? '');
+      check('revoking it moves it to the revoked list rather than hiding it',
+        revoked.includes('1 revoked'), revoked.slice(0, 300));
+
+      /*
+       * Storage, counted rather than claimed.
+       *
+       * One conversation was created above and one message was sent and then
+       * withdrawn, so the numbers are known: the withdrawn one must be counted
+       * separately, because its row survives and the space does not come back.
+       */
+      const storage = await page.evaluate(() => Object.fromEntries(
+        [...document.querySelectorAll('.list-item')].map((el) => [
+          el.querySelector('.list-item-title')?.textContent?.trim() ?? '',
+          el.querySelector('.badge')?.textContent?.trim() ?? '',
+        ])));
+
+      check('the storage card counts the conversation',
+        storage.Conversations === '1', JSON.stringify(storage).slice(0, 200));
+      check('and counts the withdrawn message separately from the readable ones',
+        storage['Withdrawn messages'] === '1'
+        && storage['Messages held on this device'] === '0',
+        JSON.stringify(storage).slice(0, 240));
+
+      await page.setViewportSize({ width: 390, height: 844 });
+    }
+
     /* --------------------------------------------------- notifications */
 
     /*
@@ -4167,7 +4512,9 @@ async function main() {
      * them rather than the only line.
      */
     check('the run reached the end without throwing', false,
-      `${err.name}: ${err.message.split('\n')[0]}`);
+      // The first line names the failure; the call log under it names *what*
+      // it was waiting for, which is the half worth keeping.
+      String(err.message ?? err).split('\n').slice(0, 6).join(' ').slice(0, 300));
   } finally {
     await browser.close();
     server.kill();
