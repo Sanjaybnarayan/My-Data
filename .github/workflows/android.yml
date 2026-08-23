@@ -116,19 +116,37 @@ jobs:
             || { echo "::error::the sms flavour lost READ_SMS — Phase 6 cannot work"; exit 1; }
           echo "sms flavour still reads an inbox"
 
+      # Renamed before upload, because the artifact names alone were not
+      # enough. `familyos-apk-installable` and `familyos-apk-with-sms` sit
+      # next to each other on the run page, and the first person to use them
+      # downloaded the blocked one — then saw the same Play Protect dialog
+      # the split existed to remove, with no way to tell from the filename
+      # (`app-sms-debug.apk`) which build they had.
+      #
+      # So the file says what it is. Somebody who ends up at the dialog can
+      # now read the name in the file manager and know why.
+      - name: Name the files after what they do
+        run: |
+          mkdir -p upload/install upload/sms
+          cp android/app/build/outputs/apk/standard/debug/*.apk \
+             upload/install/familyos-INSTALL-THIS.apk
+          cp android/app/build/outputs/apk/sms/debug/*.apk \
+             upload/sms/familyos-sms-BLOCKED-BY-PLAY-PROTECT.apk
+          ls -lh upload/install upload/sms
+
       # THIS is the one to install. Debug build, standard debug key — fine for
       # trying, not for distributing.
       - uses: actions/upload-artifact@v4
         with:
-          name: familyos-apk-installable
-          path: android/app/build/outputs/apk/standard/**/*.apk
+          name: 1-INSTALL-THIS-familyos
+          path: upload/install/*.apk
           if-no-files-found: error
 
-      # This one Android will refuse to install until Play Protect is turned
-      # off. It is here for anybody who wants Phase 6's inbox read and is
-      # willing to do that.
+      # Android refuses this one until Play Protect is switched off. It is
+      # here for anybody who wants Phase 6's inbox read and is willing to do
+      # that. Numbered second so the run page lists it second.
       - uses: actions/upload-artifact@v4
         with:
-          name: familyos-apk-with-sms
-          path: android/app/build/outputs/apk/sms/**/*.apk
+          name: 2-BLOCKED-sms-build-needs-play-protect-off
+          path: upload/sms/*.apk
           if-no-files-found: error

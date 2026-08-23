@@ -84,6 +84,29 @@ different restricted permission arriving, the `sms` flavour losing it, the
 flavour being dropped from Gradle, an `applicationIdSuffix` appearing, and the
 flavour manifest losing the explanation of why it exists.
 
+## The names were not enough either
+
+The split worked and the next person still met the dialog — because both
+artifacts sit on the same run page and the blocked one was downloaded. Nothing
+in `familyos-apk-with-sms` or `app-sms-debug.apk` says *this is the one Android
+will refuse*, and a person who has just been told "the install is fixed" has no
+reason to read carefully.
+
+So the files are renamed before upload:
+
+```
+1-INSTALL-THIS-familyos                       familyos-INSTALL-THIS.apk
+2-BLOCKED-sms-build-needs-play-protect-off    familyos-sms-BLOCKED-BY-PLAY-PROTECT.apk
+```
+
+Numbered so the run page lists them in the order somebody should consider
+them, and named so the filename still says which build it is once it is
+sitting in a Downloads folder with the run page long closed.
+
+This is the same class of fault as everything else in this repository: the
+information existed, and not where the person needed it. A correct build
+nobody can identify is a correct build nobody installs.
+
 ## Turning Play Protect off, if you want the SMS build
 
 Settings → Google → All services → Play Protect → the gear → **Scan apps with
