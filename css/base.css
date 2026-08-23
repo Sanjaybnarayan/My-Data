@@ -93,18 +93,37 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
 
 /* ------------------------------------------------------------------ frame */
 
+/*
+ * `minmax(0, 1fr)` rather than `1fr`, and `min-width: 0` on the two items
+ * below.
+ *
+ * A `1fr` track is `minmax(auto, 1fr)`, and `auto` there means *min-content* —
+ * the track refuses to shrink below the widest unbreakable thing inside it.
+ * A grid item's own `min-width` defaults to `auto` and refuses the same way.
+ * Both have to be released or the layout silently grows past the viewport, and
+ * it is not a near miss. With these two lines reverted, seven screens scroll
+ * sideways on a 390px phone and four of them — identity, finance, investments,
+ * settings — reach **1204px**, more than three times the width of the device.
+ * The header's min-content sets the track, the track sets `.app-main`, and
+ * every child then dutifully fills a parent that is already far too wide, so
+ * no single element looks at fault.
+ *
+ * `tests/browser.mjs` walks twenty-seven screens and fails on any that scrolls,
+ * which is how those numbers were obtained and how they stay true.
+ */
 .app {
   display: grid;
-  grid-template-columns: var(--nav-width) 1fr;
+  grid-template-columns: var(--nav-width) minmax(0, 1fr);
   grid-template-rows: auto 1fr;
   grid-template-areas: 'nav header' 'nav main';
   min-height: 100dvh;
 }
 
-.app[data-nav='compact'] { grid-template-columns: var(--nav-width-compact) 1fr; }
+.app[data-nav='compact'] { grid-template-columns: var(--nav-width-compact) minmax(0, 1fr); }
 
 .app-header {
   grid-area: header;
+  min-width: 0;
   position: sticky;
   top: 0;
   z-index: 20;
@@ -133,6 +152,7 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
 
 .app-main {
   grid-area: main;
+  min-width: 0;
   padding: var(--space-5);
   padding-bottom: calc(var(--space-7) + env(safe-area-inset-bottom));
 }
@@ -223,7 +243,9 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
 
 @media (max-width: 900px) {
   .app {
-    grid-template-columns: 1fr;
+    /* Same reason as the desktop track: `1fr` alone refuses to go below
+       min-content, and this is the viewport where that shows. */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas: 'header' 'main';
   }
 

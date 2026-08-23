@@ -98,7 +98,7 @@ toasts, timeline, bottom navigation, a drawer, three-state theming, reduced
 motion, forced-colours support.
 
 **Absent:** per-person profile pages, a family-member switcher, Wallet-style
-entity cards, a card-list mode for tables on narrow screens.
+entity cards.
 
 ## The hard-coded colours
 
@@ -124,7 +124,7 @@ colours, so every point along the gradient clears 4.5:1 in both themes — and
 | --- | --- | --- |
 | Card, badge, empty, money, skeleton primitives | `js/ui/components/basics.js` | **KEEP** |
 | Schema-driven form | `js/ui/components/form.js` | **KEEP** — 53 entities from one implementation |
-| Table | `js/ui/components/table.js` | **REFINE** — needs a card-list mode on narrow screens |
+| Table | `js/ui/components/table.js` | **KEEP** — already stacks into cards below 720px |
 | Shell / navigation | `js/ui/shell.js` | **KEEP** — drawer and bottom nav both ship |
 | Charts | `js/ui/components/charts.js` | **KEEP** |
 | Modal / toast | `js/ui/components/modal.js`, `toast.js` | **KEEP** |
@@ -146,7 +146,23 @@ the generic form does today.
 ## What now measures this
 
 `tests/browser.mjs` walks eleven screens at 390px and fails the build if any
-control renders under 44px in either dimension. It found a control on its first
+control renders under 44px in either dimension. A second sweep walks
+twenty-seven screens and fails if any of them scrolls sideways. It used to check
+only the dashboard, which is the screen least likely to fail it — the dashboard
+is cards.
+
+What that hid was not a near miss. `.app` used a `1fr` track whose items took
+the default `min-width: auto`, and both refuse to shrink below min-content, so
+the header's width set the track and the track set everything else. With those
+two released, seven screens stop scrolling sideways and four of them —
+identity, finance, investments, settings — come down from **1204px** on a 390px
+phone. That is more than three times the width of the device, on four of the
+most-used screens, and no single element looked at fault because every child was
+correctly filling a parent that was already far too wide.
+
+Underneath it sat a real one: `#/finance/transaction` reached 413px because the
+filter row holds two `date` inputs, each needing 9rem to render `dd/mm/yyyy`
+without truncating its own control. `.field-inline` now wraps. It found a control on its first
 real run that the ad-hoc script written to develop it had missed — the ✕ that
 dismisses an error toast, 25×25, and the only way to clear a toast that is given
 no timer on purpose.
@@ -154,9 +170,21 @@ no timer on purpose.
 It also asserts that the sweep found at least fifteen kinds of control, because
 a sweep that measures nothing reports no failures.
 
+## A claim in this document that was also wrong
+
+The first version of this file said tables *scroll horizontally rather than
+becoming a card list*, carried over from the previous audit's "needs a card-list
+mode on mobile". Measured: `.table--responsive` hides its `thead` below 720px
+and lays each row out as a grid of label/value pairs, with the labels coming
+from `data-label` set in `js/ui/components/table.js`. It works, and it applies
+to all 53 entities because they share one table.
+
+Going to build it is how it was found. That is twice now that this document has
+described something as missing that ships — and both times the sentence came
+from an earlier document rather than from running the application.
+
 ## Open, not fixed
 
-- **Tables on narrow screens** scroll horizontally rather than becoming cards.
 - **35 class names** appear in JavaScript with no CSS rule. Most are hooks the
   tests select on, which is a legitimate use; `input--small`, `row--center`,
   `row--tight` and `field__label` read like they were meant to be styled and
