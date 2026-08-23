@@ -20,6 +20,16 @@
  */
 
 import { TransportError } from '../core/errors.js';
+import { t } from '../core/locale.js';
+
+/**
+ * The only actions this client will send without a token.
+ *
+ * Named here as well as on the server. A client that could ask for any action
+ * unauthenticated is a client that invites the server to be wrong about which
+ * ones are safe, and the two lists disagreeing is a thing a test can catch.
+ */
+export const PUBLIC_ACTIONS = Object.freeze(['otp.request', 'otp.verify']);
 
 const DEFAULT_TIMEOUT_MS = 90_000;
 
@@ -54,7 +64,37 @@ export class AppsScriptTransport {
     return Boolean(this.#url);
   }
 
-  async call(action, payload = {}) {
+  /**
+   * An action the backend answers before it checks a token.
+   *
+   * Exactly two of them exist — the one-time code endpoints — and they exist
+   * because a code has to be requestable by somebody who has not signed in.
+   * Everything else goes through `call`, which refuses without a token.
+   *
+   * This is a separate method rather than a flag on `call` so that a caller
+   * cannot make an ordinary action unauthenticated by passing the wrong
+   * argument. The list is here as well as on the server: a client that could
+   * ask for any action without a token would be a client that invites the
+   * server to be wrong.
+   */
+  async callPublic(action, payload = {}) {
+    if (!PUBLIC_ACTIONS.includes(action)) {
+      /*
+       * Routed, unlike the ten error strings above it in this file.
+       *
+       * Those are English written straight into the source and the unrouted
+       * ratchet counts them; it may only fall, so a new one would break it —
+       * correctly, because the ratchet's point is that the application stops
+       * growing English no translator can reach. The rest of this file should
+       * follow.
+       */
+      throw new TransportError(t('transport.notPublic', { action }),
+        { status: 401, retryable: false });
+    }
+    return this.call(action, payload, { token: null });
+  }
+
+  async call(action, payload = {}, { token: given = undefined } = {}) {
     if (!this.#url) {
       throw new TransportError('no Apps Script URL is configured', { status: 0, retryable: false });
     }
@@ -62,8 +102,10 @@ export class AppsScriptTransport {
       throw new TransportError('this runtime has no fetch', { status: 0, retryable: false });
     }
 
-    const token = await this.#getToken();
-    if (!token) {
+    // `null` is a deliberate "no token, and that is correct" from
+    // `callPublic`; `undefined` means nobody said, so ask.
+    const token = given === null ? '' : (given ?? await this.#getToken());
+    if (!token && given !== null) {
       // Not retryable: retrying without an interactive sign-in produces the
       // same answer forever, and the outbox would spin on it.
       throw new TransportError('not signed in to Google', { status: 401, retryable: false });

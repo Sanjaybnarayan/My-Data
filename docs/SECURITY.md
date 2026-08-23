@@ -127,3 +127,31 @@ code returned in the reply, the code stored in the clear, the public-action
 list turned into a prefix test, and an unknown address made distinguishable
 from a known one. A sixth mutation — restoring `USER_ACCESSING` to the
 manifest — fails the deployment-agreement check.
+
+### The client half
+
+`js/sync/transport.js` grew one method, `callPublic`, and it is deliberately a
+separate method rather than a flag on `call`: a flag can be passed by accident,
+and an ordinary action sent without a token would be a client inviting the
+server to be wrong about which ones are safe. It refuses anything not in
+`PUBLIC_ACTIONS` — the same two names the server has in `otpPublicActions()`,
+listed in both places on purpose, with a test asserting the client's list.
+
+`js/domain/otp.js` is the flow as a pure reducer, so every step including every
+refusal is testable without a network or a DOM. Two behaviours in it are there
+because of how sign-ins fail in practice:
+
+- **A wrong code does not send you back to the start.** Doing so would throw
+  away a code that is still valid and charge the rate limit for another, which
+  is the failure that makes people give up.
+- **The person comes from the server's answer, never from the address on
+  screen.** A screen that filled it in from what it already had would be
+  trusting itself about the one fact the exchange exists to establish.
+
+`WHAT_IT_DOES_NOT_DO` names the three sentences a sign-in screen must show, in
+the catalogue, rather than leaving each screen to write something shorter and
+warmer that implies a code is protecting something. A test asserts all three
+exist and that one of them says plainly that it unlocks nothing.
+
+**2 of 2 mutations caught**: a failure dropping back to the address step, and a
+person invented from the address instead of read from the answer.
