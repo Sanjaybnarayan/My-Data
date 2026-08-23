@@ -1438,3 +1438,188 @@ a.wallet-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 
 
 .dash-avatars > * { margin-inline-start: -8px; box-shadow: 0 0 0 2px var(--surface-raised); }
 .dash-avatars > *:first-child { margin-inline-start: 0; }
+
+/* ------------------------------------------------------------- the thread */
+
+/*
+ * A conversation, as bubbles.
+ *
+ * The pattern — mine on the right, theirs on the left, a tail-less rounded
+ * rectangle, a time under each — is the common one for a reason: the side
+ * carries the sender without repeating a name on every line. It is drawn here
+ * from this application's own tokens, not copied from any messenger: no
+ * proprietary shape, palette or asset is reproduced.
+ */
+.thread { overflow: hidden; }
+
+.thread-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  /* Tall enough to read, bounded so the composer stays on screen. */
+  max-height: min(60dvh, 34rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface-sunken);
+}
+
+.thread-empty { padding: var(--space-5); }
+
+.bubble-row { display: flex; }
+.bubble-row--mine { justify-content: flex-end; }
+.bubble-row--theirs { justify-content: flex-start; }
+
+.bubble {
+  max-width: min(78%, 32rem);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Mine is tinted and its corner is squared off on the side it sits against.
+ * Two signals rather than one: somebody who cannot separate the two tints
+ * still has the side and the corner.
+ */
+.bubble-row--mine .bubble {
+  background: var(--accent-subtle);
+  border-color: transparent;
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.bubble-row--theirs .bubble { border-bottom-left-radius: var(--radius-sm); }
+
+.bubble--quiet { background: transparent; border-style: dashed; }
+
+.bubble-who {
+  margin: 0 0 2px;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--accent-text);
+}
+
+.bubble-text { margin: 0; white-space: pre-wrap; }
+.bubble-size { margin: 0; font-size: var(--font-caption); color: var(--text-faint); }
+
+.bubble-meta {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-caption);
+  color: var(--text-faint);
+  text-align: right;
+}
+
+.bubble-file { display: flex; align-items: center; gap: var(--space-3); }
+
+/* ------------------------------------------------- chat theme and swatches */
+
+/*
+ * The tint on a sent bubble, chosen on the chat settings screen.
+ *
+ * Each option is an existing role token, so the pair of colours has already
+ * been contrast-measured in both themes and the browser sweep re-measures it
+ * every run. A free colour picker would let somebody pick a tint their own
+ * messages become unreadable on.
+ */
+[data-bubble='secondary'] .bubble-row--mine .bubble { background: var(--secondary-subtle); }
+[data-bubble='positive'] .bubble-row--mine .bubble { background: var(--positive-subtle); }
+[data-bubble='info'] .bubble-row--mine .bubble { background: var(--info-subtle); }
+
+[data-bubble='secondary'] .bubble-row--mine .bubble-who { color: var(--secondary-text); }
+[data-bubble='positive'] .bubble-row--mine .bubble-who { color: var(--positive-text); }
+[data-bubble='info'] .bubble-row--mine .bubble-who { color: var(--info-text); }
+
+.bubble-swatch {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border: 2px solid;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-size: var(--font-label);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Chosen is a ring and a tick's worth of weight, not only a colour — on a row
+   of colour swatches, colour is the one signal that cannot carry the state. */
+.bubble-swatch--on { box-shadow: 0 0 0 3px var(--surface-raised), 0 0 0 5px var(--text); }
+.bubble-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.bubble-swatch-name { pointer-events: none; }
+
+/* The conversation-management list, folded away under the threads. */
+.chat-manage { margin: var(--space-4) 0; }
+.chat-manage > summary {
+  cursor: pointer;
+  padding: var(--space-3) 0;
+  font-size: var(--font-label);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.chat-manage > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/*
+ * The composer.
+ *
+ * `--composer--blocked` is not a disabled state: the controls are absent
+ * rather than greyed out, because a device with no chat key cannot send and
+ * a greyed Send button says "later" where the truth is "not from here".
+ */
+.composer textarea { margin-bottom: 0; }
+.composer--blocked { border-style: dashed; }
+.composer--blocked p { margin-top: 0; }
+
+/*
+ * Message size, chosen on the chat settings screen.
+ *
+ * Applied as a multiplier on the root rather than a fixed size per step, so
+ * one rule scales the bubble text and the caption under a file together and
+ * they cannot drift apart. The multipliers are the three the browser suite
+ * sweeps for overflow and tap targets — which is why this is three steps and
+ * not a slider.
+ */
+[data-chat-size='large']   { --chat-scale: 1.15; }
+[data-chat-size='largest'] { --chat-scale: 1.3; }
+
+.bubble-text { font-size: calc(var(--font-body) * var(--chat-scale, 1)); }
+.bubble-size,
+.bubble-meta { font-size: calc(var(--font-caption) * var(--chat-scale, 1)); }
+
+/* A device on the linked-devices list, with its own controls under it. */
+.device-block { border-bottom: 1px solid var(--border); }
+.device-block:last-child { border-bottom: 0; }
+.device-block .list-item { border-bottom: 0; }
+.device-actions {
+  padding: 0 var(--space-4) var(--space-3);
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/*
+ * The safety number, in a font where 0 and O are different shapes.
+ *
+ * Two people read this aloud to each other. A proportional face that renders
+ * 1 and l identically turns a mismatch into a shrug, which is the one outcome
+ * the comparison exists to rule out.
+ */
+.safety-number {
+  padding: 0 var(--space-4) var(--space-3);
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.08em;
+  word-break: break-all;
+  color: var(--text-muted);
+}
+
+/*
+ * Withdrawing my own message.
+ *
+ * Inside the bubble rather than floating beside it, because a control that
+ * deletes something should be unambiguous about which something. It inherits
+ * the button sizing, so it clears the 44px minimum like every other control.
+ */
+.bubble-withdraw { margin-top: var(--space-2); width: 100%; }

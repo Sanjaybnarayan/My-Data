@@ -360,6 +360,102 @@ export class ChatService extends Service {
    * be the worst of both: the message reads as withdrawn while the photograph
    * is still on the device, and nothing on any screen would say so.
    */
+  /**
+   * Every conversation with the last thing said in it.
+   *
+   * One pass over the messages rather than one read per conversation. The last
+   * line is decrypted like any other, so a conversation this device cannot
+   * open shows the same honest reason a message in it would — not a blank row
+   * that looks like an empty conversation.
+   *
+   * There is no unread count, and there cannot be one: `message.readBy` is
+   * declared in the schema and written by nothing in this application. A count
+   * would be read off a field that has never held a value.
+   */
+  async threads({ escrow = null } = {}) {
+    const [conversations, rows] = await Promise.all([
+      this.repo('conversation').list({ limit: 500 }),
+      this.repo('message').list({ limit: 2000 }),
+    ]);
+
+    const identity = await this.identity();
+    const deviceId = this.db.deviceId;
+
+    const latest = new Map();
+    for (const row of rows) {
+      if (row.deletedAt) continue;
+      const held = latest.get(row.conversation);
+      if (!held || String(row.sentAt) > String(held.sentAt)) latest.set(row.conversation, row);
+    }
+
+    const out = [];
+    for (const conversation of conversations) {
+      if (conversation.deletedAt) continue;
+      const row = latest.get(conversation.id);
+      out.push({
+        conversation,
+        last: row ? await this.#openRow(row, identity, deviceId, escrow) : null,
+        at: row?.sentAt ?? null,
+      });
+    }
+
+    // Most recently spoken in first; conversations with nothing said sink to
+    // the bottom rather than being hidden — an empty one is still a place to
+    // start talking.
+    return out.sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')));
+  }
+
+  /**
+   * Everything the chat settings screen needs, in one call.
+   *
+   * The screen was reading `person` itself to turn a device's owner id into a
+   * name, which is the UI→database edge the architecture budget exists to
+   * close. Joining a device to the person who owns it is a cross-entity
+   * question, and this is the layer for those.
+   */
+  async settingsView() {
+    const [identity, devices, people, usage] = await Promise.all([
+      this.identity(),
+      this.devices(),
+      this.repo('person').list({ limit: 200 }),
+      this.storage(),
+    ]);
+
+    const names = new Map(people.map((one) => [one.id, one.name]));
+    return {
+      identity,
+      devices,
+      usage,
+      nameOf: (id) => names.get(id) ?? null,
+    };
+  }
+
+  /**
+   * What this device is actually holding, for the storage card.
+   *
+   * Counted, not estimated. `withdrawn` is separated from `messages` because
+   * the two are genuinely different: a withdrawn message still occupies a row
+   * — the row is how every device learns it was withdrawn — and a storage
+   * screen that folded the two together would be telling somebody who deleted
+   * a message that the space came back when it did not.
+   */
+  async storage() {
+    const [conversations, messages, attachments] = await Promise.all([
+      this.repo('conversation').list({ limit: 500, decrypt: false }),
+      this.repo('message').list({ limit: 5000, decrypt: false }),
+      this.db.attachmentUsage(),
+    ]);
+
+    const withdrawn = messages.filter((one) => one.deletedForEveryone).length;
+    return {
+      conversations: conversations.filter((one) => !one.deletedAt).length,
+      messages: messages.length - withdrawn,
+      withdrawn,
+      attachments: attachments.count,
+      bytes: attachments.bytes,
+    };
+  }
+
   async withdraw(messageId) {
     for (const attachment of await this.db.attachmentsFor(messageId)) {
       await this.db.removeAttachment(attachment.id);

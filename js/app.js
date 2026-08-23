@@ -168,6 +168,15 @@ async function start(db, limiter, googleSession = null) {
     currency: config().currency,
   });
 
+  // The chat bubble tint and message size, applied to the root the same way
+  // the theme is, so a conversation opened straight from a link is already in
+  // the right colour and the right size rather than repainting once the chat
+  // module loads. Somebody who set the largest size did so because the normal
+  // one is hard to read; showing it to them for half a second is the failure
+  // the setting exists to prevent.
+  const { applyChatPreferences } = await import('./modules/chat-settings.js');
+  applyChatPreferences();
+
   replace(root(), shell.root);
   registerRoutes(shell.router);
   await shell.router.start();
