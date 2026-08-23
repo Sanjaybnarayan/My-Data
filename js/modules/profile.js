@@ -35,6 +35,7 @@ import { app } from '../context.js';
 import { IdentityService } from '../services/identity.js';
 import { describeCompletion } from '../domain/profile.js';
 import { visibleModules } from '../security/rbac.js';
+import { PRIMARY } from '../ui/shell.js';
 import { modules } from '../data/schema.js';
 import { moduleLabel } from '../core/labels.js';
 import { t } from '../core/locale.js';
@@ -45,6 +46,21 @@ import { t } from '../core/locale.js';
  * Every destination is an existing route. This screen adds no capability; it
  * gathers what was previously reachable only through a drawer of twenty-three
  * entries, which is the thing the design brief is actually complaining about.
+ *
+ * ## The order is a judgement; the completeness is not
+ *
+ * These four groups are editorial — *yours*, *what you own*, *your life*,
+ * *what is on record* is a decision about how a household thinks, and no
+ * derivation produces it. But a list of twenty module ids beside a schema that
+ * declares twenty-five is the fault this repository has now found eleven
+ * times, and here it would be a module nobody could reach: the brief allows no
+ * sixth tab, so a module that is neither primary nor named below is reachable
+ * only by typing its URL.
+ *
+ * So `grouped()` derives the last group. Anything in the schema that is not
+ * one of the five tabs and not named above falls into *everything else* —
+ * unsorted and unloved, but present, and visibly wanting a home rather than
+ * silently gone.
  */
 const GROUPS = Object.freeze([
   { title: 'profile.group.you', items: ['identity', 'family', 'documents', 'vault'] },
@@ -55,6 +71,24 @@ const GROUPS = Object.freeze([
   { title: 'profile.group.life', items: ['health', 'education', 'travel', 'calendar', 'tasks', 'notes'] },
   { title: 'profile.group.records', items: ['safety', 'emergency', 'digital', 'reports'] },
 ]);
+
+/** Reached from Profile some other way than a group row. */
+const ELSEWHERE = Object.freeze(['settings']);
+
+/**
+ * The four groups, plus whatever the schema has that none of them claims.
+ *
+ * @param {readonly {id: string}[]} schema every module the application declares
+ * @param {readonly string[]} primary the bottom-tab ids
+ */
+export function grouped(schema = modules, primary = PRIMARY) {
+  const claimed = new Set([...GROUPS.flatMap((one) => one.items), ...primary, ...ELSEWHERE]);
+  const rest = schema.map((one) => one.id).filter((id) => !claimed.has(id));
+
+  return rest.length
+    ? [...GROUPS, { title: 'profile.group.rest', items: rest }]
+    : [...GROUPS];
+}
 
 export async function render() {
   const host = h('div', {});
@@ -74,7 +108,7 @@ export async function render() {
     pageHeader(t('profile.title'), { subtitle: t('profile.subtitle') }),
     headerCard(actor, mine),
     householdCard(family, people.length),
-    ...GROUPS.map((group) => groupCard(group, allowed)),
+    ...grouped().map((group) => groupCard(group, allowed)),
     settingsCard(allowed),
   ]);
 

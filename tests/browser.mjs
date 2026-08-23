@@ -4033,6 +4033,40 @@ async function main() {
           body.slice(0, 90));
       }
 
+      /*
+       * And every other module has a link on Profile, in the DOM.
+       *
+       * The unit test proves the list; this proves the links. A group card
+       * returning null, a role filter, or a route helper producing the wrong
+       * href would all leave the list correct and the screen a dead end — and
+       * with five tabs and no sixth, a module missing here is one somebody can
+       * only reach by typing its URL.
+       */
+      await go(page, '#/profile');
+      await page.waitForTimeout(600);
+
+      // An array, not a Set. `page.evaluate` serialises its result as JSON, so
+      // a Set arrives as `{}` — and `linked.has` is not a function.
+      const linked = new Set(await page.evaluate(() => [...new Set(
+        [...document.querySelectorAll('.app-content a[href^="#/"]')]
+          .map((a) => (/** @type {any} */ (a).getAttribute('href') ?? '')
+            .replace(/^#\//, '').split('/')[0])
+          .filter(Boolean),
+      )]));
+
+      const stranded = SCHEMA_MODULES
+        .map((one) => one.id)
+        .filter((id) => !linked.has(id)
+          && !['dashboard', 'notifications', 'chat', 'finance', 'profile'].includes(id));
+
+      check('every module not on the bar is linked from Profile',
+        stranded.length === 0, `unreachable: ${stranded.join(', ')}`);
+
+      // The control: if nothing were linked at all the line above would pass
+      // for the wrong reason, because every module would look primary.
+      check('and Profile really is a page full of links', linked.size >= 15,
+        `${linked.size} distinct modules linked`);
+
       // The tab for the screen you are on is the one marked current.
       await go(page, '#/notifications');
       await page.waitForTimeout(300);

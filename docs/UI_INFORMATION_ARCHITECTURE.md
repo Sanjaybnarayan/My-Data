@@ -102,3 +102,61 @@ Not an admin dashboard. The unit of the interface is a **card about one thing a
 household owns or owes**, not a row in a table of everything. Tables exist for
 the cases where comparison across many rows is the actual task — a statement, a
 ledger — and not as the default rendering of a list.
+
+## UI-8: five tabs, no sixth, and nowhere for a module to hide
+
+The brief allows exactly five bottom tabs and says everything else is reached
+through them. In practice that makes Profile the only door to twenty modules,
+and the door was a hand-written list.
+
+### The eleventh time
+
+`GROUPS` named twenty module ids beside a schema declaring twenty-five. All
+twenty-five happened to be reachable — the five missing from `GROUPS` are the
+five tabs — so nothing was broken. What was missing was anything that would
+*keep* it true. Add a module to the schema tomorrow, forget this file, and it
+is reachable only by typing its URL: no tab, no group row, no search result
+that names a screen rather than a record.
+
+This is the same fault as the hand-written module walk in the browser suite,
+the dashboard's entity array, and the eight before them. The pattern is always
+a maintained list beside a derivable one, and the cost is always something
+silently absent.
+
+### The order is a judgement; the completeness is not
+
+The four groups stay hand-written, because *yours*, *what you own*, *your life*
+and *what is on record* is a decision about how a household thinks and no
+derivation produces it. But `grouped()` now derives the last group: anything in
+the schema that is neither a bottom tab nor named in a group falls into
+**Everything else** — unsorted and unloved, but present, and visibly wanting a
+home rather than quietly gone.
+
+`PRIMARY` moved from a module-private constant in `js/ui/shell.js` to an
+export, so the five tabs are one list rather than two that agree today.
+
+### Three checks, at two levels
+
+- **The list.** Every module in the schema is reachable from `grouped()`,
+  `PRIMARY` or Settings.
+- **The mechanism**, against a fabricated schema rather than the real one. With
+  every module currently claimed there is no catch-all group at all, so
+  asserting on real data would pass whether the derivation worked or not.
+- **The links**, in a browser. The unit test proves the list; only the DOM
+  proves the anchors. A group card returning `null`, a role filter, or a wrong
+  `Router.href` would each leave the list correct and the screen a dead end.
+
+The browser check carries its own control — Profile must link at least fifteen
+distinct modules — because a screen that rendered no links at all would make
+every module look primary and pass for the wrong reason.
+
+**523 browser checks pass, 2527 unit tests. 2 of 2 mutations caught**: removing
+the catch-all fails the mechanism test, and removing it *and* dropping `vault`
+from a group fails all three — the browser reporting `unreachable: vault`.
+
+### What this does not do
+
+It does not decide that "Everything else" is a good place for a module to live.
+It guarantees a module is reachable, not that anybody thought about where it
+belongs — and a group appearing on that screen is the signal that somebody
+should.

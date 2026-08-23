@@ -231,6 +231,7 @@ export const strings = {
   'profile.group.owned': 'What you own and owe',
   'profile.group.life': 'Life',
   'profile.group.records': 'Safety and records',
+  'profile.group.rest': 'Everything else',
   'profile.settings': 'Settings',
   'profile.settingsHint': 'Security, privacy, connections, display, data',
 
