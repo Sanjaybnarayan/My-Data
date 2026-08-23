@@ -16,72 +16,68 @@
 
 :root {
   /* ------------------------------------------------------------- palette */
-  --blue-50:  #eaf2fe;
-  --blue-100: #d0e2fd;
-  --blue-300: #7cb0f7;
-  --blue-500: #1a73e8;
-  --blue-600: #1660c9;
-  --blue-700: #114ea3;
-  --blue-900: #0a2f63;
-
-  --teal-500: #00897b;
-  --teal-600: #00695c;
-
-  --green-50:  #e7f6ec;
-  --green-500: #1e8e3e;
-  --green-600: #17772f;
-
-  --amber-50:  #fef5e2;
-  --amber-500: #f29900;
-  --amber-600: #cc8100;
+  --blue-50:          #eaf2fe;
+  --blue-100:         #d0e2fd;
+  --blue-300:         #7cb0f7;
+  --blue-500:         #1a73e8;
+  --blue-600:         #1660c9;
+  --blue-700:         #114ea3;
+  --blue-900:         #0a2f63;
+  --teal-500:         #00897b;
+  --teal-600:         #00695c;
+  --green-50:         #e7f6ec;
+  --green-500:        #1e8e3e;
+  --green-600:        #17772f;
+  --amber-50:         #fef5e2;
+  --amber-500:        #f29900;
+  --amber-600:        #cc8100;
   /* Amber is the hue that cannot be read at its own mid-tone: `--amber-600` on
      `--amber-50` measures 2.89:1. This step exists so a warning badge can say
      "warning" in a colour somebody can read — 5.63:1 on the same ground. */
-  --amber-800: #8a5700;
-
-  --red-50:  #fdecea;
-  --red-500: #d93025;
-  --red-600: #b3261e;
-
-  --purple-500: #7b4fd8;
-  --pink-500:   #d81b60;
-
-  --grey-0:   #ffffff;
-  --grey-25:  #fbfbfc;
-  --grey-50:  #f4f5f7;
-  --grey-100: #e9ebef;
-  --grey-200: #dcdfe4;
-  --grey-300: #c3c8d0;
-  --grey-400: #9aa1ad;
+  --amber-800:        #8a5700;
+  --red-50:           #fdecea;
+  --red-500:          #d93025;
+  --red-600:          #b3261e;
+  --purple-500:       #7b4fd8;
+  --pink-500:         #d81b60;
+  --grey-0:           #ffffff;
+  --grey-25:          #fbfbfc;
+  --grey-50:          #f4f5f7;
+  --grey-100:         #e9ebef;
+  --grey-200:         #dcdfe4;
+  --grey-300:         #c3c8d0;
+  --grey-400:         #9aa1ad;
   /* Between 400 and 500, and it exists for one reason: `--text-faint` needs to
      be lighter than `--text-muted` and still readable on a dark surface. */
-  --grey-450: #8f97a3;
-  --grey-500: #737b88;
+  --grey-450:         #8f97a3;
+  --grey-500:         #737b88;
   /* Likewise between 500 and 600, for faint text on a light surface. */
-  --grey-550: #68707d;
-  --grey-600: #565e6b;
-  --grey-700: #3d444f;
-  --grey-800: #272c34;
-  --grey-850: #1e222a;
-  --grey-900: #15181e;
-  --grey-950: #0e1014;
+  --grey-550:         #68707d;
+  --grey-600:         #565e6b;
+  --grey-700:         #3d444f;
+  --grey-800:         #272c34;
+  --grey-850:         #1e222a;
+  --grey-900:         #15181e;
+  --grey-950:         #0e1014;
 
   /* -------------------------------------------------------------- roles */
-  --surface:        var(--grey-25);
-  --surface-raised: var(--grey-0);
-  --surface-sunken: var(--grey-50);
-  --surface-hover:  var(--grey-50);
-  --surface-active: var(--grey-100);
-  --overlay:        rgb(15 18 24 / 45%);
+  --surface:          var(--grey-25);
+  --surface-raised:   var(--grey-0);
+  /* A card that sits *on* a card — a wallet card in a carousel, a bottom
+     sheet over the page. Light mode raises by shadow, dark mode by lightness,
+     which is why this is a role and not a shadow value. */
+  --surface-elevated: var(--grey-0);
+  --surface-sunken:   var(--grey-50);
+  --surface-hover:    var(--grey-50);
+  --surface-active:   var(--grey-100);
+  --overlay:          rgb(15 18 24 / 45%);
   /* A hover tint for controls that sit on a dark ground whatever the theme —
      the toast, which is grey-700, red-600 or green-600 in both. */
-  --tint-on-dark:   rgb(255 255 255 / 14%);
-
-  --border:        var(--grey-200);
-  --border-strong: var(--grey-300);
-
-  --text:          var(--grey-900);
-  --text-muted:    var(--grey-600);
+  --tint-on-dark:     rgb(255 255 255 / 14%);
+  --border:           var(--grey-200);
+  --border-strong:    var(--grey-300);
+  --text:             var(--grey-900);
+  --text-muted:       var(--grey-600);
   /*
    * Faint, not unreadable. This was `--grey-500`, which measures 4.27:1 on
    * white and 3.91:1 on `--surface-sunken` — under the 4.5:1 this file claims
@@ -93,14 +89,13 @@
    * readable wins. For a distinction beyond this, use size or weight rather
    * than less contrast.
    */
-  --text-faint:    var(--grey-550);
-  --text-inverse:  var(--grey-0);
-
-  --accent:          var(--blue-500);
-  --accent-hover:    var(--blue-600);
-  --accent-text:     var(--blue-700);
-  --accent-subtle:   var(--blue-50);
-  --accent-contrast: #ffffff;
+  --text-faint:       var(--grey-550);
+  --text-inverse:     var(--grey-0);
+  --accent:           var(--blue-500);
+  --accent-hover:     var(--blue-600);
+  --accent-text:      var(--blue-700);
+  --accent-subtle:    var(--blue-50);
+  --accent-contrast:  #ffffff;
 
   /*
    * Each status has three roles, and the third one matters.
@@ -113,129 +108,163 @@
    * so a warning badge painted `--warning` on `--warning-subtle` and measured
    * 2.89:1. The rule is now uniform: on a `-subtle` ground, use `-text`.
    */
-  --positive:        var(--green-600);
-  --positive-subtle: var(--green-50);
-  --positive-text:   var(--green-600);
-  --warning:         var(--amber-600);
-  --warning-subtle:  var(--amber-50);
-  --warning-text:    var(--amber-800);
-  --danger:          var(--red-600);
-  --danger-subtle:   var(--red-50);
-  --danger-text:     var(--red-600);
+  /* Teal, the second brand hue. Used where a second accent is genuinely
+     needed — never as a decorative alternative to `--accent`. */
+  --secondary:        var(--teal-600);
+  --secondary-subtle: #e0f2f0;
+  --secondary-text:   var(--teal-600);
+
+  /* Neutral information. Distinct from `--accent`, which means "the thing you
+     can act on", and from `--warning`, which means "something is wrong". */
+  --info:             var(--blue-700);
+  --info-subtle:      var(--blue-50);
+  --info-text:        var(--blue-700);
+  --positive:         var(--green-600);
+  --positive-subtle:  var(--green-50);
+  --positive-text:    var(--green-600);
+  --warning:          var(--amber-600);
+  --warning-subtle:   var(--amber-50);
+  --warning-text:     var(--amber-800);
+  --danger:           var(--red-600);
+  --danger-subtle:    var(--red-50);
+  --danger-text:      var(--red-600);
 
   /* Category colours for charts. Chosen to stay distinguishable for the
      most common colour vision deficiencies — no red/green adjacency. */
-  --series-1: #1a73e8;
-  --series-2: #f29900;
-  --series-3: #00897b;
-  --series-4: #7b4fd8;
-  --series-5: #d81b60;
-  --series-6: #5f6368;
-  --series-7: #0b8043;
-  --series-8: #b06000;
+  --series-1:         #1a73e8;
+  --series-2:         #f29900;
+  --series-3:         #00897b;
+  --series-4:         #7b4fd8;
+  --series-5:         #d81b60;
+  --series-6:         #5f6368;
+  --series-7:         #0b8043;
+  --series-8:         #b06000;
 
   /* ------------------------------------------------------------ spacing */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.5rem;
-  --space-6: 2rem;
-  --space-7: 3rem;
+  --space-1:          0.25rem;
+  --space-2:          0.5rem;
+  --space-3:          0.75rem;
+  --space-4:          1rem;
+  --space-5:          1.5rem;
+  --space-6:          2rem;
+  --space-7:          3rem;
+  --space-8:          4rem;
+  --space-10:         5rem;
+  --space-12:         6rem;
 
   /* ------------------------------------------------------------- shapes */
-  --radius-sm: 8px;
-  --radius:    14px;
-  --radius-lg: 22px;
-  --radius-pill: 999px;
+  --radius-sm:        8px;
+  --radius:           14px;
+  --radius-lg:        22px;
+  --radius-xl:        28px;
+  --radius-pill:      999px;
 
-  --shadow-1: 0 1px 2px rgb(15 18 24 / 8%), 0 1px 3px rgb(15 18 24 / 6%);
-  --shadow-2: 0 2px 6px rgb(15 18 24 / 10%), 0 6px 16px rgb(15 18 24 / 8%);
-  --shadow-3: 0 8px 24px rgb(15 18 24 / 14%), 0 16px 48px rgb(15 18 24 / 10%);
+  /* The card radius, named once so a change is one edit rather than sixty.
+     Cards sit in the 18-28px band; a wallet card takes `--radius-xl`. */
+  --radius-card:      var(--radius-lg);
+  --shadow-1:         0 1px 2px rgb(15 18 24 / 8%), 0 1px 3px rgb(15 18 24 / 6%);
+  --shadow-2:         0 2px 6px rgb(15 18 24 / 10%), 0 6px 16px rgb(15 18 24 / 8%);
+  --shadow-3:         0 8px 24px rgb(15 18 24 / 14%), 0 16px 48px rgb(15 18 24 / 10%);
 
   /* --------------------------------------------------------- typography */
   /* System stack: no webfont, so text paints on the first frame and never
      reflows when a font arrives. */
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans',
+  --font:             -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans',
     'Helvetica Neue', Arial, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+  --font-mono:        ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
   /* Tabular figures so a column of amounts lines up on the decimal point. */
-  --font-numeric: var(--font);
+  --font-numeric:     var(--font);
+  --text-xs:          0.75rem;
+  --text-sm:          0.8125rem;
+  --text-md:          0.9375rem;
+  --text-lg:          1.0625rem;
+  --text-xl:          1.375rem;
+  --text-2xl:         1.75rem;
+  --text-3xl:         2.25rem;
 
-  --text-xs: 0.75rem;
-  --text-sm: 0.8125rem;
-  --text-md: 0.9375rem;
-  --text-lg: 1.0625rem;
-  --text-xl: 1.375rem;
-  --text-2xl: 1.75rem;
-  --text-3xl: 2.25rem;
-
-  --leading-tight: 1.25;
-  --leading: 1.55;
+  /*
+   * Semantic sizes, on top of the scale above.
+   *
+   * These are *sizes*, not families — `--font` and `--font-mono` above are the
+   * families, and the names sit close together on purpose so this is said
+   * plainly rather than discovered. A screen should reach for the role it
+   * means (`--font-display` for a net-worth figure) rather than a step number,
+   * so that retuning the scale is one edit here.
+   */
+  --font-display:     var(--text-3xl);
+  --font-headline:    var(--text-2xl);
+  --font-title:       var(--text-lg);
+  --font-body:        var(--text-md);
+  --font-label:       var(--text-sm);
+  --font-caption:     var(--text-xs);
+  --leading-tight:    1.25;
+  --leading:          1.55;
 
   /* ----------------------------------------------------------- movement */
-  --ease: cubic-bezier(0.2, 0, 0, 1);
-  --ease-out: cubic-bezier(0.05, 0.7, 0.1, 1);
-  --duration-fast: 120ms;
-  --duration: 220ms;
-  --duration-slow: 380ms;
+  --ease:             cubic-bezier(0.2, 0, 0, 1);
+  --ease-out:         cubic-bezier(0.05, 0.7, 0.1, 1);
+  --duration-fast:    120ms;
+  --duration:         220ms;
+  --duration-slow:    380ms;
 
   /* ------------------------------------------------------------ layout */
-  --nav-width: 260px;
+  --nav-width:        260px;
   --nav-width-compact: 76px;
-  --header-height: 60px;
+  --header-height:    60px;
   --bottom-nav-height: 64px;
-  --content-max: 1180px;
+  --content-max:      1180px;
 
   color-scheme: light;
 }
 
 [data-theme='dark'] {
-  --surface:        var(--grey-950);
-  --surface-raised: var(--grey-850);
-  --surface-sunken: var(--grey-900);
-  --surface-hover:  var(--grey-800);
-  --surface-active: var(--grey-700);
-  --overlay:        rgb(0 0 0 / 65%);
-
-  --border:        var(--grey-800);
-  --border-strong: var(--grey-700);
-
-  --text:         var(--grey-50);
-  --text-muted:   var(--grey-400);
+  --surface:          var(--grey-950);
+  --surface-raised:   var(--grey-850);
+  --surface-elevated: var(--grey-800);
+  --surface-sunken:   var(--grey-900);
+  --surface-hover:    var(--grey-800);
+  --surface-active:   var(--grey-700);
+  --overlay:          rgb(0 0 0 / 65%);
+  --border:           var(--grey-800);
+  --border-strong:    var(--grey-700);
+  --text:             var(--grey-50);
+  --text-muted:       var(--grey-400);
   /* Was `--grey-500`: 3.73:1 on `--surface-raised`. See the light block. */
-  --text-faint:   var(--grey-450);
-  --text-inverse: var(--grey-950);
-
-  --accent:          var(--blue-300);
-  --accent-hover:    #9cc4f9;
-  --accent-text:     var(--blue-300);
-  --accent-subtle:   rgb(124 176 247 / 14%);
-  --accent-contrast: var(--grey-950);
-
-  --positive:        #67d68b;
-  --positive-subtle: rgb(103 214 139 / 14%);
-  --positive-text: #67d68b;
-  --warning:         #f5bd54;
-  --warning-subtle:  rgb(245 189 84 / 14%);
-  --warning-text:  #f5bd54;
-  --danger:          #f2857c;
-  --danger-subtle:   rgb(242 133 124 / 14%);
-  --danger-text:   #f2857c;
-
-  --series-1: #7cb0f7;
-  --series-2: #f5bd54;
-  --series-3: #4fd0bf;
-  --series-4: #b79bf0;
-  --series-5: #f47ba7;
-  --series-6: #a9b0bb;
-  --series-7: #67d68b;
-  --series-8: #e0a35c;
+  --text-faint:       var(--grey-450);
+  --text-inverse:     var(--grey-950);
+  --accent:           var(--blue-300);
+  --accent-hover:     #9cc4f9;
+  --accent-text:      var(--blue-300);
+  --accent-subtle:    rgb(124 176 247 / 14%);
+  --accent-contrast:  var(--grey-950);
+  --secondary:        #4fd0bf;
+  --secondary-subtle: rgb(79 208 191 / 14%);
+  --secondary-text:   #4fd0bf;
+  --info:             #7cb0f7;
+  --info-subtle:      rgb(124 176 247 / 14%);
+  --info-text:        #7cb0f7;
+  --positive:         #67d68b;
+  --positive-subtle:  rgb(103 214 139 / 14%);
+  --positive-text:    #67d68b;
+  --warning:          #f5bd54;
+  --warning-subtle:   rgb(245 189 84 / 14%);
+  --warning-text:     #f5bd54;
+  --danger:           #f2857c;
+  --danger-subtle:    rgb(242 133 124 / 14%);
+  --danger-text:      #f2857c;
+  --series-1:         #7cb0f7;
+  --series-2:         #f5bd54;
+  --series-3:         #4fd0bf;
+  --series-4:         #b79bf0;
+  --series-5:         #f47ba7;
+  --series-6:         #a9b0bb;
+  --series-7:         #67d68b;
+  --series-8:         #e0a35c;
 
   /* Shadows barely read on a dark ground; the border does the separating. */
-  --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
-  --shadow-2: 0 4px 12px rgb(0 0 0 / 45%);
-  --shadow-3: 0 12px 32px rgb(0 0 0 / 55%);
+  --shadow-1:         0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-2:         0 4px 12px rgb(0 0 0 / 45%);
+  --shadow-3:         0 12px 32px rgb(0 0 0 / 55%);
 
   color-scheme: dark;
 }
@@ -245,42 +274,49 @@
   :root:not([data-theme='light']) {
     --surface:        var(--grey-950);
     --surface-raised: var(--grey-850);
+    --surface-elevated: var(--grey-800);
     --surface-sunken: var(--grey-900);
     --surface-hover:  var(--grey-800);
     --surface-active: var(--grey-700);
     --overlay:        rgb(0 0 0 / 65%);
-    --border:        var(--grey-800);
-    --border-strong: var(--grey-700);
-    --text:         var(--grey-50);
-    --text-muted:   var(--grey-400);
+    --border:         var(--grey-800);
+    --border-strong:  var(--grey-700);
+    --text:           var(--grey-50);
+    --text-muted:     var(--grey-400);
     /* Was `--grey-500`: 3.73:1 on `--surface-raised`. See the light block. */
-    --text-faint:   var(--grey-450);
-    --text-inverse: var(--grey-950);
-    --accent:          var(--blue-300);
-    --accent-hover:    #9cc4f9;
-    --accent-text:     var(--blue-300);
-    --accent-subtle:   rgb(124 176 247 / 14%);
+    --text-faint:     var(--grey-450);
+    --text-inverse:   var(--grey-950);
+    --accent:         var(--blue-300);
+    --accent-hover:   #9cc4f9;
+    --accent-text:    var(--blue-300);
+    --accent-subtle:  rgb(124 176 247 / 14%);
     --accent-contrast: var(--grey-950);
-    --positive:        #67d68b;
+    --secondary:      #4fd0bf;
+    --secondary-subtle: rgb(79 208 191 / 14%);
+    --secondary-text: #4fd0bf;
+    --info:           #7cb0f7;
+    --info-subtle:    rgb(124 176 247 / 14%);
+    --info-text:      #7cb0f7;
+    --positive:       #67d68b;
     --positive-subtle: rgb(103 214 139 / 14%);
-    --positive-text: #67d68b;
-    --warning:         #f5bd54;
-    --warning-subtle:  rgb(245 189 84 / 14%);
-    --warning-text:  #f5bd54;
-    --danger:          #f2857c;
-    --danger-subtle:   rgb(242 133 124 / 14%);
-    --danger-text:   #f2857c;
-    --series-1: #7cb0f7;
-    --series-2: #f5bd54;
-    --series-3: #4fd0bf;
-    --series-4: #b79bf0;
-    --series-5: #f47ba7;
-    --series-6: #a9b0bb;
-    --series-7: #67d68b;
-    --series-8: #e0a35c;
-    --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
-    --shadow-2: 0 4px 12px rgb(0 0 0 / 45%);
-    --shadow-3: 0 12px 32px rgb(0 0 0 / 55%);
+    --positive-text:  #67d68b;
+    --warning:        #f5bd54;
+    --warning-subtle: rgb(245 189 84 / 14%);
+    --warning-text:   #f5bd54;
+    --danger:         #f2857c;
+    --danger-subtle:  rgb(242 133 124 / 14%);
+    --danger-text:    #f2857c;
+    --series-1:       #7cb0f7;
+    --series-2:       #f5bd54;
+    --series-3:       #4fd0bf;
+    --series-4:       #b79bf0;
+    --series-5:       #f47ba7;
+    --series-6:       #a9b0bb;
+    --series-7:       #67d68b;
+    --series-8:       #e0a35c;
+    --shadow-1:       0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-2:       0 4px 12px rgb(0 0 0 / 45%);
+    --shadow-3:       0 12px 32px rgb(0 0 0 / 55%);
     color-scheme: dark;
   }
 }
@@ -289,9 +325,9 @@
    none, because vestibular triggers are not a matter of degree. */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --duration-fast: 0.01ms;
-    --duration: 0.01ms;
-    --duration-slow: 0.01ms;
+    --duration-fast:  0.01ms;
+    --duration:       0.01ms;
+    --duration-slow:  0.01ms;
   }
 }
 
@@ -299,9 +335,9 @@
    fighting it makes the app unreadable for the people who need it most. */
 @media (forced-colors: active) {
   :root {
-    --border: CanvasText;
-    --shadow-1: none;
-    --shadow-2: none;
-    --shadow-3: none;
+    --border:         CanvasText;
+    --shadow-1:       none;
+    --shadow-2:       none;
+    --shadow-3:       none;
   }
 }

@@ -1,8 +1,12 @@
 # Design System
 
-The whole system is **108 custom properties** defined in `css/tokens.css` — 189
-declarations once the two dark-mode blocks redefine what they change — and the
-rule that nothing outside that file may write a colour. Everything below describes what
+The whole system is the custom properties in `css/tokens.css` and the rule that
+nothing outside that file may write a colour.
+
+`tests/tokens.test.mjs` asserts the vocabulary below exists, that every token is
+defined in `:root`, and that the two dark-mode blocks redefine **exactly** the
+same set — a token changed in one and not the other is a bug that appears for
+half the users and is invisible to whoever made it. Everything below describes what
 those properties are for and which decisions they have already settled.
 
 ## The one rule
@@ -52,13 +56,13 @@ Counted from the `:root` block, by the comment headings in the file itself:
 | Group | Count | Notes |
 | --- | --- | --- |
 | Palette ramp | 37 | blue, teal, green, amber, red, purple, pink, 15 greys |
-| Roles | 35 | surface, border, text, accent, positive/warning/danger, 8 chart series |
-| Spacing | 7 | `--space-1` … `--space-7`, 4px → 48px |
-| Shapes | 7 | four radii, three shadows |
-| Typography | 12 | system stack, no webfont |
+| Roles | 42 | surfaces, border, text, six statuses × three roles, 8 chart series |
+| Spacing | 10 | `--space-1` … `--space-12`, 4px → 96px |
+| Shapes | 9 | five radii, a named card radius, three shadows |
+| Typography | 18 | two families, the numeric scale, six semantic sizes |
 | Motion | 5 | two easings, three durations |
 | Layout | 5 | nav widths, header height, bottom-nav height, content max |
-| **Total** | **108** | |
+| **Total** | **126** | 221 declarations with the two dark blocks |
 
 The eight chart series sit under Roles because that is where the file puts
 them; they are chosen so no two adjacent colours form a red/green pair.
@@ -116,6 +120,74 @@ Material's tonal approach, which is a published method, not a design. No
 proprietary layout, icon set, or trademarked graphic is reproduced anywhere in
 `css/` or `js/ui/icons.js`; the icons are 24×24 paths drawn for this
 application and stroked with `currentColor`.
+
+## The naming, and one deliberate deviation
+
+The v8.0 brief asked for a token list using names like `--color-primary`,
+`--radius-md` and `--shadow-sm`. **Fifteen of those already existed here under
+different names.** They have not been renamed, and no aliases were added.
+
+Two names for one value is how a token system drifts: the next person has to
+choose between them, nothing says which is canonical, and the two eventually
+disagree. So there is one name per value, and this table is the translation.
+
+| Brief's name | This repository | Why |
+| --- | --- | --- |
+| `--color-primary` | `--accent` | already used in ~60 rules |
+| `--color-secondary` | `--secondary` | **added** — teal, the second hue |
+| `--color-background` | `--surface` | the page ground |
+| `--color-surface` | `--surface-raised` | a card on the page |
+| `--color-surface-elevated` | `--surface-elevated` | **added** — a card on a card |
+| `--color-text-primary` | `--text` | |
+| `--color-text-secondary` | `--text-muted` | `--text-faint` is a third step |
+| `--color-success` | `--positive` | reads correctly on money |
+| `--color-warning` | `--warning` | same name |
+| `--color-error` | `--danger` | |
+| `--color-info` | `--info` | **added** |
+| `--radius-md` | `--radius` | 14px; cards use `--radius-card` |
+| `--radius-xl` | `--radius-xl` | **added** — 28px, wallet cards and sheets |
+| `--shadow-sm/md/lg` | `--shadow-1/2/3` | numbered by elevation, not size |
+| `--font-body` | `--font-body` | **added**, with the five siblings |
+
+**Added because they genuinely did not exist:** `--secondary`, `--info`,
+`--surface-elevated` (each with a `-subtle` ground and a `-text` role),
+`--radius-xl`, `--radius-card`, `--space-8`, `--space-10`, `--space-12`, and
+the six semantic type sizes.
+
+Every new text-on-ground pair was contrast-measured before it shipped:
+
+| Pair | Light | Dark |
+| --- | --- | --- |
+| `--secondary-text` on `--secondary-subtle` | 5.71:1 | 6.33:1 |
+| `--info-text` on `--info-subtle` | 7.05:1 | 5.47:1 |
+
+## Type: sizes, not families
+
+`--font` and `--font-mono` are **families**. `--font-display`, `--font-headline`,
+`--font-title`, `--font-body`, `--font-label` and `--font-caption` are **sizes**,
+mapped onto the numeric scale. The names sit close together, so this is said
+plainly here rather than discovered.
+
+A screen should ask for the role it means — `--font-display` for a net-worth
+figure — rather than a step number, so retuning the scale is one edit.
+
+The stack stays the system UI stack rather than Inter. The brief allows either;
+a system stack paints on the first frame and never reflows when a webfont
+arrives, which on a financial screen means the number never moves after you have
+started reading it.
+
+## Radius
+
+| Token | Value | For |
+| --- | --- | --- |
+| `--radius-sm` | 8px | inputs, small controls |
+| `--radius` | 14px | inline surfaces |
+| `--radius-lg` | 22px | — |
+| `--radius-card` | `--radius-lg` | **every card**, one edit to retune |
+| `--radius-xl` | 28px | wallet cards, bottom sheets |
+| `--radius-pill` | 999px | buttons, chips, badges |
+
+Cards moved from 14px to 22px, inside the 18–28px band the brief asks for.
 
 ## Adding a token
 
