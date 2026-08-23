@@ -25,6 +25,7 @@ import { netWorth } from '../domain/networth.js';
 import * as fin from '../domain/finance.js';
 import { portfolioSummary, allocation } from '../domain/portfolio.js';
 import { allReminders } from '../domain/reminders.js';
+import { datedEntities, BY_NAME } from '../services/attention.js';
 import { TimelineService } from '../services/timeline.js';
 import { entity } from '../data/schema.js';
 import { formatCompact, format } from '../core/money.js';
@@ -79,10 +80,26 @@ export async function render() {
  * Nine widgets each fetching transactions is nine passes over the same store.
  */
 async function loadAll(db) {
-  const names = ['account', 'transaction', 'holding', 'investmentTransaction', 'property',
-    'vehicle', 'loan', 'policy', 'recurringPayment', 'budget', 'task', 'person',
-    'importantDate', 'document', 'subscription', 'healthRecord', 'appointment',
-    'education', 'certificate', 'digitalAsset', 'medication', 'vaccination'];
+  /*
+   * Two lists, and only one of them is written by hand.
+   *
+   * The dated entities are derived — every entity the schema marks with an
+   * `expiry` field — because this array used to name them itself and had
+   * drifted from the schema by four: `identityDocument`, `warranty`,
+   * `vehicleService` and `tenant`. The first of those holds passports, driving
+   * licences and Aadhaar, so the screen a household looks at first had never
+   * once warned that a passport was about to expire, while
+   * `domain/reminders.js` was built precisely to find that and was being
+   * handed no such records to look at.
+   *
+   * What stays hand-written is the entities this screen's own widgets need for
+   * reasons other than a date — balances, transactions, budgets. That list is
+   * about what the widgets show and is legitimately local; the dated one is
+   * about what the schema says, and belongs to the schema.
+   */
+  const WIDGETS_NEED = ['account', 'transaction', 'investmentTransaction',
+    'budget', 'medication'];
+  const names = [...new Set([...datedEntities(), ...BY_NAME, ...WIDGETS_NEED])];
 
   const byEntity = {};
   for (const name of names) {

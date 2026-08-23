@@ -3404,6 +3404,74 @@ async function main() {
         reveal ? `${reveal.kind} is ${reveal.width}\u00d7${reveal.height}` : '');
     }
 
+    /* --------------------------------------------- bottom navigation */
+
+    /*
+     * The five primary destinations, in the order they were specified.
+     *
+     * Read from the rendered bar rather than from `PRIMARY`, because asserting
+     * a constant against itself proves nothing about what a thumb can reach.
+     *
+     * Order matters and was nearly wrong: the bar was built by filtering the
+     * permitted module list, which comes back in *schema* order, so the five
+     * right tabs came out in the wrong sequence — Profile second, Chat fifth.
+     */
+    {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(300);
+
+      const tabs = await page.evaluate(() => [...document.querySelectorAll('.bottom-nav a')]
+        .map((el) => /** @type {any} */ (el))
+        .map((a) => ({
+          module: a.dataset.module,
+          label: a.querySelector('span:not(.nav-badge)')?.textContent?.trim(),
+          width: Math.round(a.getBoundingClientRect().width),
+          height: Math.round(a.getBoundingClientRect().height),
+        })));
+
+      check('the bottom bar carries exactly five tabs', tabs.length === 5,
+        `${tabs.length}: ${tabs.map((one) => one.module).join(', ')}`);
+
+      check('and they are the five specified, in order',
+        tabs.map((one) => one.module).join(',')
+          === 'dashboard,notifications,chat,finance,profile',
+        tabs.map((one) => one.module).join(', '));
+
+      check('every tab is labelled', tabs.every((one) => one.label && one.label.length > 1),
+        JSON.stringify(tabs.map((one) => one.label)));
+
+      check('Settings is no longer a primary tab',
+        !tabs.some((one) => one.module === 'settings'));
+
+      // Five targets across a phone: each must still be reachable by a thumb.
+      const narrowest = Math.min(...tabs.map((one) => Math.min(one.width, one.height)));
+      check('and each tab is still at least 44px', narrowest >= 44,
+        `narrowest tab is ${narrowest}px`);
+
+      // Both new destinations must actually render, not 404 into the fallback.
+      for (const screen of ['notifications', 'profile']) {
+        await go(page, `#/${screen}`);
+        await page.waitForTimeout(500);
+        const body = (await page.locator('.app-content').innerText()).trim();
+        check(`${screen} opens from the bar`, body.length > 40 && !body.includes('[object '),
+          body.slice(0, 90));
+      }
+
+      // The tab for the screen you are on is the one marked current.
+      await go(page, '#/notifications');
+      await page.waitForTimeout(300);
+      const current = await page.evaluate(() => {
+        const active = /** @type {any} */ (
+          document.querySelector('.bottom-nav a[aria-current="page"]'));
+        return active?.dataset.module;
+      });
+      check('the current tab is marked as current', current === 'notifications', String(current));
+
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(250);
+    }
+
     /* ---------------------------------------------------- safe areas */
 
     /*

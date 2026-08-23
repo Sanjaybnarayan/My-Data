@@ -35,6 +35,7 @@
 // up carrying the same category keys as a row read off a bank statement —
 // structurally, rather than by two lists agreeing until one of them changes.
 import { CATEGORIES } from '../domain/categorise.js';
+import { withEntities } from './modules.js';
 
 /** Roles, most privileged first. `rbac.js` reads the order. */
 /**
@@ -1885,45 +1886,8 @@ export const entities = Object.freeze(Object.fromEntries(
   ].map((e) => [e.name, normalise(e)]),
 ));
 
-/**
- * Modules, in navigation order.
- *
- * Each module's entity list is derived from the entities themselves rather
- * than written here a second time. It used to be written twice, and the two
- * copies drifted: `economicEvent`, `staff` and `staffLeave` were declared with
- * a module and appeared in `entitiesOfModule`, but no module here listed them.
- * `visibleModules` in `js/security/rbac.js` reads *this* list to decide which
- * navigation items a role sees, so an entity missing from it is an entity that
- * cannot keep its own module on screen.
- */
-export const modules = Object.freeze([
-  { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
-  { id: 'identity', label: 'Identity', icon: 'user' },
-  { id: 'family', label: 'Family', icon: 'family' },
-  { id: 'finance', label: 'Finance', icon: 'wallet' },
-  { id: 'investments', label: 'Investments', icon: 'chart' },
-  { id: 'documents', label: 'Documents', icon: 'file' },
-  { id: 'vehicles', label: 'Vehicles', icon: 'car' },
-  { id: 'health', label: 'Health', icon: 'health' },
-  { id: 'insurance', label: 'Insurance', icon: 'shield' },
-  { id: 'property', label: 'Property', icon: 'home' },
-  { id: 'belongings', label: 'Belongings', icon: 'box' },
-  { id: 'travel', label: 'Travel', icon: 'globe' },
-  { id: 'education', label: 'Education', icon: 'school' },
-  { id: 'tasks', label: 'Tasks', icon: 'check' },
-  { id: 'calendar', label: 'Calendar', icon: 'calendar' },
-  { id: 'notes', label: 'Notes', icon: 'note' },
-  { id: 'vault', label: 'Vault', icon: 'lock' },
-  { id: 'digital', label: 'Digital', icon: 'globe' },
-  { id: 'chat', label: 'Chat', icon: 'chat' },
-  { id: 'safety', label: 'Safety', icon: 'shield' },
-  { id: 'emergency', label: 'Emergency', icon: 'alert' },
-  { id: 'reports', label: 'Reports', icon: 'report' },
-  { id: 'settings', label: 'Settings', icon: 'settings' },
-].map((m) => Object.freeze({
-  ...m,
-  entities: Object.values(entities).filter((e) => e.module === m.id).map((e) => e.name),
-})));
+/** Modules, in navigation order. Declared in `./modules.js`. */
+export const modules = withEntities(entities);
 
 /**
  * Every entity names a module that exists. An entity whose module is misspelt

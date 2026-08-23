@@ -98,11 +98,33 @@ describe('coverage is measured, never declared', () => {
     });
   });
 
-  test('schema labels count towards it, so a language cannot skip 681 of them and claim complete', () => {
+  test('schema labels count towards it, so a language with every UI string is still far from complete', () => {
     withLocale('xx', { strings: english }, () => {
-      // Every UI string, not one label. Nowhere near complete.
-      const c = coverage('xx', { labelKeys: labelKeys() });
-      assert.ok(c < 0.2, `expected a small fraction, got ${c}`);
+      const labels = labelKeys();
+      const strings = Object.keys(english).length;
+      const c = coverage('xx', { labelKeys: labels });
+
+      /*
+       * Derived, not a hand-tuned constant.
+       *
+       * This used to assert `c < 0.2`, a number chosen when the UI catalogue
+       * held 172 keys. Adding a screen's worth of strings moved the ratio to
+       * 0.217 and failed a test that had found nothing wrong — the catalogue
+       * growing is the thing this file is *for*. A constant standing in for a
+       * ratio is the same shape as a hand-written list standing in for a
+       * derived one, and it goes stale the same way.
+       *
+       * What the test actually means: coverage is the share of *all* keys that
+       * are translated, and the schema labels are most of them.
+       */
+      const expected = strings / (strings + labels.length);
+      assert.ok(Math.abs(c - expected) < 0.001,
+        `coverage ${c} should be ${expected} — ${strings} strings of ${strings + labels.length} keys`);
+
+      // And the point of it: every UI string is nowhere near a translation.
+      assert.ok(c < 0.5, `expected well under half, got ${c}`);
+      assert.ok(labels.length > strings,
+        `${labels.length} schema labels against ${strings} strings — labels should dominate`);
     });
   });
 

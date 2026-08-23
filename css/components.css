@@ -1265,3 +1265,42 @@
     .month-day { border-radius: var(--radius-sm); }
   }
 }
+
+/* --------------------------------------------------- notifications */
+
+/*
+ * `card--flush` removes the card's padding so the list can run edge to edge;
+ * the heading and the blurb put it back for themselves. Without this the head
+ * sits hard against the card's border.
+ */
+.notifications-head { padding: var(--space-5) var(--space-5) 0; }
+.notifications-head .card-header { margin-bottom: var(--space-2); }
+.notifications-blurb { padding: 0 var(--space-5); margin-bottom: var(--space-3); }
+
+/* ---------------------------------------------------------- profile */
+
+.profile-header-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.profile-name {
+  margin: 0;
+  font-size: var(--font-headline);
+  line-height: var(--leading-tight);
+}
+
+.profile-role { margin: var(--space-1) 0 0; }
+
+.profile-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.profile-group-head { padding: var(--space-5) var(--space-5) 0; }
+.profile-group-head .card-header { margin-bottom: var(--space-2); }

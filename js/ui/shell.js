@@ -22,8 +22,18 @@ import { SYNC_STATE } from '../sync/engine.js';
 import { avatar, iconButton } from './components/basics.js';
 import { moduleLabel } from '../core/labels.js';
 
-/** The five that fit on a phone's bottom bar. */
-const PRIMARY = ['dashboard', 'finance', 'documents', 'tasks', 'settings'];
+/**
+ * The five that fit on a phone's bottom bar.
+ *
+ * Dashboard is what is happening, Notifications is what needs doing, Chat is
+ * the household talking, Finance is the money, and Profile is you and every
+ * control that belongs to you — Settings included, which is why it is no
+ * longer here itself.
+ *
+ * Five, and it stays five. A sixth makes each target narrower than a thumb,
+ * and the drawer already reaches every other module.
+ */
+const PRIMARY = ['dashboard', 'notifications', 'chat', 'finance', 'profile'];
 
 export function buildShell({ actor, onSearch, onSync, onLock, router }) {
   const allowed = visibleModules(actor, modules);
@@ -99,11 +109,27 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
     ]),
   ]);
 
+  /*
+   * Ordered by `PRIMARY`, not by the schema.
+   *
+   * `allowed` comes back in schema order, so filtering it would have put
+   * Profile second and Chat fifth — the five right tabs in the wrong sequence.
+   * The order is part of what was specified, so it is read from the list that
+   * specifies it.
+   */
+  const badges = new Map();
   const bottomNav = h('nav', { class: 'bottom-nav', 'aria-label': 'Main sections' },
-    allowed.filter((m) => PRIMARY.includes(m.id)).map((mod) => h('a', {
-      href: Router.href({ module: mod.id }),
-      dataset: { module: mod.id },
-    }, [icon(mod.icon, { size: 22 }), h('span', {}, moduleLabel(mod))])));
+    PRIMARY
+      .map((id) => allowed.find((m) => m.id === id))
+      .filter(Boolean)
+      .map((mod) => {
+        const badge = h('span', { class: 'nav-badge', hidden: true, 'aria-hidden': 'true' });
+        badges.set(mod.id, badge);
+        return h('a', {
+          href: Router.href({ module: mod.id }),
+          dataset: { module: mod.id },
+        }, [icon(mod.icon, { size: 22 }), badge, h('span', {}, moduleLabel(mod))]);
+      }));
 
   const scrim = h('div', { class: 'drawer-scrim', onClick: () => toggleDrawer(false) });
 
@@ -204,6 +230,30 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
     refreshNav(nextActor) {
       const next = visibleModules(nextActor, modules);
       replace($('.nav-group', nav), next.map(navLink));
+    },
+
+    /**
+     * Put a count on a tab, or take it away.
+     *
+     * The number is of things actually late or nearly late — **not** unread.
+     * Nothing in this application records whether somebody has read a
+     * reminder, so a badge claiming otherwise would be inventing a fact. The
+     * accessible name says the whole thing, because "3" beside an icon tells a
+     * screen reader nothing.
+     */
+    setBadge(moduleId, count) {
+      const badge = badges.get(moduleId);
+      if (!badge) return;
+      const n = Number(count) || 0;
+      badge.hidden = n === 0;
+      badge.textContent = n > 99 ? '99+' : String(n);
+
+      const link = badge.closest('a');
+      if (!link) return;
+      const label = moduleLabel(modules.find((m) => m.id === moduleId));
+      link.setAttribute('aria-label', n === 0
+        ? label
+        : `${label}, ${n} ${n === 1 ? 'thing needs' : 'things need'} attention`);
     },
   };
 }

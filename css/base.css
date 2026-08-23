@@ -293,32 +293,92 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
     padding-right: max(var(--space-3), var(--inset-right));
   }
 
+  /*
+   * A floating bar rather than one welded to the bottom edge.
+   *
+   * It sits above the gesture area instead of behind it, so the system's own
+   * back-swipe strip does not overlap a tab. `--inset-bottom` is the phone's
+   * real gesture inset and `--space-2` is the gap above it; the page's own
+   * bottom padding already accounts for the whole height.
+   *
+   * `left`/`right` use `max()` against the horizontal insets so the bar clears
+   * a cutout in landscape rather than sliding under it.
+   */
   .bottom-nav {
     position: fixed;
-    inset: auto 0 0 0;
+    bottom: calc(var(--inset-bottom) + var(--space-2));
+    left: max(var(--space-3), var(--inset-left));
+    right: max(var(--space-3), var(--inset-right));
     z-index: 30;
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
-    height: calc(var(--bottom-nav-height) + var(--inset-bottom));
-    padding-bottom: var(--inset-bottom);
+    min-height: var(--bottom-nav-height);
+    padding: var(--space-1);
+    border-radius: var(--radius-xl);
     background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
     backdrop-filter: blur(12px);
-    border-top: 1px solid var(--border);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-2);
   }
 
   .bottom-nav a {
+    position: relative;
     display: grid;
     place-items: center;
     gap: 2px;
-    padding: var(--space-2) 0;
-    color: var(--text-faint);
+    padding: var(--space-2) var(--space-1);
+    border-radius: var(--radius-lg);
+    color: var(--text-muted);
     text-decoration: none;
-    font-size: var(--text-xs);
+    font-size: var(--font-caption);
     font-weight: 500;
+    text-align: center;
+    overflow: hidden;
+    transition: background var(--duration-fast) var(--ease),
+                color var(--duration-fast) var(--ease);
   }
 
-  .bottom-nav a[aria-current='page'] { color: var(--accent-text); }
+  /* The label has to survive being one of five on a 320px phone. */
+  .bottom-nav a > span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /*
+   * Selected carries a filled ground and a weight as well as a colour, because
+   * colour alone is not a distinction for everyone reading this — and on a bar
+   * of five identical shapes it is the only thing separating them.
+   */
+  .bottom-nav a[aria-current='page'] {
+    color: var(--accent-text);
+    background: var(--accent-subtle);
+    font-weight: 600;
+  }
+
+  /*
+   * A count of what is actually late — not of what is unread. Nothing in this
+   * application stores whether a person has read a reminder, so a badge saying
+   * "3 unread" would be inventing a fact about what somebody has looked at.
+   */
+  .bottom-nav .nav-badge {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    transform: translateX(2px);
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: var(--radius-pill);
+    background: var(--danger);
+    color: var(--accent-contrast);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+  }
 
 }
 

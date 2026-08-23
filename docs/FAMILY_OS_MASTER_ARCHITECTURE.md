@@ -63,7 +63,7 @@ rather than a promise: `tools/architecture-budget.json` holds the count,
 moves a screen onto `js/services/` lowers it permanently.
 
 The service layer exists and is adopted in part:
-**21**<!--live:serviceModules--> service modules against those
+**22**<!--live:serviceModules--> service modules against those
 **58**<!--live:uiDatabaseCalls--> direct calls. Naming the number is what turns
 "we should migrate someday" into something with a direction.
 
@@ -110,7 +110,7 @@ and applies no role.
 
 ## Layer 2 — Experience
 
-23<!--live:modules--> modules exist: dashboard, identity, family, finance, investments,
+25<!--live:modules--> modules exist: dashboard, identity, family, finance, investments,
 documents, vehicles, health, insurance, property, education, tasks, calendar,
 notes, vault, digital, emergency, reports, settings.
 
