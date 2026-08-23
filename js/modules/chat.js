@@ -33,6 +33,12 @@ export async function render(route) {
   const { db } = app();
   const chat = new ChatService(db);
 
+  // Built once, outside `paint`. Two bugs met here: the object was being put
+  // into the children array instead of its `node`, so the screen rendered the
+  // literal text `[object Object]`; and building it inside `paint` would add a
+  // fresh bus subscription and a fresh table on every repaint.
+  const section = await listSection('conversation', { autoOpenNew: route.id === 'new' });
+
   async function paint() {
     const [identity, devices] = await Promise.all([
       chat.identity(),
@@ -43,12 +49,12 @@ export async function render(route) {
       pageHeader(t('chat.title'), { subtitle: t('chat.subtitle') }),
       honestyCard(),
       deviceCard(identity, devices, chat, paint),
-      await listSection('conversation', route),
+      section.node,
     ]);
   }
 
   await paint();
-  return { node: host };
+  return { node: host, destroy: section.destroy };
 }
 
 /* ------------------------------------------------------ one conversation */

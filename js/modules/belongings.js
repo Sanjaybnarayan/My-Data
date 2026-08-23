@@ -24,6 +24,13 @@ export async function render(route) {
   const { db } = app();
   const state = await new BelongingsService(db).cover();
 
+  // `listSection` returns { node, openForm, reload, destroy } — not a node.
+  // Putting the object itself into a children array made `append` stringify it,
+  // and this screen rendered the literal text `[object Object]` where its
+  // record list should be. `destroy` unsubscribes the list from the data bus;
+  // returning it is what stops a listener outliving the screen.
+  const section = await listSection(active, { autoOpenNew: route.id === 'new' });
+
   replace(host, [
     pageHeader('Belongings', { subtitle: 'What the household owns, and what still has cover' }),
     coverCard(state),
@@ -31,9 +38,9 @@ export async function render(route) {
       class: ['tab', def.name === active && 'tab--active'],
       href: Router.href({ module: 'belongings', entity: def.name }),
     }, def.labels.many))),
-    await listSection(active, route),
+    section.node,
   ]);
-  return { node: host };
+  return { node: host, destroy: section.destroy };
 }
 
 function coverCard(state) {

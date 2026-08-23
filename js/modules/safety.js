@@ -36,6 +36,12 @@ export async function render(route) {
   const { db } = app();
   const safety = new SafetyService(db);
 
+  // Built once, outside `paint`. Two bugs met here: the object was being put
+  // into the children array instead of its `node`, so the screen rendered the
+  // literal text `[object Object]`; and building it inside `paint` would add a
+  // fresh bus subscription and a fresh table on every repaint.
+  const section = await listSection('safeZone', { autoOpenNew: route.id === 'new' });
+
   async function paint() {
     const [everyone, crossings] = await Promise.all([
       safety.whereEveryone(),
@@ -48,12 +54,12 @@ export async function render(route) {
       trailCard(await trailStatus(), paint),
       whereCard(everyone, safety, paint),
       crossingsCard(crossings),
-      await listSection('safeZone', route),
+      section.node,
     ]);
   }
 
   await paint();
-  return { node: host };
+  return { node: host, destroy: section.destroy };
 }
 
 /**
