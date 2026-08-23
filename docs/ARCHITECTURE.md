@@ -173,9 +173,29 @@ Sheet, sees ciphertext for anything marked sensitive.
 
 ## 6. Google backend
 
-One Apps Script web app, deployed as "execute as user accessing", so Sheets and
-Drive access uses the signed-in family member's own Google account. There is no
-service account and no shared secret to leak.
+One Apps Script web app, deployed as **"execute as me"** — the household
+member who deployed it. Every caller's Sheets and Drive work is done with that
+one account's authority.
+
+> **This paragraph used to say the opposite**, and it was a security claim: it
+> said access "uses the signed-in family member's own Google account". Three
+> places disagreed. `docs/SETUP.md` — the only page that tells a household what
+> to click — says *Execute as: Me*. The manifest said `USER_ACCESSING`. This
+> said the same, and drew a conclusion from it.
+>
+> The setup instructions are right and the other two were wrong, and it is not
+> a close call: `PropertiesService.getUserProperties()` holds `sheetMap` and
+> the Drive tree, so under "user accessing" every member would get their own
+> empty copy and sync would work for nobody but the owner. A deployment that
+> works at all is one deployed as *Me*.
+>
+> What actually stands between a caller and the owner's Drive is `verifyToken`
+> plus the policy layer in `Policy.gs` — a real boundary, and a different one
+> from the sentence that used to be here. `tests/backend.test.mjs` now asserts
+> the manifest and the setup page agree, because a security claim nothing
+> checks is how this one survived.
+
+There is no service account and no shared secret to leak.
 
 ```
 POST /exec  { action, payload, clientVersion, deviceId }

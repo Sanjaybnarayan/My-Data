@@ -37,7 +37,18 @@ const AUTH = 'https://www.googleapis.com/auth/';
  *            title: string, why: string, without: string}} Scope
  */
 
-/** @type {Scope[]} */
+/*
+ * Read once, at module load, like every other line in this registry.
+ *
+ * Choosing a language reloads the page (`languageCard` calls `choose` then
+ * `location.reload`), so a value fixed at load is the same value a screen
+ * would have asked for. If that ever stops being true this has to become a
+ * getter — and so do the fifty-one plain strings below, which have the same
+ * property and are simply invisible about it.
+ */
+import { t } from './locale.js';
+
+/** @type {readonly Scope[]} */
 export const SCOPES = Object.freeze([
   {
     id: 'openid',
@@ -147,6 +158,26 @@ export const SCOPES = Object.freeze([
     title: 'Read the mail of the account that deployed it',
     why: 'Only if you kept `Gmail.gs`. Delete that file and this scope to opt out.',
     without: 'Shops reads mail by signing in from the browser instead.',
+  },
+  {
+    id: `${AUTH}script.send_mail`,
+    where: 'backend',
+    required: false,
+    /*
+     * Routed, unlike the fifty-one above it.
+     *
+     * Those are English written straight into this file, and the unrouted
+     * ratchet counts them. It may only fall, so a new scope adding three more
+     * sentences would break it — correctly: the ratchet's whole point is that
+     * the application stops growing English no translator can reach.
+     *
+     * The rest of this registry should follow. Starting with the new entry is
+     * the difference between a ratchet that holds and one somebody argues
+     * with the first time it is inconvenient.
+     */
+    title: t('scope.sendMail.title'),
+    why: t('scope.sendMail.why'),
+    without: t('scope.sendMail.without'),
   },
 ]);
 
