@@ -33,8 +33,18 @@
 }
 .card--interactive:active { transform: none; box-shadow: var(--shadow-1); }
 
+/*
+ * Wraps, because a card header holds a title *and* whatever the caller passed
+ * as its action — often a badge, and a badge is sometimes a sentence.
+ *
+ * The chat screen's header carries `end-to-end, with one exception`, which is
+ * the qualifier on the encryption claim and so is the last thing that should
+ * be truncated or pushed off screen. On a 320px phone it reached 339px and
+ * scrolled the page. Wrapping puts it on its own line instead.
+ */
 .card-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
@@ -381,7 +391,11 @@
   font-size: var(--text-xs);
   font-weight: 600;
   line-height: 1.7;
+  /* `nowrap` so a two-word label never breaks in half, `max-width` so a badge
+     that is really a sentence cannot push the page wider than the screen. */
   white-space: nowrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .badge--accent   { background: var(--accent-subtle);   color: var(--accent-text); }

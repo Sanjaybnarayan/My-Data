@@ -147,7 +147,8 @@ the generic form does today.
 
 `tests/browser.mjs` walks eleven screens at 390px and fails the build if any
 control renders under 44px in either dimension. A second sweep walks
-twenty-seven screens and fails if any of them scrolls sideways. It used to check
+twenty-seven screens at **two widths** — 390px and 320px — and fails if any of
+them scrolls sideways. It used to check
 only the dashboard, which is the screen least likely to fail it — the dashboard
 is cards.
 
@@ -162,7 +163,14 @@ correctly filling a parent that was already far too wide.
 
 Underneath it sat a real one: `#/finance/transaction` reached 413px because the
 filter row holds two `date` inputs, each needing 9rem to render `dd/mm/yyyy`
-without truncating its own control. `.field-inline` now wraps. It found a control on its first
+without truncating its own control. `.field-inline` now wraps.
+
+**320px found one more.** 390px is not the narrowest Android in use, and at
+320px the chat screen reached 339px on a badge reading *end-to-end, with one
+exception* — the qualifier on the encryption claim, and so the last text in this
+application that should be pushed off screen. Card headers now wrap. Nothing
+else failed at 320px, and nothing at all failed at 360, 412, 600 or 768, which
+is why the run walks two widths rather than six. It found a control on its first
 real run that the ad-hoc script written to develop it had missed — the ✕ that
 dismisses an error toast, 25×25, and the only way to clear a toast that is given
 no timer on purpose.
