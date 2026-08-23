@@ -3404,6 +3404,153 @@ async function main() {
         reveal ? `${reveal.kind} is ${reveal.width}\u00d7${reveal.height}` : '');
     }
 
+    /* --------------------------------------------- bottom navigation */
+
+    /*
+     * The five primary destinations, in the order they were specified.
+     *
+     * Read from the rendered bar rather than from `PRIMARY`, because asserting
+     * a constant against itself proves nothing about what a thumb can reach.
+     *
+     * Order matters and was nearly wrong: the bar was built by filtering the
+     * permitted module list, which comes back in *schema* order, so the five
+     * right tabs came out in the wrong sequence — Profile second, Chat fifth.
+     */
+    {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(300);
+
+      const tabs = await page.evaluate(() => [...document.querySelectorAll('.bottom-nav a')]
+        .map((el) => /** @type {any} */ (el))
+        .map((a) => ({
+          module: a.dataset.module,
+          label: a.querySelector('span:not(.nav-badge)')?.textContent?.trim(),
+          width: Math.round(a.getBoundingClientRect().width),
+          height: Math.round(a.getBoundingClientRect().height),
+        })));
+
+      check('the bottom bar carries exactly five tabs', tabs.length === 5,
+        `${tabs.length}: ${tabs.map((one) => one.module).join(', ')}`);
+
+      check('and they are the five specified, in order',
+        tabs.map((one) => one.module).join(',')
+          === 'dashboard,notifications,chat,finance,profile',
+        tabs.map((one) => one.module).join(', '));
+
+      check('every tab is labelled', tabs.every((one) => one.label && one.label.length > 1),
+        JSON.stringify(tabs.map((one) => one.label)));
+
+      check('Settings is no longer a primary tab',
+        !tabs.some((one) => one.module === 'settings'));
+
+      // Five targets across a phone: each must still be reachable by a thumb.
+      const narrowest = Math.min(...tabs.map((one) => Math.min(one.width, one.height)));
+      check('and each tab is still at least 44px', narrowest >= 44,
+        `narrowest tab is ${narrowest}px`);
+
+      // Both new destinations must actually render, not 404 into the fallback.
+      for (const screen of ['notifications', 'profile']) {
+        await go(page, `#/${screen}`);
+        await page.waitForTimeout(500);
+        const body = (await page.locator('.app-content').innerText()).trim();
+        check(`${screen} opens from the bar`, body.length > 40 && !body.includes('[object '),
+          body.slice(0, 90));
+      }
+
+      // The tab for the screen you are on is the one marked current.
+      await go(page, '#/notifications');
+      await page.waitForTimeout(300);
+      const current = await page.evaluate(() => {
+        const active = /** @type {any} */ (
+          document.querySelector('.bottom-nav a[aria-current="page"]'));
+        return active?.dataset.module;
+      });
+      check('the current tab is marked as current', current === 'notifications', String(current));
+
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(250);
+    }
+
+    /* ---------------------------------------------------- safe areas */
+
+    /*
+     * The status bar's space, actually paid.
+     *
+     * `index.html` sets `viewport-fit=cover`, which tells the WebView to draw
+     * behind the system bars, and `capacitor.config.ts` said "the stylesheet
+     * uses the safe-area insets, so the web layer handles the notch". It did
+     * not: `safe-area-inset-top` appeared nowhere in the repository. Only the
+     * bottom inset was ever paid, so on every Android phone with a notch or a
+     * status bar the header rendered underneath the clock.
+     *
+     * `env()` cannot be set by a stylesheet or a test, which is why nothing
+     * could have caught it. The insets now go through `--inset-*` tokens whose
+     * fallback is `env()`, so this can put a phone's real numbers in and
+     * measure what moves. The numbers below are a Pixel-class device in
+     * portrait: 48px of status bar, 24px of gesture area.
+     */
+    {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(300);
+
+      const before = await page.evaluate(() => {
+        const header = document.querySelector('.app-header');
+        const nav = document.querySelector('.bottom-nav');
+        return {
+          headerTop: header.getBoundingClientRect().top,
+          headerHeight: Math.round(header.getBoundingClientRect().height),
+          navBottom: Math.round(window.innerHeight - nav.getBoundingClientRect().bottom),
+        };
+      });
+
+      const after = await page.evaluate(() => {
+        const root = document.documentElement;
+        root.style.setProperty('--inset-top', '48px');
+        root.style.setProperty('--inset-bottom', '24px');
+        const header = document.querySelector('.app-header');
+        const nav = document.querySelector('.bottom-nav');
+        const box = header.getBoundingClientRect();
+        const style = getComputedStyle(header);
+
+        // What the first thing inside the header is actually clear of.
+        const firstChild = header.firstElementChild.getBoundingClientRect();
+
+        return {
+          headerHeight: Math.round(box.height),
+          paddingTop: Math.round(parseFloat(style.paddingTop)),
+          childTop: Math.round(firstChild.top),
+          navHeight: Math.round(nav.getBoundingClientRect().height),
+        };
+      });
+
+      check('the header pays the status bar inset',
+        after.paddingTop === 48,
+        `padding-top is ${after.paddingTop}px with a 48px inset`);
+
+      check('and grows rather than pushing its content under the bar',
+        after.headerHeight === before.headerHeight + 48
+          && after.childTop >= 48,
+        `header ${before.headerHeight} -> ${after.headerHeight}px, `
+        + `first child starts at ${after.childTop}px`);
+
+      check('the bottom navigation pays the gesture inset',
+        after.navHeight >= before.navBottom + 24,
+        `navigation is ${after.navHeight}px tall with a 24px inset`);
+
+      // Without this, the two assertions above could both pass on a page that
+      // never had a header in the first place.
+      check('the safe-area check measured a real shell',
+        before.headerHeight > 40 && before.headerHeight < 200,
+        `header measured ${before.headerHeight}px before any inset`);
+
+      await page.evaluate(() => {
+        document.documentElement.style.removeProperty('--inset-top');
+        document.documentElement.style.removeProperty('--inset-bottom');
+      });
+    }
+
     /* --------------------------------------------------- text contrast */
 
     /*

@@ -63,7 +63,7 @@ rather than a promise: `tools/architecture-budget.json` holds the count,
 moves a screen onto `js/services/` lowers it permanently.
 
 The service layer exists and is adopted in part:
-**21**<!--live:serviceModules--> service modules against those
+**22**<!--live:serviceModules--> service modules against those
 **58**<!--live:uiDatabaseCalls--> direct calls. Naming the number is what turns
 "we should migrate someday" into something with a direction.
 
@@ -110,7 +110,7 @@ and applies no role.
 
 ## Layer 2 — Experience
 
-23<!--live:modules--> modules exist: dashboard, identity, family, finance, investments,
+25<!--live:modules--> modules exist: dashboard, identity, family, finance, investments,
 documents, vehicles, health, insurance, property, education, tasks, calendar,
 notes, vault, digital, emergency, reports, settings.
 
@@ -265,7 +265,7 @@ CONNECTOR ─> RAW INGESTION ─> VALIDATION ─> NORMALISATION
 | Google Drive | **exists** | `file:js/sync/drive.js` |
 | Google Sheets | **exists** — via Apps Script | `file:apps-script/Sheets.gs` |
 | Google Calendar | **exists** — never run against the live API | `export:js/sync/calendar.js#CalendarClient` |
-| DigiLocker, CKYCRR, ABDM, Account Aggregator, brokers | **absent, and correctly so** | `absent:grep:digilocker` |
+| DigiLocker, CKYCRR, ABDM, Account Aggregator, brokers | **absent, and correctly so** | `absent:grep:digilocker\.gov,api\.digitallocker,cersai,ckycindia,abdm\.gov,ndhm\.gov,sahamati,finvu,onemoney,kite\.zerodha,smartapi,digilocker.*fetch,fetch.*digilocker` |
 
 Google Calendar was `missing` here and is not. It writes only to a calendar it
 created itself, on the narrowest scope Google offers — and **it has never been
@@ -277,6 +277,22 @@ not be claimed. A connector with no authorised access reports
 `NOT_SUPPORTED` or `LEGAL_REVIEW_REQUIRED` and does nothing else. The
 repository currently contains **zero** fabricated integrations, and that
 property is worth more than any of them would be.
+
+A note on how that row is probed, because it changed and the reason matters.
+
+It used to be `absent:grep:digilocker` — the bare name. A grep cannot tell an
+integration from a sentence saying there is no integration, so the row fired on
+a comment in `js/modules/profile.js` explaining why the screen shows no
+"verified" tick. That is the second time this has happened: `absent:grep:ckycrr`
+did the same to a comment reading *"This is not a CKYCRR integration"*, and the
+CKYCRR row in `docs/PHASE_STATUS.md` was changed then to look for `cersai` and
+`ckycindia` instead.
+
+The terms are now the ones only a real integration carries — issuer hostnames,
+SDK names, and the name beside a `fetch`. A file that actually talked to
+DigiLocker would have to name `digilocker.gov` or fetch it; a paragraph saying
+the application does not is left alone. The check is not weaker for it: what it
+looks for is closer to the thing it is meant to forbid.
 
 The `kycRecord` entity added in Phase 2 does **not** move the CKYCRR row and is
 not a connector in any state, not even a stub. It is a record the household

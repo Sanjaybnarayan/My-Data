@@ -59,9 +59,17 @@ const config: CapacitorConfig = {
 
   ios: {
     /*
-     * `viewport-fit=cover` is already in `index.html` and the stylesheet uses
+     * `viewport-fit=cover` is already in `index.html` and the stylesheet pays
      * the safe-area insets, so the web layer handles the notch. `never` stops
      * WebKit adding a second inset on top of the one the CSS already applied.
+     *
+     * This sentence used to be false in its most important half. Only
+     * `safe-area-inset-bottom` was ever used; `safe-area-inset-top` appeared
+     * nowhere in the repository, so the header rendered under the status bar
+     * on every phone while this comment said the notch was handled. The insets
+     * now go through `--inset-*` tokens, and `tests/browser.mjs` overrides them
+     * with a phone's real numbers and measures that the shell moves — which is
+     * the only reason to believe this paragraph.
      */
     contentInset: 'never',
   },

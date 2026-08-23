@@ -187,6 +187,25 @@ async function start(db, limiter, googleSession = null) {
     void warnAboutNewDevices(transport, shell.router);
   }
 
+  /*
+   * The count on the Notifications tab.
+   *
+   * After the first paint, not before it: this reads eighteen entity types and
+   * the shell is more useful on screen without a number than delayed with one.
+   * Recomputed whenever anything changes, because a badge that only updates on
+   * launch tells somebody a bill is late after they have paid it.
+   *
+   * A failure leaves the badge as it was rather than showing a zero — nought
+   * would be a claim that nothing is due, which is exactly the wrong thing to
+   * say when the truth could not be read.
+   */
+  const { AttentionService } = await import('./services/attention.js');
+  const refreshAttention = () => new AttentionService(db).everything()
+    .then(({ pressing }) => shell.setBadge('notifications', pressing))
+    .catch(() => {});
+  void refreshAttention();
+  bus.on(TOPIC.dataChanged, refreshAttention);
+
   // Catch-up work: recurring payments moved on, repeating tasks recreated,
   // reminders delivered. Idempotent within a day, so a launch loop is safe.
   const { runAutomations } = await import('./domain/automation.js');
@@ -263,6 +282,8 @@ function registerRoutes(router) {
     travel: () => import('./modules/travel.js'),
     safety: () => import('./modules/safety.js'),
     chat: () => import('./modules/chat.js'),
+    notifications: () => import('./modules/notifications.js'),
+    profile: () => import('./modules/profile.js'),
     assistant: () => import('./modules/assistant-screen.js'),
   };
 
