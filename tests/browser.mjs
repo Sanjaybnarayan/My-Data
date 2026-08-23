@@ -3198,41 +3198,57 @@ async function main() {
      * single element looked at fault. Releasing both — `minmax(0, 1fr)` and
      * `min-width: 0` — made the real offender visible at 413px.
      *
+     * Two widths, because 390px is not the narrowest Android in use. At 320px
+     * the chat screen reached 339px on a badge reading `end-to-end, with one
+     * exception` — the qualifier on the encryption claim, and so the last text
+     * in the application that should be pushed off screen. Nothing else failed
+     * at 320px, and nothing at all failed at 360, 412, 600 or 768, which is why
+     * those are not walked on every run.
+     *
      * The criterion is whether the *document* scrolls. An element wider than
      * its parent is not the same question: the calendar's month grid is
      * deliberately given negative margins on a phone so it can escape the
      * card's padding, and an SVG path routinely reports a box larger than the
      * `<svg>` around it. Both are fine and neither scrolls the page.
      */
-    const seesaw = [];
-    for (const screen of ['dashboard', 'identity', 'family', 'finance',
+    const SCREENS = ['dashboard', 'identity', 'family', 'finance',
       'finance/transaction', 'finance/account', 'investments', 'documents',
       'vehicles', 'health', 'insurance', 'property', 'education', 'tasks',
       'calendar', 'notes', 'vault', 'digital', 'emergency', 'safety', 'chat',
-      'reports', 'assistant', 'settings', 'belongings', 'timeline', 'travel']) {
-      await go(page, `#/${screen}`);
-      await page.waitForTimeout(350);
+      'reports', 'assistant', 'settings', 'belongings', 'timeline', 'travel'];
 
-      const overflow = await page.evaluate(() => {
-        const limit = window.innerWidth + 1;
-        if (document.documentElement.scrollWidth <= limit) return null;
-        // Name the widest offender rather than reporting that "something" is
-        // too wide, which is unactionable.
-        const worst = [...document.querySelectorAll('.app *')]
-          .map((el) => ({ el, right: el.getBoundingClientRect().right }))
-          .filter((row) => row.right > limit)
-          .sort((a, b) => b.right - a.right)[0];
-        return worst
-          ? `${worst.el.tagName.toLowerCase()}.${typeof worst.el.className === 'string'
-            ? worst.el.className : ''} reaches ${Math.round(worst.right)}px`
-          : `document is ${document.documentElement.scrollWidth}px wide`;
-      });
-      if (overflow) seesaw.push(`${screen}: ${overflow}`);
+    const widest = () => page.evaluate(() => {
+      const limit = window.innerWidth + 1;
+      if (document.documentElement.scrollWidth <= limit) return null;
+      // Name the widest offender rather than reporting that "something" is
+      // too wide, which is unactionable.
+      const worst = [...document.querySelectorAll('.app *')]
+        .map((el) => ({ el, right: el.getBoundingClientRect().right }))
+        .filter((row) => row.right > limit)
+        .sort((a, b) => b.right - a.right)[0];
+      return worst
+        ? `${worst.el.tagName.toLowerCase()}.${typeof worst.el.className === 'string'
+          ? worst.el.className : ''} reaches ${Math.round(worst.right)}px`
+        : `document is ${document.documentElement.scrollWidth}px wide`;
+    });
+
+    const seesaw = [];
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.waitForTimeout(150);
+
+      for (const screen of SCREENS) {
+        await go(page, `#/${screen}`);
+        await page.waitForTimeout(350);
+        const overflow = await widest();
+        if (overflow) seesaw.push(`${screen} at ${width}px: ${overflow}`);
+      }
     }
 
     check('no screen scrolls sideways on a phone', seesaw.length === 0,
       seesaw.join('; '));
 
+    await page.setViewportSize({ width: 390, height: 844 });
     await go(page, '#/dashboard');
     await page.waitForTimeout(300);
     if (SHOTS) await shot(page, 'phone');

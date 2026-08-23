@@ -39,9 +39,14 @@ badge and this sweep did not find it — the network never went down. It was
 found by reading the rule after the badge pointed at it. A passing run means the
 pairs that rendered are sound, not that every pair in the stylesheet is.
 
-**No horizontal overflow on a phone.** Also measured in `tests/browser.mjs`,
-and it names the widest offending element rather than reporting that
-"something" is too wide.
+**No horizontal overflow on a phone.** Twenty-seven screens at 390px and 320px,
+measured in `tests/browser.mjs`, naming the widest offending element rather than
+reporting that "something" is too wide.
+
+This check used to run on the dashboard alone — the screen least likely to fail
+it. Widened, it found seven screens scrolling sideways, four of them at 1204px
+on a 390px phone, and at 320px a badge carrying the qualifier on the encryption
+claim being pushed off the edge.
 
 ## Implemented
 
