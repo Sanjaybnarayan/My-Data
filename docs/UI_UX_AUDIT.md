@@ -17,11 +17,11 @@ describe itself, and this audit found three places where it had been.
 | Screens (modules) | 24 files in `js/modules/` |
 | Entities rendered | 53, with 614 fields, through **one** form and **one** table |
 | CSS | 1,759 lines across `tokens.css` (262), `base.css` (291), `components.css` (1,206) |
-| Design tokens | 102 in `:root`, 177 declarations with the dark-mode blocks |
+| Design tokens | 108 in `:root`, 189 declarations with the dark-mode blocks |
 | Exports from `js/ui/` | 60, across 11 files |
 | Distinct `aria-*` attributes in use | 16 |
 | Dark mode | `prefers-color-scheme` + `data-theme`, three states |
-| Colour literals outside `tokens.css` | 8, of which 6 are correct (see below) |
+| Colour literals outside `tokens.css` | 7, of which 6 are correct (see below) |
 
 ## Corrections to the previous audit
 
@@ -102,7 +102,7 @@ entity cards, a card-list mode for tables on narrow screens.
 
 ## The hard-coded colours
 
-Eight literals outside `tokens.css`. Six are correct and should stay:
+Seven literals outside `tokens.css`. Six are correct and should stay:
 
 | Where | Literal | Verdict |
 | --- | --- | --- |
@@ -110,11 +110,13 @@ Eight literals outside `tokens.css`. Six are correct and should stay:
 | `css/components.css` toast error/success | `#fff` ×2 | **Correct** — the grounds are fixed `red-600` / `green-600` in both themes |
 | `css/components.css` switch knob | `#fff` | **Correct** — the knob is white on both themes |
 | `js/ui/theme.js` `theme-color` meta | `#0e1014` / `#fbfbfc` | **Correct** — an HTML attribute cannot read a CSS variable |
-| `js/ui/components/basics.js` avatar gradient | `#fff` | **Fix** — the gradient runs on `--accent`, which is light in dark mode |
 | `js/ui/components/form.js` colour input default | `#1a73e8` | **Acceptable** — a starting *value* the user edits, not a UI colour |
 
-The avatar case is a real dark-mode contrast defect and is listed below rather
-than fixed here, because it needs a contrast measurement and not a guess.
+The brand mark used to be an eighth: `#fff` on a gradient built from
+`--accent`. It was a real dark-mode contrast defect — white on `--accent`, which
+becomes `--blue-300` in dark mode, measures **2.23:1**. It now uses ramp
+colours, so every point along the gradient clears 4.5:1 in both themes — and
+`tests/browser.mjs` measures it rather than taking this paragraph's word.
 
 ## Against the target direction
 
@@ -154,8 +156,6 @@ a sweep that measures nothing reports no failures.
 
 ## Open, not fixed
 
-- **The avatar gradient** puts `#fff` on `--accent`, which is `blue-300` in dark
-  mode. Needs a contrast measurement.
 - **Tables on narrow screens** scroll horizontally rather than becoming cards.
 - **35 class names** appear in JavaScript with no CSS rule. Most are hooks the
   tests select on, which is a legitimate use; `input--small`, `row--center`,

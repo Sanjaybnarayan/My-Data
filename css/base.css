@@ -160,8 +160,17 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
   place-items: center;
   width: 34px; height: 34px;
   border-radius: 11px;
-  background: linear-gradient(135deg, var(--accent), var(--purple-500));
-  color: #fff;
+  /*
+   * Ramp colours, not `--accent`. In dark mode `--accent` becomes the light
+   * `--blue-300`, and white on it measures 2.23:1 — the mark became unreadable
+   * in exactly the theme where it is most looked at. A brand mark should also
+   * look the same in both themes, which the role colour cannot do.
+   *
+   * White on `--blue-500` is 4.51:1 and on `--purple-500` 5.31:1, so every
+   * point along the gradient clears 4.5:1.
+   */
+  background: linear-gradient(135deg, var(--blue-500), var(--purple-500));
+  color: var(--grey-0);
   font-weight: 700;
   font-size: var(--text-sm);
   flex: none;
