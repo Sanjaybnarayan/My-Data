@@ -238,7 +238,7 @@ export async function render(route) {
     const cells = [];
 
     for (let i = 0; i < firstWeekday; i++) {
-      cells.push(h('div', { style: { minHeight: '84px' } }));
+      cells.push(h('div', { class: 'month-day month-day--blank' }));
     }
 
     for (let day = start; day <= end; day = addDays(day, 1)) {
@@ -247,45 +247,26 @@ export async function render(route) {
       const isSelected = day === selected;
       const current = day;
 
+      // Selected and today are attributes rather than inline colours, so the
+      // stylesheet decides how they look and a phone can shrink the grid
+      // without the JavaScript knowing about viewports.
       cells.push(h('button', {
         type: 'button',
-        class: 'card',
+        class: 'card month-day',
         'aria-label': `${formatDay(day)}, ${entries.length} entries`,
         'aria-current': isToday ? 'date' : null,
-        style: {
-          minHeight: '84px',
-          padding: 'var(--space-2)',
-          textAlign: 'left',
-          cursor: 'pointer',
-          boxShadow: 'none',
-          background: isSelected ? 'var(--accent-subtle)' : 'var(--surface-raised)',
-          borderColor: isToday ? 'var(--accent)' : 'var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '2px',
-        },
+        'aria-pressed': String(isSelected),
+        'data-today': isToday ? '' : null,
         onClick: () => { selected = current; paint(); },
       }, [
-        h('span', {
-          class: 'small',
-          style: {
-            fontWeight: isToday ? '700' : '500',
-            color: isToday ? 'var(--accent-text)' : 'var(--text-muted)',
-          },
-        }, String(Number(day.slice(8)))),
+        h('span', { class: 'small month-day-number' }, String(Number(day.slice(8)))),
 
         ...entries.slice(0, 3).map((entry) => h('span', {
-          class: 'small truncate',
-          style: {
-            display: 'flex', alignItems: 'center', gap: '4px',
-            fontSize: 'var(--text-xs)', lineHeight: '1.35',
-          },
+          class: 'small truncate month-day-entry',
         }, [
           h('span', {
-            style: {
-              width: '6px', height: '6px', borderRadius: '50%',
-              background: colourOf(entry.source), flex: 'none',
-            },
+            class: 'month-day-dot',
+            style: { background: colourOf(entry.source) },
           }),
           entry.title,
         ])),
@@ -297,25 +278,10 @@ export async function render(route) {
     }
 
     return h('div', {}, [
-      h('div', {
-        style: {
-          display: 'grid',
-          gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-          gap: 'var(--space-2)',
-          marginBottom: 'var(--space-2)',
-        },
-      }, WEEKDAYS.map((name) => h('div', {
-        class: 'small faint',
-        style: { textAlign: 'center', fontWeight: '600' },
-      }, name))),
+      h('div', { class: 'month-weekdays' },
+        WEEKDAYS.map((name) => h('div', { class: 'small faint' }, name))),
 
-      h('div', {
-        style: {
-          display: 'grid',
-          gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-          gap: 'var(--space-2)',
-        },
-      }, cells),
+      h('div', { class: 'month-grid' }, cells),
     ]);
   }
 

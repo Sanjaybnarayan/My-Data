@@ -60,6 +60,16 @@ export function cardHeader(title, actions = null, { subtitle, iconName } = {}) {
 }
 
 /**
+ * A button.
+ *
+ * `...rest` is spread **first** and `class` composed after it, and the order is
+ * the whole correctness of this function. Written the other way round — the
+ * composed class first, the spread last — `rest.class` silently replaces the
+ * composed array, and a caller passing `class: 'btn--small'` gets an element
+ * with no `btn` class at all: no pill, no background, no minimum height. Half
+ * the call sites had learned to write `class: 'btn btn--small'` to compensate,
+ * which is what a bug looks like once people have adapted to it.
+ *
  * @param {Child} label
  * @param {{variant?: string, iconName?: string, onClick?: Handler,
  *          type?: string, class?: string, disabled?: boolean,
@@ -67,10 +77,10 @@ export function cardHeader(title, actions = null, { subtitle, iconName } = {}) {
  */
 export function button(label, { variant, iconName, onClick, type = 'button', ...rest } = {}) {
   return h('button', {
+    ...rest,
     type,
     class: ['btn', variant && `btn--${variant}`, rest.class],
     onClick,
-    ...rest,
   }, [
     iconName ? icon(iconName, { size: 18 }) : null,
     label ? h('span', {}, label) : null,
@@ -84,13 +94,13 @@ export function button(label, { variant, iconName, onClick, type = 'button', ...
  */
 export function iconButton(name, { label, onClick, variant, ...rest } = {}) {
   return h('button', {
+    ...rest,
     type: 'button',
     class: ['btn', 'btn--icon', variant && `btn--${variant}`, rest.class],
     // An icon-only control is unlabelled to a screen reader without this.
     'aria-label': label,
     title: label,
     onClick,
-    ...rest,
   }, icon(name, { size: 20 }));
 }
 

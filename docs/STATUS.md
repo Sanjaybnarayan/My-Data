@@ -32,7 +32,7 @@ Stated plainly so nothing is mistaken for finished.
 
 **One language, and a door for a second.** There is a locale layer, the schema
 labels and the dates go through it, and `tools/strings.mjs` measures what does
-not: 3,485<!--live:unroutedStrings--> English strings across 154<!--live:unroutedFiles--> files, a
+not: 3,482<!--live:unroutedStrings--> English strings across 154<!--live:unroutedFiles--> files, a
 count that may only fall. What there is not is a second catalogue, because
 machine-translating Indian financial and legal vocabulary would produce
 confident false statements about a household's money that the household cannot
