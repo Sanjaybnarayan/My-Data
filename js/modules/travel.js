@@ -25,12 +25,19 @@ export async function render(route) {
   const { db } = app();
   const readiness = await new TravelService(db).readiness();
 
+  // `listSection` returns { node, openForm, reload, destroy } — not a node.
+  // Putting the object itself into a children array made `append` stringify it,
+  // and this screen rendered the literal text `[object Object]` where its
+  // record list should be. `destroy` unsubscribes the list from the data bus;
+  // returning it is what stops a listener outliving the screen.
+  const section = await listSection('trip', { autoOpenNew: route.id === 'new' });
+
   replace(host, [
     pageHeader('Travel', { subtitle: 'Journeys, and the papers they need' }),
     passportCard(readiness),
-    await listSection('trip', route),
+    section.node,
   ]);
-  return { node: host };
+  return { node: host, destroy: section.destroy };
 }
 
 function passportCard(rows) {

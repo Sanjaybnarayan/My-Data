@@ -7,6 +7,10 @@ running the application or reading the tree, not from an earlier document.
 
 ---
 
+> **Fixed since this audit was written.** The four screens below, the assertion
+> that could not fail on them, and the hand-written module walk that had never
+> opened two of them. Kept as written because the reasoning is the point.
+
 ## 0. The headline: four screens are broken, and 389 checks pass
 
 The device screenshots supplied with the v8.0 brief are the **first evidence

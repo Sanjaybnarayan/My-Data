@@ -12,7 +12,9 @@
 .card {
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  /* Named, so the card radius is one edit rather than sixty. 22px, in the
+     18-28px band the design brief asks for. */
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-1);
   padding: var(--space-5);
 }

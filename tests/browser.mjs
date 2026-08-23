@@ -25,6 +25,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { zip } from '../js/reports/xlsx.js';
+import { modules as SCHEMA_MODULES } from '../js/data/schema.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8247;
@@ -249,10 +250,27 @@ async function main() {
 
     /* --------------------------------------------------- every module */
 
-    const modules = ['dashboard', 'identity', 'family', 'finance', 'investments',
-      'documents', 'vehicles', 'health', 'insurance', 'property', 'education',
-      'tasks', 'calendar', 'notes', 'vault', 'digital', 'emergency', 'safety', 'chat', 'reports',
-      'assistant', 'settings'];
+    /*
+     * Derived from the schema, not typed out here.
+     *
+     * This was a hand-written array of twenty-two names beside a schema that
+     * defines twenty-three modules. It had drifted: `belongings` and `travel`
+     * were missing, so the suite had never once opened either screen — and
+     * both were rendering `[object Object]` instead of their record list on a
+     * real phone. A list maintained by hand beside one that can be derived is
+     * the fault this repository keeps finding in itself, and here it cost two
+     * screens' worth of coverage.
+     *
+     * `assistant` and `timeline` are named because they are registered in
+     * `js/app.js` outside the module list; walking them proves they still
+     * resolve. Everything else arrives by adding a module to the schema, which
+     * is the only place a module should have to be declared.
+     */
+    const OUTSIDE_THE_SCHEMA = ['assistant', 'timeline'];
+    const modules = [...SCHEMA_MODULES.map((one) => one.id), ...OUTSIDE_THE_SCHEMA];
+
+    check('every module in the schema is walked', modules.length >= 25,
+      `only ${modules.length} routes would be opened`);
 
     for (const module of modules) {
       const before = consoleErrors.length;
@@ -260,7 +278,29 @@ async function main() {
       await page.waitForTimeout(350);
 
       const body = (await page.locator('.app-content').innerText()).trim();
+
+      /*
+       * Not `body.length > 0`.
+       *
+       * That is what this assertion used to be, and it passed on four screens
+       * that were rendering the literal text `[object Object]` where their
+       * record list should have been — Chat, Travel, Safety and Belongings.
+       * `listSection()` returns `{ node, openForm, reload, destroy }` and those
+       * four put the object into a children array instead of its `node`, so
+       * `append` stringified it. `"[object Object]"` is not empty, so a length
+       * check could never fail on it, and 389 checks passed while four screens
+       * were broken on a real phone.
+       *
+       * A stringified object is the specific shape that got through, so it is
+       * named. The length floor is there because a screen reduced to a heading
+       * is also a failure, and every module here renders a page header plus
+       * something — the smallest real screen is comfortably above it.
+       */
       check(`${module} renders something`, body.length > 0, 'the screen came back empty');
+      check(`${module} renders no stringified object`,
+        !body.includes('[object '), body.slice(0, 120));
+      check(`${module} renders more than a heading`, body.length > 40,
+        `only ${body.length} characters: ${body.slice(0, 80)}`);
       check(`${module} renders without a console error`, consoleErrors.length === before,
         consoleErrors.slice(before).join(' | '));
       if (SHOTS) await shot(page, module);
