@@ -3422,6 +3422,94 @@ async function main() {
         reveal ? `${reveal.kind} is ${reveal.width}\u00d7${reveal.height}` : '');
     }
 
+    /* --------------------------------------------------- notifications */
+
+    /*
+     * The filters, against a record that actually appears.
+     *
+     * A filter check on an empty screen proves nothing — every chip matches
+     * nothing and every assertion about "no results" passes for the wrong
+     * reason. So this creates a policy expiring inside the reminder horizon
+     * first, and then asserts the screen finds it, filters to it, and reports
+     * honestly when a search matches nothing.
+     */
+    {
+      await page.setViewportSize({ width: 1280, height: 900 });
+
+      const soon = new Date(Date.now() + 9 * 86_400_000).toISOString().slice(0, 10);
+      await go(page, '#/insurance/policy');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /Add/ }).first().click();
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      // Every field the schema marks required, or the save is refused — which
+      // is the repository doing its job, not a test problem.
+      await page.locator('#f-policy-name').fill('Car insurance');
+      await page.locator('#f-policy-kind').selectOption('vehicle');
+      await page.locator('#f-policy-insurer').fill('Example General');
+      await page.locator('#f-policy-policyNumber').fill('POL-0001');
+      await page.locator('#f-policy-premium').fill('12000');
+      await page.locator('#f-policy-renewsOn').fill(soon);
+      await page.locator('#f-policy-name').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+
+      await go(page, '#/notifications');
+      await page.waitForTimeout(600);
+
+      const read = () => page.evaluate(() => ({
+        rows: document.querySelectorAll('.app-content .list-item').length,
+        chips: [...document.querySelectorAll('.app-content .chip')]
+          .map((one) => one.textContent?.trim() ?? ''),
+        text: /** @type {any} */ (document.querySelector('.app-content'))?.innerText ?? '',
+      }));
+
+      const all = await read();
+      check('a policy renewing in nine days reaches the notifications screen',
+        all.rows > 0, `${all.rows} rows`);
+
+      // Derived from the data, so the chip only exists because an item does.
+      check('and a category chip appears for it',
+        all.chips.some((one) => /insurance/i.test(one)), all.chips.join(' | '));
+
+      check('the chips carry counts rather than bare names',
+        all.chips.some((one) => /\d/.test(one)), all.chips.join(' | '));
+
+      // Filtering to a category that has nothing must hide the row.
+      const other = all.chips.find((one) => !/insurance|^All/i.test(one));
+      if (other) {
+        await page.getByRole('button', { name: other }).click();
+        await page.waitForTimeout(300);
+        const narrowed = await read();
+        check('choosing another category hides the policy',
+          !narrowed.text.includes('Car insurance'), narrowed.text.slice(0, 80));
+        await page.getByRole('button', { name: other }).click();
+        await page.waitForTimeout(250);
+      }
+
+      // A search that matches nothing says so, and says it differently from
+      // "nothing is due" — which would read as though the records vanished.
+      await page.locator('.app-content input[type="search"]').fill('zzzznotathing');
+      await page.waitForTimeout(350);
+      const none = await read();
+      check('a search matching nothing says nothing matches, not nothing is due',
+        none.text.includes('Nothing matches') && !none.text.includes('Nothing is due'),
+        none.text.slice(0, 140));
+
+      check('and offers a way back', none.text.includes('Clear filters'));
+
+      await page.getByRole('button', { name: 'Clear filters' }).click();
+      await page.waitForTimeout(350);
+      const back = await read();
+      check('clearing the filters brings everything back', back.rows === all.rows,
+        `${back.rows} of ${all.rows}`);
+
+      // The screen must not imply a capability the application does not have.
+      check('the screen says there is no read state and no push',
+        back.text.includes('marked as read') && back.text.includes('notification tray'),
+        back.text.slice(-220));
+
+      await page.setViewportSize({ width: 390, height: 844 });
+    }
+
     /* ------------------------------------------------------- dashboard */
 
     /*

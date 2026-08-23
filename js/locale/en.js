@@ -199,6 +199,15 @@ export const strings = {
   'notifications.reach.body': 'This list is here when you open it. The application does not send anything to your phone’s notification tray, so nothing here will interrupt you.',
   'notifications.reach.elsewhere': 'Dates also appear on the calendar and on the dashboard.',
   'notifications.dateFallback': 'Date',
+  'notifications.search': 'Search what is due',
+  'notifications.all': 'All {n}',
+  'notifications.open': 'Open',
+  'notifications.openNamed': 'Open {title}',
+  'notifications.clearFilters': 'Clear filters',
+  'notifications.noMatch.title': 'Nothing matches',
+  'notifications.noMatch.message': 'No date due in the next 45 days matches that. Clear the filters to see everything.',
+  'notifications.noRead.title': 'Why nothing is marked read',
+  'notifications.noRead.body': 'This application does not record what you have looked at, so nothing here can be marked as read and no count claims to be unread. What is counted is what is actually late or falls due soon, and it goes down when the thing is dealt with rather than when it is seen.',
 
   /* ------------------------------------------------------------- profile */
   'profile.title': 'Profile',
