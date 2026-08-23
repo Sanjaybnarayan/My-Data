@@ -3289,6 +3289,238 @@ async function main() {
         reveal ? `${reveal.kind} is ${reveal.width}\u00d7${reveal.height}` : '');
     }
 
+    /* --------------------------------------------------- text contrast */
+
+    /*
+     * `css/tokens.css` says: "every foreground/background pair used for text
+     * meets WCAG AA (4.5:1 for body, 3:1 for large text and UI boundaries) in
+     * both themes."
+     *
+     * When that sentence was finally measured it was false. Nine pairs failed
+     * in light and seven in dark, and one token caused most of them:
+     * `--text-faint` was `--grey-500`, which is 4.27:1 on white and 3.91:1 on
+     * `--surface-sunken`. A warning badge painted `--warning` on
+     * `--warning-subtle` measured 2.89:1, and the brand mark put white on
+     * `--accent`, which becomes the light `--blue-300` in dark mode — 2.23:1,
+     * unreadable in exactly the theme where it is most looked at.
+     *
+     * This walks the rendered document in both themes rather than reading the
+     * stylesheet, because the stylesheet is what made the claim.
+     *
+     * ## What it cannot see
+     *
+     * A style that only appears in a state the run never reaches. The offline
+     * sync pill had the same 2.89:1 defect as the warning badge and this sweep
+     * did not find it — the network never went down — it was found by reading
+     * the rule after the badge pointed at it. A passing run means the pairs
+     * that rendered are sound, not that every pair in the stylesheet is.
+     *
+     * Gradients are resolved to their declared stops plus the midpoint of each
+     * consecutive pair. Those are real colours along the ramp, but they are not
+     * a proof that the worst point on it was tested.
+     */
+    {
+      const PROBE = () => {
+        /**
+         * A computed colour, in whatever form the browser serialised it.
+         *
+         * Two forms turn up here and they are not on the same scale.
+         * `rgb(26, 115, 232)` carries 0-255 channels; `color(srgb 1 1 1 /
+         * 0.92)` — which is how Chromium reports the `color-mix()` on
+         * `.app-header` and `.bottom-nav` — carries 0-1 floats.
+         *
+         * Reading every number the same way turned the bottom navigation's
+         * white into `rgb(1 1 1)`, composited it to `rgb(21 21 21)`, and
+         * reported the two labels on it as failing. The application was
+         * correct and the instrument was not, which is the failure mode a
+         * measurement is supposed to protect against.
+         */
+        const parse = (value) => {
+          if (!value) return null;
+          const parts = value.match(/-?[\d.]+%?/g);
+          if (!parts || parts.length < 3) return null;
+
+          const scale = /^color\(/i.test(value.trim()) ? 255 : 1;
+          const channel = (raw) => (raw.endsWith('%')
+            ? (parseFloat(raw) / 100) * 255
+            : parseFloat(raw) * scale);
+          const alpha = (raw) => (raw === undefined
+            ? 1
+            : (raw.endsWith('%') ? parseFloat(raw) / 100 : parseFloat(raw)));
+
+          return {
+            r: channel(parts[0]), g: channel(parts[1]), b: channel(parts[2]),
+            a: alpha(parts[3]),
+          };
+        };
+
+        const luminance = ({ r, g, b }) => {
+          const channel = (v) => {
+            const n = v / 255;
+            return n <= 0.03928 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
+          };
+          return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+        };
+
+        const over = (top, bottom) => ({
+          r: top.r * top.a + bottom.r * (1 - top.a),
+          g: top.g * top.a + bottom.g * (1 - top.a),
+          b: top.b * top.a + bottom.b * (1 - top.a),
+          a: 1,
+        });
+
+        const ratio = (one, other) => {
+          const [light, dark] = [luminance(one), luminance(other)].sort((a, b) => b - a);
+          return (light + 0.05) / (dark + 0.05);
+        };
+
+        /**
+         * The colours a gradient passes through: its declared stops, plus the
+         * midpoint of each consecutive pair.
+         *
+         * `transparent` computes to `rgba(0, 0, 0, 0)` — black with no alpha.
+         * Treating that as a colour turns the skeleton shimmer, which fades
+         * through transparent, into a near-black ground and reports the whole
+         * page as failing. It is a hole in the layer, not a colour, so it is
+         * dropped before the midpoints are taken.
+         */
+        const stopsOf = (image) => {
+          const declared = (image.match(/rgba?\([^)]*\)/g) ?? [])
+            .map(parse).filter((stop) => stop && stop.a > 0);
+          if (!declared.length) return [];
+          const all = [...declared];
+          for (let i = 0; i + 1 < declared.length; i++) {
+            const a = declared[i], b = declared[i + 1];
+            all.push({
+              r: (a.r + b.r) / 2, g: (a.g + b.g) / 2, b: (a.b + b.b) / 2,
+              a: (a.a + b.a) / 2,
+            });
+          }
+          return all;
+        };
+
+        /**
+         * Every colour that can be behind this element's text.
+         *
+         * Background colours first, to find the opaque ground. Then any
+         * gradient between the text and that ground contributes its own
+         * colours, composited over it. A gradient whose every stop is opaque
+         * hides the ground, so the ground is dropped — otherwise white text on
+         * a solid gradient is measured against the white page behind it and
+         * reported as 1:1.
+         */
+        const groundsOf = (el) => {
+          let node = el, acc = null, base = null;
+          while (node && node.nodeType === 1) {
+            const background = parse(getComputedStyle(node).backgroundColor);
+            if (background && background.a > 0) {
+              acc = acc ? over(acc, background) : background;
+              if (acc.a >= 1 || background.a >= 1) { base = { ...acc, a: 1 }; break; }
+            }
+            node = node.parentElement;
+          }
+          if (!base) base = acc ? { ...acc, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
+
+          const grounds = [];
+          let covered = false;
+          for (let up = el; up && up.nodeType === 1; up = up.parentElement) {
+            const image = getComputedStyle(up).backgroundImage;
+            if (!image || image === 'none') continue;
+            const stops = stopsOf(image);
+            if (!stops.length) continue;
+            if (stops.every((stop) => stop.a >= 1)) covered = true;
+            for (const stop of stops) grounds.push({ ...over(stop, base), a: 1 });
+          }
+
+          if (!covered) grounds.push(base);
+          return grounds.length ? grounds : [base];
+        };
+
+        const failures = [];
+        let measured = 0;
+
+        for (const el of document.querySelectorAll('*')) {
+          // Text this element renders itself, not text belonging to a child.
+          const ownsText = [...el.childNodes]
+            .some((node) => node.nodeType === 3 && node.textContent.trim().length > 1);
+          if (!ownsText) continue;
+
+          const style = getComputedStyle(el);
+          if (style.visibility === 'hidden' || style.display === 'none') continue;
+          if (+style.opacity === 0) continue;
+          const box = el.getBoundingClientRect();
+          if (box.width === 0 || box.height === 0) continue;
+
+          const foreground = parse(style.color);
+          if (!foreground || foreground.a === 0) continue;
+
+          const size = parseFloat(style.fontSize);
+          const bold = +style.fontWeight >= 700;
+          const large = size >= 24 || (bold && size >= 18.66);
+          const needed = large ? 3 : 4.5;
+
+          // The worst ground wins: text over a gradient has to be readable
+          // along it, not on average.
+          let worstGround = null, worst = Infinity;
+          for (const ground of groundsOf(el)) {
+            const solid = foreground.a < 1 ? over(foreground, ground) : foreground;
+            const here = ratio(solid, ground);
+            if (here < worst) { worst = here; worstGround = ground; }
+          }
+
+          measured += 1;
+          if (worst < needed) {
+            const names = typeof el.className === 'string' && el.className
+              ? `.${el.className.trim().split(/\s+/).slice(0, 2).join('.')}` : '';
+            failures.push({
+              where: el.tagName.toLowerCase() + names,
+              got: Math.round(worst * 100) / 100,
+              needed,
+              colour: style.color,
+              ground: `rgb(${Math.round(worstGround.r)} ${Math.round(worstGround.g)}`
+                + ` ${Math.round(worstGround.b)})`,
+              text: el.textContent.trim().slice(0, 30),
+            });
+          }
+        }
+        return { failures, measured };
+      };
+
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((name) => {
+          document.documentElement.setAttribute('data-theme', name);
+        }, theme);
+
+        const worst = new Map();
+        let measured = 0;
+
+        for (const module of ['dashboard', 'finance', 'family', 'documents',
+          'vault', 'calendar', 'safety', 'settings', 'reports', 'belongings']) {
+          await go(page, `#/${module}`);
+          await page.waitForTimeout(400);
+          const result = await page.evaluate(PROBE);
+          measured += result.measured;
+          for (const row of result.failures) {
+            const key = `${row.where}|${row.colour}|${row.ground}`;
+            if (!worst.has(key) || worst.get(key).got > row.got) {
+              worst.set(key, { ...row, module });
+            }
+          }
+        }
+
+        // A sweep that reads nothing reports no failures.
+        check(`the ${theme} contrast sweep read some text`, measured > 200,
+          `only ${measured} text elements were measured`);
+
+        check(`every text pair meets WCAG AA in ${theme}`, worst.size === 0,
+          [...worst.values()].sort((a, b) => a.got - b.got).slice(0, 8)
+            .map((one) => `${one.where} ${one.got}:1 (needs ${one.needed}) `
+              + `${one.colour} on ${one.ground} in ${one.module}`).join('; '));
+      }
+
+      await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+    }
+
     await go(page, '#/dashboard');
     await page.waitForTimeout(300);
 

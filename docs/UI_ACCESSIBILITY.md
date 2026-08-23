@@ -21,6 +21,24 @@ and lost the cascade to `css/components.css`, so it applied to nothing. The
 comment above it had been true of nothing since it was written — which is the
 argument for measuring rather than declaring.
 
+**Text contrast — WCAG AA, both themes.** `tests/browser.mjs` walks the
+rendered document in light and in dark across ten screens, resolves each text
+element's real ground (compositing translucent layers, and resolving a gradient
+to its stops), and fails on any pair under 4.5:1 — 3:1 for large text. It also
+asserts it read more than 200 text elements per theme, because a sweep that
+reads nothing reports no failures.
+
+`css/tokens.css` had claimed this since it was written. When it was first
+measured, **nine pairs failed in light and seven in dark.** One token caused
+most of them: `--text-faint` was `--grey-500`, which is 4.27:1 on white and
+3.91:1 on `--surface-sunken`.
+
+**What the sweep cannot see:** a style that only appears in a state the run
+never reaches. The offline sync pill had the same 2.89:1 defect as the warning
+badge and this sweep did not find it — the network never went down. It was
+found by reading the rule after the badge pointed at it. A passing run means the
+pairs that rendered are sound, not that every pair in the stylesheet is.
+
 **No horizontal overflow on a phone.** Also measured in `tests/browser.mjs`,
 and it names the widest offending element rather than reporting that
 "something" is too wide.
@@ -86,10 +104,10 @@ the source. Mechanical checks cannot tell you whether a screen is *usable*,
 only whether particular defects are absent, and the difference between those
 two is exactly where real accessibility problems live.
 
-**No automated contrast check.** The token file states every text pair meets
-WCAG AA in both themes. Nothing verifies it, and one pair is already suspect:
-`js/ui/components/basics.js` paints `#fff` on a gradient built from `--accent`,
-which is the light `blue-300` in dark mode.
+**Contrast is checked only where it renders.** See the note under the sweep: a
+state the run never enters is a state nothing measures. Non-text contrast — the
+3:1 that WCAG 2.2 asks for borders, focus rings and icons under 1.4.11 — is not
+checked at all; the sweep looks at text.
 
 **Tables scroll horizontally on a narrow screen** rather than becoming a card
 list.

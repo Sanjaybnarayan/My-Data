@@ -1,6 +1,6 @@
 # Design System
 
-The whole system is **102 custom properties** defined in `css/tokens.css` — 177
+The whole system is **108 custom properties** defined in `css/tokens.css` — 189
 declarations once the two dark-mode blocks redefine what they change — and the
 rule that nothing outside that file may write a colour. Everything below describes what
 those properties are for and which decisions they have already settled.
@@ -28,20 +28,37 @@ theme a fifty-line block instead of a rewrite.
 .btn--primary { background: var(--accent) }   the component
 ```
 
+### Three roles per status, not two
+
+Each status colour has a `--x`, a `--x-subtle` and a `--x-text`:
+
+| Role | For |
+| --- | --- |
+| `--warning` | the thing itself — a bar, an icon, a rule |
+| `--warning-subtle` | a ground to put it on |
+| `--warning-text` | **text on that ground** |
+
+`--accent` had all three from the beginning; the others had two, so a warning
+badge painted `--warning` on `--warning-subtle` and measured **2.89:1**. The
+rule is now uniform: **on a `-subtle` ground, use `-text`.**
+
+Amber is the hue where this bites — it cannot be read at its own mid-tone —
+which is why `--amber-800` exists and `--warning-text` points at it.
+
 ## What the tokens cover
 
 Counted from the `:root` block, by the comment headings in the file itself:
 
 | Group | Count | Notes |
 | --- | --- | --- |
-| Palette ramp | 34 | blue, teal, green, amber, red, purple, pink, 13 greys |
-| Roles | 32 | surface, border, text, accent, positive/warning/danger, 8 chart series |
+| Palette ramp | 37 | blue, teal, green, amber, red, purple, pink, 15 greys |
+| Roles | 35 | surface, border, text, accent, positive/warning/danger, 8 chart series |
 | Spacing | 7 | `--space-1` … `--space-7`, 4px → 48px |
 | Shapes | 7 | four radii, three shadows |
 | Typography | 12 | system stack, no webfont |
 | Motion | 5 | two easings, three durations |
 | Layout | 5 | nav widths, header height, bottom-nav height, content max |
-| **Total** | **102** | |
+| **Total** | **108** | |
 
 The eight chart series sit under Roles because that is where the file puts
 them; they are chosen so no two adjacent colours form a red/green pair.
@@ -67,6 +84,11 @@ degree.
 **Forced colours are obeyed.** Under `forced-colors: active` the shadows go and
 the border becomes `CanvasText`. Fighting a high-contrast mode makes the app
 unreadable for the people who most need it.
+
+**Contrast is measured, not asserted.** This file used to claim every text pair
+met WCAG AA in both themes. When that was finally measured, nine pairs failed in
+light and seven in dark. `tests/browser.mjs` now walks the rendered document in
+both themes and fails the build on any pair under 4.5:1 (3:1 for large text).
 
 **Colour is never the only signal.** Today is marked by a border and a bolder
 number as well as by a colour. A selected tab carries weight and a rule. A

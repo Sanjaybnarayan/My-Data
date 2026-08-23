@@ -34,6 +34,10 @@
   --amber-50:  #fef5e2;
   --amber-500: #f29900;
   --amber-600: #cc8100;
+  /* Amber is the hue that cannot be read at its own mid-tone: `--amber-600` on
+     `--amber-50` measures 2.89:1. This step exists so a warning badge can say
+     "warning" in a colour somebody can read — 5.63:1 on the same ground. */
+  --amber-800: #8a5700;
 
   --red-50:  #fdecea;
   --red-500: #d93025;
@@ -49,7 +53,12 @@
   --grey-200: #dcdfe4;
   --grey-300: #c3c8d0;
   --grey-400: #9aa1ad;
+  /* Between 400 and 500, and it exists for one reason: `--text-faint` needs to
+     be lighter than `--text-muted` and still readable on a dark surface. */
+  --grey-450: #8f97a3;
   --grey-500: #737b88;
+  /* Likewise between 500 and 600, for faint text on a light surface. */
+  --grey-550: #68707d;
   --grey-600: #565e6b;
   --grey-700: #3d444f;
   --grey-800: #272c34;
@@ -73,7 +82,18 @@
 
   --text:          var(--grey-900);
   --text-muted:    var(--grey-600);
-  --text-faint:    var(--grey-500);
+  /*
+   * Faint, not unreadable. This was `--grey-500`, which measures 4.27:1 on
+   * white and 3.91:1 on `--surface-sunken` — under the 4.5:1 this file claims
+   * for body text, and the single cause of six of the nine failing pairs found
+   * when the claim was finally measured.
+   *
+   * The replacement is only a little lighter than `--text-muted`, and that is
+   * the honest trade: "faint" and "readable" pull against each other, and
+   * readable wins. For a distinction beyond this, use size or weight rather
+   * than less contrast.
+   */
+  --text-faint:    var(--grey-550);
   --text-inverse:  var(--grey-0);
 
   --accent:          var(--blue-500);
@@ -82,12 +102,26 @@
   --accent-subtle:   var(--blue-50);
   --accent-contrast: #ffffff;
 
+  /*
+   * Each status has three roles, and the third one matters.
+   *
+   *   --x            the colour of the thing itself — a bar, an icon, a rule
+   *   --x-subtle     a ground to put it on
+   *   --x-text       text *on* that ground
+   *
+   * `--accent` has had all three since the beginning; the other three had two,
+   * so a warning badge painted `--warning` on `--warning-subtle` and measured
+   * 2.89:1. The rule is now uniform: on a `-subtle` ground, use `-text`.
+   */
   --positive:        var(--green-600);
   --positive-subtle: var(--green-50);
+  --positive-text:   var(--green-600);
   --warning:         var(--amber-600);
   --warning-subtle:  var(--amber-50);
+  --warning-text:    var(--amber-800);
   --danger:          var(--red-600);
   --danger-subtle:   var(--red-50);
+  --danger-text:     var(--red-600);
 
   /* Category colours for charts. Chosen to stay distinguishable for the
      most common colour vision deficiencies — no red/green adjacency. */
@@ -169,7 +203,8 @@
 
   --text:         var(--grey-50);
   --text-muted:   var(--grey-400);
-  --text-faint:   var(--grey-500);
+  /* Was `--grey-500`: 3.73:1 on `--surface-raised`. See the light block. */
+  --text-faint:   var(--grey-450);
   --text-inverse: var(--grey-950);
 
   --accent:          var(--blue-300);
@@ -180,10 +215,13 @@
 
   --positive:        #67d68b;
   --positive-subtle: rgb(103 214 139 / 14%);
+  --positive-text: #67d68b;
   --warning:         #f5bd54;
   --warning-subtle:  rgb(245 189 84 / 14%);
+  --warning-text:  #f5bd54;
   --danger:          #f2857c;
   --danger-subtle:   rgb(242 133 124 / 14%);
+  --danger-text:   #f2857c;
 
   --series-1: #7cb0f7;
   --series-2: #f5bd54;
@@ -215,7 +253,8 @@
     --border-strong: var(--grey-700);
     --text:         var(--grey-50);
     --text-muted:   var(--grey-400);
-    --text-faint:   var(--grey-500);
+    /* Was `--grey-500`: 3.73:1 on `--surface-raised`. See the light block. */
+    --text-faint:   var(--grey-450);
     --text-inverse: var(--grey-950);
     --accent:          var(--blue-300);
     --accent-hover:    #9cc4f9;
@@ -224,10 +263,13 @@
     --accent-contrast: var(--grey-950);
     --positive:        #67d68b;
     --positive-subtle: rgb(103 214 139 / 14%);
+    --positive-text: #67d68b;
     --warning:         #f5bd54;
     --warning-subtle:  rgb(245 189 84 / 14%);
+    --warning-text:  #f5bd54;
     --danger:          #f2857c;
     --danger-subtle:   rgb(242 133 124 / 14%);
+    --danger-text:   #f2857c;
     --series-1: #7cb0f7;
     --series-2: #f5bd54;
     --series-3: #4fd0bf;
