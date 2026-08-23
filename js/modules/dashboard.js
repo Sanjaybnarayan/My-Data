@@ -15,7 +15,7 @@ import { h, replace } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import {
   card, cardHeader, metric, money, badge, button, empty, progress, listItem,
-  pageHeader, avatar, dueBadge,
+  pageHeader, avatar, dueBadge, carousel, walletCard,
 } from '../ui/components/basics.js';
 import { donutChart, barChart, seriesColour } from '../ui/components/charts.js';
 import { app } from '../context.js';
@@ -25,27 +25,93 @@ import { netWorth } from '../domain/networth.js';
 import * as fin from '../domain/finance.js';
 import { portfolioSummary, allocation } from '../domain/portfolio.js';
 import { allReminders } from '../domain/reminders.js';
-import { datedEntities, BY_NAME } from '../services/attention.js';
+import { datedEntities, BY_NAME, attentionFrom } from '../services/attention.js';
 import { TimelineService } from '../services/timeline.js';
 import { entity } from '../data/schema.js';
 import { formatCompact, format } from '../core/money.js';
 import { formatDay, relativeDays, today } from '../core/dates.js';
 import { summarise } from '../ai/summary.js';
+import { t } from '../core/locale.js';
 import { TRANSACTION_LIMIT, transactionsTruncated } from '../services/service.js';
 import { EstateService } from '../services/estate.js';
 
 const WIDGET_KEY = 'dashboard.widgets';
 
+/*
+ * The order the screen is read in, not a list of everything available.
+ *
+ * What needs doing, then what the household is worth, then who is in it, then
+ * today, then money, then papers — and the written summary last, because a
+ * paragraph is the slowest thing on a screen to take in and should not be the
+ * first thing met.
+ *
+ * `networth` and `reminders` are not here: `wallet` and `attention` show the
+ * same records in a form that fits a phone. Both still exist as widgets, so a
+ * household that had chosen them keeps them.
+ */
+const DEFAULT_WIDGETS = [
+  'attention', 'wallet', 'family', 'dates', 'tasks',
+  'spending', 'bills', 'budgets', 'documents', 'portfolio',
+  'nominations', 'activity', 'summary',
+];
+
+/**
+ * Every widget that can be shown, in display order — a longer list than the
+ * default.
+ *
+ * The two were one list, and that was a way to lose somebody's arrangement:
+ * Customise saves `ALL_WIDGETS.filter(chosen)`, so a widget missing from it
+ * could be ticked, saved, and silently dropped. `networth` and `reminders` are
+ * off by default because `wallet` and `attention` cover the same records
+ * better on a phone — but a household that wants them can still have them, and
+ * one that already had them does not lose them by opening this sheet.
+ */
 const ALL_WIDGETS = [
+  'attention', 'wallet', 'networth', 'family', 'dates', 'tasks',
+  'spending', 'reminders', 'bills', 'budgets', 'documents', 'portfolio',
+  'nominations', 'activity', 'summary',
+];
+
+/**
+ * What the default used to be, kept so a stored preference can be recognised.
+ *
+ * Somebody who never opened Customise has the old default written down, and
+ * cannot be told apart from somebody who chose exactly those eleven. Treating
+ * the untouched default as a choice would freeze them on the old shape
+ * forever; treating a real choice as a default would throw their arrangement
+ * away. This is the only way to tell the two apart, and it stops being needed
+ * the first time each household opens Customise.
+ */
+const PREVIOUS_DEFAULT = [
   'summary', 'networth', 'spending', 'reminders', 'bills', 'budgets',
   'portfolio', 'nominations', 'dates', 'tasks', 'activity',
 ];
+
+/**
+ * The stored preference, or the default — telling an untouched one apart.
+ *
+ * Exported so it can be tested without a DOM. What it decides is whether
+ * somebody keeps the arrangement they chose, so it is worth checking directly
+ * rather than through a browser.
+ */
+export function chosenWidgets(stored) {
+  if (!Array.isArray(stored) || !stored.length) return DEFAULT_WIDGETS;
+
+  const untouched = stored.length === PREVIOUS_DEFAULT.length
+    && stored.every((id, i) => id === PREVIOUS_DEFAULT[i]);
+  if (untouched) return DEFAULT_WIDGETS;
+
+  // A real arrangement is kept, with anything added since appended rather than
+  // withheld — a household should not have to know a section exists to see it.
+  const known = new Set(stored);
+  return [...stored, ...DEFAULT_WIDGETS.filter((id) => !known.has(id))];
+}
 
 export async function render() {
   const { db } = app();
   const host = h('div', {});
 
-  const enabled = (await db.meta(WIDGET_KEY)) ?? ALL_WIDGETS;
+  const enabled = chosenWidgets(await db.meta(WIDGET_KEY));
 
   async function paint() {
     const data = await loadAll(db);
@@ -101,6 +167,7 @@ async function loadAll(db) {
     'budget', 'medication'];
   const names = [...new Set([...datedEntities(), ...BY_NAME, ...WIDGETS_NEED])];
 
+  /** @type {Record<string, any[]>} */
   const byEntity = {};
   for (const name of names) {
     try {
@@ -130,6 +197,9 @@ async function loadAll(db) {
     }),
     compare: fin.comparePeriods(byEntity.transaction),
     reminders: allReminders(byEntity, { horizonDays: 45 }),
+    // The same arithmetic the Notifications tab and its badge use, from the
+    // records already in hand rather than a second read of eighteen entities.
+    attention: attentionFrom(byEntity, { horizonDays: 45 }),
     bills: fin.upcomingBills(byEntity.recurringPayment, byEntity.loan, {
       days: 30,
       accounts: byEntity.account,
@@ -195,6 +265,197 @@ function billsFooter({ total, unknown }) {
 }
 
 const WIDGETS = {
+  /*
+   * What needs doing, above everything else.
+   *
+   * The count and the arithmetic are `attentionFrom`, shared with the
+   * Notifications tab and the badge on its bar — one source, so the dashboard
+   * cannot say three things need attention while the tab says four.
+   *
+   * Three rows, not all of them. This card exists to say *whether* something
+   * needs doing; the tab is where the list lives.
+   */
+  attention: (data) => {
+    const { pressing, items } = data.attention;
+    const worst = items.filter((one) => one.severity === 'overdue' || one.severity === 'urgent');
+
+    if (!pressing) {
+      return card({ class: 'card--quiet' }, [
+        cardHeader(t('dash.attention.clear'), null, { iconName: 'check' }),
+        h('p', { class: 'small muted', style: { marginBottom: 0 } },
+          t('dash.attention.clearBody')),
+      ]);
+    }
+
+    return card({ class: 'card--flush attention-card' }, [
+      h('div', { class: 'attention-head' }, cardHeader(
+        pressing === 1 ? t('dash.attention.one') : t('dash.attention.many', { n: pressing }),
+        badge(String(pressing), 'danger'),
+        { iconName: 'alert' },
+      )),
+
+      h('div', { class: 'list' }, worst.slice(0, 3).map((one) => listItem({
+        title: one.line,
+        subtitle: `${one.label ?? t('dash.dateFallback')} · ${formatDay(one.date)}`,
+        href: one.module && one.entity && one.recordId
+          ? Router.href({ module: one.module, entity: one.entity, id: one.recordId })
+          : Router.href({ module: 'notifications' }),
+      }))),
+
+      h('div', { class: 'attention-foot' }, [
+        h('a', { class: 'btn btn--subtle btn--small', href: Router.href({ module: 'notifications' }) },
+          worst.length > 3 ? t('dash.attention.seeAll', { n: pressing })
+            : t('dash.attention.open')),
+      ]),
+    ]);
+  },
+
+  /*
+   * The wallet: net worth, then what it is made of.
+   *
+   * Every figure comes from `netWorth`, which is the same calculation the
+   * Finance screen uses — this draws it, it does not recompute it. The
+   * breakdown rows are only the ones with a value, so a household with no
+   * property does not get an empty Property card claiming ₹0.
+   *
+   * Each card says when it was last true. Nothing here is live: a balance is
+   * as recent as the last transaction somebody recorded, and a card that shows
+   * a figure without saying so invites it to be read as a bank feed.
+   */
+  wallet: (data) => {
+    const total = data.net.total;
+    const stale = data.net.staleValuations?.length ?? 0;
+
+    const cards = [
+      walletCard({
+        title: t('dash.wallet.netWorth'),
+        value: formatCompact(total),
+        meta: t('dash.wallet.split', { assets: format(data.net.assets), owed: format(data.net.liabilities) }),
+        updated: stale
+          ? (stale === 1 ? t('dash.wallet.staleOne') : t('dash.wallet.staleMany', { n: stale }))
+          : t('dash.wallet.recorded'),
+        status: data.truncated ? { label: t('dash.wallet.partial'), tone: 'warning' } : null,
+        href: Router.href({ module: 'finance' }),
+        tone: 'accent',
+      }),
+
+      ...data.net.breakdown.map((row) => walletCard({
+        title: row.label,
+        value: formatCompact(Math.abs(row.value)),
+        meta: row.kind === 'liability' ? t('dash.wallet.owed') : t('dash.wallet.held'),
+        updated: t('dash.wallet.recorded'),
+        href: Router.href({ module: row.kind === 'liability' ? 'finance' : 'investments' }),
+      })),
+    ];
+
+    // Nothing recorded is not a carousel of zeroes — it is one sentence.
+    if (!data.net.assets && !data.net.liabilities) {
+      return card({}, [
+        cardHeader(t('dash.wallet.title'), null, { iconName: 'wallet' }),
+        empty({
+          title: t('dash.wallet.empty.title'),
+          message: t('dash.wallet.empty.message'),
+          iconName: 'wallet',
+          action: button(t('dash.wallet.empty.action'), {
+            variant: 'primary',
+            iconName: 'plus',
+            onClick: () => app().router.navigate({
+              module: 'finance', entity: 'account', id: 'new',
+            }),
+          }),
+        }),
+      ]);
+    }
+
+    return h('section', { class: 'dash-section' }, [
+      h('h3', { class: 'dash-section-title' }, t('dash.wallet.title')),
+      carousel(cards, { label: t('dash.wallet.cards') }),
+    ]);
+  },
+
+  /*
+   * Who is in the household.
+   *
+   * Deliberately not a safety claim. The brief asks for "Everyone safe" here,
+   * and this application cannot say that: a safe-zone crossing is noticed when
+   * the location trail is next read, not as it happens, so a green tick on the
+   * home screen would be asserting something nobody checked. What is shown is
+   * what is known — how many people are recorded — and Safety is a tap away.
+   */
+  family: (data) => {
+    // `data.person`, not `data.people`. The latter is an id-to-name lookup
+    // built for the widgets that resolve a reference; it is an object, and
+    // calling `.filter` on it took the whole dashboard down.
+    const people = (data.person ?? []).filter((one) => !one.deletedAt);
+
+    if (!people.length) {
+      return card({}, empty({
+        title: t('dash.family.empty.title'),
+        message: t('dash.family.empty.message'),
+        iconName: 'family',
+        action: button(t('dash.family.empty.action'), {
+          variant: 'primary',
+          iconName: 'plus',
+          onClick: () => app().router.navigate({ module: 'identity', entity: 'person', id: 'new' }),
+        }),
+      }));
+    }
+
+    return card({}, [
+      cardHeader(t('dash.family.title'),
+        badge(people.length === 1 ? t('dash.family.one')
+          : t('dash.family.many', { n: people.length })),
+        { iconName: 'family' }),
+      h('div', { class: 'dash-avatars' },
+        people.slice(0, 8).map((one) => avatar(one.name ?? '?'))),
+      h('div', { class: 'row' }, [
+        h('a', { class: 'btn btn--subtle btn--small', href: Router.href({ module: 'family' }) },
+          t('dash.family.open')),
+        h('a', { class: 'btn btn--subtle btn--small', href: Router.href({ module: 'safety' }) },
+          t('dash.family.safety')),
+      ]),
+    ]);
+  },
+
+  /*
+   * Papers that run out.
+   *
+   * The same reminders the attention card counts, narrowed to the entities a
+   * household would call a document. Separate because "your passport expires
+   * in three weeks" is a different kind of worry from "the rent is due", and
+   * putting them in one list makes both easier to miss.
+   */
+  documents: (data) => {
+    const PAPERS = new Set(['identityDocument', 'document', 'policy', 'certificate',
+      'vehicle', 'warranty', 'education']);
+    const rows = data.attention.items
+      .filter((one) => PAPERS.has(one.entity))
+      .slice(0, 5);
+
+    if (!rows.length) {
+      return card({ class: 'card--quiet' }, [
+        cardHeader(t('dash.papers.title'), null, { iconName: 'file' }),
+        h('p', { class: 'small muted', style: { marginBottom: 0 } },
+          t('dash.papers.clear')),
+      ]);
+    }
+
+    return card({ class: 'card--flush' }, [
+      h('div', { class: 'attention-head' },
+        cardHeader(t('dash.papers.running'), badge(String(rows.length)), { iconName: 'file' })),
+      h('div', { class: 'list' }, rows.map((one) => listItem({
+        title: one.title,
+        subtitle: `${one.label} · ${formatDay(one.date)}`,
+        trailing: dueBadge(one.date, { leadDays: 30 }),
+        href: Router.href({ module: one.module, entity: one.entity, id: one.recordId }),
+      }))),
+      h('div', { class: 'attention-foot' }, [
+        h('a', { class: 'btn btn--subtle btn--small', href: Router.href({ module: 'documents' }) },
+          t('dash.papers.open')),
+      ]),
+    ]);
+  },
+
   summary: (data) => card({}, [
     cardHeader('At a glance', null, { iconName: 'sparkle' }),
     h('p', { style: { lineHeight: '1.7' } }, summarise(data)),
@@ -497,6 +758,10 @@ async function customise(enabled, repaint) {
 }
 
 const WIDGET_LABELS = {
+  attention: 'What needs attention',
+  wallet: 'Your wallet',
+  family: 'Household',
+  documents: 'Papers running out',
   summary: 'Summary in words',
   networth: 'Family net worth',
   spending: 'This month’s spending',

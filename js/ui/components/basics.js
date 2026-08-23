@@ -340,3 +340,80 @@ export function pageHeader(title, { subtitle, actions } = {}) {
     actions ? h('div', { class: 'row' }, actions) : null,
   ]);
 }
+
+/**
+ * A horizontally scrolling row of cards, with snap points.
+ *
+ * ## Why this is a scroller and not a slider
+ *
+ * No JavaScript moves it. It is a scroll container with CSS snap points, so
+ * the browser handles the drag, the momentum, the snap and the keyboard —
+ * meaning it works with a thumb, a trackpad, a mouse wheel, arrow keys and a
+ * screen reader's own navigation without any of that being re-implemented
+ * badly here. A scripted carousel would have to reproduce all of it and would
+ * get the accessibility wrong.
+ *
+ * `role="list"` and `listitem` because that is what it is: a list that happens
+ * to scroll sideways. Without them a screen reader reads a run of links with
+ * no sense of how many there are or where it is in them.
+ *
+ * @param {Child[]} items
+ * @param {{label: string, class?: string}} options `label` is required — an
+ *   unlabelled scroll region is announced as "region" and nothing else.
+ */
+export function carousel(items, { label, class: className }) {
+  const present = (items ?? []).filter(Boolean);
+  if (!present.length) return null;
+
+  return h('div', {
+    class: ['carousel', className],
+    role: 'list',
+    'aria-label': label,
+    // Reachable by keyboard: a scroll container that cannot take focus cannot
+    // be scrolled with the arrow keys by somebody not using a pointer.
+    tabindex: '0',
+  }, present.map((item) => h('div', { class: 'carousel-item', role: 'listitem' }, item)));
+}
+
+/**
+ * One card in a wallet.
+ *
+ * A thing the household holds — an account, a policy, a document — reduced to
+ * what identifies it, what it is worth or when it runs out, and how fresh that
+ * is.
+ *
+ * `updated` is deliberately not optional-with-a-default. A card that shows a
+ * figure without saying when it was true invites it to be read as live, and
+ * nothing in this application is live: every number is as recent as the last
+ * time somebody recorded something. Where there is no date to give, say so
+ * rather than leaving the line off.
+ *
+ * @param {{
+ *   title: Child, subtitle?: Child, value?: Child, meta?: Child,
+ *   updated: Child, status?: {label: string, tone?: string},
+ *   href?: string, tone?: string,
+ * }} options
+ */
+export function walletCard({
+  title, subtitle, value, meta, updated, status, href, tone,
+}) {
+  const body = [
+    h('div', { class: 'wallet-card-top' }, [
+      h('div', { class: 'spacer' }, [
+        h('p', { class: 'wallet-card-title' }, title),
+        subtitle ? h('p', { class: 'wallet-card-subtitle' }, subtitle) : null,
+      ]),
+      // Glyph and word, never colour alone.
+      status ? badge(status.label, status.tone ?? '') : null,
+    ]),
+
+    value !== undefined && value !== null
+      ? h('p', { class: 'wallet-card-value numeric' }, value) : null,
+    meta ? h('p', { class: 'wallet-card-meta' }, meta) : null,
+    h('p', { class: 'wallet-card-updated' }, updated),
+  ];
+
+  return href
+    ? h('a', { class: ['wallet-card', tone && `wallet-card--${tone}`], href }, body)
+    : h('div', { class: ['wallet-card', tone && `wallet-card--${tone}`] }, body);
+}

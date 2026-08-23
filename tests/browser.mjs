@@ -195,9 +195,27 @@ async function main() {
 
     await page.waitForSelector('.app-nav', { timeout: 15_000 });
     check('the shell renders after unlocking', await page.locator('.app-nav').isVisible());
-    await page.waitForSelector('.app-content .card', { timeout: 10_000 });
+    /*
+     * Waited for, but not *only* waited for.
+     *
+     * A bare `waitForSelector` here turns a dashboard that throws into a
+     * ten-second hang and then a stack trace pointing at this line — which
+     * says the card never appeared and nothing about why. The screen had
+     * already logged the actual cause to the console, and the run threw it
+     * away.
+     *
+     * That happened for real in UI-4: `data.people` is an id-to-name lookup
+     * rather than a list, `.filter` was called on it, and the report was
+     * `Timeout 10000ms exceeded waiting for .app-content .card`. The one-line
+     * TypeError was sitting in `consoleErrors` the whole time.
+     */
+    const dashboardDrew = await page.waitForSelector('.app-content .card', { timeout: 10_000 })
+      .then(() => true).catch(() => false);
     check('the dashboard says something rather than showing an empty grid',
-      (await page.locator('.card').count()) > 0);
+      dashboardDrew && (await page.locator('.card').count()) > 0,
+      consoleErrors.length
+        ? `the screen threw: ${consoleErrors[consoleErrors.length - 1].slice(0, 200)}`
+        : 'no card appeared, and nothing was logged');
     if (SHOTS) await shot(page, 'dashboard');
 
     /* ---------------------------------------------------- add a record */
@@ -3404,6 +3422,79 @@ async function main() {
         reveal ? `${reveal.kind} is ${reveal.width}\u00d7${reveal.height}` : '');
     }
 
+    /* ------------------------------------------------------- dashboard */
+
+    /*
+     * The dashboard's sections, and the one number two screens share.
+     *
+     * The attention card and the Notifications tab are the same arithmetic —
+     * `attentionFrom` — precisely so they cannot disagree about what needs
+     * doing. Two implementations would drift, and the screen that disagreed
+     * would be the one nobody checked. This asserts they match rather than
+     * trusting that they share a function.
+     *
+     * It also asserts the sections are *there*. It is not what catches a
+     * dashboard that throws outright — the run reaches the first dashboard
+     * check long before this one, and that is where the diagnosis was made to
+     * happen. What this catches is the quieter kind: the wallet losing its
+     * carousel, a card showing a figure with no date against it, or the two
+     * screens drifting apart on the count.
+     */
+    {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(600);
+
+      const shape = await page.evaluate(() => ({
+        cards: document.querySelectorAll('.app-content .card').length,
+        carousels: document.querySelectorAll('.app-content .carousel').length,
+        walletCards: document.querySelectorAll('.app-content .wallet-card').length,
+        text: /** @type {any} */ (document.querySelector('.app-content'))?.innerText ?? '',
+      }));
+
+      check('the dashboard renders cards rather than throwing', shape.cards > 0,
+        shape.text.slice(0, 100));
+
+      // With one account added earlier in this run there is a figure to show,
+      // so the wallet is a carousel rather than its empty state.
+      check('the wallet is a carousel of cards',
+        shape.carousels >= 1 && shape.walletCards >= 2,
+        `${shape.carousels} carousels, ${shape.walletCards} cards`);
+
+      check('the carousel is reachable by keyboard',
+        await page.evaluate(() => /** @type {any} */ (
+          document.querySelector('.carousel'))?.tabIndex === 0));
+
+      check('and every wallet card says how old its figure is',
+        await page.evaluate(() => [...document.querySelectorAll('.wallet-card')]
+          .every((one) => (one.querySelector('.wallet-card-updated')?.textContent ?? '').trim())),
+        'a card showed a figure without saying when it was true');
+
+      // The same count, from two screens.
+      const onDashboard = await page.evaluate(() => {
+        const heading = [...document.querySelectorAll('.attention-card h3, .card h3')]
+          .map((el) => el.textContent ?? '')
+          .find((text) => /needs? your attention/.test(text));
+        return heading ? Number(/^(\d+)/.exec(heading.trim())?.[1] ?? 1) : 0;
+      });
+
+      await go(page, '#/notifications');
+      await page.waitForTimeout(500);
+      const onTab = await page.evaluate(() => {
+        const rows = document.querySelectorAll('.card .list .list-item');
+        const heads = [...document.querySelectorAll('.card h3')].map((el) => el.textContent ?? '');
+        const late = heads.filter((text) => /Already past|This week/.test(text)).length;
+        return { rows: rows.length, groups: late };
+      });
+
+      check('the dashboard and the notifications tab agree on what is pressing',
+        (onDashboard > 0) === (onTab.groups > 0),
+        `dashboard says ${onDashboard}, the tab shows ${onTab.groups} pressing groups`);
+
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(250);
+    }
+
     /* --------------------------------------------- bottom navigation */
 
     /*
@@ -3973,6 +4064,22 @@ async function main() {
     } catch (err) {
       check('the app still loads with the server gone', false, err.message);
     }
+  } catch (err) {
+    /*
+     * One throw used to discard every result.
+     *
+     * The report is printed after this block, so anything that threw inside it
+     * went straight to `main().catch()` — which prints a stack trace and
+     * exits. Four hundred checks' worth of answers, collected and then thrown
+     * away, because one step further down hit a `waitForSelector` that never
+     * resolved.
+     *
+     * Recording it as a failure instead means the run still says what it had
+     * established before it fell over, and the exception is one line among
+     * them rather than the only line.
+     */
+    check('the run reached the end without throwing', false,
+      `${err.name}: ${err.message.split('\n')[0]}`);
   } finally {
     await browser.close();
     server.kill();
