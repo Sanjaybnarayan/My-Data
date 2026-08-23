@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The `sms` flavour, and the only difference between the two builds.
+
+  ## Why there are two
+
+  Google Play Protect BLOCKS the install of a sideloaded app that requests a
+  *restricted permission* — the SMS and Call Log family. Not a warning with an
+  "install anyway": on current Android the dialog offers only OK and the app
+  does not install. What a person sees is "This app can request access to
+  sensitive data. This can increase the risk of identity theft or financial
+  fraud."
+
+  `READ_SMS` is the only restricted permission this application asks for, and
+  it was making the whole build uninstallable — every other feature included.
+  So it lives here rather than in `src/main`, and `standard` is a build that
+  goes on a phone.
+
+  Nothing else differs: same application id, same code, same plugin. On the
+  `standard` build `SmsInboxPlugin` is still compiled in, Android answers its
+  permission check denied because the manifest never asked, and
+  `js/core/smsinbox.js` reports DENIED — the path it already had for somebody
+  who says no.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        SMS, for Phase 6: reading bank alerts off the device instead of asking
+        somebody to paste them one at a time.
+
+        READ THIS BEFORE PUBLISHING. This permission decides where this app can
+        be distributed, and the decision was made deliberately rather than by
+        adding a line and finding out later.
+
+        READ_SMS is a Play "restricted permission". An app may hold it only if
+        it is the user's default SMS handler, or if it has an approved
+        Restricted Permission Declaration for a listed use case. FamilyOS is
+        not a default SMS handler and does not want to be. A finance app
+        reading bank alerts has appeared as a declarable use case, but the
+        declarations are reviewed case by case and are routinely refused for
+        apps in exactly this position.
+
+        So the honest statement is: **with this line present, this build is for
+        sideloading.** That is what the CI debug APK is, and it is how this
+        household installs it. Putting this on Play would need a declaration
+        that will probably be refused, and if it is refused the answer is to
+        remove this permission and use the share-sheet path — not to argue.
+
+        RECEIVE_SMS is deliberately NOT here. It would let the app wake on every
+        arriving message, which is passive interception rather than a thing a
+        person asks for, and nothing in Phase 6 needs it: the inbox is read when
+        somebody opens the screen and asks.
+    -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+
+    <!--
+        Same reasoning as GPS: a device or profile with no telephony still runs
+        every other part of the application.
+    -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+</manifest>
