@@ -3181,20 +3181,60 @@ async function main() {
     await page.waitForTimeout(300);
     check('the bottom navigation appears on a phone',
       await page.locator('.bottom-nav').isVisible());
-    const overflow = await page.evaluate(() => {
-      const limit = window.innerWidth + 1;
-      if (document.documentElement.scrollWidth <= limit) return null;
-      // Name the widest offender rather than reporting that "something" is
-      // too wide, which is unactionable.
-      const worst = [...document.querySelectorAll('.app-main *')]
-        .map((el) => ({ el, right: el.getBoundingClientRect().right }))
-        .filter((row) => row.right > limit)
-        .sort((a, b) => b.right - a.right)[0];
-      return worst
-        ? `${worst.el.tagName.toLowerCase()}.${worst.el.className} reaches ${Math.round(worst.right)}px`
-        : `document is ${document.documentElement.scrollWidth}px wide`;
-    });
-    check('nothing overflows horizontally on a phone', !overflow, overflow ?? '');
+    /*
+     * Sideways scroll, on every screen rather than on this one.
+     *
+     * This check existed and only ever ran on the dashboard, which is the
+     * screen least likely to fail it: it is cards. `#/finance/transaction`
+     * pushed a 390px phone to 413px and had presumably done so for as long as
+     * the filter row has had two date inputs in it — a `date` input needs 9rem
+     * to render `dd/mm/yyyy` without truncating its own control, and two of
+     * them plus the words between them do not fit.
+     *
+     * The layout above it hid the cause. `.app` used a `1fr` track and its
+     * items took the default `min-width: auto`, and both of those refuse to go
+     * below min-content, so `.app-main` measured 442px on a 390px screen and
+     * every child dutifully filled a parent that was already too wide. No
+     * single element looked at fault. Releasing both — `minmax(0, 1fr)` and
+     * `min-width: 0` — made the real offender visible at 413px.
+     *
+     * The criterion is whether the *document* scrolls. An element wider than
+     * its parent is not the same question: the calendar's month grid is
+     * deliberately given negative margins on a phone so it can escape the
+     * card's padding, and an SVG path routinely reports a box larger than the
+     * `<svg>` around it. Both are fine and neither scrolls the page.
+     */
+    const seesaw = [];
+    for (const screen of ['dashboard', 'identity', 'family', 'finance',
+      'finance/transaction', 'finance/account', 'investments', 'documents',
+      'vehicles', 'health', 'insurance', 'property', 'education', 'tasks',
+      'calendar', 'notes', 'vault', 'digital', 'emergency', 'safety', 'chat',
+      'reports', 'assistant', 'settings', 'belongings', 'timeline', 'travel']) {
+      await go(page, `#/${screen}`);
+      await page.waitForTimeout(350);
+
+      const overflow = await page.evaluate(() => {
+        const limit = window.innerWidth + 1;
+        if (document.documentElement.scrollWidth <= limit) return null;
+        // Name the widest offender rather than reporting that "something" is
+        // too wide, which is unactionable.
+        const worst = [...document.querySelectorAll('.app *')]
+          .map((el) => ({ el, right: el.getBoundingClientRect().right }))
+          .filter((row) => row.right > limit)
+          .sort((a, b) => b.right - a.right)[0];
+        return worst
+          ? `${worst.el.tagName.toLowerCase()}.${typeof worst.el.className === 'string'
+            ? worst.el.className : ''} reaches ${Math.round(worst.right)}px`
+          : `document is ${document.documentElement.scrollWidth}px wide`;
+      });
+      if (overflow) seesaw.push(`${screen}: ${overflow}`);
+    }
+
+    check('no screen scrolls sideways on a phone', seesaw.length === 0,
+      seesaw.join('; '));
+
+    await go(page, '#/dashboard');
+    await page.waitForTimeout(300);
     if (SHOTS) await shot(page, 'phone');
 
     /* ------------------------------------------------------ tap targets */

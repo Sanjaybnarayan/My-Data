@@ -935,8 +935,18 @@
 
 .search-box--grow { flex: 1 1 16rem; }
 
+/*
+ * Wraps, because it holds two date inputs and it has to fit a phone.
+ *
+ * A `date` input needs 9rem to show `dd/mm/yyyy` without truncating its own
+ * control, so the pair plus the words between them wants 384px inside the
+ * 366px a 390px phone leaves. Without wrapping, the row pushed the page to
+ * 413px and the whole application scrolled sideways — on the transactions
+ * screen only, which is why walking one screen never found it.
+ */
 .field-inline {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
 }
