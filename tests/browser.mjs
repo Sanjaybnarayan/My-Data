@@ -4401,6 +4401,52 @@ async function main() {
       check('and Profile really is a page full of links', linked.size >= 15,
         `${linked.size} distinct modules linked`);
 
+      /*
+       * The sign-in card, on a copy with no backend configured.
+       *
+       * Which is the state this suite runs in, and the state most first
+       * installs are in. A one-time code has to be sent and checked by a
+       * server — a browser cannot check its own — so with no Apps Script URL
+       * there is nothing to answer, and the card has to say that instead of
+       * drawing a button whose only outcome is an error toast.
+       *
+       * That is the fault the chat composer had: a form that takes your
+       * typing and fails afterwards. Worth not repeating, and worth checking.
+       */
+      await go(page, '#/profile');
+      await page.waitForTimeout(600);
+
+      const signin = await page.evaluate(() => {
+        const el = [...document.querySelectorAll('.app-content .card')]
+          .find((one) => /Confirm who you are/.test(/** @type {any} */ (one).innerText ?? ''));
+        return {
+          found: Boolean(el),
+          text: el ? /** @type {any} */ (el).innerText : '',
+          inputs: el ? el.querySelectorAll('input').length : -1,
+          buttons: el ? el.querySelectorAll('button').length : -1,
+        };
+      });
+
+      check('the sign-in card is on Profile', signin.found, 'no card headed "Confirm who you are"');
+      check('and with no backend it says so rather than offering a dead button',
+        /no Google backend configured/.test(signin.text) && signin.inputs === 0
+        && signin.buttons === 0,
+        `${signin.inputs} inputs, ${signin.buttons} buttons`);
+
+      /*
+       * And the three sentences it may never leave out.
+       *
+       * They are the reason this feature is safe to ship at all: a code
+       * confirms who you are and protects nothing, and a sign-in card is
+       * exactly where somebody would assume otherwise.
+       */
+      check('it says a code is not what protects the records',
+        /not what protects/.test(signin.text), signin.text.slice(0, 200));
+      check('and that signing in this way decrypts nothing',
+        /decrypts nothing/.test(signin.text), signin.text.slice(0, 300));
+      check('and that a new phone still needs enrolling',
+        /until it is enrolled/.test(signin.text), signin.text.slice(0, 400));
+
       // The tab for the screen you are on is the one marked current.
       await go(page, '#/notifications');
       await page.waitForTimeout(300);

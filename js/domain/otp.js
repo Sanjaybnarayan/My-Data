@@ -23,6 +23,17 @@
  * those sentences rather than inventing kinder ones.
  */
 
+/**
+ * @typedef {{step: string, channel: 'email'|'sms', address: string,
+ *            error: string|null, personId: string|null}} Flow
+ *
+ * Declared rather than inferred. Without it TypeScript reads `start()` as
+ * returning `step: 'address'` — the literal, not the union — and every later
+ * assignment in a screen becomes an error about a type that has "no overlap"
+ * with the step it is about to move to. The screens would then each carry a
+ * cast, which is a lie repeated per file instead of a type written once.
+ */
+
 /** The states the flow can be in. Nothing else is a state. */
 export const STEP = Object.freeze({
   address: 'address',
@@ -76,9 +87,9 @@ export function codeLooksComplete(code) {
  * tested without a network or a DOM. The screen holds one of these and draws
  * it; it makes no decisions of its own.
  *
- * @param {{step: string, channel: 'email'|'sms', address: string,
- *          error: string|null, personId: string|null}} state
+ * @param {Flow} state
  * @param {{type: string} & Record<string, any>} event
+ * @returns {Flow}
  */
 export function advance(state, event) {
   switch (event.type) {
@@ -124,12 +135,20 @@ export function advance(state, event) {
   }
 }
 
-/** @param {'email'|'sms'} [channel] */
+/**
+ * @param {'email'|'sms'} [channel]
+ * @returns {Flow}
+ */
 export function start(channel = 'email') {
   return { step: STEP.address, channel, address: '', error: null, personId: null };
 }
 
-/** Whether the button on the current step should be enabled. */
+/**
+ * Whether the button on the current step should be enabled.
+ *
+ * @param {Flow} state
+ * @param {string} [code]
+ */
 export function canSubmit(state, code = '') {
   if (state.step === STEP.address) return addressLooksSendable(state.address, state.channel);
   if (state.step === STEP.code) return codeLooksComplete(code);

@@ -221,6 +221,7 @@ const SHELL = [
   './js/modules/belongings.js',
   './js/modules/chat.js',
   './js/modules/chat-settings.js',
+  './js/modules/signin.js',
   './js/modules/chat-settings/sections.js',
   './js/modules/notifications.js',
   './js/modules/profile.js',

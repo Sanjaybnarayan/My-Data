@@ -155,3 +155,28 @@ exist and that one of them says plainly that it unlocks nothing.
 
 **2 of 2 mutations caught**: a failure dropping back to the address step, and a
 person invented from the address instead of read from the answer.
+
+### The card
+
+`js/modules/signin.js`, on Profile. Two things about it are the point.
+
+**It offers nothing that cannot work.** With no Apps Script URL configured
+there is no server to send or check a code — a browser cannot check its own —
+so the card says that and draws no form at all. That is the fault the chat
+composer had before UI-6: a form that takes your typing and fails afterwards.
+
+**The three sentences are always on it**, in every state including the
+unavailable one, and they come from `WHAT_IT_DOES_NOT_DO` rather than being
+written in the screen. A sign-in card is exactly where somebody would assume a
+code is protecting something.
+
+Confirming reloads rather than repainting one card. `resolveActor` runs at
+boot and half the shell is drawn from it, so repainting locally would leave the
+rest of the application disagreeing about who is here.
+
+`Flow` is a declared typedef rather than an inferred one. Without it TypeScript
+reads `start()` as returning the literal `'address'`, and every screen would
+carry a cast — a lie repeated per file instead of a type written once.
+
+**2 of 2 mutations caught**: the form offered with nothing to answer it, and
+the limitations left off.
