@@ -121,6 +121,21 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
 
 .app[data-nav='compact'] { grid-template-columns: var(--nav-width-compact) minmax(0, 1fr); }
 
+/*
+ * The status bar sits *over* this header, so it has to be paid for here.
+ *
+ * `viewport-fit=cover` is set in `index.html`, which tells the WebView to draw
+ * behind the system bars — and `capacitor.config.ts` says "the stylesheet uses
+ * the safe-area insets, so the web layer handles the notch". It did not.
+ * `safe-area-inset-top` appeared nowhere in the repository; only the bottom
+ * inset was ever paid, so the header rendered underneath the clock and the
+ * battery on every Android phone.
+ *
+ * `height` becomes `min-height` plus the inset, so the bar keeps its own
+ * height and the status bar gets its space above the content rather than on
+ * top of it. On a device with no inset — a desktop browser — this is exactly
+ * what it was before.
+ */
 .app-header {
   grid-area: header;
   min-width: 0;
@@ -130,8 +145,11 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: var(--header-height);
-  padding: 0 var(--space-5);
+  min-height: var(--header-height);
+  height: calc(var(--header-height) + var(--inset-top));
+  padding: var(--inset-top) var(--space-5) 0;
+  padding-left: max(var(--space-5), var(--inset-left));
+  padding-right: max(var(--space-5), var(--inset-right));
   background: color-mix(in srgb, var(--surface) 86%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
@@ -154,7 +172,7 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
   grid-area: main;
   min-width: 0;
   padding: var(--space-5);
-  padding-bottom: calc(var(--space-7) + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--space-7) + var(--inset-bottom));
 }
 
 .app-content {
@@ -263,10 +281,17 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
 
   .app-main {
     padding: var(--space-4) var(--space-3);
-    padding-bottom: calc(var(--bottom-nav-height) + var(--space-5) + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--bottom-nav-height) + var(--space-5) + var(--inset-bottom));
   }
 
-  .app-header { padding: 0 var(--space-3); }
+  /* Tighter side padding on a phone — but the status bar inset is still owed,
+     and a `padding` shorthand here would quietly set it back to zero. That is
+     exactly what this rule used to do. */
+  .app-header {
+    padding: var(--inset-top) var(--space-3) 0;
+    padding-left: max(var(--space-3), var(--inset-left));
+    padding-right: max(var(--space-3), var(--inset-right));
+  }
 
   .bottom-nav {
     position: fixed;
@@ -275,8 +300,8 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
-    height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
-    padding-bottom: env(safe-area-inset-bottom);
+    height: calc(var(--bottom-nav-height) + var(--inset-bottom));
+    padding-bottom: var(--inset-bottom);
     background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
     backdrop-filter: blur(12px);
     border-top: 1px solid var(--border);

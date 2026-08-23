@@ -3404,6 +3404,85 @@ async function main() {
         reveal ? `${reveal.kind} is ${reveal.width}\u00d7${reveal.height}` : '');
     }
 
+    /* ---------------------------------------------------- safe areas */
+
+    /*
+     * The status bar's space, actually paid.
+     *
+     * `index.html` sets `viewport-fit=cover`, which tells the WebView to draw
+     * behind the system bars, and `capacitor.config.ts` said "the stylesheet
+     * uses the safe-area insets, so the web layer handles the notch". It did
+     * not: `safe-area-inset-top` appeared nowhere in the repository. Only the
+     * bottom inset was ever paid, so on every Android phone with a notch or a
+     * status bar the header rendered underneath the clock.
+     *
+     * `env()` cannot be set by a stylesheet or a test, which is why nothing
+     * could have caught it. The insets now go through `--inset-*` tokens whose
+     * fallback is `env()`, so this can put a phone's real numbers in and
+     * measure what moves. The numbers below are a Pixel-class device in
+     * portrait: 48px of status bar, 24px of gesture area.
+     */
+    {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(300);
+
+      const before = await page.evaluate(() => {
+        const header = document.querySelector('.app-header');
+        const nav = document.querySelector('.bottom-nav');
+        return {
+          headerTop: header.getBoundingClientRect().top,
+          headerHeight: Math.round(header.getBoundingClientRect().height),
+          navBottom: Math.round(window.innerHeight - nav.getBoundingClientRect().bottom),
+        };
+      });
+
+      const after = await page.evaluate(() => {
+        const root = document.documentElement;
+        root.style.setProperty('--inset-top', '48px');
+        root.style.setProperty('--inset-bottom', '24px');
+        const header = document.querySelector('.app-header');
+        const nav = document.querySelector('.bottom-nav');
+        const box = header.getBoundingClientRect();
+        const style = getComputedStyle(header);
+
+        // What the first thing inside the header is actually clear of.
+        const firstChild = header.firstElementChild.getBoundingClientRect();
+
+        return {
+          headerHeight: Math.round(box.height),
+          paddingTop: Math.round(parseFloat(style.paddingTop)),
+          childTop: Math.round(firstChild.top),
+          navHeight: Math.round(nav.getBoundingClientRect().height),
+        };
+      });
+
+      check('the header pays the status bar inset',
+        after.paddingTop === 48,
+        `padding-top is ${after.paddingTop}px with a 48px inset`);
+
+      check('and grows rather than pushing its content under the bar',
+        after.headerHeight === before.headerHeight + 48
+          && after.childTop >= 48,
+        `header ${before.headerHeight} -> ${after.headerHeight}px, `
+        + `first child starts at ${after.childTop}px`);
+
+      check('the bottom navigation pays the gesture inset',
+        after.navHeight >= before.navBottom + 24,
+        `navigation is ${after.navHeight}px tall with a 24px inset`);
+
+      // Without this, the two assertions above could both pass on a page that
+      // never had a header in the first place.
+      check('the safe-area check measured a real shell',
+        before.headerHeight > 40 && before.headerHeight < 200,
+        `header measured ${before.headerHeight}px before any inset`);
+
+      await page.evaluate(() => {
+        document.documentElement.style.removeProperty('--inset-top');
+        document.documentElement.style.removeProperty('--inset-bottom');
+      });
+    }
+
     /* --------------------------------------------------- text contrast */
 
     /*

@@ -155,7 +155,7 @@
 .fab {
   position: fixed;
   right: var(--space-5);
-  bottom: calc(var(--space-5) + env(safe-area-inset-bottom));
+  bottom: calc(var(--space-5) + var(--inset-bottom));
   z-index: 25;
   width: 56px; height: 56px;
   border: 0;
@@ -172,7 +172,7 @@
 .fab:active { transform: scale(0.97); }
 
 @media (max-width: 900px) {
-  .fab { bottom: calc(var(--bottom-nav-height) + var(--space-4) + env(safe-area-inset-bottom)); }
+  .fab { bottom: calc(var(--bottom-nav-height) + var(--space-4) + var(--inset-bottom)); }
 }
 
 /* ------------------------------------------------------------------ forms */
@@ -519,7 +519,7 @@
   position: fixed;
   z-index: 90;
   left: 50%;
-  bottom: calc(var(--space-5) + env(safe-area-inset-bottom));
+  bottom: calc(var(--space-5) + var(--inset-bottom));
   transform: translateX(-50%);
   display: flex;
   flex-direction: column-reverse;
@@ -626,7 +626,7 @@
     animation: sheet-in var(--duration) var(--ease-out);
   }
   @keyframes sheet-in { from { transform: translateY(100%); } }
-  .modal-footer { padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom)); }
+  .modal-footer { padding-bottom: calc(var(--space-4) + var(--inset-bottom)); }
 }
 
 /* ----------------------------------------------------------------- charts */
@@ -732,11 +732,16 @@
 
 /* -------------------------------------------------------------- unlocking */
 
+/*
+ * The first screen anybody sees, and it has no header to pay the inset for it.
+ * Without this the PIN keypad starts under the status bar on a phone.
+ */
 .lock-screen {
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: var(--space-5);
+  padding: calc(var(--space-5) + var(--inset-top)) var(--space-5)
+           calc(var(--space-5) + var(--inset-bottom));
   background: radial-gradient(120% 80% at 50% 0%,
     var(--accent-subtle) 0%, var(--surface) 60%);
 }

@@ -208,6 +208,25 @@
   --duration-slow:    380ms;
 
   /* ------------------------------------------------------------ layout */
+  /*
+   * The system's own insets, named.
+   *
+   * `env()` cannot be set from a stylesheet or a test, so a layout that reads
+   * it directly can only be verified on a physical phone with a notch. Read
+   * through a variable it can be overridden — `tests/browser.mjs` sets these to
+   * a phone's real values and measures that the shell actually pays them.
+   *
+   * That matters because this was wrong: `viewport-fit=cover` tells the WebView
+   * to draw behind the system bars, `capacitor.config.ts` said the stylesheet
+   * handled the notch, and `safe-area-inset-top` appeared nowhere in the
+   * repository. The header rendered under the status bar on every Android
+   * phone and nothing could have caught it.
+   */
+  --inset-top:        env(safe-area-inset-top, 0px);
+  --inset-bottom:     env(safe-area-inset-bottom, 0px);
+  --inset-left:       env(safe-area-inset-left, 0px);
+  --inset-right:      env(safe-area-inset-right, 0px);
+
   --nav-width:        260px;
   --nav-width-compact: 76px;
   --header-height:    60px;
