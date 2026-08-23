@@ -105,6 +105,7 @@ const SHELL = [
   './js/auth/lock.js',
 
   './js/domain/automation.js',
+  './js/domain/wallet.js',
   './js/domain/extract.js',
   './js/domain/filing.js',
   './js/domain/breach.js',

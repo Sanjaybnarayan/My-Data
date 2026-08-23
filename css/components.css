@@ -1623,3 +1623,13 @@ a.wallet-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 
  * the button sizing, so it clears the 44px minimum like every other control.
  */
 .bubble-withdraw { margin-top: var(--space-2); width: 100%; }
+
+/*
+ * The identity-document strip.
+ *
+ * The carousel already handles scroll-snap and keyboard reach; this only gives
+ * it room to breathe inside a flush card, so the cards do not sit against the
+ * edge where a thumb scrolling the page would catch them instead.
+ */
+.wallet-strip .carousel { padding: 0 var(--space-4) var(--space-4); }
+.wallet-strip .wallet-card { min-width: 15rem; }

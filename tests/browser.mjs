@@ -1545,6 +1545,126 @@ async function main() {
       if (SHOTS) await shot(page, 'identity-completion');
     }
 
+    /* --------------------------------------------------- the identity wallet */
+
+    /*
+     * Identity documents as cards, and what the cards refuse to claim.
+     *
+     * Two things are being checked and they pull in opposite directions: the
+     * card has to be *useful* — you can tell at a glance which document has
+     * lapsed — and it has to be *honest*, which here means it must not carry
+     * the number and must not imply anybody checked it.
+     */
+    {
+      const before = consoleErrors.length;
+
+      const seeded = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const db = app().db;
+        const person = await db.repo('person').create({ name: 'Wallet Holder' });
+
+        // One of each state, so the ordering has something to order.
+        await db.repo('identityDocument').create({
+          person: person.id, kind: 'Passport', number: 'Z9876543',
+          expiresOn: '2020-01-01', issuedBy: 'RPO',
+        });
+        await db.repo('identityDocument').create({
+          // Each kind has its own format rule in `data/formats.js`, so these
+          // are real-shaped numbers rather than obviously fake ones.
+          person: person.id, kind: 'Driving licence', number: 'KA0120191234567',
+          expiresOn: new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10),
+        });
+        await db.repo('identityDocument').create({
+          person: person.id, kind: 'Voter ID', number: 'VOT7654321',
+        });
+        return { person: person.id };
+      }, IN_PAGE.context);
+
+      await go(page, '#/identity/identityDocument');
+      await page.waitForTimeout(700);
+
+      const strip = await page.evaluate(() => ({
+        cards: [...document.querySelectorAll('.wallet-strip .wallet-card')].map((el) => ({
+          text: /** @type {any} */ (el).innerText ?? '',
+          href: el.getAttribute('href') ?? '',
+        })),
+        text: /** @type {any} */ (document.querySelector('.app-content'))?.innerText ?? '',
+      }));
+
+      check('identity documents are drawn as cards', strip.cards.length === 3,
+        `${strip.cards.length} cards`);
+
+      // The order is the finding, not decoration: the expired one first.
+      // Case-insensitive: the card title is upper-cased in CSS, and
+      // `innerText` returns what is rendered rather than what was written.
+      check('and the expired one comes first',
+        /passport/i.test(strip.cards[0]?.text ?? ''), strip.cards[0]?.text?.slice(0, 80) ?? '');
+
+      /*
+       * A document with no expiry is not a document that is fine.
+       *
+       * The first version of this check only looked for the words "no expiry
+       * recorded" — which the card prints as its meta line whatever state it
+       * is in. It passed against a mutation that made a missing date read as
+       * *in date*, so it could not fail for the thing its own name described.
+       * The badge is what carries the claim, so the badge is what is asserted.
+       */
+      const voterCard = strip.cards.find((one) => /voter/i.test(one.text));
+      check('a document with no expiry says so rather than reading as in date',
+        Boolean(voterCard) && /no expiry recorded/i.test(voterCard.text)
+        && !/in date/i.test(voterCard.text),
+        (voterCard?.text ?? 'no voter card').replace(/\n/g, ' ').slice(0, 200));
+
+      // Every card carries when the record was last changed. `walletCard`
+      // makes `updated` required for exactly this reason.
+      check('every card says when the record was last changed',
+        strip.cards.every((one) => /last changed|never changed/i.test(one.text)),
+        strip.cards.map((one) => one.text.replace(/\n/g, ' ')).join(' | ').slice(0, 300));
+
+      // The numbers. This is the sweep's rule applied at the point it matters
+      // most — a hand-built card is exactly the surface that bypasses the
+      // field renderer.
+      for (const raw of ['Z9876543', 'KA0120191234567', 'VOT7654321']) {
+        check(`the wallet does not print ${raw.slice(0, 2)}… in full`,
+          !strip.text.includes(raw), strip.text.slice(0, 200));
+      }
+      check('but it does show the last four characters, so a card is recognisable',
+        /6543/.test(strip.text) && /4321/.test(strip.text), strip.text.slice(0, 300));
+
+      /*
+       * And the claim a card must never make.
+       *
+       * Scoped to the cards, not the page. The first version asserted the
+       * word "verified" appeared nowhere on the screen and failed on the
+       * sentence that exists to deny it — *nothing here is verified, only
+       * recorded*. A check that forbids a word punishes the honest use of it;
+       * what matters is that no card carries it as a status.
+       */
+      check('no card claims to be verified',
+        strip.cards.every((one) => !/verified/i.test(one.text)),
+        strip.cards.map((one) => one.text.replace(/\n/g, ' ')).join(' | ').slice(0, 300));
+      check('and it says plainly that nothing was checked against a registry',
+        /DigiLocker/.test(strip.text) && /not verified|only recorded/i.test(strip.text),
+        strip.text.slice(-400));
+
+      check('a card links to the record it came from',
+        (strip.cards[0]?.href ?? '').includes('identityDocument/'), strip.cards[0]?.href ?? '');
+
+      check('the wallet renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'identity-wallet');
+
+      // Put it back: later checks count records and read this screen.
+      await page.evaluate(async ([spec, personId]) => {
+        const { app } = await import(spec);
+        for (const row of await app().db.repo('identityDocument').list({ limit: 50 })) {
+          if (row.person === personId) await app().db.repo('identityDocument').remove(row.id);
+        }
+        await app().db.repo('person').remove(personId);
+      }, [IN_PAGE.context, seeded.person]);
+    }
+
     /* ------------------------------------------- a delete that cannot happen */
 
     {
@@ -4530,6 +4650,12 @@ async function main() {
         // The same two registered outside the schema that the module walk
         // names. Written out because that walk's copy is block-scoped to it.
         '#/assistant', '#/timeline',
+        // Each entity's own list screen as well as its record screen. A
+        // module's default tab is one entity's list; the others are only
+        // reached by naming the entity, and a hand-built card on one of those
+        // tabs — the identity wallet is exactly that — would otherwise never
+        // be looked at by this sweep.
+        ...[...new Set(seeded.made.map((one) => `#/${one.module}/${one.entity}`))],
         ...seeded.made.map((one) => `#/${one.module}/${one.entity}/${one.id}`),
       ];
 
