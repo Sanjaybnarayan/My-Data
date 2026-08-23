@@ -343,11 +343,52 @@ describe('the location permissions', () => {
       'Android shows no prompt for PACKAGE_USAGE_STATS');
   });
 
-  test('it asks to read SMS, because Phase 6 needs it', async () => {
+  /**
+   * `READ_SMS` moved out of `src/main` and into the `sms` flavour.
+   *
+   * Not a retreat from Phase 6. Google Play Protect **blocks the install** of
+   * a sideloaded app that asks for a restricted permission — the SMS and Call
+   * Log family — and the dialog offers no way past it. One permission was
+   * therefore making every other feature in this build unreachable on a real
+   * phone, which is how it was found: somebody tried to install it.
+   */
+  const smsManifest = () =>
+    readFile(join(ROOT, 'android/app/src/sms/AndroidManifest.xml'), 'utf8');
+
+  test('the installable flavour asks for no restricted permission', async () => {
+    // The whole point of the split. Any one of these and Android refuses.
     const xml = await manifest();
+    for (const name of ['READ_SMS', 'RECEIVE_SMS', 'SEND_SMS', 'WRITE_SMS',
+      'READ_CALL_LOG', 'WRITE_CALL_LOG', 'RECEIVE_MMS', 'RECEIVE_WAP_PUSH',
+      'PROCESS_OUTGOING_CALLS']) {
+      assert.not(asks(xml, name),
+        `${name} is a Play restricted permission — with it in src/main, Play `
+        + 'Protect blocks the install and nothing else in the app can be used');
+    }
+  });
+
+  test('and the sms flavour still asks for it, because Phase 6 needs it', async () => {
+    const xml = await smsManifest();
     assert.ok(asks(xml, 'READ_SMS'),
       'the native SMS path cannot work without it, and js/core/smsinbox.js '
-      + 'would silently fall back to reporting no inbox');
+      + 'would report DENIED forever');
+  });
+
+  test('the flavour exists in the build file, or the manifest is dead weight', async () => {
+    // A source set with no flavour declared is a directory Gradle never reads,
+    // so READ_SMS would be in neither build and Phase 6 silently unbuildable.
+    const gradle = await readFile(join(ROOT, 'android/app/build.gradle'), 'utf8');
+    assert.ok(/productFlavors\s*\{[\s\S]*\bsms\s*\{/.test(gradle),
+      'src/sms exists and no `sms` flavour reads it');
+    assert.ok(/productFlavors\s*\{[\s\S]*\bstandard\s*\{/.test(gradle));
+  });
+
+  test('and both flavours keep the same application id', async () => {
+    // A suffix would change the OAuth redirect scheme that
+    // tools/native-scheme.mjs checks against the configuration, breaking
+    // Google sign-in to gain side-by-side installs nobody asked for.
+    const gradle = await readFile(join(ROOT, 'android/app/build.gradle'), 'utf8');
+    assert.not(/applicationIdSuffix/.test(gradle));
   });
 
   test('and does not ask to receive SMS as messages arrive', async () => {
@@ -371,15 +412,27 @@ describe('the location permissions', () => {
     // READ_SMS is a Play restricted permission and decides where this build
     // can go. Somebody adding a target or preparing a listing has to meet
     // that fact at the line itself, not three documents away.
-    const xml = await manifest();
+    const xml = await smsManifest();
     const before = xml.slice(0, xml.indexOf('android.permission.READ_SMS'));
     const comment = before.slice(before.lastIndexOf('<!--'));
     assert.includes(comment, 'restricted permission');
     assert.includes(comment, 'sideload');
   });
 
+  test('and the flavour file says why it is a separate build at all', async () => {
+    // The reason is not obvious from the diff: one permission made every
+    // other feature unreachable. Somebody merging the flavours back together
+    // should meet that here rather than by shipping and being told.
+    const xml = await smsManifest();
+    const head = xml.slice(0, xml.indexOf('<manifest'));
+    assert.includes(head, 'Play Protect');
+    assert.includes(head.toLowerCase(), 'blocks the install');
+  });
+
   test('a device without telephony is not excluded either', async () => {
-    const xml = await manifest();
+    // Declared beside READ_SMS in the sms flavour, because that is the only
+    // build where telephony means anything.
+    const xml = await smsManifest();
     assert.ok(/android\.hardware\.telephony"\s+android:required="false"/.test(xml),
       'a tablet or work profile with no SIM still runs everything else');
   });

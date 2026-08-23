@@ -16,6 +16,39 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    /*
+     * Two flavours, and the difference between them is one permission.
+     *
+     * Google Play Protect BLOCKS the install of a sideloaded app that asks for
+     * a restricted permission — the SMS and Call Log family. Not a warning
+     * that can be dismissed: the dialog offers only OK and the app does not
+     * install. `READ_SMS` was therefore making every other feature in this
+     * build unreachable, on a phone, for the household it was written for.
+     *
+     *   standard  no READ_SMS. Installs. Phase 6's native inbox read reports
+     *             DENIED, which is a path js/core/smsinbox.js already had.
+     *   sms       READ_SMS. Everything works and Play Protect has to be turned
+     *             off before Android will install it.
+     *
+     * Deliberately the SAME applicationId. A suffix would let both sit on one
+     * phone and would also change the OAuth redirect scheme that
+     * `tools/native-scheme.mjs` checks against the configuration — breaking
+     * Google sign-in to gain something nobody asked for.
+     */
+    flavorDimensions += "capability"
+
+    productFlavors {
+        standard {
+            dimension "capability"
+            // Nothing here on purpose. `standard` is `src/main` exactly.
+        }
+        sms {
+            dimension "capability"
+            // Adds src/sms/AndroidManifest.xml, which is READ_SMS and the
+            // telephony feature declaration that exists only for it.
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false

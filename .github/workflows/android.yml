@@ -79,18 +79,56 @@ jobs:
           test -f android/app/src/main/assets/public/index.html
           echo "$(find android/app/src/main/assets/public -type f | wc -l) files bundled"
 
-      - name: Build the debug APK
+      # Both flavours. `standard` is the one that installs: Play Protect
+      # blocks a sideloaded app asking for READ_SMS outright, which was making
+      # every other feature in this build unreachable on a phone.
+      - name: Build both debug APKs
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleStandardDebug assembleSmsDebug --no-daemon --stacktrace
 
       - name: Say what came out
-        run: ls -lh android/app/build/outputs/apk/debug/
+        run: |
+          find android/app/build/outputs/apk -name '*.apk' -exec ls -lh {} +
 
-      # Download this from the run's summary page, copy it to an Android phone
-      # and open it. It is a debug build, signed with the standard debug key —
-      # fine for trying, not for distributing.
+      # Check the split actually held. A flavour that quietly picked up the
+      # restricted permission would install-block exactly like the old single
+      # build, and the only way anybody would find out is by trying it on a
+      # phone — which is how this was found the first time.
+      - name: Check the standard flavour asks for no restricted permission
+        run: |
+          AAPT=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools"             -name aapt2 | sort | tail -1)
+          APK=$(find android/app/build/outputs/apk/standard -name '*.apk' | head -1)
+          echo "reading $APK"
+          PERMS=$("$AAPT" dump permissions "$APK")
+          echo "$PERMS"
+          for p in READ_SMS RECEIVE_SMS SEND_SMS READ_CALL_LOG WRITE_CALL_LOG; do
+            echo "$PERMS" | grep -q "android.permission.$p" \
+              && { echo "::error::standard asks for $p — Play Protect will block it"; exit 1; } \
+              || true
+          done
+          echo "standard is clean"
+
+      - name: And that the sms flavour still has it
+        run: |
+          AAPT=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools"             -name aapt2 | sort | tail -1)
+          APK=$(find android/app/build/outputs/apk/sms -name '*.apk' | head -1)
+          "$AAPT" dump permissions "$APK" | grep -q 'android.permission.READ_SMS' \
+            || { echo "::error::the sms flavour lost READ_SMS — Phase 6 cannot work"; exit 1; }
+          echo "sms flavour still reads an inbox"
+
+      # THIS is the one to install. Debug build, standard debug key — fine for
+      # trying, not for distributing.
       - uses: actions/upload-artifact@v4
         with:
-          name: familyos-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: familyos-apk-installable
+          path: android/app/build/outputs/apk/standard/**/*.apk
+          if-no-files-found: error
+
+      # This one Android will refuse to install until Play Protect is turned
+      # off. It is here for anybody who wants Phase 6's inbox read and is
+      # willing to do that.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: familyos-apk-with-sms
+          path: android/app/build/outputs/apk/sms/**/*.apk
           if-no-files-found: error
