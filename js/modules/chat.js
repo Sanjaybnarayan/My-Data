@@ -557,9 +557,19 @@ function messageItem(message, nameOf, saveFile, me = null, withdraw = null, mark
     starable
       ? button(t(starred ? 'chat.unstar' : 'chat.star'), {
         variant: 'subtle',
-        // A string, not an array: `button` types `class` as one, and the
-        // composed value reaches `h` either way.
-        class: `btn btn--subtle btn--small bubble-star${starred ? ' bubble-star--on' : ''}`,
+        /*
+         * Two whole class lists, not one built by template.
+         *
+         * The array form failed the typecheck (`button` types `class` as a
+         * string) and the template form failed the unrouted-string ratchet,
+         * because interpolating a ternary gives the literal a space and
+         * `tools/strings.mjs` then reads a class list as an English sentence.
+         * Fixing one gate by breaking another is not a fix; a plain class list
+         * satisfies both.
+         */
+        class: starred
+          ? 'btn btn--subtle btn--small bubble-star bubble-star--on'
+          : 'btn btn--subtle btn--small bubble-star',
         'aria-pressed': String(Boolean(starred)),
         onClick: () => star(message.row.id),
       })
