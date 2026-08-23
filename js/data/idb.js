@@ -225,6 +225,17 @@ export class IdbAdapter {
     try {
       result = await fn(tx);
     } catch (err) {
+      /*
+       * The abort below rejects `done`, and on this path nobody awaits it.
+       *
+       * That unhandled rejection reached the console as `transaction aborted`
+       * — a message with no store, no key and no stack past this file — while
+       * the error actually being thrown said `The parameter is not a valid
+       * key`. The useless message is the one that surfaced, and it hid a
+       * screen that had never once opened. Claiming the rejection here leaves
+       * the real error as the only thing reported.
+       */
+      tx.done.catch(() => {});
       try { tx.abort(); } catch { /* already finished */ }
       throw err;
     }

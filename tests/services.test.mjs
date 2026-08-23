@@ -1306,7 +1306,10 @@ describe("a staff member's documents", () => {
 
     const out = await new RecordsService(db).documentsForStaff(role.id);
 
-    assert.equal(out.person, cook.id);
+    // The person record, because the screen needs their name as well as their
+    // id. It used to be the bare id and the screen read `.name` off a string.
+    assert.equal(out.person?.id, cook.id);
+    assert.equal(out.person?.name, 'A Kumar');
     assert.length(out.documents, 1, "another person's document leaked in");
     assert.equal(out.documents[0].title, 'Aadhaar copy');
   });
