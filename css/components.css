@@ -1304,3 +1304,137 @@
 
 .profile-group-head { padding: var(--space-5) var(--space-5) 0; }
 .profile-group-head .card-header { margin-bottom: var(--space-2); }
+
+/* ------------------------------------------------------------- carousel */
+
+/*
+ * A scroll container with snap points and no JavaScript.
+ *
+ * The active card takes most of the width and the next one shows past the
+ * edge, which is what tells somebody there is more without a row of dots
+ * claiming it. `scroll-padding-inline` keeps a snapped card clear of the
+ * container's own edge.
+ */
+.carousel {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 86%;
+  gap: var(--space-3);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--space-1);
+  padding: var(--space-1) 0 var(--space-3);
+  /* The bar itself is noise on a phone; the partial next card is the cue. */
+  scrollbar-width: none;
+}
+
+.carousel::-webkit-scrollbar { display: none; }
+
+.carousel:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+.carousel-item { scroll-snap-align: start; display: flex; }
+
+/* Wider than a phone there is no reason to hide anything: the cards sit in a
+   row and the container stops scrolling. */
+@media (min-width: 721px) {
+  .carousel { grid-auto-columns: minmax(15rem, 1fr); overflow-x: visible; }
+}
+
+/* ---------------------------------------------------------- wallet card */
+
+.wallet-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-1);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.wallet-card:hover { border-color: var(--border-strong); }
+a.wallet-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wallet-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.wallet-card-title {
+  margin: 0;
+  font-size: var(--font-label);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.wallet-card-subtitle { margin: 2px 0 0; font-size: var(--font-caption); color: var(--text-faint); }
+
+/*
+ * The figure is the point of the card, so it is the largest thing on it.
+ * `clamp` because a net-worth figure in rupees can be fifteen characters and
+ * must not wrap or overflow a 320px phone.
+ */
+.wallet-card-value {
+  margin: var(--space-1) 0 0;
+  font-size: clamp(var(--font-headline), 7vw, var(--font-display));
+  font-weight: 700;
+  line-height: var(--leading-tight);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.wallet-card-meta { margin: 0; font-size: var(--font-label); color: var(--text-muted); }
+
+/* Always present, never decorative: it says how old the figure is. */
+.wallet-card-updated {
+  margin: auto 0 0;
+  padding-top: var(--space-2);
+  font-size: var(--font-caption);
+  color: var(--text-faint);
+}
+
+/* ------------------------------------------------------ dashboard shape */
+
+/*
+ * `card--flush` strips the card's padding so a list can run to its edges; the
+ * head and foot put it back for themselves. Shared by the attention card and
+ * the papers card, which have the same shape: a heading, a short list, one way
+ * onward.
+ */
+.attention-head { padding: var(--space-5) var(--space-5) 0; }
+.attention-head .card-header { margin-bottom: var(--space-2); }
+.attention-foot { padding: var(--space-3) var(--space-5) var(--space-5); }
+
+/* The one card that should catch the eye first, so it is the one with a rule
+   down its edge — a shape, not only a colour. */
+.attention-card { border-left: 3px solid var(--danger); }
+
+.dash-section { grid-column: 1 / -1; }
+
+.dash-section-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-label);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Overlapped, because eight faces in a row do not fit a phone and a count
+   beside them says the number anyway. */
+.dash-avatars {
+  display: flex;
+  align-items: center;
+  margin: var(--space-2) 0 var(--space-4);
+}
+
+.dash-avatars > * { margin-inline-start: -8px; box-shadow: 0 0 0 2px var(--surface-raised); }
+.dash-avatars > *:first-child { margin-inline-start: 0; }

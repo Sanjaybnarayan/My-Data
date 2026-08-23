@@ -45,48 +45,59 @@ export function datedEntities(schema = entities) {
  */
 export const BY_NAME = Object.freeze(['person', 'importantDate', 'recurringPayment', 'loan']);
 
+/**
+ * Everything due, worst first, from records already in hand.
+ *
+ * Separate from the service so the dashboard can use it without a second read
+ * of eighteen entity types — it has already loaded them for its other widgets.
+ * More importantly, it means the count on the Notifications tab and the card
+ * on the Dashboard are the *same* arithmetic rather than two implementations
+ * that can disagree about what "needs attention" means.
+ *
+ * @param {Record<string, object[]>} data records keyed by entity name
+ * @returns {{items: object[], counts: Record<string, number>, pressing: number}}
+ */
+export function attentionFrom(data, { horizonDays = 45, clock = Date.now } = {}) {
+  const items = [
+    ...allReminders(data, { horizonDays, clock }),
+    ...moneyReminders(data, { days: horizonDays, clock }).map((one) => ({ ...one, group: 'money' })),
+  ]
+    .map((one) => ({ ...one, line: describeReminder(one) }))
+    .sort((a, b) => {
+      const bySeverity = SEVERITY[a.severity] - SEVERITY[b.severity];
+      return bySeverity !== 0 ? bySeverity : a.days - b.days;
+    });
+
+  const counts = { overdue: 0, urgent: 0, soon: 0, upcoming: 0 };
+  for (const one of items) {
+    if (one.severity in counts) counts[one.severity] += 1;
+  }
+
+  return {
+    items,
+    counts,
+    /*
+     * The number worth putting on a badge.
+     *
+     * Overdue and urgent only. This is **not** an unread count: nothing in
+     * this application stores whether a person has read a reminder, so a badge
+     * claiming "3 unread" would be inventing a fact. It is a count of things
+     * that are actually late or nearly late, and it falls when they are dealt
+     * with rather than when they are looked at.
+     */
+    pressing: counts.overdue + counts.urgent,
+  };
+}
+
 export class AttentionService extends Service {
-  /**
-   * Everything due, worst first.
-   *
-   * @returns {Promise<{items: object[], counts: Record<string, number>, pressing: number}>}
-   */
+  /** The same answer, for a caller that has not loaded the records itself. */
   async everything({ horizonDays = 45, clock = Date.now } = {}) {
     const names = [...new Set([...datedEntities(), ...BY_NAME])];
 
     /** @type {Record<string, [string, object]>} */
     const spec = {};
     for (const name of names) spec[name] = [name, { decrypt: false, limit: 2000 }];
-    const data = await this.load(spec);
 
-    const items = [
-      ...allReminders(data, { horizonDays, clock }),
-      ...moneyReminders(data, { days: horizonDays, clock }).map((one) => ({ ...one, group: 'money' })),
-    ]
-      .map((one) => ({ ...one, line: describeReminder(one) }))
-      .sort((a, b) => {
-        const bySeverity = SEVERITY[a.severity] - SEVERITY[b.severity];
-        return bySeverity !== 0 ? bySeverity : a.days - b.days;
-      });
-
-    const counts = { overdue: 0, urgent: 0, soon: 0, upcoming: 0 };
-    for (const one of items) {
-      if (one.severity in counts) counts[one.severity] += 1;
-    }
-
-    return {
-      items,
-      counts,
-      /*
-       * The number worth putting on a badge.
-       *
-       * Overdue and urgent only. This is **not** an unread count: nothing in
-       * this application stores whether a person has read a reminder, so a
-       * badge claiming "3 unread" would be inventing a fact. It is a count of
-       * things that are actually late or nearly late, and it falls when they
-       * are dealt with rather than when they are looked at.
-       */
-      pressing: counts.overdue + counts.urgent,
-    };
+    return attentionFrom(await this.load(spec), { horizonDays, clock });
   }
 }
