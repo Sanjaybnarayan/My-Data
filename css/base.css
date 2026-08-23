@@ -264,8 +264,6 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
 
   .bottom-nav a[aria-current='page'] { color: var(--accent-text); }
 
-  /* Every tap target reaches the 44px minimum on a touch screen. */
-  .bottom-nav a, .nav-item, .btn { min-height: 44px; }
 }
 
 @media (min-width: 901px) {

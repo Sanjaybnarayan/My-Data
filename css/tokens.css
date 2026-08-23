@@ -64,6 +64,9 @@
   --surface-hover:  var(--grey-50);
   --surface-active: var(--grey-100);
   --overlay:        rgb(15 18 24 / 45%);
+  /* A hover tint for controls that sit on a dark ground whatever the theme —
+     the toast, which is grey-700, red-600 or green-600 in both. */
+  --tint-on-dark:   rgb(255 255 255 / 14%);
 
   --border:        var(--grey-200);
   --border-strong: var(--grey-300);

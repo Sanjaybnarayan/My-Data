@@ -3197,6 +3197,101 @@ async function main() {
     check('nothing overflows horizontally on a phone', !overflow, overflow ?? '');
     if (SHOTS) await shot(page, 'phone');
 
+    /* ------------------------------------------------------ tap targets */
+
+    /*
+     * `css/base.css` carried the sentence "Every tap target reaches the 44px
+     * minimum on a touch screen" above a rule that never applied to anything.
+     * It sat in `base.css`, which loads *before* `components.css`, and
+     * `.btn { min-height: 38px }` there has identical specificity — so the
+     * later declaration won and the minimum reached no button at all.
+     *
+     * Measuring what the browser actually laid out on a 390px viewport found
+     * eighteen of twenty-three distinct control kinds under 44px. The smallest
+     * were 17px: `.tab`, a class used in `js/modules/belongings.js` that had
+     * no stylesheet rule anywhere. Next were the 30px `.btn--small` controls
+     * that reveal and copy a masked account number.
+     *
+     * A stylesheet cannot be trusted to describe itself, so this measures the
+     * rendered boxes instead. It walks screens rather than checking one, since
+     * the failures were per-component and only three modules would have shown
+     * them.
+     *
+     * Excluded, and why: `.sr-only` is 1×1 on purpose — it exists for screen
+     * readers and is never aimed at — and `.skip-link` is off-screen until it
+     * takes focus, at which point it is full size.
+     */
+    {
+      const MINIMUM = 44;
+      const smallest = new Map();
+
+      for (const module of ['dashboard', 'finance', 'family', 'documents', 'vault',
+        'calendar', 'safety', 'settings', 'reports', 'belongings', 'investments']) {
+        await go(page, `#/${module}`);
+        await page.waitForTimeout(400);
+
+        const measured = await page.evaluate(() => {
+          const rows = [];
+          for (const el of document.querySelectorAll(
+            'button, a[href], input, select, textarea, [role="button"]')) {
+            const box = el.getBoundingClientRect();
+            if (box.width === 0 || box.height === 0) continue;
+            const style = getComputedStyle(el);
+            if (style.visibility === 'hidden' || style.display === 'none') continue;
+            const control = /** @type {any} */ (el);
+            if (control.disabled) continue;
+
+            const classes = typeof el.className === 'string' ? el.className : '';
+            // Deliberately not tap targets. See the comment above.
+            if (/(^|\s)(sr-only|skip-link)(\s|$)/.test(classes)) continue;
+            if (control.type === 'hidden') continue;
+
+            rows.push({
+              kind: classes.trim().split(/\s+/).filter(Boolean).slice(0, 3).join('.')
+                || el.tagName.toLowerCase(),
+              width: Math.round(box.width),
+              height: Math.round(box.height),
+              label: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 40),
+            });
+          }
+          return rows;
+        });
+
+        for (const row of measured) {
+          const least = Math.min(row.width, row.height);
+          const known = smallest.get(row.kind);
+          if (!known || least < known.least) {
+            smallest.set(row.kind, { least, ...row, module });
+          }
+        }
+      }
+
+      // If this finds nothing it has proved nothing, and a selector typo or a
+      // failed navigation would look exactly like a pass.
+      check('the tap-target sweep actually found controls to measure',
+        smallest.size >= 15, `only ${smallest.size} kinds of control were seen`);
+
+      const undersized = [...smallest.values()]
+        .filter((one) => one.least < MINIMUM)
+        .sort((a, b) => a.least - b.least);
+
+      check(`every tap target reaches ${MINIMUM}px on a phone`,
+        undersized.length === 0,
+        undersized.map((one) =>
+          `${one.kind} is ${one.width}\u00d7${one.height} in ${one.module}`
+          + `${one.label ? ` (${one.label})` : ''}`).join('; '));
+
+      // The one that started this: the controls that unmask an identifier.
+      const reveal = smallest.get('btn.btn--icon.btn--small')
+        ?? [...smallest.entries()].find(([kind]) => kind.includes('btn--small'))?.[1];
+      check('and the small buttons are among them rather than an exception',
+        !reveal || reveal.least >= MINIMUM,
+        reveal ? `${reveal.kind} is ${reveal.width}\u00d7${reveal.height}` : '');
+    }
+
+    await go(page, '#/dashboard');
+    await page.waitForTimeout(300);
+
     check('no console errors in the whole run', consoleErrors.length === 0,
       consoleErrors.slice(0, 5).join(' | '));
     check('every asset the app asks for exists', missing.length === 0,

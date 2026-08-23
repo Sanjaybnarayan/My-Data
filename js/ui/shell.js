@@ -132,11 +132,31 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
     }, [icon(mod.icon, { size: 20 }), h('span', {}, moduleLabel(mod))]);
   }
 
+  /**
+   * Open or close the drawer.
+   *
+   * Closing moves focus back to the button that opened it. Without that, a
+   * keyboard or screen-reader user who opens the drawer and closes it again is
+   * left with focus on a panel that is no longer on screen, and the next Tab
+   * starts from the top of the document.
+   *
+   * Only when the focus is still inside the drawer: closing it because
+   * somebody followed a link should leave focus where the new screen puts it,
+   * not drag it back to the header.
+   *
+   * Opening deliberately does *not* move focus. The drawer is a panel beside
+   * the content rather than a dialog over it, and pulling focus into it would
+   * take a pointer user's caret out of the search box they were typing in.
+   */
   function toggleDrawer(open) {
     const next = open ?? root.dataset.drawer !== 'open';
+    const wasInside = !next && nav.contains(document.activeElement);
+
     root.dataset.drawer = next ? 'open' : 'closed';
     drawerToggle.setAttribute('aria-label', next ? 'Close navigation' : 'Open navigation');
     drawerToggle.setAttribute('aria-expanded', String(next));
+
+    if (!next && wasInside) drawerToggle.focus();
   }
 
   // Following a link inside the drawer should close it; leaving it open over

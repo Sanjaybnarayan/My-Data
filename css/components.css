@@ -527,7 +527,28 @@
 [data-theme='dark'] .toast { background: var(--grey-700); }
 .toast--error { background: var(--red-600); color: #fff; }
 .toast--success { background: var(--green-600); color: #fff; }
-.toast button { background: none; border: 0; color: inherit; cursor: pointer; font-weight: 600; }
+/*
+ * The toast's own buttons — its action, and the ✕ that dismisses it. An error
+ * toast is given no timer on purpose, so this ✕ is the only way to clear one,
+ * and it was a 25×25 glyph with no box around it at all.
+ */
+.toast button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  min-width: 32px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-weight: 600;
+  flex: none;
+}
+
+.toast button:hover { background: var(--tint-on-dark); }
 
 @keyframes toast-in { from { opacity: 0; transform: translateY(12px); } }
 
@@ -1004,4 +1025,182 @@
   flex: 1;
   height: 1px;
   background: var(--border);
+}
+
+/* ------------------------------------------------------------------- tabs */
+
+/*
+ * `.tabs` and `.tab` were written in `js/modules/belongings.js` and never
+ * given a rule. Unstyled, they render as a row of bare links seventeen pixels
+ * tall — the smallest tap targets in the application, on a screen whose whole
+ * purpose is switching between two lists.
+ */
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar { display: none; }
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: var(--text-md);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease),
+              border-color var(--duration-fast) var(--ease);
+}
+
+.tab:hover { color: var(--text); }
+
+/* Selected is carried by weight and a rule as well as by colour, because
+   colour alone is not a distinction for everyone reading this. */
+.tab--active {
+  color: var(--accent-text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* -------------------------------------------------------- touch minimums */
+
+/*
+ * The 44px minimum, applied where it actually holds.
+ *
+ * This rule used to live at the end of `css/base.css`, above a comment saying
+ * "Every tap target reaches the 44px minimum on a touch screen". It did not.
+ * `base.css` loads before this file, and `.btn { min-height: 38px }` below has
+ * exactly the same specificity as the `.btn` in that rule, so the later
+ * declaration won and the minimum never applied to a single button. Measuring
+ * the rendered boxes on a 390px viewport found eighteen of twenty-three
+ * distinct control kinds under 44px, including the ones that reveal and copy a
+ * masked account number.
+ *
+ * So it lives here instead, after everything it has to beat, and
+ * `tests/browser.mjs` measures the result rather than trusting this comment —
+ * which is the only reason to believe the sentence above.
+ *
+ * `pointer: coarse` is the real question and a narrow viewport is the common
+ * case; either is enough to earn the bigger target.
+ */
+@media (pointer: coarse), (max-width: 900px) {
+  .btn,
+  .btn--small,
+  .btn--icon,
+  .chip,
+  .tab,
+  .nav-item,
+  .sync-pill,
+  .bottom-nav a,
+  .toast button,
+  .input,
+  .select,
+  .checkbox,
+  .switch {
+    min-height: 44px;
+  }
+
+  .btn--icon,
+  .btn--small,
+  .toast button,
+  .switch { min-width: 44px; }
+
+  /* Small buttons stay visually small — the padding shrinks, the target does
+     not. A 44px box around a 30px-looking control is the point. */
+  .btn--small { padding: 0 var(--space-3); }
+}
+
+/* ------------------------------------------------------- calendar month */
+
+/*
+ * The month grid used to be laid out with inline styles from
+ * `js/modules/calendar.js`. Inline wins over every stylesheet rule, so a phone
+ * could not shrink the gap, and seven columns of 8px gaps inside a padded card
+ * left each day 38px wide — the last tap target in the application under the
+ * minimum, and one people actually aim at with a thumb.
+ */
+.month-weekdays,
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.month-weekdays {
+  margin-bottom: var(--space-2);
+  text-align: center;
+  font-weight: 600;
+}
+
+.month-day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 84px;
+  padding: var(--space-2);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+  background: var(--surface-raised);
+  border-color: var(--border);
+}
+
+/* The leading squares before the first of the month: space, not a control. */
+.month-day--blank {
+  min-height: 84px;
+  border: 0;
+  background: none;
+  cursor: default;
+}
+
+.month-day[aria-pressed='true'] { background: var(--accent-subtle); }
+
+/* Today carries a border as well as a colour, and the number carries weight,
+   so the day is findable without seeing the difference between two blues. */
+.month-day[data-today] { border-color: var(--accent); }
+.month-day[data-today] .month-day-number { font-weight: 700; color: var(--accent-text); }
+
+.month-day-number { font-weight: 500; color: var(--text-muted); }
+
+.month-day-entry {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+
+.month-day-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/*
+ * Seven columns of 44px need 308px before any gap at all, and a 390px phone
+ * has 366px once the page padding is off. The card's own padding was eating
+ * the difference, so on a phone the grid runs to the card's edges and the gap
+ * tightens — which is what buys each day its 44px.
+ */
+@media (max-width: 560px) {
+  .month-weekdays,
+  .month-grid { gap: var(--space-1); }
+
+  .month-grid { margin: 0 calc(var(--space-4) * -1); }
+  .month-weekdays { margin-inline: calc(var(--space-4) * -1); }
+
+  .month-day { padding: var(--space-1); min-height: 76px; }
+  .month-day--blank { min-height: 76px; }
 }

@@ -1,0 +1,104 @@
+# UI Information Architecture
+
+## Routing
+
+Hash-based, so the application can be served from any static host — including a
+`file://` open of the folder — with no server rewrite rules. A PWA that needs
+`try_files` configured is a PWA that breaks on somebody's shared hosting.
+
+```
+#/finance                      a module
+#/finance/transaction          an entity list
+#/finance/transaction/txn_1    one record
+#/finance/transaction/new      the create form
+```
+
+Module code is loaded on first navigation with a dynamic `import()`, so the
+opening payload is the shell and the dashboard rather than every module.
+
+### What is allowed in a URL
+
+**Record identifiers only** — `txn_1`, `person_3`. Never an account number, a
+PAN, a policy number, a name or an amount. A hash is not sent to a server, but
+it is in the address bar, in the back-stack, and in any screenshot of the
+window, so an opaque id is the only thing that belongs there.
+
+The document title is the static `<title>FamilyOS</title>` from `index.html`
+and no code ever changes it, so no record name can reach the window title, the
+task switcher or a screenshot of either. That is the right outcome, but it is
+currently a consequence of never having implemented per-screen titles rather
+than a control. Anything that adds them must keep record names out.
+
+## Navigation
+
+Three surfaces, one source. The module list comes from the permission-filtered
+set of modules the signed-in person may open; the drawer, the bottom bar and
+the desktop rail all render from it, so a module can never appear in one and
+not another.
+
+| Viewport | Surface |
+| --- | --- |
+| ≥ 901px | Persistent left rail, `--nav-width` 260px |
+| ≤ 900px | Bottom bar for the primary destinations, drawer for the rest |
+
+The drawer closes on navigation — `delegate(nav, 'click', 'a', …)` in
+`js/ui/shell.js` — and on scrim press, and the toggle keeps `aria-expanded` and
+its label in step with the state.
+
+Closing the drawer returns focus to the button that opened it — but only when
+focus was still inside the drawer, so that following a link leaves focus where
+the new screen puts it. Opening does not move focus: the drawer is a panel
+beside the content, not a dialog over it.
+
+## Screen shapes
+
+Four, and almost every screen is one of them.
+
+**Dashboard.** Cards that summarise and link onward. Nothing is edited here.
+
+**Entity list.** A page header, a filter bar, and a table or card list. Masked
+fields render masked. Empty means an `empty()` state that says what to do, not
+a blank grid.
+
+**Record.** The full values, including the ones the list masked, each behind a
+`reveal()` press. Connections and history sit below the fields.
+
+**Editor.** A modal built by `entityForm` from the schema. Refusal comes from
+the same validator the repository uses, and names the field.
+
+## Where a screen gets its data
+
+Through a service in `js/services/`, which reads through `db.repo(...)`. A
+service never touches `.adapter`, and a test scans the source to keep it that
+way. **58 direct `db.repo()` calls remain in `js/modules/`**, recorded in
+`tools/architecture-budget.json` as `uiDatabaseCalls` and checked on every run.
+The budget has never been raised.
+
+## Hierarchy on a card
+
+1. What it is — the title.
+2. What it says right now — the number, status or date, in `metric` or `money`.
+3. What it needs — a `dueBadge`, a warning, a conflict count.
+4. What you can do — one action, at the end.
+
+A card with two competing primary actions has been designed as a form.
+
+## Demo and real data
+
+**Not implemented.** There is no demo-data concept in the application: no flag
+on a record, no marking in a list, and therefore nothing stopping a demo record
+being counted in a total beside real ones.
+
+Nothing currently generates demo data either, so there is no live defect. But
+the moment anything seeds sample records — an onboarding tour, a screenshot
+fixture, a sales demo — this becomes one, and the requirement is written here
+rather than discovered then: a demo record must be marked on the record and in
+every list that shows it, and must never be summed into a figure that also
+counts real ones.
+
+## What this is not
+
+Not an admin dashboard. The unit of the interface is a **card about one thing a
+household owns or owes**, not a row in a table of everything. Tables exist for
+the cases where comparison across many rows is the actual task — a statement, a
+ledger — and not as the default rendering of a list.
