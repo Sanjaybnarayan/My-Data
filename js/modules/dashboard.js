@@ -446,7 +446,11 @@ const WIDGETS = {
       h('div', { class: 'list' }, rows.map((one) => listItem({
         title: one.title,
         subtitle: `${one.label} · ${formatDay(one.date)}`,
-        trailing: dueBadge(one.date, { leadDays: 30 }),
+        // The row's own window, not a flat thirty days. `expiryReminders`
+        // already decided this row was worth showing using the field's
+        // declared lead; re-deciding here made the badge disagree with the
+        // list it sat in.
+        trailing: dueBadge(one.date, { leadDays: one.lead }),
         href: Router.href({ module: one.module, entity: one.entity, id: one.recordId }),
       }))),
       h('div', { class: 'attention-foot' }, [
@@ -541,7 +545,7 @@ const WIDGETS = {
         ? h('div', { class: 'list' }, rows.map((r) => listItem({
           title: r.title,
           subtitle: `${r.label} · ${formatDay(r.date)}`,
-          trailing: dueBadge(r.date, { leadDays: 30 }),
+          trailing: dueBadge(r.date, { leadDays: r.lead }),
           href: Router.href({ module: r.module, entity: r.entity, id: r.recordId }),
         })))
         : empty({ title: 'Nothing expiring', message: 'Everything is in date.', iconName: 'check' }),

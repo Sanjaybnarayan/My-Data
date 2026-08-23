@@ -37,6 +37,7 @@ import { today } from '../core/dates.js';
 import { entities } from '../data/schema.js';
 import { classify, mask } from '../data/classification.js';
 import { wallet, DEFAULT_LEAD } from '../domain/wallet.js';
+import { leadFor } from '../domain/reminders.js';
 
 /** @type {Record<string, import('./service.js').Load>} */
 export const IDENTITY_REVIEW_LOAD = Object.freeze({
@@ -84,12 +85,6 @@ export function assembleIdentityReview(data, { clock = Date.now } = {}) {
   };
 }
 
-/** The warning window the schema declares for an identity document's expiry. */
-export function walletLead(schema = entities) {
-  const field = (schema.identityDocument?.fields ?? []).find((one) => one.expiry);
-  return Number.isFinite(field?.expiryLead) ? field.expiryLead : DEFAULT_LEAD;
-}
-
 export class IdentityService extends Service {
   /**
    * The identity documents, as wallet cards.
@@ -114,7 +109,7 @@ export class IdentityService extends Service {
       loaded.documents,
       (value) => mask(value, level),
       (id) => names.get(id) ?? null,
-      { lead: walletLead(), clock },
+      { lead: leadFor('identityDocument', 'expiresOn', DEFAULT_LEAD), clock },
     );
   }
 

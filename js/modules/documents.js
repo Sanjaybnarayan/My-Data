@@ -40,6 +40,16 @@ import { formatDay, daysUntil } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
 import { can } from '../security/rbac.js';
 import { DocumentsService } from '../services/documents.js';
+import { leadFor } from '../domain/reminders.js';
+
+/**
+ * How far ahead this screen calls a document "expiring".
+ *
+ * Read from `document.expiresOn`, which declares it, rather than typed here.
+ * It was `60` in three places on this screen and `60` in the schema — four
+ * copies of one number, agreeing until somebody changed one of them.
+ */
+const EXPIRY_LEAD = leadFor('document', 'expiresOn');
 
 export async function render(route) {
   if (route.id && route.id !== 'new') return documentDetail(route.id);
@@ -150,7 +160,7 @@ export async function render(route) {
       .filter((d) => !text || matches(d, text));
 
     const expiring = documents
-      .filter((d) => d.expiresOn && daysUntil(d.expiresOn) <= 60)
+      .filter((d) => d.expiresOn && daysUntil(d.expiresOn) <= EXPIRY_LEAD)
       .sort((a, b) => a.expiresOn.localeCompare(b.expiresOn));
 
     // Documents that named more than one expiry and so have none. They cannot
@@ -200,7 +210,7 @@ export async function render(route) {
           h('div', { class: 'list' }, expiring.slice(0, 5).map((document) => listItem({
             title: document.title,
             subtitle: `${document.category} · ${formatDay(document.expiresOn)}`,
-            trailing: dueBadge(document.expiresOn, { leadDays: 60 }),
+            trailing: dueBadge(document.expiresOn, { leadDays: EXPIRY_LEAD }),
             href: Router.href({ module: 'documents', entity: 'document', id: document.id }),
           }))),
         ])
@@ -325,7 +335,7 @@ export async function render(route) {
       ].join('')),
       document.expiresOn
         ? h('div', { style: { marginTop: 'var(--space-2)' } },
-          dueBadge(document.expiresOn, { leadDays: 60 }))
+          dueBadge(document.expiresOn, { leadDays: EXPIRY_LEAD }))
         : null,
     ]);
   }

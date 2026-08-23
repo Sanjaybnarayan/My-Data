@@ -3290,6 +3290,69 @@ async function main() {
     check('the assistant answers a question from stored data',
       /net worth/i.test(answer), answer.slice(0, 120));
 
+    /* ------------------------------- a listed row that said it was fine */
+
+    /*
+     * The badge must agree with the list it is in.
+     *
+     * `expiryReminders` decides a passport is worth showing 180 days out,
+     * because that is what the schema declares for it. The dashboard then
+     * re-decided urgency with a flat thirty days — so a passport 100 days from
+     * expiry appeared under "Expiring & due" wearing a green badge.
+     *
+     * Nothing caught it: every unit test of the domain was right, every unit
+     * test of the badge was right, and the disagreement lived in the gap
+     * between them where only a rendered row can be looked at.
+     */
+    {
+      const soon = new Date(Date.now() + 100 * 86400_000).toISOString().slice(0, 10);
+
+      const holder = await page.evaluate(async ([spec, expires]) => {
+        const { app } = await import(spec);
+        const person = await app().db.repo('person').create({ name: 'Lead Holder' });
+        await app().db.repo('identityDocument').create({
+          person: person.id, kind: 'Passport', number: 'P1234567', expiresOn: expires,
+        });
+        return person.id;
+      }, [IN_PAGE.context, soon]);
+
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(900);
+
+      const row = await page.evaluate(() => {
+        const found = [...document.querySelectorAll('.app-content .list-item')]
+          .find((el) => /passport/i.test(/** @type {any} */ (el).innerText ?? ''));
+        if (!found) return null;
+        const badge = found.querySelector('.badge');
+        return {
+          text: /** @type {any} */ (found).innerText ?? '',
+          badge: badge?.textContent?.trim() ?? '',
+          classes: badge?.className ?? '',
+        };
+      });
+
+      check('a passport inside its own warning window reaches the dashboard',
+        Boolean(row), 'no row mentioning a passport was drawn');
+
+      check('and its badge does not say it is fine',
+        Boolean(row) && !/badge--positive/.test(row.classes),
+        row ? `${row.badge} (${row.classes})` : 'no row');
+
+      // The control: a badge that rendered no tone at all would pass the line
+      // above for the wrong reason.
+      check('and the badge does carry a tone',
+        Boolean(row) && /badge--(danger|warning)/.test(row.classes),
+        row ? `${row.badge} (${row.classes})` : 'no row');
+
+      await page.evaluate(async ([spec, personId]) => {
+        const { app } = await import(spec);
+        for (const one of await app().db.repo('identityDocument').list({ limit: 50 })) {
+          if (one.person === personId) await app().db.repo('identityDocument').remove(one.id);
+        }
+        await app().db.repo('person').remove(personId);
+      }, [IN_PAGE.context, holder]);
+    }
+
     /* -------------------------------------------- nominations on the dashboard */
 
     {

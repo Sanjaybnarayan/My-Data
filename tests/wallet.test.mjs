@@ -1,6 +1,6 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { expiryState, cardFor, wallet, summarise, DEFAULT_LEAD } from '../js/domain/wallet.js';
-import { walletLead } from '../js/services/identity.js';
+import { leadFor } from '../js/domain/reminders.js';
 import { entities } from '../js/data/schema.js';
 import { classify, mask } from '../js/data/classification.js';
 
@@ -39,7 +39,7 @@ describe('expiry', () => {
     // Two numbers meaning one thing drift, and this drift would be silent:
     // the cards would simply start warning at a different time from every
     // other expiry in the application.
-    assert.equal(walletLead(), DEFAULT_LEAD);
+    assert.equal(leadFor('identityDocument', 'expiresOn'), DEFAULT_LEAD);
     const field = entities.identityDocument.fields.find((one) => one.expiry);
     assert.equal(field.expiryLead, DEFAULT_LEAD);
   });
