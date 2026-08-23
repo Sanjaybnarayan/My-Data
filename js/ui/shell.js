@@ -33,7 +33,7 @@ import { moduleLabel } from '../core/labels.js';
  * Five, and it stays five. A sixth makes each target narrower than a thumb,
  * and the drawer already reaches every other module.
  */
-const PRIMARY = ['dashboard', 'notifications', 'chat', 'finance', 'profile'];
+export const PRIMARY = Object.freeze(['dashboard', 'notifications', 'chat', 'finance', 'profile']);
 
 export function buildShell({ actor, onSearch, onSync, onLock, router }) {
   const allowed = visibleModules(actor, modules);

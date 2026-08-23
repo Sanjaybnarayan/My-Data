@@ -2,6 +2,9 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   SECTIONS, APPLIES, completion, familyCompletion, describeCompletion, unknownReferences,
 } from '../js/domain/profile.js';
+import { grouped } from '../js/modules/profile.js';
+import { PRIMARY } from '../js/ui/shell.js';
+import { modules } from '../js/data/schema.js';
 
 setSuite('profile');
 
@@ -137,5 +140,49 @@ describe('the household', () => {
 
   test('an empty household has no figure', () => {
     assert.equal(familyCompletion([]).percent, null);
+  });
+});
+
+/**
+ * Can every module be reached?
+ *
+ * The brief allows five bottom tabs and no sixth, so everything else has to be
+ * reachable from Profile. That made the screen's four groups a hand-written
+ * list of twenty ids beside a schema declaring twenty-five — the eleventh time
+ * this repository has found a maintained list next to a derivable one, and the
+ * first time the cost would have been a screen nobody could open.
+ */
+describe('every module is reachable', () => {
+  test('nothing in the schema is left off Profile', () => {
+    const reachable = new Set([
+      ...grouped().flatMap((group) => group.items),
+      ...PRIMARY,
+      'settings',
+    ]);
+
+    const stranded = modules.map((one) => one.id).filter((id) => !reachable.has(id));
+    assert.deep(stranded, [], 'reachable only by typing a URL');
+  });
+
+  test('a module nobody grouped still gets a home', () => {
+    // The mechanism, not today's data. With every module claimed there is no
+    // catch-all group at all, so asserting on the real schema would pass
+    // whether the derivation worked or not.
+    const groups = grouped([{ id: 'identity' }, { id: 'brandnew' }], ['dashboard']);
+    const last = groups.at(-1);
+
+    assert.equal(last.title, 'profile.group.rest');
+    assert.deep(last.items, ['brandnew']);
+  });
+
+  test('and a module that is already grouped is not repeated', () => {
+    const groups = grouped([{ id: 'identity' }, { id: 'settings' }], ['dashboard']);
+    assert.equal(groups.length, 4, 'a catch-all group appeared with nothing to catch');
+  });
+
+  test('the five tabs are five, and Settings is not one of them', () => {
+    // The brief is explicit on both halves.
+    assert.equal(PRIMARY.length, 5);
+    assert.equal(PRIMARY.includes('settings'), false);
   });
 });
