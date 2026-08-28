@@ -186,6 +186,46 @@ export const strings = {
   'due.dueOn.today': 'due today',
   'due.dueOn.past': 'was due',
 
+  // A tenancy recorded in two places. Questions, never verdicts: only the
+  // household knows which record is current, and one may be last year's
+  // tenant nobody deleted.
+  'tenancy.title': 'Tenancies recorded in two places',
+  'tenancy.count': '{n} to settle',
+  'tenancy.lead': 'A tenancy can be written on the property itself and in a tenant record, and this application reads a different one for each question \u2014 rent receipts come from the property, and a reminder from whichever record carries the date. Where the two do not match, only you know which is current.',
+  'tenancy.unnamed': 'An unnamed property',
+  'tenancy.state.disagree': 'Two answers',
+  'tenancy.state.onlyProperty': 'No tenant record',
+  'tenancy.state.onlyTenant': 'Not on the property',
+  'tenancy.cost.onlyProperty': 'The tenancy is on the property and there is no tenant record, so nothing warns when the agreement ends.',
+  'tenancy.cost.onlyTenant': 'The tenancy is in a tenant record and not on the property, so no rent receipt can be produced and the rent is not counted in reports.',
+  'tenancy.cost.disagree': 'The property and the tenant record say different things. Receipts use the property; reminders use whichever carries the date.',
+
+  // A record saying two things about itself, on the secondary modules.
+  'upkeep.tasks.title': 'Tasks that say two things',
+  'upkeep.tasks.lead': 'A status and a completion date are set separately. These are not overdue \u2014 a due date already appears on the Notifications tab \u2014 they are records disagreeing with themselves.',
+  'upkeep.tasks.unnamed': 'An unnamed task',
+  'upkeep.task.doneNoDate': 'Marked done, with no date saying when.',
+  'upkeep.task.dateNotDone': 'Has a completion date, and is not marked done.',
+  'upkeep.tag.doneNoDate': 'No date',
+  'upkeep.tag.dateNotDone': 'Two answers',
+  'upkeep.reach.title': 'Could this list be used in a hurry?',
+  'upkeep.reach.badge': 'Worth fixing',
+  'upkeep.reach.nobody': 'There are no emergency contacts recorded at all.',
+  'upkeep.reach.noFirst': 'No contact has a priority, so nothing says who to ring first.',
+  'upkeep.reach.tied': 'More than one contact claims first place, so \u201cwho do I ring first\u201d has no single answer:',
+  'upkeep.reach.noPhone': 'Recorded with no phone number, which is the only thing anybody uses in the first ten minutes:',
+
+  // Where a module's derived answer already lives. A second implementation of
+  // one question is the fault this repository has spent the week removing.
+  'secondary.title': 'Where the answer to this already is',
+  'secondary.insurance': 'Policies with nobody named on them are reported by the estate review, together with accounts and holdings \u2014 one list rather than three that could disagree.',
+  'secondary.digital': 'Which digital accounts say what should happen to them, and which say nothing, is reported by the estate review alongside every other nomination.',
+  'secondary.education': 'A fee falling due and a certificate running out are both reminders already, so they appear on the Notifications tab with everything else that is due.',
+  'secondary.notes': 'Nothing here is worked out from anything else. A note is what somebody wrote, and this screen has no view of it worth adding.',
+  'secondary.go.insurance': 'Open the estate review',
+  'secondary.go.digital': 'Open the estate review',
+  'secondary.go.education': 'Open Notifications',
+
   // Health. Records of what somebody was told — never a medical opinion, and
   // the absences below say which of them are deliberate.
   'health.title': 'Health',

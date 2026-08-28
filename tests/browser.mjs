@@ -5346,6 +5346,160 @@ async function main() {
         unlabelled.length === 0, [...new Set(unlabelled)].slice(0, 6).join(' | '));
     }
 
+    /* --------------------------------------------- the secondary modules */
+
+    /*
+     * Seven modules that had no screen of their own, and the three of them
+     * that hold a question one entity cannot answer.
+     *
+     * The important one is `property`. A tenancy can be written on the
+     * property — `rented`, `tenantName`, `monthlyRent`, `leaseEndsOn` — and in
+     * a whole `tenant` entity pointing at it, and **the application reads a
+     * different one for each question**: `domain/rentreceipt.js` builds a
+     * receipt from the property's fields and has never read a tenant record,
+     * while the reminders derive from every expiry field and so fire for
+     * either. Two households could each believe they had recorded a tenancy
+     * and get different behaviour.
+     */
+    {
+      const before = consoleErrors.length;
+
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const db = app().db;
+
+        // Agrees: nothing should be said about this one.
+        const quiet = await db.repo('property').create({
+          name: 'Quiet Flat', kind: 'apartment', rented: true, tenantName: 'Ravi',
+          monthlyRent: 3_500_000,
+        });
+        await db.repo('tenant').create({
+          name: 'Ravi', property: quiet.id, monthlyRent: 3_500_000,
+        });
+
+        // Disagrees on the name.
+        const argued = await db.repo('property').create({
+          name: 'Argued Flat', kind: 'apartment', rented: true, tenantName: 'Ravi',
+        });
+        await db.repo('tenant').create({ name: 'Someone Else', property: argued.id });
+
+        // Only on the property: no reminder when the agreement ends.
+        await db.repo('property').create({
+          name: 'Lonely Shop', kind: 'commercial', rented: true, tenantName: 'Priya',
+        });
+
+        // Not let at all: not a finding.
+        await db.repo('property').create({ name: 'Empty Plot', kind: 'land', rented: false });
+
+        /*
+         * Two tasks saying two things, arriving the two different ways they
+         * actually can, and one that does not.
+         *
+         * `done` with no completion date is refused by `validate.js` — "A
+         * completed task needs a completion date" — so it cannot be created
+         * through the form. It reaches the store the way it really does:
+         * `applyRemote`, which writes a row from the household's own
+         * spreadsheet with no validation, deliberately, because a sync that
+         * rejected a row would lose it. Creating it with `create` was the
+         * first version of this fixture and the validator threw, which is the
+         * check teaching the test what the application actually allows.
+         *
+         * A completion date on an open task has no rule at all, so that one
+         * goes through the ordinary form path.
+         */
+        const seed = await db.repo('task').create({
+          title: 'Hand edited', status: 'todo', completedOn: '2026-06-01',
+        });
+        await db.repo('task').applyRemote({
+          ...seed, id: 'task-hand-edited', title: 'Done with no date',
+          status: 'done', completedOn: '',
+        });
+        await db.repo('task').create({ title: 'Ordinary task', status: 'todo' });
+
+        // An emergency list with two contacts claiming first place.
+        await db.repo('emergencyContact').create({
+          name: 'First Amma', phone: '9000000001', relationship: 'mother', priority: 1,
+        });
+        await db.repo('emergencyContact').create({
+          name: 'First Appa', phone: '9000000002', relationship: 'father', priority: 1,
+        });
+      }, IN_PAGE.context);
+
+      /** The text of one card, found by its heading. */
+      const cardText = (heading) => page.evaluate((wanted) => {
+        const head = [...document.querySelectorAll('.card h2')]
+          .find((node) => (node.textContent || '').includes(wanted));
+        const card = head && head.closest('.card');
+        return card instanceof HTMLElement ? card.innerText : '';
+      }, heading);
+
+      await go(page, '#/property');
+      await page.waitForTimeout(700);
+
+      const tenancies = await cardText('recorded in two places');
+      check('the property screen draws its tenancy card', tenancies.length > 0,
+        (await page.locator('.app-content').innerText()).slice(0, 400));
+      check('and names the one that disagrees', /Argued Flat/.test(tenancies),
+        tenancies.slice(0, 500));
+      check('and the one recorded in only one place', /Lonely Shop/.test(tenancies),
+        tenancies.slice(0, 500));
+      check('but not the one that agrees', !/Quiet Flat/.test(tenancies),
+        tenancies.slice(0, 500));
+      check('and not a property nobody is renting', !/Empty Plot/.test(tenancies),
+        tenancies.slice(0, 500));
+
+      // It says what each case costs, because naming a state is not enough to
+      // act on.
+      check('and says what the disagreement costs',
+        /receipts use the property/i.test(tenancies), tenancies.slice(0, 600));
+
+      // The generic list is still there. Nothing was removed.
+      check('the property list is still on the screen',
+        await page.locator('.list-item, table').count() > 0);
+
+      await go(page, '#/tasks');
+      await page.waitForTimeout(600);
+      const tasks = await cardText('say two things');
+      check('a completion date on a task that is not done is raised',
+        /Hand edited/.test(tasks), tasks.slice(0, 400));
+      check('and so is one that arrived through sync marked done with no date',
+        /Done with no date/.test(tasks), tasks.slice(0, 400));
+      check('and an ordinary open task is not',
+        !/Ordinary task/.test(tasks), tasks.slice(0, 400));
+
+      await go(page, '#/emergency');
+      await page.waitForTimeout(600);
+      const reach = await cardText('in a hurry');
+      check('two contacts claiming first place is named',
+        /First Amma/.test(reach) && /First Appa/.test(reach), reach.slice(0, 400));
+
+      /*
+       * The four that point elsewhere rather than recomputing.
+       *
+       * `policy.nominee` and `digitalAsset.legacyInstruction` are read by
+       * `domain/estate.js`, and the education dates are already reminders. A
+       * second implementation of one question is the fault this repository
+       * has spent the week removing.
+       */
+      /** @type {[string, RegExp][]} */
+      const pointers = [
+        ['insurance', /estate review/i],
+        ['digital', /estate review/i],
+        ['education', /Notifications tab/i],
+        ['notes', /nothing here is worked out/i],
+      ];
+      for (const [id, pattern] of pointers) {
+        await go(page, `#/${id}`);
+        await page.waitForTimeout(500);
+        const said = await cardText('already is');
+        check(`${id} says where its answer already is`, pattern.test(said),
+          said.slice(0, 300));
+      }
+
+      check('the secondary screens raise no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
     /* ------------------------------------------- a link that is not a link */
 
     /*
