@@ -18,6 +18,7 @@
 
 import { bus, TOPIC } from '../core/bus.js';
 import { closeAllModals } from './components/modal.js';
+import { announce } from './dom.js';
 
 export class Router {
   #routes = new Map();
@@ -157,13 +158,37 @@ export class Router {
         this.#outlet.append(view);
       }
 
+      const first = !this.#current;
       this.#current = route;
       bus.emit(TOPIC.route, route);
 
-      // Landing on a new screen should start at the top and announce itself.
+      /*
+       * Landing on a new screen: top of the page, focus on its heading, and
+       * the heading said out loud.
+       *
+       * This used to set `tabindex="-1"` and stop, under a comment claiming
+       * the screen "announces itself". Nothing focused the heading and nothing
+       * announced anything — the attribute was a preparation for a call that
+       * was never written, and `announce` was not even imported here.
+       *
+       * What that cost somebody navigating by keyboard: the link they
+       * followed was inside the outlet, `replaceChildren` removed it, and
+       * focus fell to `<body>`. Every navigation put them back at the top of
+       * the document, so reaching anything on the new screen meant tabbing
+       * past the skip link, the header and the whole tab bar again.
+       *
+       * `preventScroll` because the line above has already put the scroll
+       * where it belongs, and focusing would otherwise fight it.
+       */
       this.#outlet.scrollTop = 0;
       const heading = this.#outlet.querySelector('h1, h2');
-      if (heading) heading.setAttribute('tabindex', '-1');
+      if (heading) {
+        heading.setAttribute('tabindex', '-1');
+        heading.focus({ preventScroll: true });
+        // Not on the first render: the page load announces itself, and saying
+        // the name twice is worse than not saying it.
+        if (!first) announce(heading.textContent?.trim() ?? '');
+      }
       return route;
     } catch (err) {
       console.error(`route ${route.path} failed`, err);
