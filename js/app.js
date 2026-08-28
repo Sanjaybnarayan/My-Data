@@ -21,9 +21,9 @@ import {
 import { Database } from './data/database.js';
 import { setContext } from './context.js';
 import { applyTheme, storedTheme, watchSystemTheme } from './ui/theme.js';
-import { start as startLocale } from './core/locale.js';
+import { start as startLocale, t } from './core/locale.js';
 import { buildShell } from './ui/shell.js';
-import { lockScreen, recoveryKitScreen } from './auth/lock.js';
+import { lockScreen, recoveryKitScreen, lockNow } from './auth/lock.js';
 import { Session, AttemptLimiter } from './security/session.js';
 import { googleAuth } from './auth/googleauth.js';
 import { AppsScriptTransport } from './sync/transport.js';
@@ -37,6 +37,8 @@ import { h, replace } from './ui/dom.js';
 import { ACTIONS } from './data/audit.js';
 import { userMessage } from './core/errors.js';
 import { modules } from './data/schema.js';
+import { moduleLabel } from './core/labels.js';
+import { MIN_PREFIX } from './data/search.js';
 import { plugin, isNative } from './core/native.js';
 
 const root = () => document.getElementById('app');
@@ -149,17 +151,12 @@ async function start(db, limiter, googleSession = null) {
 
   const session = new Session({
     timeoutMinutes: config().sessionTimeoutMinutes,
-    onExpire: () => relock(db),
+    onExpire: () => lockNow(db),
   }).start().observe();
 
   const shell = buildShell({
     actor,
-    onSync: () => sync.run().then((r) => {
-      if (r.error) toast(r.error, { kind: 'error' });
-      else if (r.skipped === 'not-configured') toast('Connect a Google account in Settings to sync.');
-      else toast(`Synced — ${r.pushed} up, ${r.pulled} down`, { kind: 'success' });
-    }),
-    onLock: () => relock(db),
+    onLock: () => lockNow(db),
     onSearch: (term, results) => quickSearch(db, term, results),
   });
 
@@ -357,20 +354,35 @@ async function resolveActor(db) {
 
 /* ------------------------------------------------------------------- lock */
 
-function relock(db) {
-  db.keyring.lock();
-  db.logAudit(ACTIONS.lock, {}).catch(() => {});
-  globalThis.location.reload();
-}
-
 /* ----------------------------------------------------------------- search */
+
+/** The module definition behind a search hit, for its human label. */
+function mod(id) {
+  return modules.find((one) => one.id === id);
+}
 
 let searchTimer = null;
 
 function quickSearch(db, term, results) {
   clearTimeout(searchTimer);
-  if (term.trim().length < 2) {
+  const typed = term.trim();
+
+  if (!typed) {
     results.hidden = true;
+    return;
+  }
+
+  /*
+   * Below the index's own floor there is nothing to run, and saying so is not
+   * the same as saying there is nothing there. `MIN_PREFIX` is imported rather
+   * than repeated: the box used to stop at two while the index needed three,
+   * so two characters always produced "Nothing matching" — a sentence that
+   * describes an empty household rather than an unfinished word.
+   */
+  if (typed.length < MIN_PREFIX) {
+    replace(results, h('div', { class: 'list-item muted' },
+      t('search.keepTyping', { n: MIN_PREFIX })));
+    results.hidden = false;
     return;
   }
   // Debounced: a search per keystroke over an index of tens of thousands of
@@ -378,6 +390,15 @@ function quickSearch(db, term, results) {
   searchTimer = setTimeout(async () => {
     try {
       const hits = await db.search(term, { limit: 12 });
+      /*
+       * The module as a chip, not as the first half of a subtitle.
+       *
+       * It read `finance · HDFC Bank`, which at 390px wrapped to two lines and
+       * put the word somebody was scanning for — the record — second. The
+       * module is where the record lives and belongs beside the title; the
+       * record's own detail is the line under it, and is dropped rather than
+       * repeated when there is none.
+       */
       replace(results, hits.length
         ? hits.map((hit) => h('a', {
           class: 'list-item',
@@ -386,8 +407,11 @@ function quickSearch(db, term, results) {
         }, [
           h('div', { class: 'list-item-body' }, [
             h('div', { class: 'list-item-title' }, hit.title || '(untitled)'),
-            h('div', { class: 'list-item-subtitle' }, `${hit.module} · ${hit.subtitle || hit.entity}`),
+            hit.subtitle
+              ? h('div', { class: 'list-item-subtitle search-hit-detail' }, hit.subtitle)
+              : null,
           ]),
+          h('span', { class: 'search-hit-where' }, moduleLabel(mod(hit.module)) ?? hit.module),
         ]))
         : h('div', { class: 'list-item muted' }, `Nothing matching “${term}”`));
       results.hidden = false;

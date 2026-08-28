@@ -18,7 +18,6 @@ import { modules } from '../data/schema.js';
 import { visibleModules } from '../security/rbac.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { storedTheme, applyTheme, nextTheme, effectiveTheme } from './theme.js';
-import { SYNC_STATE } from '../sync/engine.js';
 import { avatar, iconButton } from './components/basics.js';
 import { moduleLabel } from '../core/labels.js';
 
@@ -38,7 +37,7 @@ import { moduleLabel } from '../core/labels.js';
  */
 export const PRIMARY = Object.freeze(['dashboard', 'notifications', 'chat', 'finance', 'profile']);
 
-export function buildShell({ actor, onSearch, onSync, onLock, router }) {
+export function buildShell({ actor, onSearch, onLock, router }) {
   const allowed = visibleModules(actor, modules);
 
   const outlet = h('main', { class: 'app-content', id: 'main', tabindex: '-1' });
@@ -60,14 +59,6 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
 
   const results = h('div', { class: 'search-results', hidden: true, role: 'listbox' });
 
-  const syncPill = h('button', {
-    class: 'sync-pill',
-    type: 'button',
-    dataset: { state: 'idle' },
-    title: 'Sync now',
-    onClick: () => onSync?.(),
-  }, [icon('cloud', { size: 16 }), h('span', {}, 'Synced')]);
-
   const themeButton = iconButton('sun', {
     label: 'Change theme',
     onClick: () => {
@@ -85,25 +76,6 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
   }
   renderThemeIcon();
 
-  /*
-   * Lock, in the header, where the drawer button used to be.
-   *
-   * `.app-nav` is the desktop rail and it carries a Lock now row. On a phone
-   * the rail is not drawn at all, so without this the only way to lock is
-   * Profile → Settings → Security → Lock now: four taps for the control
-   * somebody reaches for when they are handing the phone to someone else.
-   * It stays one.
-   *
-   * Grouped with sync and theme rather than left where the burger was: it is
-   * a global control, not a way to somewhere. Hidden on desktop by CSS,
-   * because the rail's own Lock now row is right there with a word on it —
-   * two paths to one action on one screen is the thing this change removes.
-   */
-  const lockButton = iconButton('lock', {
-    label: 'Lock now',
-    class: 'lock-now',
-    onClick: () => onLock?.(),
-  });
 
   const nav = h('nav', { class: 'app-nav', 'aria-label': 'Sections' }, [
     h('div', { class: 'brand' }, [
@@ -148,12 +120,65 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
         }, [icon(mod.icon, { size: 22 }), badge, h('span', {}, moduleLabel(mod))]);
       }));
 
-  const header = h('header', { class: 'app-header' }, [
+  /*
+   * Search, as a panel rather than a box wedged into the bar.
+   *
+   * On a 390px header an inline field had to share the width with a sync pill
+   * and two icon buttons, and lost. The field is the same field; what changed
+   * is that on a phone it lives in a panel the search button opens, over the
+   * content, with room for its own results. Above 901px the panel is simply
+   * always open and inline, because a desktop header has the width and an
+   * extra tap to search would be a worse trade there.
+   *
+   * Sync moved out entirely. It said "Synced" almost always, in words, in the
+   * most contested strip of a phone screen; it is a card on the Dashboard now,
+   * where there is room to say what is wrong when something is.
+   */
+  const searchPanel = h('div', { class: 'search-panel' }, [
     h('div', { class: 'search-box' }, [icon('search', { size: 18 }), searchInput, results]),
+    iconButton('close', {
+      label: 'Close search',
+      class: 'search-close',
+      onClick: () => openSearch(false),
+    }),
+  ]);
+
+  const searchToggle = iconButton('search', {
+    label: 'Search',
+    class: 'search-toggle',
+    onClick: () => openSearch(),
+  });
+  searchToggle.setAttribute('aria-expanded', 'false');
+
+  /**
+   * Open or close the search panel.
+   *
+   * Focus moves into the field on open — the whole point of the button is to
+   * get somebody typing — and back to the button on close, but only when the
+   * focus is still inside the panel. Closing because a result was followed
+   * should leave focus where the new screen puts it.
+   */
+  function openSearch(open) {
+    const next = open ?? !searchPanel.classList.contains('is-open');
+    const wasInside = !next && searchPanel.contains(document.activeElement);
+
+    searchPanel.classList.toggle('is-open', next);
+    searchToggle.setAttribute('aria-expanded', String(next));
+
+    if (next) searchInput.focus();
+    else {
+      searchInput.value = '';
+      results.hidden = true;
+      if (wasInside) searchToggle.focus();
+    }
+  }
+
+  const header = h('header', { class: 'app-header' }, [
+    h('div', { class: 'app-title' }, 'FamilyOS'),
     h('div', { class: 'spacer' }),
-    syncPill,
-    lockButton,
+    searchToggle,
     themeButton,
+    searchPanel,
   ]);
 
   const root = h('div', { class: 'app', dataset: { nav: 'full' } }, [
@@ -179,18 +204,6 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
       else link.removeAttribute('aria-current');
     }
     results.hidden = true;
-  });
-
-  bus.on(TOPIC.syncState, ({ state }) => {
-    syncPill.dataset.state = state;
-    const [text, iconName] = {
-      [SYNC_STATE.idle]: ['Synced', 'cloud'],
-      [SYNC_STATE.running]: ['Syncing', 'refresh'],
-      [SYNC_STATE.offline]: ['Offline', 'cloudOff'],
-      [SYNC_STATE.blocked]: ['Needs attention', 'alert'],
-      [SYNC_STATE.error]: ['Sync failed', 'alert'],
-    }[state] ?? ['Synced', 'cloud'];
-    replace(syncPill, [icon(iconName, { size: 16 }), h('span', {}, text)]);
   });
 
   /*

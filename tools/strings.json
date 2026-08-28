@@ -1,13 +1,13 @@
 {
   "note": "Unrouted English strings — see tools/strings.mjs. This number may only fall.",
-  "unrouted": 3491,
-  "files": 157,
+  "unrouted": 3490,
+  "files": 159,
   "byFile": {
     "js/ai/assistant.js": 4,
     "js/ai/intents.js": 75,
     "js/ai/mcp.js": 12,
     "js/ai/summary.js": 16,
-    "js/app.js": 14,
+    "js/app.js": 11,
     "js/auth/biometric.js": 9,
     "js/auth/google-unlock.js": 8,
     "js/auth/google.js": 11,
@@ -100,7 +100,8 @@
     "js/modules/chat.js": 3,
     "js/modules/conflicts.js": 4,
     "js/modules/crud.js": 28,
-    "js/modules/dashboard.js": 77,
+    "js/modules/dashboard-widgets.js": 11,
+    "js/modules/dashboard.js": 66,
     "js/modules/documents.js": 76,
     "js/modules/family.js": 67,
     "js/modules/finance.js": 106,
@@ -154,11 +155,12 @@
     "js/ui/components/charts.js": 18,
     "js/ui/components/form.js": 13,
     "js/ui/components/modal.js": 1,
+    "js/ui/components/syncstatus.js": 5,
     "js/ui/components/table.js": 5,
     "js/ui/dom.js": 3,
     "js/ui/icons.js": 5,
     "js/ui/router.js": 3,
-    "js/ui/shell.js": 14,
+    "js/ui/shell.js": 11,
     "js/ui/theme.js": 2
   }
 }

@@ -19,7 +19,16 @@
 import { searchableValues } from '../security/fieldcrypto.js';
 import { entity } from './schema.js';
 
-const MIN_PREFIX = 3;
+/**
+ * The shortest query that can match anything.
+ *
+ * Exported because the search box has to enforce the same number. It used its
+ * own floor of two, so two characters ran a search that this file was always
+ * going to answer with nothing — and the box reported that as "Nothing
+ * matching", which is a search that ran and found nothing rather than one
+ * that never ran. The two numbers are now one number.
+ */
+export const MIN_PREFIX = 3;
 const MAX_TERM = 20;
 
 export function tokenize(text) {

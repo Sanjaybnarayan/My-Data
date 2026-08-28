@@ -21,6 +21,14 @@ setSuite('dashboard');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = readFileSync(join(ROOT, 'js', 'modules', 'dashboard.js'), 'utf8');
+/*
+ * The labels moved to their own module when `dashboard.js` reached its size
+ * ceiling. Read from where they are rather than from where they were: the
+ * pairing this file checks is between two lists, and a regex that stopped
+ * matching would have made the check pass on a widget with no label.
+ */
+const WIDGET_SOURCE = readFileSync(
+  join(ROOT, 'js', 'modules', 'dashboard-widgets.js'), 'utf8');
 
 const list = (name) => [...new RegExp(`const ${name} = \\[([^\\]]*)\\]`, 's')
   .exec(SOURCE)[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
@@ -29,7 +37,7 @@ const ALL = list('ALL_WIDGETS');
 const DEFAULT = list('DEFAULT_WIDGETS');
 const PREVIOUS = list('PREVIOUS_DEFAULT');
 const IMPLEMENTED = [...SOURCE.matchAll(/^ {2}([a-z]+): \(data\)/gm)].map((m) => m[1]);
-const LABELLED = [.../const WIDGET_LABELS = \{([^}]*)\}/s.exec(SOURCE)[1]
+const LABELLED = [.../const WIDGET_LABELS = \{([^}]*)\}/s.exec(WIDGET_SOURCE)[1]
   .matchAll(/^\s*([a-z]+):/gm)].map((m) => m[1]);
 
 describe('the three lists agree', () => {

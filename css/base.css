@@ -136,13 +136,10 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
  * top of it. On a device with no inset — a desktop browser — this is exactly
  * what it was before.
  */
-/*
- * The header's lock is the phone's copy of the rail's Lock now row. Where the
- * rail is drawn, the row is there with a word on it and this would be a
- * second path to one action on one screen.
- */
-@media (min-width: 901px) {
-  .lock-now { display: none; }
+.app-title {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-size: var(--text-md, 1rem);
 }
 
 .app-header {
@@ -294,6 +291,18 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
   }
 
   /*
+   * The open panel covers the bar rather than squeezing into it: at 390px a
+   * field sharing the row with a title and two buttons is a field nobody can
+   * read what they typed in.
+   */
+  .search-panel.is-open {
+    position: absolute;
+    inset: var(--inset-top) var(--space-3) 0;
+    background: var(--surface);
+    z-index: 30;
+  }
+
+  /*
    * While a field has focus, the soft keyboard is up and `adjustResize` has
    * already taken the bottom half of the screen. A fixed bar re-anchors to
    * what is left and lands on top of the keyboard, so it stands down — and
@@ -340,8 +349,8 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
     min-height: var(--bottom-nav-height);
     padding: var(--space-1);
     border-radius: var(--radius-xl);
-    background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
-    backdrop-filter: blur(12px);
+    background: color-mix(in srgb, var(--surface-raised) 96%, transparent);
+    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-2);
   }
@@ -376,10 +385,35 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
    * colour alone is not a distinction for everyone reading this — and on a bar
    * of five identical shapes it is the only thing separating them.
    */
+  /*
+   * Selected carries three things, not one: the filled ground, the weight,
+   * and a bar above the icon. Colour alone is not a distinction for everyone
+   * reading this, and on a row of five identical shapes the selected tab is
+   * the only thing telling somebody where they are.
+   */
   .bottom-nav a[aria-current='page'] {
     color: var(--accent-text);
     background: var(--accent-subtle);
     font-weight: 600;
+  }
+
+  .bottom-nav a[aria-current='page']::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 18px;
+    height: 3px;
+    transform: translateX(-50%);
+    border-radius: var(--radius-pill);
+    background: var(--accent-text);
+  }
+
+  /* The label is the smaller half of a tab; the icon is what is recognised
+     at a glance, so it gets the room and the label sits tight under it. */
+  .bottom-nav a > span {
+    line-height: 1.1;
+    letter-spacing: -0.01em;
   }
 
   /*

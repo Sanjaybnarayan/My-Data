@@ -750,7 +750,50 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
 
 /* ------------------------------------------------------------ misc atoms */
 
-.search-box { position: relative; flex: 1; max-width: 520px; }
+/*
+ * Search lives in a panel now, not wedged into the header bar.
+ *
+ * On a phone the panel is closed until the search button opens it, and then
+ * it covers the header — the field gets the whole width instead of whatever
+ * was left after a sync pill and two icons. Above 901px the panel is simply
+ * always on, inline, because a desktop header has the room and an extra tap
+ * would be the worse trade there.
+ */
+/*
+ * Closed by default and opened with a class, not the `hidden` attribute.
+ *
+ * `hidden` is a `display: none` that any later `display` rule beats, and this
+ * one did: `.search-panel { display: flex }` won and the field stayed on
+ * screen with the attribute set. A class the stylesheet owns cannot be
+ * overridden by the stylesheet by accident, and `display: none` keeps the
+ * closed panel out of the accessibility tree and the tab order, which is what
+ * closed has to mean.
+ *
+ * These rules live here rather than in `base.css` because `.btn--icon` is in
+ * this file and loads after it — hiding the toggle from `base.css` lost to
+ * the button's own `display`, and the toggle showed on desktop beside the
+ * inline field it exists to replace.
+ */
+.search-panel {
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.search-panel.is-open { display: flex; }
+
+@media (min-width: 901px) {
+  /* The header has the width for the field, so the panel is simply always
+     on and the buttons that open and close it are not needed. */
+  .search-panel { display: flex; }
+  .search-toggle,
+  .search-close { display: none; }
+  .app-title { display: none; }
+}
+
+.search-box { position: relative; flex: 1; max-width: 520px; min-width: 0; }
 .search-box .icon {
   position: absolute;
   left: var(--space-3);
@@ -768,6 +811,7 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
   z-index: 40;
   max-height: 60vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -792,27 +836,25 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
   background: var(--surface-sunken);
 }
 
-.sync-pill {
-  display: inline-flex;
+/*
+ * Sync, as a card on the Dashboard rather than a pill in the header.
+ *
+ * `data-wrong` carries the two states somebody has to do something about.
+ * It tints the card, and the word beside it already differs — "Offline" and
+ * "Sync failed" are not the same sentence — so the tint is a second signal
+ * rather than the only one.
+ */
+.sync-line {
+  display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  background: var(--surface-sunken);
+  gap: var(--space-3);
 }
-/* Text on a `-subtle` ground takes the `-text` role. The offline pill was
-   `--warning` on `--warning-subtle` — 2.89:1, and only ever seen when the
-   network is down, which is why measuring the running application did not
-   find it and reading the rule did. */
-.sync-pill[data-state='offline'] { color: var(--warning-text); background: var(--warning-subtle); }
-.sync-pill[data-state='error'],
-.sync-pill[data-state='blocked'] { color: var(--danger-text); background: var(--danger-subtle); }
-.sync-pill[data-state='running'] .icon { animation: spin 1.1s linear infinite; }
+.sync-word { font-weight: 600; }
+.sync-card[data-wrong='true'] { border-color: var(--danger); }
+.sync-card[data-wrong='true'] .sync-word,
+.sync-card[data-wrong='true'] .icon { color: var(--danger-text); }
 
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .sync-pill[data-state='running'] .icon { animation: none; } }
 
 /* -------------------------------------------------------------- unlocking */
 
@@ -1220,7 +1262,6 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
   .chip,
   .tab,
   .nav-item,
-  .sync-pill,
   .bottom-nav a,
   .toast button,
   .input,
@@ -1745,3 +1786,44 @@ a.wallet-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 
 /* One starred message, with the conversation it came from named above it. */
 .starred-block { padding-bottom: var(--space-4); }
 .starred-where { margin: 0 0 var(--space-2); }
+
+
+/* ------------------------------------------------------ search results */
+
+/*
+ * A result is a tap target on a phone before it is a row in a list. The
+ * default `.list-item` is sized for a dense table; these are read one at a
+ * time by somebody who has just typed, so the title carries the weight and
+ * the module is a chip rather than a run-on subtitle that wrapped to two
+ * lines at 390px.
+ */
+.search-results .list-item {
+  min-height: 56px;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.search-results .list-item-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit-where {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+  text-transform: capitalize;
+}
+
+.search-hit-detail {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
