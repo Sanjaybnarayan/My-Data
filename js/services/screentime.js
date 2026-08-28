@@ -35,6 +35,24 @@ export const WITHHELD = Object.freeze({
   REFUSED: t('screentime.withheld.refused'),
 });
 
+/**
+ * The same answer as `why`, in a form a screen can branch on.
+ *
+ * `why` is a sentence for a person to read, and a screen that decided which
+ * control to offer by matching against it would break the first time somebody
+ * translated it. These ids carry the distinction the sentence carries — which
+ * of the five it is — without asking any caller to read English.
+ */
+export const STATE = Object.freeze({
+  READY: 'ready',
+  NO_PERSON: 'noPerson',
+  UNASKED: 'unasked',
+  REFUSED: 'refused',
+  NO_PLUGIN: 'noPlugin',
+  NO_ACCESS: 'noAccess',
+  DEVICE_REFUSED: 'deviceRefused',
+});
+
 export class ScreenTimeService extends Service {
   /**
    * What the device would allow, and what consent allows, kept apart.
@@ -46,15 +64,15 @@ export class ScreenTimeService extends Service {
   async readiness(personId) {
     const device = await deviceStatus();
     if (!personId) {
-      return { device, permitted: false, why: WITHHELD.NO_PERSON };
+      return { device, permitted: false, why: WITHHELD.NO_PERSON, state: STATE.NO_PERSON };
     }
     if (await refused(this.db, 'screenTime', personId)) {
-      return { device, permitted: false, why: WITHHELD.REFUSED };
+      return { device, permitted: false, why: WITHHELD.REFUSED, state: STATE.REFUSED };
     }
     if (!(await hasConsent(this.db, 'screenTime', personId))) {
-      return { device, permitted: false, why: WITHHELD.UNASKED };
+      return { device, permitted: false, why: WITHHELD.UNASKED, state: STATE.UNASKED };
     }
-    return { device, permitted: true, why: null };
+    return { device, permitted: true, why: null, state: STATE.READY };
   }
 
   /**
@@ -68,10 +86,19 @@ export class ScreenTimeService extends Service {
     if (!ready.permitted) {
       // The native call is not made. Not "made and discarded" — a reading
       // taken and then thrown away is still a reading that happened.
-      return { asked: false, why: ready.why, apps: [], device: ready.device };
+      return { asked: false, why: ready.why, apps: [], device: ready.device, state: ready.state };
     }
     if (!ready.device.permitted) {
-      return { asked: false, why: ready.device.why, apps: [], device: ready.device };
+      return {
+        asked: false,
+        why: ready.device.why,
+        apps: [],
+        device: ready.device,
+        // Consent said yes and the device said no, and those are two different
+        // things for a household to do something about: one is a settings
+        // page on this phone, the other is a build without the plugin at all.
+        state: ready.device.supported ? STATE.NO_ACCESS : STATE.NO_PLUGIN,
+      };
     }
 
     const to = clock();
@@ -82,6 +109,13 @@ export class ScreenTimeService extends Service {
       why: said.ok ? null : said.why,
       apps: said.apps,
       device: ready.device,
+      /*
+       * The device agreed a moment ago and refused when actually asked.
+       * Usage access can be revoked between the two calls, and reporting it
+       * as "never granted" would send somebody to a settings page that
+       * already says what they expect.
+       */
+      state: said.ok ? STATE.READY : STATE.DEVICE_REFUSED,
       from,
       to,
     };

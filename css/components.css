@@ -664,6 +664,43 @@
 .progress-bar--warning { background: var(--warning); }
 .progress-bar--danger { background: var(--danger); }
 
+/* --------------------------------------------------------- screen time */
+
+/*
+ * A share bar, not a progress bar.
+ *
+ * `.progress-bar` turns warning at 80% and danger at 100% because it was
+ * built for budgets, where reaching the limit is the bad outcome. A share of
+ * screen time is not a budget: colouring somebody's most-used application red
+ * would be the screen deciding that using it a lot is a problem, which it has
+ * no way of knowing. So this stays one neutral hue at every width.
+ *
+ * The duration is beside the bar rather than only encoded in its length, so
+ * the bar is never the only signal — and the bar itself carries an
+ * `aria-label`, because a length is nothing to a screen reader.
+ */
+.wellbeing-share {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  min-width: 88px;
+}
+.wellbeing-bar {
+  width: 88px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.wellbeing-bar > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
 /* ------------------------------------------------------------ misc atoms */
 
 .search-box { position: relative; flex: 1; max-width: 520px; }

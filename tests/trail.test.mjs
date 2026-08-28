@@ -19,7 +19,7 @@ import {
 } from '../js/core/backgroundlocation.js';
 import { usage, status as screenStatus, NOT_PERMITTED, UNSUPPORTED }
   from '../js/core/screentime.js';
-import { ScreenTimeService, WITHHELD } from '../js/services/screentime.js';
+import { ScreenTimeService, WITHHELD, STATE } from '../js/services/screentime.js';
 import { grant, withdraw } from '../js/data/consent.js';
 
 setSuite('trail');
@@ -179,6 +179,7 @@ describe('screen time is not read without a decision', () => {
     const out = await new ScreenTimeService(db).forPerson(person.id);
     assert.equal(out.asked, false);
     assert.equal(out.why, WITHHELD.UNASKED);
+    assert.equal(out.state, STATE.UNASKED);
     assert.length(out.apps, 0);
   });
 
@@ -189,6 +190,7 @@ describe('screen time is not read without a decision', () => {
     const out = await new ScreenTimeService(db).forPerson(person.id);
     assert.equal(out.asked, false);
     assert.equal(out.why, WITHHELD.REFUSED);
+    assert.equal(out.state, STATE.REFUSED);
   });
 
   test('and no person at all means nothing is read', async () => {
@@ -196,6 +198,7 @@ describe('screen time is not read without a decision', () => {
     const out = await new ScreenTimeService(db).forPerson('');
     assert.equal(out.asked, false);
     assert.equal(out.why, WITHHELD.NO_PERSON);
+    assert.equal(out.state, STATE.NO_PERSON);
   });
 
   test('a recorded agreement is what opens it', async () => {
@@ -208,6 +211,16 @@ describe('screen time is not read without a decision', () => {
     const after = await new ScreenTimeService(db).readiness(person.id);
     assert.equal(after.permitted, true);
     assert.equal(after.why, null);
+    assert.equal(after.state, STATE.READY);
+  });
+
+  test('consent said yes and a browser still cannot read, and says which', () => {
+    // The two halves stay apart to the end. "You have not asked them" and
+    // "this build has no plugin" are different problems with different fixes,
+    // and the id is what lets a screen offer the right one.
+    assert.notEqual(STATE.UNASKED, STATE.NO_PLUGIN);
+    assert.notEqual(STATE.NO_ACCESS, STATE.NO_PLUGIN);
+    assert.equal(new Set(Object.values(STATE)).size, Object.values(STATE).length);
   });
 
   test('the purpose says a "no" actually stops something', () => {

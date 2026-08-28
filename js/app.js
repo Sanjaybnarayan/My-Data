@@ -304,6 +304,10 @@ function registerRoutes(router) {
   // audit log — so it is registered beside the assistant rather than appearing
   // in the navigation. The dashboard's activity card is the way in.
   router.register('timeline', () => import('./modules/timeline.js'));
+  // Also not a schema module — it owns no records at all, it is a reading of
+  // this phone taken with the owner's consent. Reached from Profile, which is
+  // where anything about this device belongs while the brief allows five tabs.
+  router.register('wellbeing', () => import('./modules/wellbeing.js'));
   router.fallback(() => import('./modules/crud.js'));
 }
 
