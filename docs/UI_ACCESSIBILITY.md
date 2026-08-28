@@ -48,6 +48,16 @@ it. Widened, it found seven screens scrolling sideways, four of them at 1204px
 on a 390px phone, and at 320px a badge carrying the qualifier on the encryption
 claim being pushed off the edge.
 
+**Contrast — every module, both themes.** The sweep used to name ten modules
+by hand while the schema declared twenty-five, so fifteen screens had never had
+a colour pair measured in either theme, including two added since. It derives
+the list now.
+
+Widening it found **nothing**: every pair on every screen passes in both
+themes. That is worth saying plainly rather than dressing up — the value is not
+a defect fixed, it is that a screen added tomorrow is measured without anybody
+remembering to add it.
+
 **Heading order — no screen skips a level.** Every module, every entity's own
 list, and the screens a hash alone does not reach, walked in
 `tests/browser.mjs`.

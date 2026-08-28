@@ -4755,8 +4755,23 @@ async function main() {
         const worst = new Map();
         let measured = 0;
 
-        for (const module of ['dashboard', 'finance', 'family', 'documents',
-          'vault', 'calendar', 'safety', 'settings', 'reports', 'belongings']) {
+        /*
+         * Every module, derived — not ten of twenty-five, written by hand.
+         *
+         * This file already complains about the same fault twice: a check
+         * that "existed and only ever ran on the dashboard", and a hand-named
+         * list beside a derivable one. The contrast sweep was the third,
+         * naming ten modules while the schema declared twenty-five, so
+         * fifteen screens had never had a colour pair measured in either
+         * theme — including two added since.
+         *
+         * Widening it found **nothing**: every pair on every screen passes in
+         * both themes. That is worth saying plainly rather than dressing up.
+         * The value here is not a bug fixed, it is that a screen added
+         * tomorrow is measured without anybody remembering to add it.
+         */
+        for (const module of [...SCHEMA_MODULES.map((one) => one.id),
+          'profile', 'notifications', 'wellbeing']) {
           await go(page, `#/${module}`);
           await page.waitForTimeout(400);
           const result = await page.evaluate(PROBE);
@@ -5002,6 +5017,46 @@ async function main() {
         const calls = [];
         Object.defineProperty(globalThis, '__nativeCalls', { value: calls });
 
+        /*
+         * What one boot reads, counted.
+         *
+         * A fresh context is the only deterministic place to ask: by any
+         * later point in this run the database holds whatever the checks
+         * before it created, and a count would drift with them.
+         *
+         * Cursor opens, not `getAll` calls — `js/data/idb.js` walks a cursor
+         * on purpose so that a windowed list of fifty does not materialise
+         * forty thousand rows, and a probe that hooked `getAll` measured zero
+         * while the application read sixty-three times.
+         *
+         * A count rather than a stopwatch, because a count is the same on a
+         * loaded CI runner and a fast laptop. The timing is fine and was
+         * measured separately: 186ms to a drawn shell and 372ms to the first
+         * card with 2,000 transactions on the books. What this guards is the
+         * shape — a change that turns sixty reads into six hundred.
+         */
+        globalThis.__reads = { opens: 0, byStore: {} };
+
+        // Written out twice rather than looped over a pair, because an array
+        // of `[prototype, nameOf]` is inferred as a union and `openCursor`
+        // then exists on neither half of it.
+        const tally = (store) => {
+          globalThis.__reads.opens += 1;
+          globalThis.__reads.byStore[store] = (globalThis.__reads.byStore[store] ?? 0) + 1;
+        };
+
+        const onStore = IDBObjectStore.prototype.openCursor;
+        IDBObjectStore.prototype.openCursor = function countedStore(...args) {
+          tally(this.name);
+          return onStore.apply(this, args);
+        };
+
+        const onIndex = IDBIndex.prototype.openCursor;
+        IDBIndex.prototype.openCursor = function countedIndex(...args) {
+          tally(this.objectStore.name);
+          return onIndex.apply(this, args);
+        };
+
         const proxyFor = (name) => new Proxy({}, {
           get(_target, method) {
             // A proxy that answers `then` with a function is a thenable, and
@@ -5070,6 +5125,37 @@ async function main() {
 
       check('the app boots and unlocks inside a native shell', true);
       check('and raises no error doing it', shellErrors.length === 0, shellErrors.join(' | '));
+
+      /*
+       * The read budget for one boot of an empty household.
+       *
+       * Measured, not chosen: sixty-five cursor opens, six rows. The number is
+       * not small because the stores are — it is that several consumers each
+       * read the same entities separately. `person` is opened five times on
+       * one boot, and six more entities three times each: the dashboard's own
+       * loader, `runAutomations`, and the estate, timeline and identity
+       * services all ask the database rather than each other.
+       *
+       * That costs little today, which is why this is a budget and not a
+       * refactor: at 372ms to the first card with 2,000 transactions there is
+       * nothing here a household would feel, and a shared cache across
+       * services would risk a stale read, which is a worse failure than a slow
+       * boot. The number is recorded so that if it stops being little,
+       * somebody finds out from a check rather than from a phone.
+       */
+      await shell.waitForTimeout(1200);
+      const reads = await shell.evaluate(() => ({
+        opens: globalThis.__reads.opens,
+        worst: Object.entries(globalThis.__reads.byStore)
+          .sort((a, b) => b[1] - a[1]).slice(0, 6),
+      }));
+
+      check('one boot reads the database a bounded number of times',
+        reads.opens > 0 && reads.opens <= 90,
+        `${reads.opens} cursor opens: ${reads.worst.map(([s, n]) => `${s}x${n}`).join(', ')}`);
+      check('and no single store is read more than six times on one boot',
+        reads.worst.every(([, n]) => n <= 6),
+        reads.worst.map(([s, n]) => `${s}x${n}`).join(', '));
 
       // The files are already on the device. A worker there would build a
       // second copy of the shell in Cache Storage to serve requests that were
