@@ -5202,6 +5202,89 @@ async function main() {
       check('the hardware back button is claimed from the platform', claimed,
         `listeners: ${listeners.join(', ') || 'none'}`);
 
+      /*
+       * What the listener does, which the check above does not ask.
+       *
+       * A listener that is registered and wrong is indistinguishable from a
+       * correct one until somebody presses the button. The bridge proxy
+       * records the callback along with the name, so the callback can be
+       * called — the real one, in the shipping code, with the argument
+       * Capacitor passes.
+       *
+       * The fault this covers: back ran `history.back()` unconditionally. A
+       * dialog is appended to `document.body` and the router only replaces
+       * the outlet's children, so back with a dialog open moved the screen
+       * out from under it and left it standing over the next one — scroll
+       * still locked, focus still trapped, and, on a delete confirmation,
+       * a Delete button still wired to the record it had been asked about.
+       *
+       * There is no Escape key in a WebView. Back is the dismiss gesture, so
+       * it closes the dialog and stays where it is.
+       */
+      const fireBack = (canGoBack) => shell.evaluate((goBack) => {
+        const call = globalThis.__nativeCalls.find((c) => c.plugin === 'App'
+          && c.method === 'addListener' && c.args[0] === 'backButton');
+        call.args[1]({ canGoBack: goBack });
+      }, canGoBack);
+
+      {
+        const personId = await shell.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          const person = await app().db.repo('person').create({ name: 'Back Button Someone' });
+          return person.id;
+        }, IN_PAGE.context);
+
+        await go(shell, '#/dashboard');
+        await go(shell, `#/identity/person/${personId}`);
+        const at = await shell.evaluate(() => globalThis.location.hash);
+
+        await shell.locator('.app-content button:has-text("Delete")').first().click();
+        await shell.waitForSelector('.modal', { timeout: 5000 });
+        check('a delete confirmation opens in the native shell',
+          (await shell.locator('.modal').count()) === 1);
+
+        await fireBack(true);
+        await shell.waitForTimeout(250);
+
+        check('the back button closes an open dialog',
+          (await shell.locator('.modal').count()) === 0);
+        check('and stays on the screen the dialog was opened from',
+          (await shell.evaluate(() => globalThis.location.hash)) === at,
+          `${at} -> ${await shell.evaluate(() => globalThis.location.hash)}`);
+        check('and unlocks the page behind it',
+          (await shell.evaluate(() => document.body.style.overflow)) !== 'hidden');
+        check('and answers the confirmation no, rather than deleting the record',
+          await shell.evaluate(async ({ spec, id }) => {
+            const { app } = await import(spec);
+            return Boolean(await app().db.repo('person').get(id));
+          }, { spec: IN_PAGE.context, id: personId }));
+
+        // The dialog must not swallow the button permanently: with nothing
+        // open, back is navigation again. Without this, "closes the dialog"
+        // would also pass on a handler that did nothing at all.
+        await fireBack(true);
+        await shell.waitForTimeout(400);
+        check('and is navigation again once no dialog is open',
+          (await shell.evaluate(() => globalThis.location.hash)) !== at,
+          `still ${at}`);
+
+        /*
+         * The same dialog, left behind by a navigation the back button did
+         * not cause — a link inside the dialog, a redirect, a notification
+         * tap. The router closes them on the way out for the same reason,
+         * and separately: the handler above cannot see those.
+         */
+        await go(shell, `#/identity/person/${personId}`);
+        await shell.locator('.app-content button:has-text("Delete")').first().click();
+        await shell.waitForSelector('.modal', { timeout: 5000 });
+        await go(shell, '#/dashboard');
+
+        check('a dialog does not survive a navigation it did not cause',
+          (await shell.locator('.modal').count()) === 0);
+        check('and the page it was left over scrolls',
+          (await shell.evaluate(() => document.body.style.overflow)) !== 'hidden');
+      }
+
       // The reason `@capacitor/filesystem` is installed at all. Both web paths
       // — the file picker and a click on `<a download href="blob:…">` — are
       // silent no-ops in a WebView, so every export in the application would

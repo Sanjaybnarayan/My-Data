@@ -11,7 +11,16 @@ import { h, trapFocus, focus } from '../dom.js';
 import { icon } from '../icons.js';
 import { button } from './basics.js';
 
-let openCount = 0;
+/**
+ * Every dialog currently on screen, oldest first.
+ *
+ * A count would do for the scroll lock, but two other things need the dialogs
+ * themselves. Android's back button has to close the top one — a WebView has
+ * no Escape key, so back *is* the dismiss gesture there — and the router has
+ * to close all of them when it leaves, because the scrim is appended to
+ * `document.body` and nothing in a route change would otherwise remove it.
+ */
+const openDialogs = [];
 
 /**
  * `body` and `footer` take what `h()` takes: a node, or a list of them. Every
@@ -67,26 +76,61 @@ export function modal({
   document.addEventListener('keydown', onKeydown);
 
   function close(result) {
+    // Idempotent, because `close` now has more than one caller: the dialog's
+    // own buttons, and `closeAllModals` from the router. Without the guard a
+    // button that navigates and then closes itself would fire `onClose` twice
+    // and take a second dialog's entry off the stack with it.
+    const at = openDialogs.indexOf(handle);
+    if (at === -1) return;
+    openDialogs.splice(at, 1);
+
     document.removeEventListener('keydown', onKeydown);
     releaseTrap();
     scrim.remove();
-    openCount = Math.max(0, openCount - 1);
-    if (openCount === 0) document.body.style.removeProperty('overflow');
+    if (openDialogs.length === 0) document.body.style.removeProperty('overflow');
     // Returning focus to where it came from is what keeps a keyboard user's
     // place in the list they opened the dialog from.
     if (previouslyFocused?.isConnected) focus(previouslyFocused);
     onClose?.(result);
   }
 
+  const handle = { node: scrim, close, dismissable };
+
   document.body.append(scrim);
-  openCount += 1;
+  openDialogs.push(handle);
   document.body.style.overflow = 'hidden';
 
   // First field if there is one, otherwise the dialog itself.
   const firstField = dialog.querySelector('input, select, textarea, button:not([aria-label="Close"])');
   focus(firstField ?? dialog);
 
-  return { node: scrim, close };
+  return handle;
+}
+
+/**
+ * Close the dialog on top, the way Escape does. Returns false when there was
+ * nothing to close, or when the top dialog refuses to be dismissed — the
+ * caller then does whatever it would have done anyway.
+ */
+export function closeTopModal() {
+  const top = openDialogs.at(-1);
+  if (!top || !top.dismissable) return false;
+  top.close();
+  return true;
+}
+
+/**
+ * Close every dialog, dismissable or not.
+ *
+ * For leaving the screen underneath. A dialog that outlives the screen it was
+ * opened from sits over a page it was never about, with the scroll lock still
+ * on and focus still trapped inside it — and if it was a confirmation, its
+ * buttons still act. Closing without a result is the safe answer: `confirm`
+ * resolves false and `prompt` resolves null.
+ */
+export function closeAllModals() {
+  // Copied, and from the end: `close` splices the live array.
+  for (const dialog of [...openDialogs].reverse()) dialog.close();
 }
 
 /**
