@@ -186,6 +186,25 @@ export const strings = {
   'due.dueOn.today': 'due today',
   'due.dueOn.past': 'was due',
 
+  // The two strings a broken Google sign-in actually needs. Not folded: the
+  // commonest sign-in failure has nothing to do with scopes.
+  'settings.origin.title': 'Where this copy is served from',
+  'settings.origin.why': 'On the OAuth client \u2014 not the consent screen \u2014 these two must be listed exactly, or Google refuses the sign-in before it asks you anything.',
+
+  // The OAuth scope list, folded away: setup reference rather than a control.
+  'settings.scopes.title': 'Google permissions',
+  'settings.scopes.where': 'Cloud Console \u2192 APIs & Services \u2192 OAuth consent screen \u2192 Scopes',
+
+  // The Settings screen's sections. The order keeps the reasoning already
+  // here: privacy leads because, as its own card says, it is the question
+  // people actually have.
+  'settings.group.data': 'Your data, and where it is',
+  'settings.group.device': 'This device',
+  'settings.group.agreed': 'Who has agreed to what',
+  'settings.group.connections': 'Connections',
+  'settings.group.wrong': 'When something goes wrong',
+  'settings.group.about': 'About',
+
   // A tenancy recorded in two places. Questions, never verdicts: only the
   // household knows which record is current, and one may be last year's
   // tenant nobody deleted.
