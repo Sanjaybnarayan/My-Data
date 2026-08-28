@@ -26,24 +26,33 @@
  */
 
 import { Service } from './service.js';
-import { entities } from '../data/schema.js';
-import { allReminders, moneyReminders, describeReminder, SEVERITY } from '../domain/reminders.js';
+import {
+  allReminders, moneyReminders, mergeReminders, describeReminder, SEVERITY,
+} from '../domain/reminders.js';
 
-/** Entities carrying at least one field the schema marks as an expiry. */
-export function datedEntities(schema = entities) {
-  return Object.entries(schema)
-    .filter(([, def]) => def.fields.some((field) => field.expiry))
-    .map(([name]) => name);
-}
-
-/**
- * The entities `moneyReminders` and `upcomingDates` read that carry no expiry
- * field of their own, so the derivation above cannot find them.
+/*
+ * Re-exported, not defined here.
  *
- * Named here rather than merged into the list above, because they are inputs
- * to a different question and lumping them together would hide that.
+ * Both are pure derivations over the schema with no service behind them, and
+ * `js/domain/automation.js` needs them to decide what to load before it can
+ * notify — a domain module reaching up into a service to get them would be
+ * the dependency pointing the wrong way. They live in `domain/reminders.js`
+ * now, beside the code that consumes them; this keeps the name every existing
+ * caller already imports.
  */
-export const BY_NAME = Object.freeze(['person', 'importantDate', 'recurringPayment', 'loan']);
+/*
+ * Imported, then re-exported — not `export … from`.
+ *
+ * Two reasons, and both were found the hard way. `export … from` forwards a
+ * name without binding it in this module, and `AttentionService.everything`
+ * below calls both, so on its own it left the method referencing names that
+ * were not here. Adding a matching `import` beside it fixed that and broke
+ * the single-file build instead: `tools/bundle.mjs` flattens modules, and the
+ * pair became two declarations of one name.
+ */
+import { datedEntities, BY_NAME } from '../domain/reminders.js';
+
+export { datedEntities, BY_NAME };
 
 /**
  * Everything due, worst first, from records already in hand.
@@ -58,10 +67,18 @@ export const BY_NAME = Object.freeze(['person', 'importantDate', 'recurringPayme
  * @returns {{items: object[], counts: Record<string, number>, pressing: number}}
  */
 export function attentionFrom(data, { horizonDays = 45, clock = Date.now } = {}) {
-  const items = [
-    ...allReminders(data, { horizonDays, clock }),
-    ...moneyReminders(data, { days: horizonDays, clock }).map((one) => ({ ...one, group: 'money' })),
-  ]
+  /*
+   * Merged, not concatenated.
+   *
+   * `subscription` and `digitalAsset` carry a `renewsOn` the schema marks as
+   * an expiry *and* are read by `upcomingBills`, so one Netflix renewal
+   * produced two rows here and counted two against the badge on the tab.
+   * `mergeReminders` keeps the money row, which carries the amount.
+   */
+  const items = mergeReminders(
+    allReminders(data, { horizonDays, clock }),
+    moneyReminders(data, { days: horizonDays, clock }).map((one) => ({ ...one, group: 'money' })),
+  )
     .map((one) => ({ ...one, line: describeReminder(one) }))
     .sort((a, b) => {
       const bySeverity = SEVERITY[a.severity] - SEVERITY[b.severity];

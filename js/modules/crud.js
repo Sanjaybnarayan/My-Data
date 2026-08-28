@@ -31,6 +31,7 @@ import { Router } from '../ui/router.js';
 import { userMessage } from '../core/errors.js';
 import { can } from '../security/rbac.js';
 import { isEncrypted } from '../security/crypto.js';
+import { safeUrl } from '../security/sanitize.js';
 import { maskable, mask, classify } from '../data/classification.js';
 import { formatInstant } from '../core/dates.js';
 import { describe as describeAudit } from '../data/audit.js';
@@ -498,7 +499,28 @@ function detailValue(field, record, labels) {
     return h('span', { class: 'row' }, [cellFor(field, record), dueBadge(value, { leadDays: field.expiryLead })]);
   }
   if (field.type === 'url') {
-    return h('a', { href: value, target: '_blank', rel: 'noopener noreferrer' }, value);
+    /*
+     * Checked here, not only on the way in.
+     *
+     * `data/formats.js` rejects `javascript:` and `data:` when a URL is typed
+     * into the form, with a comment saying exactly why. But that is the form
+     * path, and it is not the only one: `Repository.applyRemote` writes a row
+     * arriving from the household's own Google Sheet straight to the store
+     * with no validation at all — deliberately, because a sync that rejected a
+     * row would lose it, and losing data silently is worse. So a value typed
+     * into the spreadsheet reaches this line unchecked.
+     *
+     * `safeUrl` was written for this, exported, tested — and called by
+     * nothing. It returns '' for anything outside http, https, mailto and tel,
+     * and an anchor with no href is inert rather than a link that runs.
+     *
+     * The text stays whatever was stored, so a household can see what is
+     * actually in the record rather than an empty cell where a bad value is.
+     */
+    const safe = safeUrl(value);
+    return safe
+      ? h('a', { href: safe, target: '_blank', rel: 'noopener noreferrer' }, value)
+      : h('span', { class: 'faint', title: t('url.notLinked') }, value);
   }
   if (field.type === 'textarea' || field.type === 'richtext') {
     return h('span', { style: { whiteSpace: 'pre-wrap', textAlign: 'left', display: 'block' } }, value);

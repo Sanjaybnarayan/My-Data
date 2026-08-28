@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, describe, assert, setSuite, fakeStorage, fakeClock } from './harness.mjs';
+import { formats } from '../js/data/formats.js';
 import { makeDb, makePerson } from './fixture.mjs';
 import {
   encryptText, decryptText, isEncrypted, generateDataKey, deriveKeyEncryptionKey,
@@ -12,6 +16,8 @@ import {
   escapeForSheet, unescapeFromSheet, escapeCsv, stripTags, safeUrl, safeFileName,
 } from '../js/security/sanitize.js';
 import { modules, entitiesOfModule, entityNames, ROLES } from '../js/data/schema.js';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 setSuite('security');
 
@@ -397,6 +403,42 @@ describe('output safety', () => {
     assert.equal(safeUrl('  JavaScript:alert(1)'), '');
     assert.equal(safeUrl('https://example.com'), 'https://example.com');
     assert.equal(safeUrl('mailto:a@b.com'), 'mailto:a@b.com');
+  });
+
+  test('and something actually calls it', () => {
+    /*
+     * The half that was missing.
+     *
+     * `safeUrl` was written, exported and tested — and imported by nothing.
+     * `js/modules/crud.js` rendered a stored `url` field straight into an
+     * anchor's href. The form path *is* defended: `data/formats.js` refuses
+     * `javascript:` and `data:` when a URL is typed in. But that is not the
+     * only way a value gets into the store — `Repository.applyRemote` writes
+     * a row arriving from the household's own spreadsheet with no validation
+     * at all, on purpose, because a sync that rejected a row would lose it.
+     *
+     * A test of a function nothing calls proves the function works and says
+     * nothing about the application.
+     */
+    const crud = readFileSync(join(ROOT, 'js/modules/crud.js'), 'utf8');
+    assert.includes(crud, 'safeUrl');
+    const anchor = crud.slice(crud.indexOf("field.type === 'url'"));
+    const line = anchor.slice(0, anchor.indexOf('}\n  }') + 1);
+    assert.not(/href: value\b/.test(line), 'crud.js still puts a stored value straight in an href');
+  });
+
+  test('the write path refuses what the render path refuses', () => {
+    // Two defences, one rule. If `formats.js` started allowing a scheme that
+    // `safeUrl` strips, a link would validate on entry and then render inert,
+    // which looks like the application losing the value.
+    for (const bad of ['javascript:alert(1)', 'data:text/html,x']) {
+      assert.equal(safeUrl(bad), '', bad);
+      assert.not(formats.url.test(bad), `formats.url accepted ${bad}`);
+    }
+    for (const good of ['https://example.com', 'http://example.com']) {
+      assert.equal(safeUrl(good), good);
+      assert.ok(formats.url.test(good), `formats.url rejected ${good}`);
+    }
   });
 
   test('a filename cannot escape its folder', () => {

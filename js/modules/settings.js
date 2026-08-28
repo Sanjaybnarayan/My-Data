@@ -39,7 +39,9 @@ import { MAILBOXES_KEY, readMailbox } from '../domain/mailboxes.js';
 import { GOOGLE_METHOD } from '../auth/google-unlock.js';
 
 import { googleCard, syncCard } from './settings/connection.js';
-import { privacyCard, consentCard, permissionsCard } from './settings/privacy.js';
+import {
+  privacyCard, consentCard, permissionsCard, notificationsCard,
+} from './settings/privacy.js';
 import { householdCard, devicesCard } from './settings/household.js';
 import { securityCard } from './settings/security.js';
 import { appearanceCard, languageCard, aboutCard } from './settings/display.js';
@@ -98,6 +100,9 @@ async function paint(host) {
       consentCard(db, repaint, consent),
       googleCard(auth, sync, status),
       permissionsCard(),
+      // Placed beside the other permissions, and repainted after the prompt so
+      // the badge shows what was actually answered rather than what was asked.
+      notificationsCard(repaint),
       householdCard(),
       devicesCard(),
       syncCard(db, sync, status),

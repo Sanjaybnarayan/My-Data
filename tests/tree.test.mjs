@@ -450,7 +450,7 @@ describe('notifications', () => {
 
   test('one thing gets a sentence, several get a digest', () => {
     const single = notificationFor([
-      { id: 'x', group: 'expiry', days: -3, title: 'KA01AB1234', label: 'PUC expiry' },
+      { id: 'x', group: 'expiry', days: -3, title: 'KA01AB1234', field: 'pucExpiresOn', label: 'PUC expiry' },
     ]);
     assert.includes(single.body, 'expired 3 days ago');
 

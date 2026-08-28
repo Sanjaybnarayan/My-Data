@@ -5127,6 +5127,81 @@ async function main() {
       await nativeContext.close();
     }
 
+    /* ------------------------------------------- a link that is not a link */
+
+    /*
+     * The path the form does not cover.
+     *
+     * `data/formats.js` refuses `javascript:` and `data:` when a URL is typed
+     * into the form, with a comment saying exactly why. That is the write
+     * path, and it is not the only one: `Repository.applyRemote` writes a row
+     * arriving from the household's own Google Sheet straight to the store
+     * with no validation at all — deliberately, because a sync that rejected
+     * a row would lose it, and silent data loss is the worse failure.
+     *
+     * So this check does not go through the form. It writes through
+     * `applyRemote`, exactly as a sync would, and then opens the real screen.
+     */
+    {
+      const before = consoleErrors.length;
+
+      const seeded = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const db = app().db;
+        const real = await db.repo('digitalAsset').create({
+          name: 'Ordinary domain', kind: 'domain', url: 'https://example.in',
+        });
+        const hostile = {
+          ...real,
+          id: 'da-hostile',
+          name: 'Arrived through sync',
+          url: 'javascript:globalThis.__ranTheLink = true',
+        };
+        await db.repo('digitalAsset').applyRemote(hostile);
+        const back = await db.repo('digitalAsset').get('da-hostile');
+        return { stored: back?.url ?? null, ok: real.id };
+      }, IN_PAGE.context);
+
+      // The premise. If validation had silently cleaned it, the check below
+      // would pass against a screen that had never been given anything bad.
+      check('a hostile link really does reach the store through sync',
+        seeded.stored === 'javascript:globalThis.__ranTheLink = true',
+        String(seeded.stored));
+
+      /*
+       * The record screen, not the list.
+       *
+       * `url` is `list: false` in the schema, so it is never a column — it is
+       * `detailValue` in `crud.js` that turns it into an anchor, and that runs
+       * on the record a person opens.
+       */
+      await go(page, '#/digital/digitalAsset/da-hostile');
+      await page.waitForTimeout(700);
+
+      const anchors = await page.evaluate(() => [...document.querySelectorAll('a')]
+        .map((a) => a.getAttribute('href') ?? '')
+        .filter((href) => /javascript:/i.test(href)));
+      check('and no anchor on the screen carries it', anchors.length === 0,
+        anchors.join(' | '));
+
+      // The value is still shown. Hiding it would leave a household unable to
+      // see what is actually in their record.
+      const screen = (await page.locator('.app-content').innerText()).trim();
+      check('but the stored text is still shown, not swallowed',
+        /Arrived through sync/.test(screen), screen.slice(0, 500));
+
+      // And the ordinary one is still a working link, on its own record.
+      await go(page, `#/digital/digitalAsset/${seeded.ok}`);
+      await page.waitForTimeout(700);
+      const good = await page.evaluate(() => [...document.querySelectorAll('a')]
+        .some((a) => (a.getAttribute('href') ?? '').startsWith('https://example.in')));
+      check('while an ordinary link is still a link', good);
+
+      check('nothing ran', await page.evaluate(() => !globalThis.__ranTheLink));
+      check('the digital screen raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
     /* ---------------------------------------------------------- health */
 
     /*

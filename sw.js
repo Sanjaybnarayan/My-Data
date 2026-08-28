@@ -160,6 +160,7 @@ const SHELL = [
   './js/domain/geo.js',
   './js/domain/safety.js',
   './js/domain/travel.js',
+  './js/domain/duewords.js',
   './js/domain/health.js',
   './js/domain/wellbeing.js',
   './js/domain/tree.js',
