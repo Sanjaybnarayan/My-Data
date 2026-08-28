@@ -52,6 +52,9 @@
   margin-bottom: var(--space-4);
 }
 .card-header h2, .card-header h3 { margin-right: auto; }
+/* A card heading is an `h2` for the heading order and `--text-lg` for the eye.
+   The tag carries the structure; the size stays what it looked like. */
+.card-header h2 { font-size: var(--text-lg); }
 
 .card-title { display: flex; align-items: center; gap: var(--space-2); }
 
@@ -501,7 +504,9 @@
   color: var(--text-muted);
 }
 .empty svg { color: var(--text-faint); }
-.empty h3 { color: var(--text); }
+.empty h2, .empty h3 { color: var(--text); }
+/* An `h2` for the heading order, the size an `h3` had for the eye. */
+.empty h2 { font-size: var(--text-lg); }
 
 .skeleton {
   border-radius: var(--radius-sm);

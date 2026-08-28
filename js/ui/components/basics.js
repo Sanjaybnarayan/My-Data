@@ -52,7 +52,21 @@ export function cardHeader(title, actions = null, { subtitle, iconName } = {}) {
   return h('div', { class: 'card-header' }, [
     iconName ? icon(iconName, { size: 18, class: 'faint' }) : null,
     h('div', { class: 'spacer' }, [
-      h('h3', {}, title),
+      /*
+       * `h2`, not `h3`, and the size is held by CSS rather than by the tag.
+       *
+       * `pageHeader` emits the `h1` and this emitted an `h3`, with no `h2`
+       * anywhere — so every screen in the application jumped a heading level.
+       * Somebody navigating by heading hears the page title and then level
+       * three, with nothing at level two, on all 138 screens a probe walked.
+       *
+       * A card *is* the second level of a page, so the tag was simply wrong.
+       * `.card-header h2` keeps `--text-lg`, the size an `h3` had, so nothing
+       * changes visually — the same trick `.modal-header h2` already uses.
+       * Sub-headings written inside cards as `h3` become correct by this
+       * change rather than needing one of their own.
+       */
+      h('h2', {}, title),
       subtitle ? h('p', { class: 'small muted' }, subtitle) : null,
     ]),
     actions,
@@ -194,7 +208,19 @@ export function money(minor, { currency = 'INR', signed = false, compact = false
 export function empty({ title, message, iconName = 'info', action } = {}) {
   return h('div', { class: 'empty' }, [
     icon(iconName, { size: 42 }),
-    h('h3', {}, title),
+    /*
+     * `h2`, for the same reason `cardHeader` uses one.
+     *
+     * An empty state is often the only thing on a screen — an entity whose
+     * list has no records shows the page's `h1` and then this. As an `h3`
+     * that jumped a level on every such screen, which is where the browser
+     * walk still found skips after the card headings were fixed. Inside a
+     * card it now sits at the same level as the card's own heading rather
+     * than a level below, which is true: both are sections of the page.
+     *
+     * `.empty h2` holds `--text-lg`, the size it had.
+     */
+    h('h2', {}, title),
     message ? h('p', { class: 'small' }, message) : null,
     action,
   ]);

@@ -258,7 +258,21 @@ async function conversationView(conversationId) {
   });
 
   const picker = h('input', {
-    type: 'file', class: 'sr-only',
+    /*
+     * Out of the accessibility tree, not named.
+     *
+     * `.sr-only` hides it from the eye and *keeps* it announced — that is what
+     * the class is for — so a screen reader met an unnamed file input beside
+     * the button that opens it. Naming it would have made two controls where
+     * a person has one: this input is an implementation detail, opened by the
+     * labelled button next to it and never aimed at directly.
+     *
+     * `tabindex` as well as `aria-hidden`, because a focusable element must
+     * not be hidden from assistive technology — the pair is what makes it
+     * well-formed rather than a control a keyboard can reach and a screen
+     * reader cannot describe.
+     */
+    type: 'file', class: 'sr-only', 'aria-hidden': 'true', tabindex: '-1',
     onChange: (event) => {
       pending = event.target.files?.[0] ?? null;
       event.target.value = '';
