@@ -162,9 +162,18 @@ async function loadAll(db) {
    * reasons other than a date — balances, transactions, budgets. That list is
    * about what the widgets show and is legitimately local; the dated one is
    * about what the schema says, and belongs to the schema.
+   *
+   * Two names have since left it, and both are the same fault this comment is
+   * about, pointing the other way. `medication` became dated when a course
+   * running out started producing a reminder, so it is derived now and naming
+   * it here as well is how the two lists would begin to disagree.
+   * `investmentTransaction` was read by nothing at all: not by a widget, not
+   * by `allReminders` — it carries no date — and not by `attentionFrom`, so
+   * every dashboard paint read up to `TRANSACTION_LIMIT` records and dropped
+   * them. A test now requires every name left here to appear somewhere else in
+   * this file, which is what would have caught it.
    */
-  const WIDGETS_NEED = ['account', 'transaction', 'investmentTransaction',
-    'budget', 'medication'];
+  const WIDGETS_NEED = ['account', 'transaction', 'budget'];
   const names = [...new Set([...datedEntities(), ...BY_NAME, ...WIDGETS_NEED])];
 
   /** @type {Record<string, any[]>} */

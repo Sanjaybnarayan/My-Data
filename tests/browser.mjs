@@ -5127,6 +5127,219 @@ async function main() {
       await nativeContext.close();
     }
 
+    /* ---------------------------------------------------------- health */
+
+    /*
+     * Four record lists that could not previously disagree out loud.
+     *
+     * `health` was a generic CRUD module: four tabs, four tables, and nothing
+     * that noticed a course of tablets marked ongoing whose end date passed in
+     * March, or an appointment last Tuesday nobody marked attended. Those are
+     * the records contradicting themselves, and no single list can show it.
+     *
+     * The checks below seed one of each contradiction and one quiet
+     * counterpart, so a screen that simply listed everything would fail as
+     * loudly as one that listed nothing.
+     */
+    {
+      const before = consoleErrors.length;
+
+      const seeded = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const db = app().db;
+        const day = (offset) => {
+          const d = new Date();
+          d.setDate(d.getDate() + offset);
+          return d.toISOString().slice(0, 10);
+        };
+
+        const person = await db.repo('person').create({ name: 'Health Person' });
+        const who = person.id;
+
+        // Five questions, one of each kind.
+        await db.repo('medication').create({
+          person: who, name: 'Amoxicillin', ongoing: true, endsOn: day(-120),
+        });
+        await db.repo('medication').create({
+          person: who, name: 'Ibuprofen', ongoing: false,
+        });
+        await db.repo('appointment').create({
+          person: who, title: 'Dentist', date: day(-9), status: 'scheduled',
+        });
+        await db.repo('vaccination').create({
+          person: who, vaccine: 'Tetanus', date: day(-400), nextDoseOn: day(-30),
+        });
+        await db.repo('healthRecord').create({
+          person: who, title: 'Knee scan', date: day(-200), kind: 'imaging',
+          followUpOn: day(-60),
+        });
+
+        // And the quiet ones, which must not appear as questions.
+        await db.repo('medication').create({
+          person: who, name: 'Thyroxine', ongoing: true,
+        });
+        await db.repo('appointment').create({
+          person: who, title: 'Eye test', date: day(21), status: 'scheduled',
+        });
+        await db.repo('healthRecord').create({
+          person: who, title: 'Blood test', date: day(-10), kind: 'lab report',
+        });
+
+        return { who, ranOut: day(-120), nextDose: day(-30) };
+      }, IN_PAGE.context);
+
+      await go(page, '#/health');
+      await page.waitForTimeout(600);
+
+      const screen = (await page.locator('.app-content').innerText()).trim();
+
+      /**
+       * The text of one card, found by its heading.
+       *
+       * Matching a record's name anywhere on the page proves nothing here:
+       * every one of these names is also in the table below, so a check for
+       * `/Amoxicillin/` passes with the questions card completely empty. Same
+       * fault as reading a name off the dashboard and calling it a reminder.
+       */
+      const cardText = (heading) => page.evaluate((wanted) => {
+        const head = [...document.querySelectorAll('.card h3')]
+          .find((node) => (node.textContent || '').includes(wanted));
+        const card = head && head.closest('.card');
+        return card instanceof HTMLElement ? card.innerText : '';
+      }, heading);
+
+      const raised = await cardText('do not agree about');
+      check('the questions card is drawn at all', raised.length > 0, screen.slice(0, 400));
+
+      /*
+       * The sentence, not the name.
+       *
+       * Each of these is the wording that only the questions card produces,
+       * so it cannot be satisfied by the record appearing in its own table.
+       */
+      /** @type {[string, RegExp][]} */
+      const questions = [
+        ['a course of tablets that ran out', /Is Amoxicillin still being taken/i],
+        ['one stopped with no date', /When did Ibuprofen stop/i],
+        ['an appointment nobody answered', /Did the appointment for Dentist happen/i],
+        ['a next dose with nothing later recorded', /Has the next dose of Tetanus been given/i],
+        ['a follow-up date that went by', /Was Knee scan followed up/i],
+      ];
+      for (const [what, pattern] of questions) {
+        check(`the health screen raises ${what}`, pattern.test(raised), raised.slice(0, 800));
+      }
+
+      // The counterparts. A screen listing everything would pass every check
+      // above and be useless.
+      check('and a repeat prescription with no end date is not a question',
+        !/Thyroxine/i.test(raised), raised.slice(0, 800));
+      check('and an appointment still ahead is not a question',
+        !/Eye test/i.test(raised), raised.slice(0, 800));
+      check('and a record with no follow-up date is not a question',
+        !/Blood test/i.test(raised), raised.slice(0, 800));
+
+      // Longest unanswered first, across kinds rather than grouped by list.
+      const order = ['Amoxicillin', 'Knee scan', 'Tetanus', 'Dentist']
+        .map((name) => raised.indexOf(name));
+      check('and the longest unanswered is at the top, across kinds',
+        order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])),
+        `${order.join(', ')} in ${raised.slice(0, 500)}`);
+
+      /*
+       * Nothing on this screen states a medical fact.
+       *
+       * Every finding is about the records. A word like "overdue" or "missed"
+       * would be this application making a claim about somebody's treatment
+       * out of a tick box nobody remembered to untick.
+       */
+      for (const word of ['overdue', 'at risk', 'you should', 'urgent']) {
+        check(`the health screen never says "${word}"`,
+          !new RegExp(word, 'i').test(raised), raised.slice(0, 500));
+      }
+      check('and does not call an unanswered appointment missed',
+        !/Dentist[^\n]*missed/i.test(raised), raised.slice(0, 500));
+
+      // What is current, derived from the dates rather than the tick box.
+      // Both these records have `ongoing: true`; only one is still running.
+      const current = await cardText('Being taken');
+      check('what is being taken is derived, not read from the tick box',
+        /Thyroxine/.test(current) && !/Amoxicillin/.test(current),
+        current.slice(0, 400));
+
+      // The absences, on the screen rather than only in a comment.
+      /** @type {[string, RegExp][]} */
+      const absences = [
+        ['steps and sleep', /steps, exercise, sleep/i],
+        ['heart rate and blood pressure', /heart rate, blood pressure/i],
+        ['cycle predictions', /cycle tracking or predictions/i],
+        ['interaction checking', /no drug database/i],
+        ['doses taken', /doses taken or missed/i],
+      ];
+      for (const [what, pattern] of absences) {
+        check(`the health screen says it cannot show ${what}`, pattern.test(screen),
+          screen.slice(-900));
+      }
+
+      // Nothing was removed: the generic tabs and lists are still there.
+      const tab = page.locator('.chip-row button', { hasText: 'Vaccinations' }).first();
+      const hasTabs = await tab.count() > 0;
+      check('and the four record lists are still reachable', hasTabs);
+      if (hasTabs) {
+        await tab.click();
+        await page.waitForTimeout(500);
+        const vaccinations = (await page.locator('.app-content').innerText()).trim();
+        check('and a tab still opens its list', /Tetanus/.test(vaccinations),
+          vaccinations.slice(0, 400));
+      }
+
+      /*
+       * The payoff of the one schema change, end to end.
+       *
+       * A follow-up, a next dose and an appointment all reached the dashboard
+       * reminders. The tablets running out did not — the one date a household
+       * has to act on *before* the day arrives. `medication.endsOn` is an
+       * expiry field now, so a course ending soon has to show up on the first
+       * screen a household opens.
+       */
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const d = new Date();
+        d.setDate(d.getDate() + 4);
+        await app().db.repo('medication').create({
+          person: (await app().db.repo('person').list({ limit: 200 }))
+            .find((p) => p.name === 'Health Person').id,
+          name: 'Metformin', ongoing: true, endsOn: d.toISOString().slice(0, 10),
+        });
+      }, IN_PAGE.context);
+
+      /*
+       * The Notifications tab, not the dashboard.
+       *
+       * Two wrong targets before this one. Reading the whole dashboard passed
+       * with the expiry flag removed — creating the record writes an audit
+       * entry and the activity widget prints the name, so the check could not
+       * fail. The `Expiring & due` card is the right *kind* of place and is
+       * off by default: `wallet` and `attention` cover the same records better
+       * on a phone, and the attention card deliberately shows three rows.
+       *
+       * Notifications is where the list actually lives. It is built by
+       * `AttentionService.everything`, the same arithmetic the dashboard card
+       * counts, and it carries no activity feed to match a name by accident.
+       */
+      await go(page, '#/health');
+      await go(page, '#/notifications');
+      await page.waitForTimeout(700);
+
+      const waiting = (await page.locator('.app-content').innerText()).trim();
+      check('a course of tablets running out reaches the notifications tab',
+        /Metformin/.test(waiting), waiting.slice(0, 900));
+
+      check('the health screen raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      void seeded;
+    }
+
     /* ----------------------------------------------------- screen time */
 
     /*

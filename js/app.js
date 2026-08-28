@@ -290,6 +290,7 @@ function registerRoutes(router) {
     belongings: () => import('./modules/belongings.js'),
     travel: () => import('./modules/travel.js'),
     safety: () => import('./modules/safety.js'),
+    health: () => import('./modules/health.js'),
     chat: () => import('./modules/chat.js'),
     notifications: () => import('./modules/notifications.js'),
     profile: () => import('./modules/profile.js'),

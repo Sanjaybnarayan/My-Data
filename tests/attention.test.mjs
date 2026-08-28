@@ -72,6 +72,33 @@ describe('the dashboard loads every dated entity', () => {
     assert.deep(names.filter((name) => dated.has(name)), []);
   });
 
+  test('and every name it writes by hand is actually read', () => {
+    /*
+     * The same fault as the test above, pointing the other way.
+     *
+     * `investmentTransaction` sat in this list and was read by nothing: no
+     * widget touched it, it carries no date so `allReminders` ignored it, and
+     * it is not in the service's own list either. Every dashboard paint read
+     * up to the transaction limit of them and threw them away, on the first
+     * screen a household opens.
+     *
+     * Appearing somewhere else in the file is a coarse test of "is read", and
+     * it is the one that fails on a name nothing uses — **once the comments
+     * are stripped**. The first version of this check searched the whole file,
+     * and the comment above `WIDGETS_NEED` explaining why
+     * `investmentTransaction` had been removed contained the word
+     * `investmentTransaction`. Putting it back passed. A check that cannot
+     * fail is worse than no check, so this reads the code only.
+     */
+    const written = source.match(/const WIDGETS_NEED = \[([^\]]*)\]/s);
+    const names = [...written[1].matchAll(/'([a-zA-Z]+)'/g)].map((m) => m[1]);
+    const code = source
+      .replace(written[0], '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    assert.deep(names.filter((name) => !new RegExp(`\\b${name}\\b`).test(code)), []);
+  });
+
   test('every name it uses is a real entity', () => {
     const written = source.match(/const WIDGETS_NEED = \[([^\]]*)\]/s);
     const names = [...written[1].matchAll(/'([a-zA-Z]+)'/g)].map((m) => m[1]);
