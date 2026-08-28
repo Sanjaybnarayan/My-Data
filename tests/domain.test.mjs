@@ -478,7 +478,7 @@ describe('reminders', () => {
 
   test('a reminder describes itself in a sentence', () => {
     assert.includes(
-      describeReminder({ group: 'expiry', title: 'KA01AB1234', label: 'PUC expiry', days: -3 }),
+      describeReminder({ group: 'expiry', title: 'KA01AB1234', field: 'pucExpiresOn', label: 'PUC expiry', days: -3 }),
       'expired 3 days ago',
     );
     assert.includes(

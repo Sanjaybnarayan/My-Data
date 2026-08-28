@@ -15,6 +15,8 @@ import { entities } from '../data/schema.js';
 import { daysUntil, daysBetween, nextAnniversary, today, ageOn } from '../core/dates.js';
 import { format } from '../core/money.js';
 import { upcomingBills } from './finance.js';
+import { phraseKey, tenseFor } from './duewords.js';
+import { t } from '../core/locale.js';
 
 export const SEVERITY = { overdue: 0, urgent: 1, soon: 2, upcoming: 3 };
 
@@ -320,6 +322,86 @@ export function moneyReminders(data, { from = null, days = 45, clock = Date.now 
   }).sort((a, b) => a.days - b.days);
 }
 
+/** Entities carrying at least one field the schema marks as an expiry. */
+export function datedEntities(schema = entities) {
+  return Object.entries(schema)
+    .filter(([, def]) => def.fields.some((field) => field.expiry))
+    .map(([name]) => name);
+}
+
+/**
+ * The entities `moneyReminders` and `upcomingDates` read that carry no expiry
+ * field of their own, so the derivation above cannot find them.
+ *
+ * Named here rather than merged into the list above, because they are inputs
+ * to a different question and lumping them together would hide that.
+ */
+export const BY_NAME = Object.freeze(['person', 'importantDate', 'recurringPayment', 'loan']);
+
+/**
+ * One record, one date, said once.
+ *
+ * ## What was on the Notifications tab
+ *
+ * A subscription renewing on the 18th produced two rows and counted two
+ * against the badge:
+ *
+ *     expiry  subscription:s1:renewsOn          Netflix renews in 3 days
+ *     money   bill:subscription:s1:2026-06-18   Netflix is due in 3 days (₹6.49)
+ *
+ * The same fact twice, because `subscription` and `digitalAsset` carry a
+ * `renewsOn` the schema marks as an expiry *and* are read by `upcomingBills`.
+ * The comment in `domain/automation.js` says the two bags were kept apart
+ * precisely so this could not happen — and it worked for `recurringPayment`,
+ * which is in only one of them, while these two were in both.
+ *
+ * ## Why the money row is the one kept
+ *
+ * Because it carries the amount, and the amount is the reason a renewal is
+ * worth interrupting somebody for. `describeReminder` already says so about
+ * bills. Dropping the money row instead would keep the shorter sentence and
+ * lose the figure.
+ *
+ * ## Why it is here rather than in either caller
+ *
+ * `attentionFrom` and the notification digest both compose these two lists,
+ * and `services/attention.js` gives the reason it must be one implementation:
+ * the count on the Notifications tab and the card on the Dashboard have to be
+ * the same arithmetic rather than two that can disagree about what needs
+ * attention. A dedupe in one of them would have been a third opinion.
+ *
+ * Matched on entity, record and date — not on record alone. A policy can carry
+ * a renewal date and a separate expiry, and those are two things to know.
+ *
+ * @param {readonly object[]} dated rows from `allReminders`
+ * @param {readonly object[]} money rows from `moneyReminders`
+ */
+export function mergeReminders(dated = [], money = []) {
+  /*
+   * Only complete rows go in, and that is the whole guard.
+   *
+   * A card bill assembled from statements has no single record behind it, so
+   * its `recordId` is undefined. Two such rows would both key as
+   * `policy:undefined:2026-06-18` — one key — and an unrelated expiry falling
+   * on the same day would vanish. Building the set from complete rows only
+   * means an incomplete key can never be found in it, so the lookup below
+   * needs no second guard of its own.
+   *
+   * It had one, and the pair was untestable: either half alone prevented the
+   * fault, so removing either one broke nothing and no check could fail.
+   */
+  const covered = new Set(
+    money.filter((one) => one?.recordId && one?.date)
+      .map((one) => `${one.entity}:${one.recordId}:${one.date}`),
+  );
+
+  const kept = dated.filter(
+    (one) => !covered.has(`${one?.entity}:${one?.recordId}:${one?.date}`),
+  );
+
+  return [...kept, ...money];
+}
+
 /** A sentence for a notification or the assistant. */
 export function describeReminder(reminder, money = format) {
   if (reminder.group === 'money') {
@@ -342,11 +424,48 @@ export function describeReminder(reminder, money = format) {
       ? `${reminder.title} is today${turning}`
       : `${reminder.title} in ${reminder.days} days${turning}`;
   }
-  if (reminder.days < 0) {
-    return `${reminder.title}: ${reminder.label.toLowerCase()} expired ${-reminder.days} days ago`;
+  /*
+   * The phrase comes from the field, not from conjugating its label.
+   *
+   * This used to paste the schema label in front of a verb, and the label of
+   * an expiry field is already a phrase — so every dated entity produced at
+   * least one line like "X: expires on expires today" or "X: next dose on
+   * expired 3 days ago". The second of those is not just clumsy: a next dose
+   * does not expire, and saying so is a claim about somebody's vaccination
+   * that this application is in no position to make. See `domain/duewords.js`.
+   */
+  const tense = tenseFor(reminder.days);
+  const key = tense ? phraseKey(reminder.field, tense) : null;
+
+  /*
+   * No phrase, no invented verb.
+   *
+   * A field nobody has written words for falls back to naming the date rather
+   * than guessing at what it does. `tests/duewords.test.mjs` fails on any
+   * `expiry: true` field that reaches here, so this branch should never be
+   * seen — but seeing "Passport — Expires on: 3 days ago" is better than
+   * seeing a sentence that says something untrue.
+   */
+  if (!key) {
+    return t('due.unknown', {
+      title: reminder.title,
+      label: reminder.label ?? reminder.field ?? '',
+      when: sayDays(reminder.days),
+    });
   }
-  if (reminder.days === 0) {
-    return `${reminder.title}: ${reminder.label.toLowerCase()} expires today`;
-  }
-  return `${reminder.title}: ${reminder.label.toLowerCase()} in ${reminder.days} days`;
+
+  const phrase = t(key);
+  if (reminder.days === 0) return t('due.line.today', { title: reminder.title, phrase });
+  const days = Math.abs(reminder.days);
+  const plural = days === 1 ? 'one' : 'many';
+  return t(`due.line.${tense}.${plural}`, { title: reminder.title, phrase, days });
+}
+
+/** A bare number of days, for the fallback that should never be reached. */
+function sayDays(days) {
+  if (!Number.isFinite(days)) return t('due.noDate');
+  if (days === 0) return t('due.line.today.bare');
+  const n = Math.abs(days);
+  const plural = n === 1 ? 'one' : 'many';
+  return t(`due.bare.${days < 0 ? 'past' : 'ahead'}.${plural}`, { days: n });
 }

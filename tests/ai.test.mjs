@@ -199,7 +199,7 @@ describe('written summary', () => {
   test('leads with what has already lapsed', () => {
     const text = summarise({
       ...base,
-      reminders: [{ group: 'expiry', title: 'KA01AB1234', label: 'PUC expiry', days: -12 }],
+      reminders: [{ group: 'expiry', title: 'KA01AB1234', field: 'pucExpiresOn', label: 'PUC expiry', days: -12 }],
     });
     assert.ok(text.startsWith('KA01AB1234'), 'the lapsed item should come first');
     assert.includes(text, '12 days ago');

@@ -93,6 +93,99 @@ export const strings = {
   'screentime.withheld.noPerson': 'nobody has said whose phone this is, so there is no one to ask',
   'screentime.withheld.unasked': 'this person has not been asked whether their screen time may be read',
   'screentime.withheld.refused': 'this person was asked and said no',
+  // A stored link that is not a link. Shown as the text it is rather than
+  // hidden, so a household can see what is actually in the record.
+  'url.notLinked': 'Not opened as a link: only http, https, mailto and tel addresses are.',
+
+  // Notifications. Raised by the page when the application is opened — there
+  // is no server and no push subscription, so nothing arrives while it is
+  // closed, and this card must not suggest otherwise.
+  'notify.title': 'Notifications on this device',
+  'notify.what': 'When you open FamilyOS, it can raise one notification a day for anything due or lapsing \u2014 a passport, a policy, a course of medicine, a bill. It is the same list the Notifications tab shows.',
+  'notify.state.granted': 'allowed',
+  'notify.state.denied': 'refused',
+  'notify.state.default': 'not asked',
+  'notify.state.unsupported': 'not available here',
+  'notify.ask': 'Allow notifications',
+  'notify.after.granted': 'Allowed. One notification a day at most, and only when the application is opened.',
+  'notify.after.denied': 'Refused, and a browser will not ask a second time. If you change your mind, it is in this site\u2019s own settings in your browser \u2014 not here.',
+  'notify.after.unsupported': 'This build has no notification service, so nothing can be raised. Asking would show nothing at all.',
+  'notify.notPush': 'These are not push notifications. There is no server behind FamilyOS, so nothing is delivered while it is closed \u2014 they are raised when you next open it.',
+
+  // How a date that has come round is said. One phrase per expiry field in
+  // three tenses, because the field label is already a phrase and conjugating
+  // a verb onto it produced "expires on expires today" — and, worse, "next
+  // dose on expired", which is a claim about somebody's vaccination that this
+  // application is in no position to make. See js/domain/duewords.js.
+  'due.line.ahead.one': '{title} {phrase} in {days} day',
+  'due.line.ahead.many': '{title} {phrase} in {days} days',
+  'due.line.today': '{title} {phrase}',
+  'due.line.past.one': '{title} {phrase} {days} day ago',
+  'due.line.past.many': '{title} {phrase} {days} days ago',
+
+  // The fallback, for a dated field nobody has written words for. It names the
+  // date instead of guessing at a verb, and a test makes sure no field in the
+  // schema reaches it.
+  'due.unknown': '{title} \u2014 {label}: {when}',
+  'due.noDate': 'no date',
+  'due.line.today.bare': 'today',
+  'due.bare.ahead.one': 'in {days} day',
+  'due.bare.ahead.many': 'in {days} days',
+  'due.bare.past.one': '{days} day ago',
+  'due.bare.past.many': '{days} days ago',
+
+  'due.expiresOn.ahead': 'expires',
+  'due.expiresOn.today': 'expires today',
+  'due.expiresOn.past': 'expired',
+  'due.nextDueOn.ahead': 'next due',
+  'due.nextDueOn.today': 'due today',
+  'due.nextDueOn.past': 'was due',
+  'due.maturesOn.ahead': 'matures',
+  'due.maturesOn.today': 'matures today',
+  'due.maturesOn.past': 'matured',
+  'due.rcExpiresOn.ahead': 'registration expires',
+  'due.rcExpiresOn.today': 'registration expires today',
+  'due.rcExpiresOn.past': 'registration expired',
+  'due.insuranceExpiresOn.ahead': 'insurance expires',
+  'due.insuranceExpiresOn.today': 'insurance expires today',
+  'due.insuranceExpiresOn.past': 'insurance expired',
+  'due.pucExpiresOn.ahead': 'emissions certificate expires',
+  'due.pucExpiresOn.today': 'emissions certificate expires today',
+  'due.pucExpiresOn.past': 'emissions certificate expired',
+  'due.nextServiceOn.ahead': 'next service due',
+  'due.nextServiceOn.today': 'service due today',
+  'due.nextServiceOn.past': 'service was due',
+  'due.followUpOn.ahead': 'follow-up due',
+  'due.followUpOn.today': 'follow-up due today',
+  'due.followUpOn.past': 'follow-up was due',
+  'due.endsOn.ahead': 'ends',
+  'due.endsOn.today': 'ends today',
+  'due.endsOn.past': 'ended',
+  'due.nextDoseOn.ahead': 'next dose due',
+  'due.nextDoseOn.today': 'next dose due today',
+  'due.nextDoseOn.past': 'next dose was due',
+  'due.date.ahead': 'is',
+  'due.date.today': 'is today',
+  'due.date.past': 'was',
+  'due.renewsOn.ahead': 'renews',
+  'due.renewsOn.today': 'renews today',
+  'due.renewsOn.past': 'renewed',
+  'due.leaseEndsOn.ahead': 'lease ends',
+  'due.leaseEndsOn.today': 'lease ends today',
+  'due.leaseEndsOn.past': 'lease ended',
+  'due.taxPaidTill.ahead': 'tax cover ends',
+  'due.taxPaidTill.today': 'tax cover ends today',
+  'due.taxPaidTill.past': 'tax cover ended',
+  'due.nextFeeDueOn.ahead': 'next fee due',
+  'due.nextFeeDueOn.today': 'fee due today',
+  'due.nextFeeDueOn.past': 'fee was due',
+  'due.agreementEndsOn.ahead': 'agreement ends',
+  'due.agreementEndsOn.today': 'agreement ends today',
+  'due.agreementEndsOn.past': 'agreement ended',
+  'due.dueOn.ahead': 'due',
+  'due.dueOn.today': 'due today',
+  'due.dueOn.past': 'was due',
+
   // Health. Records of what somebody was told — never a medical opinion, and
   // the absences below say which of them are deliberate.
   'health.title': 'Health',

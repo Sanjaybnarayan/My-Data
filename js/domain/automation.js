@@ -18,7 +18,10 @@
 
 import { today, addDays, addMonths, addYears, daysUntil } from '../core/dates.js';
 import { advanceRecurring } from './finance.js';
-import { allReminders, moneyReminders, describeReminder, SEVERITY } from './reminders.js';
+import {
+  allReminders, moneyReminders, mergeReminders, describeReminder, SEVERITY,
+  datedEntities, BY_NAME,
+} from './reminders.js';
 
 const LAST_RUN_KEY = 'automation.lastRun';
 const LAST_NOTIFIED_KEY = 'automation.lastNotified';
@@ -187,10 +190,19 @@ export async function runAutomations(db, { clock = Date.now, notify = true } = {
   if (notify && canNotify()) {
     const lastNotified = await db.meta(LAST_NOTIFIED_KEY);
     if (lastNotified !== now) {
+      /*
+       * Derived, not named.
+       *
+       * This was a hand-written list of thirteen entities beside a derivation
+       * that produces exactly this — the fault this repository has found more
+       * times than any other, and the dashboard's own loader carries a comment
+       * about learning it. Eight dated entities were missing: a vehicle
+       * service, a health follow-up, a course of medicine, a next dose, a
+       * school fee, a warranty, a tenancy and a recurring payment. None of
+       * them could ever have produced a notification.
+       */
       const data = {};
-      for (const name of ['policy', 'vehicle', 'document', 'identityDocument',
-        'subscription', 'digitalAsset', 'holding', 'property', 'certificate',
-        'person', 'importantDate', 'task', 'appointment']) {
+      for (const name of [...new Set([...datedEntities(), ...BY_NAME])]) {
         try {
           data[name] = await db.repo(name).list({ decrypt: false, limit: 5000 });
         } catch {
@@ -198,11 +210,13 @@ export async function runAutomations(db, { clock = Date.now, notify = true } = {
         }
       }
 
-      // Money is loaded into a *separate* bag, and this is not tidiness.
-      // `recurringPayment.nextDueOn` is an `expiry` field in the schema, so
-      // handing these to `allReminders` as well makes it report every bill a
-      // second time — "Rent: next due on in 1 days" beside "Rent is due
-      // tomorrow (₹35,000)". Two sources, two inputs, no overlap.
+      // Money is loaded into a *separate* bag, so the two questions stay
+      // separate — but the bags are allowed to overlap now, because
+      // `mergeReminders` drops an expiry row that a bill already covers for
+      // the same record and date. That used to be arranged by keeping
+      // `recurringPayment` out of the first list by hand, which worked for it
+      // and not for `subscription` or `digitalAsset`, both of which were in
+      // both lists and reported twice.
       const moneyData = {};
       for (const name of ['recurringPayment', 'loan', 'account', 'transaction',
         'subscription', 'digitalAsset']) {
@@ -213,10 +227,10 @@ export async function runAutomations(db, { clock = Date.now, notify = true } = {
         }
       }
 
-      const due = notifiableReminders([
-        ...allReminders(data, { clock }),
-        ...moneyReminders(moneyData, { clock, days: 7 }),
-      ]);
+      const due = notifiableReminders(mergeReminders(
+        allReminders(data, { clock }),
+        moneyReminders(moneyData, { clock, days: 7 }),
+      ));
       const notification = notificationFor(due);
       if (notification) {
         try {

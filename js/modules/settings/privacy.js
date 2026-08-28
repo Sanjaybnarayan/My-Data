@@ -13,6 +13,7 @@ import { privacyReport, whereData } from '../../domain/privacy.js';
 import { record, PURPOSES, DECISIONS } from '../../data/consent.js';
 import { redirectUriFor as redirectUri } from '../../auth/google.js';
 import { toast } from '../../ui/components/toast.js';
+import { t } from '../../core/locale.js';
 
 /* --------------------------------------------------------------- privacy */
 
@@ -325,5 +326,69 @@ export function permissionsCard() {
       'Each optional one buys a single named feature and nothing works worse without it. '
       + 'Notably you do not need drive.appdata: without it the unlock key goes in an '
       + 'ordinary visible file in your Drive, which works identically.'),
+  ]);
+}
+
+/* --------------------------------------------------------- notifications */
+
+/**
+ * The click the code said existed.
+ *
+ * `requestNotificationPermission` in `domain/automation.js` carries the
+ * comment *"Only ever asked from a click in Settings. A permission prompt on
+ * load is the fastest way to have it denied forever."* — and there was no such
+ * click anywhere in the application. Nothing called it.
+ *
+ * So `Notification.permission` stayed `default` forever, `canNotify()` was
+ * always false, and the whole notification path — the digest wording, the
+ * once-a-day guard, the `notified` counter — was built and could never run.
+ * A passport expiring tomorrow has never produced a notification on any
+ * device, because nobody was ever asked whether it might.
+ *
+ * ## What this card must not claim
+ *
+ * These are page notifications, not push. There is no server and no push
+ * subscription, so nothing arrives while the application is closed: they are
+ * raised by `runAutomations` when the app is opened, at most once a day. A
+ * card that said "get notified when something is due" would be describing a
+ * product this is not.
+ *
+ * And the answer may be that the platform has none at all. A WebView can be
+ * built without the Notification API, in which case asking returns
+ * `unsupported` — which is said, rather than shown as a button that does
+ * nothing.
+ */
+export function notificationsCard(repaint) {
+  const supported = Boolean(globalThis.Notification);
+  const state = supported ? Notification.permission : 'unsupported';
+
+  const tone = { granted: 'positive', denied: 'warning' }[state] ?? 'muted';
+
+  return card({ class: 'card--quiet' }, [
+    cardHeader(t('notify.title'), badge(t(`notify.state.${state}`), tone), { iconName: 'bell' }),
+
+    h('p', { class: 'small' }, t('notify.what')),
+
+    /*
+     * Only `default` gets a button.
+     *
+     * `Notification.requestPermission()` resolves immediately with the stored
+     * answer once one exists, and a browser will not re-prompt after a
+     * refusal — so a button offered to somebody who has already said no does
+     * nothing at all when tapped, which is worse than not offering it. The
+     * way back is the browser's own site settings, and that is what is said.
+     */
+    state === 'default'
+      ? button(t('notify.ask'), {
+        variant: 'primary',
+        onClick: async () => {
+          const { requestNotificationPermission } = await import('../../domain/automation.js');
+          await requestNotificationPermission();
+          await repaint();
+        },
+      })
+      : h('p', { class: ['small', 'muted'] }, t(`notify.after.${state}`)),
+
+    h('p', { class: ['small', 'faint'] }, t('notify.notPush')),
   ]);
 }
