@@ -657,3 +657,29 @@ describe('what the recents switcher is allowed to keep', () => {
       'set it after super.onCreate, which is where Capacitor builds the window');
   });
 });
+
+describe('what the soft keyboard does to the layout', () => {
+  const manifest = () => readFile(join(ROOT, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
+
+  test('the activity declares how it resizes, rather than letting Android pick',
+    async () => {
+      // Unset is SOFT_INPUT_ADJUST_UNSPECIFIED, and the resolution varies by
+      // version and OEM: usually adjustResize, sometimes adjustPan. adjustPan
+      // scrolls the whole window up rather than resizing it, taking the header
+      // off the top and leaving a fixed bottom bar wherever it lands. Nothing
+      // in `node_modules/@capacitor/*` contributes the attribute either, so
+      // without this line there is no declaration anywhere.
+      const xml = await manifest();
+      assert.ok(/android:windowSoftInputMode="adjustResize"/.test(xml),
+        'the keyboard behaviour is left to the device to decide');
+    });
+
+  test('and it is on the activity that holds the WebView', async () => {
+    const xml = await manifest();
+    const activity = /<activity[\s\S]*?android:name="\.MainActivity"[\s\S]*?>/.exec(xml)?.[0]
+      ?? '';
+    assert.ok(activity.length > 0, 'MainActivity not found — this test reads the wrong shape');
+    assert.ok(/windowSoftInputMode/.test(activity),
+      'declared on some other activity does nothing for the app window');
+  });
+});

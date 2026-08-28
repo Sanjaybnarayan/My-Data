@@ -193,6 +193,61 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
     replace(syncPill, [icon(iconName, { size: 16 }), h('span', {}, text)]);
   });
 
+  /*
+   * The bottom bar, while somebody is typing.
+   *
+   * `windowSoftInputMode="adjustResize"` shrinks the WebView when the soft
+   * keyboard opens, so a `position: fixed; bottom: …` bar re-anchors to the
+   * new, shorter viewport — it sits directly on top of the keyboard. Sixty-
+   * four pixels of tabs, wedged between the keyboard and the field being
+   * filled in, in the half of the screen the keyboard did not already take.
+   *
+   * So it stands down while a field has focus. Not disabled, not moved:
+   * `display: none`, which also collapses the padding the content reserves
+   * for it, giving the form back the space.
+   *
+   * Only for fields that actually raise a keyboard. A `select` opens a picker
+   * and a checkbox opens nothing, and hiding the navigation when somebody
+   * ticks a box would be a bug in the other direction.
+   */
+  const TYPES = new Set(['text', 'search', 'email', 'tel', 'url', 'number', 'password']);
+
+  function raisesKeyboard(el) {
+    if (!el || el === document.body) return false;
+    if (el.isContentEditable) return true;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA') return true;
+    // `type` reflects the attribute; a missing or unknown one is a text box.
+    if (tag === 'INPUT') return TYPES.has(el.type ?? 'text');
+    return false;
+  }
+
+  /*
+   * Both events, one decision, read off `document.activeElement`.
+   *
+   * Tabbing from one field to the next fires focusout before focusin, so
+   * clearing on focusout alone flickers the bar in and out between two text
+   * boxes — and on a phone that is the bar appearing over the keyboard for a
+   * frame. The clear is deferred a task; the focusin that follows lands
+   * first and the state never changes.
+   */
+  let pending = null;
+  const settle = () => {
+    pending = null;
+    const typing = raisesKeyboard(document.activeElement);
+    if (typing) root.dataset.typing = 'true';
+    else delete root.dataset.typing;
+  };
+
+  root.addEventListener('focusin', () => {
+    if (pending) { clearTimeout(pending); pending = null; }
+    settle();
+  });
+  root.addEventListener('focusout', () => {
+    if (pending) clearTimeout(pending);
+    pending = setTimeout(settle, 0);
+  });
+
   // Ctrl/Cmd-K is the search shortcut people already have in their fingers.
   globalThis.addEventListener('keydown', (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {

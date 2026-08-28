@@ -108,6 +108,26 @@ jobs:
           done
           echo "standard is clean"
 
+      # The source manifest is checked by `tests/native.test.mjs`. This reads
+      # the built APK, which is the only place the attribute has actually
+      # survived manifest merging and aapt2 — a library or a build type can
+      # override it, and a source grep would never know.
+      #
+      # 0x10 is SOFT_INPUT_ADJUST_RESIZE. Unset is 0x00 (UNSPECIFIED), which
+      # is the thing this exists to rule out, so the value is compared and not
+      # merely found.
+      - name: Check the shipped APK resizes for the keyboard
+        run: |
+          AAPT=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" \
+            -name aapt2 | sort | tail -1)
+          APK=$(find android/app/build/outputs/apk/standard -name '*.apk' | head -1)
+          TREE=$("$AAPT" dump xmltree --file AndroidManifest.xml "$APK")
+          MODE=$(echo "$TREE" | grep -o 'windowSoftInputMode[^=]*=[^ ]*' | head -1)
+          echo "found: ${MODE:-nothing}"
+          echo "$MODE" | grep -qi '0x0*10$' \
+            || { echo "::error::the app window is not adjustResize (${MODE:-unset}) — the keyboard will pan the window on some devices"; exit 1; }
+          echo "the app window resizes for the keyboard"
+
       - name: And that the sms flavour still has it
         run: |
           AAPT=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools"             -name aapt2 | sort | tail -1)

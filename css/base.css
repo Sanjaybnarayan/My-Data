@@ -293,6 +293,21 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
     padding-bottom: calc(var(--bottom-nav-height) + var(--space-5) + var(--inset-bottom));
   }
 
+  /*
+   * While a field has focus, the soft keyboard is up and `adjustResize` has
+   * already taken the bottom half of the screen. A fixed bar re-anchors to
+   * what is left and lands on top of the keyboard, so it stands down — and
+   * the content takes back the padding that was reserving room for it.
+   *
+   * `js/ui/shell.js` sets the attribute, and only for fields that raise a
+   * keyboard: a select opens a picker, a checkbox opens nothing.
+   */
+  .app[data-typing] .bottom-nav { display: none; }
+
+  .app[data-typing] .app-main {
+    padding-bottom: calc(var(--space-5) + var(--inset-bottom));
+  }
+
   /* Tighter side padding on a phone — but the status bar inset is still owed,
      and a `padding` shorthand here would quietly set it back to zero. That is
      exactly what this rule used to do. */
