@@ -295,6 +295,18 @@ function registerRoutes(router) {
     notifications: () => import('./modules/notifications.js'),
     profile: () => import('./modules/profile.js'),
     assistant: () => import('./modules/assistant-screen.js'),
+    /*
+     * Seven modules, one screen. They fell through to the generic record
+     * screen, which can only ever show one entity's rows — and three of them
+     * hold a question that needs two. The tabs and lists are unchanged.
+     */
+    insurance: () => import('./modules/secondary.js'),
+    property: () => import('./modules/secondary.js'),
+    education: () => import('./modules/secondary.js'),
+    tasks: () => import('./modules/secondary.js'),
+    notes: () => import('./modules/secondary.js'),
+    digital: () => import('./modules/secondary.js'),
+    emergency: () => import('./modules/secondary.js'),
   };
 
   for (const mod of modules) {
