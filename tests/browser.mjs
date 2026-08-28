@@ -2007,10 +2007,15 @@ async function main() {
       check('no burger remains', phone.burgers === 0, String(phone.burgers));
       check('and no drawer scrim is left behind', phone.scrims === 0, String(phone.scrims));
 
-      // The drawer's one control that is not a module. Without it in the
-      // header this goes from one tap to four — Profile, Settings, Security,
-      // Lock now — for what somebody reaches for handing over the phone.
-      check('lock stays one tap on a phone', phone.locks === 1, String(phone.locks));
+      /*
+       * Lock is not in the header. It was for one release — the drawer's one
+       * control that is not a module, moved there so it did not become four
+       * taps. On a device it read as clutter beside the theme button, so it
+       * is a row at the end of Profile: two taps, and a word rather than a
+       * glyph. What must not happen is it going missing entirely, which is
+       * what the Profile check below is for.
+       */
+      check('the header carries no lock button', phone.locks === 0, String(phone.locks));
 
       /*
        * Removing a navigation must not remove a destination. The unit suite
@@ -2044,11 +2049,189 @@ async function main() {
         desk.rail !== 'none' && desk.links > 5, `${desk.rail}, ${desk.links} links`);
       check('and still has no burger — it toggled an attribute nothing read',
         desk.burgers === 0, String(desk.burgers));
-      // The rail carries a Lock now row with a word on it. A second one in
-      // the header would be the pattern this whole change removes.
-      check('and one path to lock, not two', desk.locks === 1, String(desk.locks));
+      // The rail carries its own Lock now row, so the header never needed one.
+      check('and none on a desktop either', desk.locks === 0, String(desk.locks));
 
       await page.waitForTimeout(200);
+    }
+
+    /* ------------------------------------------------ the reworked header */
+
+    /*
+     * What the header carries after the rework, and where the things that
+     * left it went.
+     *
+     * Sync was a pill saying "Synced" in words, in the strip a 390px phone
+     * has least of; it is a card on the Dashboard now. Search was an inline
+     * field competing with it for the same width; it is a button that opens
+     * a panel over the bar, and stays inline above 901px where there is room.
+     */
+    {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(500);
+
+      const head = await page.evaluate(() => {
+        const shown = (el) => el.getClientRects().length > 0;
+        return {
+          syncInHeader: [...document.querySelectorAll('.app-header')]
+            .some((el) => /Synced|Syncing|Offline|Sync failed|Needs attention/
+              .test(/** @type {any} */ (el).innerText)),
+          toggle: [...document.querySelectorAll('.search-toggle')].filter(shown).length,
+          fieldOpen: [...document.querySelectorAll('.app-header input[type="search"]')]
+            .filter(shown).length,
+          syncCard: /** @type {any} */ (document.querySelector('.sync-card'))?.innerText ?? '',
+        };
+      });
+
+      check('the phone header no longer carries sync', !head.syncInHeader);
+      check('and sync says what it is doing on the Dashboard instead',
+        /Synced|Syncing|Offline|Sync failed|Needs attention/.test(head.syncCard),
+        head.syncCard.slice(0, 120));
+      check('and offers to run one', /Sync now/.test(head.syncCard), head.syncCard.slice(0, 120));
+      check('search is a button on a phone, not a field taking the bar',
+        head.toggle === 1 && head.fieldOpen === 0,
+        `toggle=${head.toggle} field=${head.fieldOpen}`);
+
+      // The button has to actually open something, and the field has to take
+      // the focus — a search you must tap twice to type in is worse than the
+      // box it replaced.
+      await page.locator('.search-toggle').click();
+      await page.waitForTimeout(300);
+      const opened = await page.evaluate(() => ({
+        field: [...document.querySelectorAll('.app-header input[type="search"]')]
+          .filter((el) => el.getClientRects().length > 0).length,
+        focused: document.activeElement?.getAttribute('type') === 'search',
+        expanded: document.querySelector('.search-toggle')?.getAttribute('aria-expanded'),
+      }));
+      check('tapping it opens the search panel', opened.field === 1, String(opened.field));
+      check('and puts the cursor in the field', opened.focused, String(opened.focused));
+      check('and says so to a screen reader', opened.expanded === 'true', String(opened.expanded));
+
+      await page.locator('.search-close').click();
+      await page.waitForTimeout(300);
+      const closed = await page.evaluate(() => ({
+        field: [...document.querySelectorAll('.app-header input[type="search"]')]
+          .filter((el) => el.getClientRects().length > 0).length,
+        expanded: document.querySelector('.search-toggle')?.getAttribute('aria-expanded'),
+      }));
+      check('and closing it puts the panel away', closed.field === 0 && closed.expanded === 'false',
+        `field=${closed.field} expanded=${closed.expanded}`);
+
+      /* --------------------------------------------- lock, in its new home */
+
+      await go(page, '#/profile');
+      await page.waitForTimeout(600);
+      const lock = page.locator('.app-content [role="button"]:has-text("Lock now")');
+      check('lock is a row on Profile', (await lock.count()) >= 1, String(await lock.count()));
+
+      /*
+       * `listItem` gave an onClick row `role="button"` and no key handler, so
+       * nine rows across the application announced themselves as buttons and
+       * answered only a pointer. Checked here because this is the row that
+       * made it matter: a keyboard user could not lock the app.
+       */
+      const keyable = await lock.first().evaluate((el) => ({
+        role: el.getAttribute('role'),
+        tabindex: el.getAttribute('tabindex'),
+      }));
+      check('and is reachable by keyboard, not just announced as a button',
+        keyable.role === 'button' && keyable.tabindex === '0', JSON.stringify(keyable));
+
+      // Desktop keeps the inline field and no toggle.
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+      const wide = await page.evaluate(() => {
+        const shown = (el) => el.getClientRects().length > 0;
+        return {
+          toggle: [...document.querySelectorAll('.search-toggle')].filter(shown).length,
+          field: [...document.querySelectorAll('.app-header input[type="search"]')]
+            .filter(shown).length,
+        };
+      });
+      check('a desktop keeps the field inline and needs no button',
+        wide.field === 1 && wide.toggle === 0, `field=${wide.field} toggle=${wide.toggle}`);
+
+      await page.waitForTimeout(200);
+    }
+
+    /* ------------------------------------------------ the global search */
+
+    /*
+     * The header search, driven end to end for the first time.
+     *
+     * `db.search` has unit coverage and the box has been on screen since the
+     * shell was built, but nothing had ever typed into it and read what came
+     * back — so every part between the keystroke and the result was untested:
+     * the debounce, the two-character floor, the index lookup, the rendering,
+     * and the link the result points at.
+     */
+    {
+      const box = page.locator('.app-header input[type="search"]');
+
+      await go(page, '#/dashboard');
+      // Desktop viewport here, where the panel is always inline — but opening
+      // it is harmless and keeps this block working at either width.
+      const toggle = page.locator('.search-toggle');
+      if (await toggle.isVisible()) await toggle.click();
+      await box.fill('HDFC');
+      await page.waitForTimeout(600);
+
+      const hits = await page.evaluate(() => {
+        const list = document.querySelector('.search-results');
+        return {
+          hidden: list?.hasAttribute('hidden') ?? true,
+          text: /** @type {any} */ (list)?.innerText ?? '',
+          links: [...(list?.querySelectorAll('a') ?? [])].map((a) => a.getAttribute('href')),
+          onScreen: list ? list.getClientRects().length > 0 : false,
+        };
+      });
+
+      check('typing in the header search shows a result list',
+        !hits.hidden && hits.onScreen, `hidden=${hits.hidden} drawn=${hits.onScreen}`);
+      check('and it finds the account that is actually there',
+        /HDFC Savings/.test(hits.text), hits.text.slice(0, 200));
+      check('and the result links somewhere real',
+        hits.links.some((href) => /#\/finance\/account\//.test(href ?? '')),
+        hits.links.join(' | ') || 'no links');
+
+      /*
+       * The floor the box enforces and the floor the index enforces were not
+       * the same number: `quickSearch` searches from two characters, and
+       * `searchIndex` drops any word shorter than three. Two characters
+       * therefore always produced "Nothing matching", which reads as a search
+       * that ran and found nothing rather than one that never ran.
+       */
+      await box.fill('HD');
+      await page.waitForTimeout(600);
+      const short = await page.evaluate(() => {
+        const list = document.querySelector('.search-results');
+        return {
+          hidden: list?.hasAttribute('hidden') ?? true,
+          text: /** @type {any} */ (list)?.innerText ?? '',
+        };
+      });
+      check('two characters does not claim there is nothing matching',
+        !/Nothing matching/.test(short.text), short.text.slice(0, 120));
+      check('and says the word is not finished yet',
+        /Keep typing/.test(short.text), short.text.slice(0, 120));
+
+      // A search with genuinely no match must still say so.
+      await box.fill('zzzznothinglikethis');
+      await page.waitForTimeout(600);
+      const none = await page.evaluate(() => /** @type {any} */ (
+        document.querySelector('.search-results'))?.innerText ?? '');
+      check('and a real search with no match says nothing matches',
+        /Nothing matching/.test(none), none.slice(0, 120));
+
+      // Blurred, not just cleared. `fill('')` leaves focus in the box, which
+      // leaves `data-typing` set on the shell — and the next block measures
+      // the bottom bar, which stands down while a field has focus. It failed
+      // exactly that way before this line existed.
+      await box.fill('');
+      await box.blur();
+      await page.waitForTimeout(300);
     }
 
     /* ------------------------------------------- the bar and the keyboard */
@@ -2090,8 +2273,15 @@ async function main() {
       const resting = await bar();
       check('the bottom bar is there before anybody types', resting.shown);
 
-      await page.locator('.app-header input[type="search"]').focus();
-      await page.waitForTimeout(250);
+      /*
+       * Through the button, which is the path a phone actually has: the field
+       * lives in a panel that is `display: none` until the search button
+       * opens it, and opening it puts the cursor in the field. Focusing the
+       * field directly stopped working the moment search became a panel, and
+       * failed here rather than quietly passing on a path nobody walks.
+       */
+      await page.locator('.search-toggle').click();
+      await page.waitForTimeout(300);
 
       const typing = await bar();
       check('and stands down once a text field has focus', !typing.shown);
@@ -2100,8 +2290,8 @@ async function main() {
 
       // Not one-way: a bar that never came back would be worse than one that
       // covered the keyboard.
-      await page.locator('.app-header input[type="search"]').blur();
-      await page.waitForTimeout(250);
+      await page.locator('.search-close').click();
+      await page.waitForTimeout(300);
       const after = await bar();
       check('and comes back when the field is left', after.shown);
       check('with the room it needs', after.padding === resting.padding,
@@ -2113,7 +2303,7 @@ async function main() {
        * other way — and the naive version of this, any `focusin`, does
        * exactly that.
        */
-      await page.locator('.app-header button').first().focus();
+      await page.locator('.app-header .search-toggle').focus();
       await page.waitForTimeout(250);
       check('a control that raises no keyboard leaves the bar alone',
         (await bar()).shown);

@@ -40,6 +40,7 @@ import { PRIMARY } from '../ui/shell.js';
 import { modules } from '../data/schema.js';
 import { moduleLabel } from '../core/labels.js';
 import { t } from '../core/locale.js';
+import { lockNow } from '../auth/lock.js';
 
 /**
  * The control centre, grouped.
@@ -119,6 +120,7 @@ export async function render() {
     ...grouped().map((group) => groupCard(group, allowed)),
     deviceCard(),
     settingsCard(allowed),
+    lockCard(),
   ]);
 
   return { node: host };
@@ -248,6 +250,31 @@ function deviceCard() {
         title: t('profile.wellbeing'),
         subtitle: t('profile.wellbeingHint'),
         href: Router.href({ module: 'wellbeing' }),
+      }),
+    ]),
+  ]);
+}
+
+/**
+ * Lock, last on the screen.
+ *
+ * It was an icon in the header for one release, put there because taking the
+ * drawer away had otherwise left Profile → Settings → Security as the only
+ * route — four taps for the control somebody reaches for while handing over
+ * the phone. On a device the icon read as clutter beside sync and theme, so
+ * it lives here instead: two taps, a word rather than a glyph, and at the
+ * bottom where a thing you do on the way out belongs.
+ *
+ * Settings → Security keeps its own button. Both call `lockNow`, so both now
+ * write the audit entry that only one of them used to.
+ */
+function lockCard() {
+  return card({ class: 'card--flush' }, [
+    h('div', { class: 'list' }, [
+      listItem({
+        title: t('profile.lockNow'),
+        subtitle: t('profile.lockNowHint'),
+        onClick: () => lockNow(app().db),
       }),
     ]),
   ]);

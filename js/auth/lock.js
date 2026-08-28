@@ -20,6 +20,26 @@ import {
 } from './google-unlock.js';
 import { userMessage } from '../core/errors.js';
 import { generatePassphrase } from '../security/crypto.js';
+import { ACTIONS } from '../data/audit.js';
+
+/**
+ * Lock the application, from wherever somebody asked for it.
+ *
+ * One function because there were two: the shell's dropped the key, wrote an
+ * audit entry and reloaded, and Settings → Security's dropped the key and
+ * reloaded. So locking from Settings left no record that anybody had — which
+ * is exactly the event an audit log exists to hold.
+ *
+ * The audit write is not awaited and its failure is swallowed: the lock must
+ * happen whether or not the log accepted the entry, and a person who asked to
+ * lock a phone they are handing over should not be shown an error about
+ * bookkeeping.
+ */
+export function lockNow(db) {
+  db.keyring.lock();
+  db.logAudit(ACTIONS.lock, {}).catch(() => {});
+  globalThis.location.reload();
+}
 
 const PIN_LENGTH_MIN = 4;
 const PIN_LENGTH_MAX = 12;

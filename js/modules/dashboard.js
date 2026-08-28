@@ -34,6 +34,8 @@ import { summarise } from '../ai/summary.js';
 import { t } from '../core/locale.js';
 import { TRANSACTION_LIMIT, transactionsTruncated } from '../services/service.js';
 import { EstateService } from '../services/estate.js';
+import { syncCard, syncNow } from '../ui/components/syncstatus.js';
+import { customise } from './dashboard-widgets.js';
 
 const WIDGET_KEY = 'dashboard.widgets';
 
@@ -108,10 +110,14 @@ export function chosenWidgets(stored) {
 }
 
 export async function render() {
-  const { db } = app();
+  const { db, sync } = app();
   const host = h('div', {});
 
   const enabled = chosenWidgets(await db.meta(WIDGET_KEY));
+
+  // Built once, outside `paint`: it holds a subscription. Why it is on this
+  // screen at all is in `js/ui/components/syncstatus.js`.
+  const syncStatus = syncCard({ state: sync?.state, onSync: () => syncNow(sync) });
 
   async function paint() {
     const data = await loadAll(db);
@@ -122,6 +128,7 @@ export async function render() {
           variant: 'subtle', iconName: 'settings', onClick: () => customise(enabled, paint),
         })],
       }),
+      syncStatus.node,
       h('div', { class: 'grid grid--wide' },
         enabled.map((id) => WIDGETS[id]?.(data)).filter(Boolean)),
     ]);
@@ -136,7 +143,13 @@ export async function render() {
 
   const off = bus.on(TOPIC.dataChanged, () => paint());
 
-  return { node: host, destroy: off };
+  return {
+    node: host,
+    destroy: () => {
+      off();
+      syncStatus.destroy();
+    },
+  };
 }
 
 /* -------------------------------------------------------------- data load */
@@ -734,64 +747,10 @@ const WIDGETS = {
 
 /* -------------------------------------------------------------- customise */
 
-async function customise(enabled, repaint) {
-  const { modal } = await import('../ui/components/modal.js');
-  const { db } = app();
-  const selection = new Set(enabled);
-
-  const body = h('div', { class: 'stack' }, ALL_WIDGETS.map((id) => h('label', {
-    class: 'checkbox',
-  }, [
-    h('input', {
-      type: 'checkbox',
-      checked: selection.has(id),
-      onChange: (e) => (e.target.checked ? selection.add(id) : selection.delete(id)),
-    }),
-    h('span', {}, WIDGET_LABELS[id] ?? id),
-  ])));
-
-  const { close } = modal({
-    title: 'Dashboard widgets',
-    body,
-    footer: [
-      button('Cancel', { variant: 'subtle', onClick: () => close() }),
-      button('Save', {
-        variant: 'primary',
-        onClick: async () => {
-          const next = ALL_WIDGETS.filter((id) => selection.has(id));
-          await db.setMeta(WIDGET_KEY, next);
-          enabled.length = 0;
-          enabled.push(...next);
-          close();
-          await repaint();
-        },
-      }),
-    ],
-  });
-}
-
-const WIDGET_LABELS = {
-  attention: 'What needs attention',
-  wallet: 'Your wallet',
-  family: 'Household',
-  documents: 'Papers running out',
-  summary: 'Summary in words',
-  networth: 'Family net worth',
-  spending: 'This month’s spending',
-  reminders: 'Expiring & due',
-  bills: 'Upcoming bills',
-  budgets: 'Budgets',
-  portfolio: 'Investments',
-  nominations: 'Nominations',
-  dates: 'Birthdays & anniversaries',
-  tasks: 'Tasks',
-  activity: 'Recent activity',
-};
-
 function greeting(actor) {
   const hour = new Date().getHours();
   const part = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   return actor?.name ? `${part}, ${actor.name.split(' ')[0]}` : part;
 }
 
-export { ALL_WIDGETS, loadAll };
+export { ALL_WIDGETS, WIDGET_KEY, loadAll };

@@ -286,9 +286,28 @@ export function listItem({ title, subtitle, value, leading, trailing, href, onCl
     value ? h('div', { class: ['list-item-value', tone && `money--${tone}`] }, value) : null,
     trailing,
   ];
-  return href
-    ? h('a', { class: 'list-item', href }, children)
-    : h('div', { class: 'list-item', onClick, ...(onClick ? { role: 'button', tabindex: '0' } : {}) }, children);
+  if (href) return h('a', { class: 'list-item', href }, children);
+  if (!onClick) return h('div', { class: 'list-item' }, children);
+
+  /*
+   * `role="button"` is a promise to a screen reader that this behaves like a
+   * button, and a div does not: it takes a click and ignores Enter and Space.
+   * Nine callers were announced as buttons and operable only with a pointer.
+   *
+   * Space is prevented as well as handled — on a focused element it scrolls
+   * the page, so acting *and* scrolling is the wrong pair.
+   */
+  return h('div', {
+    class: 'list-item',
+    role: 'button',
+    tabindex: '0',
+    onClick,
+    onKeydown: (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      onClick(event);
+    },
+  }, children);
 }
 
 /**

@@ -179,6 +179,7 @@ const SHELL = [
   './js/ui/components/form.js',
   './js/ui/components/modal.js',
   './js/ui/components/table.js',
+  './js/ui/components/syncstatus.js',
   './js/ui/components/toast.js',
 
   './js/services/attention.js',
@@ -208,6 +209,7 @@ const SHELL = [
   './js/modules/family.js',
   './js/modules/identity.js',
   './js/modules/dashboard.js',
+  './js/modules/dashboard-widgets.js',
   './js/modules/finance.js',
   './js/modules/imports.js',
   './js/modules/investments.js',
