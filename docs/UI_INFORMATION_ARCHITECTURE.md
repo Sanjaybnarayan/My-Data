@@ -42,15 +42,29 @@ assume closed.
 
 ## Navigation
 
-Three surfaces, one source. The module list comes from the permission-filtered
-set of modules the signed-in person may open; the drawer, the bottom bar and
-the desktop rail all render from it, so a module can never appear in one and
-not another.
+**One navigation per viewport.** The module list comes from the
+permission-filtered set of modules the signed-in person may open, and every
+surface renders from it, so a module can never appear in one and not another.
 
 | Viewport | Surface |
 | --- | --- |
-| ≥ 901px | Persistent left rail, `--nav-width` 260px |
-| ≤ 900px | Bottom bar for the primary destinations, drawer for the rest |
+| ≥ 901px | Persistent left rail, `--nav-width` 260px — all 25 modules |
+| ≤ 900px | Bottom bar, 5 primary destinations. The other 20 are Profile's own groups |
+
+A phone used to carry **both**: the bottom bar *and* a burger opening a drawer
+listing all twenty-five. Two complete navigations, one over the other, which
+is what a device showed. The drawer is gone; the rail it shared markup with is
+`display: none` below 901px rather than transformed off-screen, because a
+transformed panel stays in the accessibility tree and in the tab order — so a
+screen reader met twenty-five module links and then five of them again.
+
+Nothing became unreachable. `js/modules/profile.js`'s `grouped()` claims every
+module the schema declares, with a catch-all group for anything no named group
+takes, and `tests/profile.test.mjs` holds it to that. The one thing the drawer
+had that the module list does not is **Lock now**, which would otherwise have
+gone from one tap to four (Profile → Settings → Security); it is an icon
+button in the header on a phone, hidden on desktop where the rail carries it
+with a label.
 
 The drawer closes on navigation — `delegate(nav, 'click', 'a', …)` in
 `js/ui/shell.js` — and on scrim press, and the toggle keeps `aria-expanded` and
