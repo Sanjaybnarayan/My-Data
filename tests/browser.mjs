@@ -45,6 +45,7 @@ const IN_PAGE = Object.freeze({
   chat: './js/services/chat.js',
   schema: './js/data/schema.js',
   consent: './js/data/consent.js',
+  basics: './js/ui/components/basics.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -2152,6 +2153,130 @@ async function main() {
       });
       check('a desktop keeps the field inline and needs no button',
         wide.field === 1 && wide.toggle === 0, `field=${wide.field} toggle=${wide.toggle}`);
+
+      await page.waitForTimeout(200);
+    }
+
+    /* ------------------------------------------- keyboard, without a mouse */
+
+    /*
+     * UI-14's honest half.
+     *
+     * Whether a screen reader *says* the right thing cannot be established
+     * from here, and this run does not claim it. Whether somebody can reach
+     * and operate the application with a keyboard alone can be, and had never
+     * been driven: every check in this suite until now clicked.
+     *
+     * Two faults it covers, both found by writing it. `listItem` gave a row
+     * `role="button"` and no key handler, so nine rows announced themselves
+     * as buttons and answered only a pointer. And the router set
+     * `tabindex="-1"` on each screen's heading under a comment saying the
+     * screen "announces itself" — while nothing focused the heading and
+     * nothing announced anything, so every navigation dropped a keyboard
+     * user back to `<body>` and the next Tab restarted at the skip link.
+     */
+    {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+
+      const landed = await page.evaluate(() => ({
+        tag: document.activeElement?.tagName ?? '',
+        text: document.activeElement?.textContent?.trim().slice(0, 60) ?? '',
+        inOutlet: Boolean(document.querySelector('.app-content')
+          ?.contains(document.activeElement)),
+      }));
+      check('navigating puts focus on the new screen, not back at the body',
+        landed.inOutlet && /^H[12]$/.test(landed.tag), `${landed.tag} "${landed.text}"`);
+
+      // The live region is what a screen reader reads. Checking it holds the
+      // screen's name is a claim about the DOM; whether it is spoken is not
+      // something this machine can establish, and is not claimed.
+      await go(page, '#/finance');
+      await page.waitForTimeout(500);
+      const spoken = await page.evaluate(() => ({
+        region: document.querySelector('[aria-live]')?.textContent?.trim() ?? '',
+        heading: document.querySelector('.app-content h1, .app-content h2')
+          ?.textContent?.trim() ?? '',
+      }));
+      check('and the live region carries the screen it landed on',
+        spoken.region.length > 0 && spoken.region === spoken.heading,
+        `region "${spoken.region}" heading "${spoken.heading}"`);
+
+      /*
+       * Tab from the top and count what can be reached. A control that is
+       * visible and operable by mouse but skipped by Tab is unreachable for
+       * somebody who has no mouse — and the count is the cheap way to notice
+       * a whole region dropping out of the order.
+       */
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+      const reach = await page.evaluate(() => {
+        const focusable = [...document.querySelectorAll(
+          'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        )].filter((el) => !el.hasAttribute('disabled') && el.getClientRects().length > 0);
+        return {
+          count: focusable.length,
+          nameless: focusable.filter((el) => {
+            const label = (el.getAttribute('aria-label')
+              ?? el.getAttribute('title')
+              ?? el.textContent ?? '').trim();
+            return label.length === 0;
+          }).map((el) => `${el.tagName}.${el.className}`.slice(0, 50)),
+        };
+      });
+      check('the dashboard has controls a keyboard can reach', reach.count > 5,
+        String(reach.count));
+      check('and none of them is nameless',
+        reach.nameless.length === 0, reach.nameless.join(' | '));
+
+      /*
+       * The row the `listItem` fault made unusable: announced as a button,
+       * and a div that ignored Enter. Focus only — pressing Enter here runs
+       * the real handler, which locks the app and reloads. That is not a
+       * hypothetical: this check did exactly that on its first run and took
+       * the rest of the suite down with it.
+       */
+      await go(page, '#/profile');
+      await page.waitForTimeout(600);
+      const reachedLock = await page.evaluate(() => {
+        const row = [...document.querySelectorAll('.app-content [role="button"]')]
+          .find((el) => /Lock now/.test(el.textContent ?? ''));
+        if (!row) return { found: false, reached: false };
+        /** @type {any} */ (row).focus();
+        return { found: true, reached: document.activeElement === row };
+      });
+      check('a row announced as a button is focusable',
+        reachedLock.found && reachedLock.reached, JSON.stringify(reachedLock));
+
+      /*
+       * And answers the key. Built here rather than driven on a live row,
+       * because every `listItem` with an `onClick` in this application does
+       * something — locks, deletes, opens a picker — and a check should not
+       * have to pick the least destructive one to find out whether Enter
+       * works. This is the real component, in the real page, with a handler
+       * that only sets a flag.
+       */
+      const keyed = await page.evaluate(async (spec) => {
+        const { listItem } = await import(spec);
+        let fired = 0;
+        const row = listItem({ title: 'Keyboard probe', onClick: () => { fired += 1; } });
+        document.body.append(row);
+        row.focus();
+        for (const key of ['Enter', ' ']) {
+          row.dispatchEvent(new KeyboardEvent('keydown', {
+            key, bubbles: true, cancelable: true,
+          }));
+        }
+        const focused = document.activeElement === row;
+        row.remove();
+        return { fired, focused, role: row.getAttribute('role') };
+      }, IN_PAGE.basics);
+
+      check('a list row given an action is announced as a button',
+        keyed.role === 'button', String(keyed.role));
+      check('and answers Enter and Space, not only a click',
+        keyed.fired === 2, `${keyed.fired} of 2 keys reached the handler`);
 
       await page.waitForTimeout(200);
     }

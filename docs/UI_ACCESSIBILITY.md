@@ -289,3 +289,12 @@ that state for seven entities without reporting it.
 **521 browser checks pass. 2 of 2 mutations caught**: identifiers rendered in
 full (19 leaks reported, 0 proven masked), and the record handed back as an id
 (five failures, and the console error now names the real cause).
+
+## Keyboard navigation
+
+Focus on route change, the live region, and keyboard operability of list rows
+are covered in `docs/KEYBOARD_NAVIGATION.md`. The short version: the router
+claimed each screen "announces itself" while focusing nothing and announcing
+nothing, and `listItem` promised a button and delivered a div. Both are fixed
+and both are checked — as keyboard behaviour, which can be driven here, and
+not as anything a screen reader says, which cannot.
