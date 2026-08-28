@@ -24,10 +24,21 @@ it is in the address bar, in the back-stack, and in any screenshot of the
 window, so an opaque id is the only thing that belongs there.
 
 The document title is the static `<title>FamilyOS</title>` from `index.html`
-and no code ever changes it, so no record name can reach the window title, the
-task switcher or a screenshot of either. That is the right outcome, but it is
-currently a consequence of never having implemented per-screen titles rather
-than a control. Anything that adds them must keep record names out.
+and no code ever changes it, so no record name can reach the window title or
+the switcher's *caption*. That is the right outcome, but it is currently a
+consequence of never having implemented per-screen titles rather than a
+control. Anything that adds them must keep record names out.
+
+**The caption was never the larger half.** Android's recents switcher also
+holds a photograph of the whole screen, taken automatically every time the app
+is backgrounded — a balance, a health record's title, an identifier somebody
+had tapped to reveal. This paragraph used to end at the title and read as
+though the switcher were handled. `MainActivity` now sets `FLAG_SECURE` for
+the window's whole life, which blanks that capture and, deliberately, blocks
+screenshots and screen recording of FamilyOS along with it. The reasoning and
+its cost are in `docs/ANDROID_SCREEN_CAPTURE.md`. **iOS has no equivalent and
+none is built** — the gap is named there rather than left for somebody to
+assume closed.
 
 ## Navigation
 
