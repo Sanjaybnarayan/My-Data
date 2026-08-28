@@ -331,7 +331,11 @@ function templateCard() {
   const input = h('input', {
     type: 'file',
     accept: '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    // Opened by the "Choose a .docx" button beside it. The `id` was never
+    // paired with a `label for=`, so it named nothing. See js/modules/chat.js.
     class: 'sr-only',
+    'aria-hidden': 'true',
+    tabindex: '-1',
     id: 'docx-template',
     onChange: async (event) => {
       const [file] = [...(event.target.files ?? [])];

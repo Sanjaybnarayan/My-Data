@@ -48,6 +48,49 @@ it. Widened, it found seven screens scrolling sideways, four of them at 1204px
 on a 390px phone, and at 320px a badge carrying the qualifier on the encryption
 claim being pushed off the edge.
 
+**Heading order — no screen skips a level.** Every module, every entity's own
+list, and the screens a hash alone does not reach, walked in
+`tests/browser.mjs`.
+
+`pageHeader` emits the `h1` and `cardHeader` emitted an `h3`, with **no `h2`
+anywhere in the application** — so a person navigating by heading, one of the
+two ways screen-reader users move around a page, heard the page title and then
+level three on every screen. A card *is* the second level of a page, so the tag
+was wrong; it emits `h2` now and `.card-header h2` holds `--text-lg`, the size
+the `h3` had, so nothing moved. The same trick `.modal-header h2` already used.
+
+That left five entity screens still jumping — lists with no records, where the
+`h1` is followed straight by the empty state. `empty()` emits `h2` as well now.
+Sub-headings already written as `h3` inside cards became correct by the change
+rather than needing one of their own.
+
+**An accessible name on everything operable.** The same walk asserts every
+button, link and `role="button"` has a name from text, `aria-label`,
+`aria-labelledby` or `title`, and every input has a label of some kind.
+
+It found three file inputs with none. `.sr-only` hides an element from the eye
+and **keeps it in the accessibility tree** — that is the entire point of the
+class — so a screen reader met an unnamed file input beside the button that
+opens it, in chat, in the statement importer, and on the reports template
+picker, where an `id` had never been paired with a `label for=`.
+
+They are `aria-hidden="true"` with `tabindex="-1"` now rather than named. Each
+is opened by a visible, named button, and naming the input as well would have
+made two controls where a person has one. The `tabindex` is not optional: a
+focusable element must not be hidden from assistive technology. The fourth
+`.sr-only` input, the chip checkbox in `ui/components/form.js`, was already
+correct — it is wrapped in the `<label>` that draws the chip.
+
+*Three times this walk could not fail.* Mutating `cardHeader` back to `h3`
+aborted the run on an unrelated selector long before the walk, proving nothing
+about the heading check — reverting `empty()`, which nothing else selects on,
+is the mutation that exercises it. Exposing the chat picker again changed
+nothing, because the walk visited the conversation list and the picker only
+exists inside an open conversation. Exposing the statement importer changed
+nothing either: it lives behind Finance's `import` tab, and the walk had been
+given `#/finance/statements`, which is not a route. All three are reached now,
+and each mutation fails.
+
 ## Implemented
 
 **Reduced motion.** `prefers-reduced-motion: reduce` sets every duration token
@@ -139,6 +182,17 @@ honest — they are navigation, not tabs over one panel — but it means the
 5. Add your control's selector to the touch block at the end of
    `css/components.css`, then let `tests/browser.mjs` confirm the size rather
    than assuming it.
+6. Section headings come from `cardHeader`, which is the page's `h2`. A
+   sub-heading inside a card is an `h3`. Do not reach for a level to get a
+   font size — the sizes are held by `.card-header h2` and `.empty h2`.
+7. An element that is `.sr-only` is **announced**. If it is an implementation
+   detail with a named control in front of it — a hidden file input behind a
+   "Choose files" button — give it `aria-hidden="true"` *and* `tabindex="-1"`,
+   because a focusable element must not be hidden from assistive technology.
+   If it is something a person should actually reach, give it a name instead.
+8. If your screen is not reachable from a module route, add it to the walk in
+   `tests/browser.mjs` — the checks above found nothing on three screens they
+   never opened.
 
 ## UI-7: the screen that had never opened, and the sweep that found it
 

@@ -66,7 +66,7 @@ export async function render() {
     type: 'file',
     accept: 'application/pdf,.pdf,text/csv,.csv,.tsv,.txt',
     multiple: true,
-    class: 'sr-only',
+    class: 'sr-only', 'aria-hidden': 'true', tabindex: '-1', // why: js/modules/chat.js
     onChange: (event) => {
       const files = [...(event.target.files ?? [])];
       event.target.value = '';

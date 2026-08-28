@@ -25,7 +25,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { zip } from '../js/reports/xlsx.js';
-import { modules as SCHEMA_MODULES } from '../js/data/schema.js';
+import { modules as SCHEMA_MODULES, entities as SCHEMA_ENTITIES } from '../js/data/schema.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8247;
@@ -3293,7 +3293,9 @@ async function main() {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(600);
     const answer = await page.locator('.card')
-      .filter({ has: page.locator('h3', { hasText: /^Answer$/ }) })
+      // `h2`: a card heading became one when the application stopped
+      // jumping from h1 to h3 on every screen.
+      .filter({ has: page.locator('h2', { hasText: /^Answer$/ }) })
       .first().innerText();
     check('the assistant answers a question from stored data',
       /net worth/i.test(answer), answer.slice(0, 120));
@@ -4298,7 +4300,7 @@ async function main() {
 
       // The same count, from two screens.
       const onDashboard = await page.evaluate(() => {
-        const heading = [...document.querySelectorAll('.attention-card h3, .card h3')]
+        const heading = [...document.querySelectorAll('.attention-card h2, .card h2')]
           .map((el) => el.textContent ?? '')
           .find((text) => /needs? your attention/.test(text));
         return heading ? Number(/^(\d+)/.exec(heading.trim())?.[1] ?? 1) : 0;
@@ -4308,7 +4310,7 @@ async function main() {
       await page.waitForTimeout(500);
       const onTab = await page.evaluate(() => {
         const rows = document.querySelectorAll('.card .list .list-item');
-        const heads = [...document.querySelectorAll('.card h3')].map((el) => el.textContent ?? '');
+        const heads = [...document.querySelectorAll('.card h2')].map((el) => el.textContent ?? '');
         const late = heads.filter((text) => /Already past|This week/.test(text)).length;
         return { rows: rows.length, groups: late };
       });
@@ -5127,6 +5129,137 @@ async function main() {
       await nativeContext.close();
     }
 
+    /* --------------------------------------------- headings and naming */
+
+    /*
+     * Two things a screen reader needs, checked across every screen rather
+     * than on the one that happened to be open.
+     *
+     * **Heading order.** `pageHeader` emits the `h1` and `cardHeader` emitted
+     * an `h3`, with no `h2` anywhere in the application — so every screen
+     * jumped a level. Somebody navigating by heading heard the page title and
+     * then level three, with nothing between, on all 138 screens a probe
+     * walked. A card *is* the second level of a page, so the tag was simply
+     * wrong; `.card-header h2` holds the size an `h3` had so nothing moved.
+     *
+     * **An accessible name on everything operable.** Three file inputs were
+     * `.sr-only`, which hides an element from the eye and *keeps* it
+     * announced — so a screen reader met an unnamed file input beside the
+     * button that opens it. They are `aria-hidden` with `tabindex="-1"` now,
+     * because each is an implementation detail with a named button in front
+     * of it, and naming them would have made two controls where a person has
+     * one.
+     *
+     * Walked over every module and every entity's own list, because both
+     * faults were per-component: checking one screen would have found the
+     * heading skip and missed the inputs entirely.
+     */
+    {
+      /** @type {string[]} */
+      const skips = [];
+      /** @type {string[]} */
+      const nameless = [];
+      /** @type {string[]} */
+      const unlabelled = [];
+
+      const walked = [];
+      for (const mod of SCHEMA_MODULES) walked.push(`#/${mod.id}`);
+      for (const [name, def] of Object.entries(SCHEMA_ENTITIES)) {
+        walked.push(`#/${def.module}/${name}`);
+      }
+      walked.push('#/profile', '#/settings', '#/notifications', '#/wellbeing', '#/timeline');
+
+      /*
+       * Screens a hash alone does not reach.
+       *
+       * Two of the three unnamed file inputs live behind something: the chat
+       * picker only exists inside an open conversation, and the statement
+       * importer inside Finance's own tab. Walking the module list alone left
+       * both uncovered — mutating them back to unnamed changed nothing here,
+       * which is a check that cannot fail for the very cases that prompted it.
+       */
+      const conversation = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const rows = await app().db.repo('conversation').list({ limit: 5 }).catch(() => []);
+        return rows[0]?.id ?? null;
+      }, IN_PAGE.context);
+      if (conversation) walked.push(`#/chat/conversation/${conversation}`);
+      walked.push('#/finance/import');
+
+      for (const hash of walked) {
+        await go(page, hash);
+
+        const found = await page.evaluate(() => {
+          /** A control a person can operate, and whether anything names it. */
+          const named = (el) => {
+            const aria = el.getAttribute('aria-label');
+            if (aria && aria.trim()) return true;
+            const by = el.getAttribute('aria-labelledby');
+            if (by && by.split(/\s+/).some((id) => document.getElementById(id))) return true;
+            if ((el.getAttribute('title') ?? '').trim()) return true;
+            return ((el instanceof HTMLElement ? el.innerText : '') || el.textContent || '')
+              .trim().length > 0;
+          };
+
+          const drawn = (el) => {
+            const box = el.getBoundingClientRect();
+            // `aria-hidden` is not drawn *for this purpose*: it is deliberately
+            // not in the accessibility tree, which is the whole point of the
+            // pattern the file inputs use.
+            if (el.closest('[aria-hidden="true"]')) return false;
+            return box.width > 0 || box.height > 0;
+          };
+
+          const out = { skips: [], nameless: [], unlabelled: [] };
+
+          for (const el of document.querySelectorAll('button, a[href], [role="button"]')) {
+            if (drawn(el) && !named(el)) {
+              out.nameless.push(`${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)}`);
+            }
+          }
+
+          for (const el of document.querySelectorAll('input, select, textarea')) {
+            if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement
+              || el instanceof HTMLTextAreaElement)) continue;
+            if (el.type === 'hidden' || !drawn(el)) continue;
+            const id = el.getAttribute('id');
+            const labelled = (id && document.querySelector(`label[for="${CSS.escape(id)}"]`))
+              || el.closest('label')
+              || el.getAttribute('aria-label')
+              || el.getAttribute('aria-labelledby')
+              || el.getAttribute('placeholder');
+            if (!labelled) {
+              out.unlabelled.push(`${el.tagName.toLowerCase()}[${el.type}].${String(el.className).slice(0, 30)}`);
+            }
+          }
+
+          let last = 0;
+          for (const heading of document.querySelectorAll('h1,h2,h3,h4,h5,h6')) {
+            const level = Number(heading.tagName.slice(1));
+            if (last && level > last + 1) out.skips.push(`h${last} -> h${level}`);
+            last = level;
+          }
+
+          return out;
+        });
+
+        for (const one of found.skips) skips.push(`${hash}: ${one}`);
+        for (const one of found.nameless) nameless.push(`${hash}: ${one}`);
+        for (const one of found.unlabelled) unlabelled.push(`${hash}: ${one}`);
+      }
+
+      // The premise. A walk that rendered nothing would satisfy all three.
+      check('the accessibility walk actually opened screens', walked.length > 40,
+        `${walked.length} screens`);
+
+      check('no screen jumps a heading level', skips.length === 0,
+        [...new Set(skips)].slice(0, 6).join(' | '));
+      check('every control a person can operate has an accessible name',
+        nameless.length === 0, [...new Set(nameless)].slice(0, 6).join(' | '));
+      check('and every input has a label of some kind',
+        unlabelled.length === 0, [...new Set(unlabelled)].slice(0, 6).join(' | '));
+    }
+
     /* ------------------------------------------- a link that is not a link */
 
     /*
@@ -5277,7 +5410,7 @@ async function main() {
        * fault as reading a name off the dashboard and calling it a reminder.
        */
       const cardText = (heading) => page.evaluate((wanted) => {
-        const head = [...document.querySelectorAll('.card h3')]
+        const head = [...document.querySelectorAll('.card h2')]
           .find((node) => (node.textContent || '').includes(wanted));
         const card = head && head.closest('.card');
         return card instanceof HTMLElement ? card.innerText : '';
