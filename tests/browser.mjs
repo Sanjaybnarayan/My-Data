@@ -2051,6 +2051,82 @@ async function main() {
       await page.waitForTimeout(200);
     }
 
+    /* ------------------------------------------- the bar and the keyboard */
+
+    /*
+     * `adjustResize` shrinks the WebView when the soft keyboard opens, so a
+     * `position: fixed; bottom: …` bar re-anchors to the shorter viewport and
+     * lands on top of the keyboard — sixty-four pixels of tabs wedged between
+     * the keyboard and the field being filled in.
+     *
+     * Driven on the two places a phone actually raises a keyboard with the
+     * bar on screen: the header's search box, which is on every screen, and
+     * the chat composer. Record forms open in a modal whose scrim is z-index
+     * 70 against the bar's 30, so there the bar is already covered and this
+     * changes nothing — worth knowing, and the reason neither case below is
+     * a record form.
+     *
+     * The keyboard itself cannot be raised here; a browser has none. What is
+     * driven is the half that decides the layout. The device's half is
+     * delivering `adjustResize`, which the manifest declares and the APK job
+     * reads back out of the built artifact with aapt2.
+     */
+    {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+
+      const bar = () => page.evaluate(() => {
+        const nav = document.querySelector('.bottom-nav');
+        const main = document.querySelector('.app-main');
+        return {
+          shown: nav ? nav.getClientRects().length > 0 : false,
+          // What the content reserves for it. A hidden bar and a page still
+          // padded for one is a dead strip under the last field.
+          padding: main ? Math.round(parseFloat(getComputedStyle(main).paddingBottom)) : -1,
+        };
+      });
+
+      const resting = await bar();
+      check('the bottom bar is there before anybody types', resting.shown);
+
+      await page.locator('.app-header input[type="search"]').focus();
+      await page.waitForTimeout(250);
+
+      const typing = await bar();
+      check('and stands down once a text field has focus', !typing.shown);
+      check('and the page takes back the room it was reserving',
+        typing.padding < resting.padding - 40, `${resting.padding}px -> ${typing.padding}px`);
+
+      // Not one-way: a bar that never came back would be worse than one that
+      // covered the keyboard.
+      await page.locator('.app-header input[type="search"]').blur();
+      await page.waitForTimeout(250);
+      const after = await bar();
+      check('and comes back when the field is left', after.shown);
+      check('with the room it needs', after.padding === resting.padding,
+        `${resting.padding}px -> ${after.padding}px`);
+
+      /*
+       * A button raises no keyboard, and nor does a select or a checkbox.
+       * Hiding the navigation for those would be the same bug pointing the
+       * other way — and the naive version of this, any `focusin`, does
+       * exactly that.
+       */
+      await page.locator('.app-header button').first().focus();
+      await page.waitForTimeout(250);
+      check('a control that raises no keyboard leaves the bar alone',
+        (await bar()).shown);
+
+      // A textarea is checked where one exists — the chat composer, after
+      // this device has a chat key. `#/chat` at this point in the run is the
+      // thread list, and the composer is inside a conversation *and* behind
+      // enrolment, so the check lives beside the enrolment that creates it.
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(200);
+    }
+
     /* ------------------------------------------------- removing an import */
 
     {
@@ -3875,6 +3951,35 @@ async function main() {
       }));
       check('enrolling from the composer gives it a message box',
         warm.box === 1, `${warm.box} boxes`);
+
+      /*
+       * The bottom bar against a textarea, on the screen somebody types on
+       * for minutes rather than seconds.
+       *
+       * `adjustResize` shrinks the WebView when the keyboard opens, so a
+       * fixed bar re-anchors to the shorter viewport and lands on top of it.
+       * The header search covers the `input` case earlier in this run; this
+       * covers `textarea`, which is a separate branch of `raisesKeyboard`.
+       */
+      {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.waitForTimeout(350);
+        const shown = () => page.evaluate(() => {
+          const nav = document.querySelector('.bottom-nav');
+          return nav ? nav.getClientRects().length > 0 : false;
+        });
+
+        check('the bar is there before the composer is used', await shown());
+        await page.locator('#chat-text').focus();
+        await page.waitForTimeout(250);
+        check('and the composer stands it down', !(await shown()));
+        await page.locator('#chat-text').blur();
+        await page.waitForTimeout(250);
+        check('and it returns after the message', await shown());
+
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.waitForTimeout(250);
+      }
 
       await page.locator('#chat-text').fill('Rent is paid');
       await page.getByRole('button', { name: /Send/ }).first().click();

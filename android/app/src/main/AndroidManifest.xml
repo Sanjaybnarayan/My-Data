@@ -43,8 +43,20 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!--
+            Left unset, this is SOFT_INPUT_ADJUST_UNSPECIFIED and Android
+            picks: usually adjustResize, sometimes adjustPan, and which one
+            varies by version and OEM. adjustPan scrolls the whole window up
+            instead of resizing it, which takes the header off the top of the
+            screen and leaves a fixed bottom bar wherever it lands.
+
+            Declared, so the layout is the same everywhere: the WebView is
+            resized, the page keeps its own coordinate system, and the CSS
+            below the fold decides what happens to the bar.
+        -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:windowSoftInputMode="adjustResize"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
