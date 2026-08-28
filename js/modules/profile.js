@@ -117,6 +117,7 @@ export async function render() {
     }),
     householdCard(family, people.length),
     ...grouped().map((group) => groupCard(group, allowed)),
+    deviceCard(),
     settingsCard(allowed),
   ]);
 
@@ -228,6 +229,27 @@ function groupCard(group, allowed) {
         href: Router.href({ module: id }),
       });
     })),
+  ]);
+}
+
+/**
+ * About this phone rather than about the household's records.
+ *
+ * Separate from the settings card on purpose: that one is gated on being
+ * allowed to open Settings, and screen time is a reading of the device in
+ * somebody's hand. A member who may not change household settings is still
+ * the person whose phone this is.
+ */
+function deviceCard() {
+  return card({ class: 'card--flush' }, [
+    h('div', { class: 'profile-group-head' }, cardHeader(t('profile.device.title'))),
+    h('div', { class: 'list' }, [
+      listItem({
+        title: t('profile.wellbeing'),
+        subtitle: t('profile.wellbeingHint'),
+        href: Router.href({ module: 'wellbeing' }),
+      }),
+    ]),
   ]);
 }
 

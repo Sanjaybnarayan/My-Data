@@ -44,6 +44,7 @@ const IN_PAGE = Object.freeze({
   pdfRead: './js/data/pdf-read.js',
   chat: './js/services/chat.js',
   schema: './js/data/schema.js',
+  consent: './js/data/consent.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -1965,11 +1966,18 @@ async function main() {
       // These existed in domain/categorise.js from the beginning and were
       // reachable only from a command line. The point of the check is that
       // they are now reachable at all.
-      for (const [tab, expected] of [
+      /*
+       * Annotated, because an array of `[string, RegExp]` pairs is inferred
+       * as `(string | RegExp)[][]` and `expected.test` is then a type error
+       * on a line that is perfectly correct at run time.
+       */
+      /** @type {[string, RegExp][]} */
+      const ledgers = [
         ['people', /Person to person|No person-to-person|Nothing imported yet/i],
         ['lending', /Borrowing and lending|No borrowing|Nothing imported yet/i],
         ['insights', /Worth saying out loud|Nothing imported yet/i],
-      ]) {
+      ];
+      for (const [tab, expected] of ledgers) {
         const before = consoleErrors.length;
         await go(page, `#/finance/${tab}`);
         await page.waitForTimeout(400);
@@ -5117,6 +5125,407 @@ async function main() {
         `the web download path also ran, for ${fellThrough.map((c) => c.args[0]).join(', ')}`);
 
       await nativeContext.close();
+    }
+
+    /* ---------------------------------------------------------- health */
+
+    /*
+     * Four record lists that could not previously disagree out loud.
+     *
+     * `health` was a generic CRUD module: four tabs, four tables, and nothing
+     * that noticed a course of tablets marked ongoing whose end date passed in
+     * March, or an appointment last Tuesday nobody marked attended. Those are
+     * the records contradicting themselves, and no single list can show it.
+     *
+     * The checks below seed one of each contradiction and one quiet
+     * counterpart, so a screen that simply listed everything would fail as
+     * loudly as one that listed nothing.
+     */
+    {
+      const before = consoleErrors.length;
+
+      const seeded = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const db = app().db;
+        const day = (offset) => {
+          const d = new Date();
+          d.setDate(d.getDate() + offset);
+          return d.toISOString().slice(0, 10);
+        };
+
+        const person = await db.repo('person').create({ name: 'Health Person' });
+        const who = person.id;
+
+        // Five questions, one of each kind.
+        await db.repo('medication').create({
+          person: who, name: 'Amoxicillin', ongoing: true, endsOn: day(-120),
+        });
+        await db.repo('medication').create({
+          person: who, name: 'Ibuprofen', ongoing: false,
+        });
+        await db.repo('appointment').create({
+          person: who, title: 'Dentist', date: day(-9), status: 'scheduled',
+        });
+        await db.repo('vaccination').create({
+          person: who, vaccine: 'Tetanus', date: day(-400), nextDoseOn: day(-30),
+        });
+        await db.repo('healthRecord').create({
+          person: who, title: 'Knee scan', date: day(-200), kind: 'imaging',
+          followUpOn: day(-60),
+        });
+
+        // And the quiet ones, which must not appear as questions.
+        await db.repo('medication').create({
+          person: who, name: 'Thyroxine', ongoing: true,
+        });
+        await db.repo('appointment').create({
+          person: who, title: 'Eye test', date: day(21), status: 'scheduled',
+        });
+        await db.repo('healthRecord').create({
+          person: who, title: 'Blood test', date: day(-10), kind: 'lab report',
+        });
+
+        return { who, ranOut: day(-120), nextDose: day(-30) };
+      }, IN_PAGE.context);
+
+      await go(page, '#/health');
+      await page.waitForTimeout(600);
+
+      const screen = (await page.locator('.app-content').innerText()).trim();
+
+      /**
+       * The text of one card, found by its heading.
+       *
+       * Matching a record's name anywhere on the page proves nothing here:
+       * every one of these names is also in the table below, so a check for
+       * `/Amoxicillin/` passes with the questions card completely empty. Same
+       * fault as reading a name off the dashboard and calling it a reminder.
+       */
+      const cardText = (heading) => page.evaluate((wanted) => {
+        const head = [...document.querySelectorAll('.card h3')]
+          .find((node) => (node.textContent || '').includes(wanted));
+        const card = head && head.closest('.card');
+        return card instanceof HTMLElement ? card.innerText : '';
+      }, heading);
+
+      const raised = await cardText('do not agree about');
+      check('the questions card is drawn at all', raised.length > 0, screen.slice(0, 400));
+
+      /*
+       * The sentence, not the name.
+       *
+       * Each of these is the wording that only the questions card produces,
+       * so it cannot be satisfied by the record appearing in its own table.
+       */
+      /** @type {[string, RegExp][]} */
+      const questions = [
+        ['a course of tablets that ran out', /Is Amoxicillin still being taken/i],
+        ['one stopped with no date', /When did Ibuprofen stop/i],
+        ['an appointment nobody answered', /Did the appointment for Dentist happen/i],
+        ['a next dose with nothing later recorded', /Has the next dose of Tetanus been given/i],
+        ['a follow-up date that went by', /Was Knee scan followed up/i],
+      ];
+      for (const [what, pattern] of questions) {
+        check(`the health screen raises ${what}`, pattern.test(raised), raised.slice(0, 800));
+      }
+
+      // The counterparts. A screen listing everything would pass every check
+      // above and be useless.
+      check('and a repeat prescription with no end date is not a question',
+        !/Thyroxine/i.test(raised), raised.slice(0, 800));
+      check('and an appointment still ahead is not a question',
+        !/Eye test/i.test(raised), raised.slice(0, 800));
+      check('and a record with no follow-up date is not a question',
+        !/Blood test/i.test(raised), raised.slice(0, 800));
+
+      // Longest unanswered first, across kinds rather than grouped by list.
+      const order = ['Amoxicillin', 'Knee scan', 'Tetanus', 'Dentist']
+        .map((name) => raised.indexOf(name));
+      check('and the longest unanswered is at the top, across kinds',
+        order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])),
+        `${order.join(', ')} in ${raised.slice(0, 500)}`);
+
+      /*
+       * Nothing on this screen states a medical fact.
+       *
+       * Every finding is about the records. A word like "overdue" or "missed"
+       * would be this application making a claim about somebody's treatment
+       * out of a tick box nobody remembered to untick.
+       */
+      for (const word of ['overdue', 'at risk', 'you should', 'urgent']) {
+        check(`the health screen never says "${word}"`,
+          !new RegExp(word, 'i').test(raised), raised.slice(0, 500));
+      }
+      check('and does not call an unanswered appointment missed',
+        !/Dentist[^\n]*missed/i.test(raised), raised.slice(0, 500));
+
+      // What is current, derived from the dates rather than the tick box.
+      // Both these records have `ongoing: true`; only one is still running.
+      const current = await cardText('Being taken');
+      check('what is being taken is derived, not read from the tick box',
+        /Thyroxine/.test(current) && !/Amoxicillin/.test(current),
+        current.slice(0, 400));
+
+      // The absences, on the screen rather than only in a comment.
+      /** @type {[string, RegExp][]} */
+      const absences = [
+        ['steps and sleep', /steps, exercise, sleep/i],
+        ['heart rate and blood pressure', /heart rate, blood pressure/i],
+        ['cycle predictions', /cycle tracking or predictions/i],
+        ['interaction checking', /no drug database/i],
+        ['doses taken', /doses taken or missed/i],
+      ];
+      for (const [what, pattern] of absences) {
+        check(`the health screen says it cannot show ${what}`, pattern.test(screen),
+          screen.slice(-900));
+      }
+
+      // Nothing was removed: the generic tabs and lists are still there.
+      const tab = page.locator('.chip-row button', { hasText: 'Vaccinations' }).first();
+      const hasTabs = await tab.count() > 0;
+      check('and the four record lists are still reachable', hasTabs);
+      if (hasTabs) {
+        await tab.click();
+        await page.waitForTimeout(500);
+        const vaccinations = (await page.locator('.app-content').innerText()).trim();
+        check('and a tab still opens its list', /Tetanus/.test(vaccinations),
+          vaccinations.slice(0, 400));
+      }
+
+      /*
+       * The payoff of the one schema change, end to end.
+       *
+       * A follow-up, a next dose and an appointment all reached the dashboard
+       * reminders. The tablets running out did not — the one date a household
+       * has to act on *before* the day arrives. `medication.endsOn` is an
+       * expiry field now, so a course ending soon has to show up on the first
+       * screen a household opens.
+       */
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const d = new Date();
+        d.setDate(d.getDate() + 4);
+        await app().db.repo('medication').create({
+          person: (await app().db.repo('person').list({ limit: 200 }))
+            .find((p) => p.name === 'Health Person').id,
+          name: 'Metformin', ongoing: true, endsOn: d.toISOString().slice(0, 10),
+        });
+      }, IN_PAGE.context);
+
+      /*
+       * The Notifications tab, not the dashboard.
+       *
+       * Two wrong targets before this one. Reading the whole dashboard passed
+       * with the expiry flag removed — creating the record writes an audit
+       * entry and the activity widget prints the name, so the check could not
+       * fail. The `Expiring & due` card is the right *kind* of place and is
+       * off by default: `wallet` and `attention` cover the same records better
+       * on a phone, and the attention card deliberately shows three rows.
+       *
+       * Notifications is where the list actually lives. It is built by
+       * `AttentionService.everything`, the same arithmetic the dashboard card
+       * counts, and it carries no activity feed to match a name by accident.
+       */
+      await go(page, '#/health');
+      await go(page, '#/notifications');
+      await page.waitForTimeout(700);
+
+      const waiting = (await page.locator('.app-content').innerText()).trim();
+      check('a course of tablets running out reaches the notifications tab',
+        /Metformin/.test(waiting), waiting.slice(0, 900));
+
+      check('the health screen raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      void seeded;
+    }
+
+    /* ----------------------------------------------------- screen time */
+
+    /*
+     * The stack that was built and never drawn.
+     *
+     * The native plugin, `js/core/screentime.js` and `js/services/screentime.js`
+     * all existed and no module imported the service — the same fault that
+     * left `ChatService.send`, `markVerified`, `revoke` and `withdraw`
+     * unreachable. The first check here is therefore not about screen time at
+     * all: it is that a person can get to the screen by tapping, from Profile,
+     * without typing a URL.
+     *
+     * The rest drive four of the blocked states in sequence in one browser. A
+     * check that opened the screen once would pass on a module that printed
+     * the same sentence for every state, which is the whole thing the
+     * separation exists to prevent — so each state is compared against the
+     * ones before it, not only against a pattern.
+     */
+    {
+      const before = consoleErrors.length;
+
+      /*
+       * Dismiss what an earlier check left on screen, the way a person would.
+       *
+       * An error toast has no timer — `toast()` gives `kind: 'error'` a
+       * duration of zero on purpose, because an error somebody has to read
+       * should not vanish while they read it. One left over from the recovery
+       * phrase check sat over the foot of Profile and swallowed the tap:
+       * Playwright waited ten seconds for a row that was visible, enabled and
+       * stable the whole time. Clicking its own Dismiss button is the honest
+       * clear-down; `force: true` on the row would have hidden the problem
+       * rather than removed it, and the check below would have stopped being
+       * able to fail.
+       */
+      for (const close of await page.locator('.toast button[aria-label="Dismiss"]').all()) {
+        await close.click().catch(() => {});
+      }
+
+      await go(page, '#/profile');
+      /*
+       * `:visible`, and by destination rather than by label.
+       *
+       * The router leaves the previous screen's node in `.app-content` while
+       * the next one is still resolving, so a plain `.first()` picked a row
+       * that was in the document and had no box — a click that timed out on a
+       * screen a person can see perfectly well. Matching the href is also the
+       * stronger assertion: it is the destination that has to exist, not the
+       * wording.
+       */
+      const wellbeingLink = page.locator('a.list-item[href="#/wellbeing"]:visible').first();
+      const rows = await page.locator('a.list-item[href="#/wellbeing"]').count();
+      const reachable = await wellbeingLink.count() > 0;
+      check('screen time is reachable by tapping, not only by typing a URL', reachable,
+        `the screen-time stack was built and no module imported it (${rows} rows in the document)`);
+      check('and the row says what it goes to',
+        reachable && /screen time/i.test(await wellbeingLink.innerText()));
+
+      const covering = await page.evaluate(() => {
+        const row = [...document.querySelectorAll('a.list-item')]
+          .find((a) => a.getAttribute('href') === '#/wellbeing');
+        if (!row) return 'no row';
+        row.scrollIntoView({ block: 'center' });
+        const box = row.getBoundingClientRect();
+        const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        if (!top || row.contains(top)) return '';
+        const path = [];
+        for (let n = top; n && path.length < 5; n = n.parentElement) {
+          path.push(`${n.tagName}.${String(n.className).slice(0, 40)}`);
+        }
+        return path.join(' < ');
+      });
+      check('nothing is sitting on top of the row', covering === '', covering);
+
+      let tapped = '';
+      if (reachable) {
+        // Centred first. The bottom navigation is fixed, so a row near the
+        // foot of a long Profile is on the page and under the tab bar.
+        await wellbeingLink.scrollIntoViewIfNeeded().catch(() => {});
+        tapped = await wellbeingLink.click({ timeout: 10_000 })
+          .then(() => '', (err) => String(err.message).replace(/\s+/g, ' ').slice(0, 500));
+      }
+      check('and the row can actually be tapped', reachable && tapped === '', tapped);
+      await page.waitForTimeout(450);
+
+      const landed = await page.evaluate(() => globalThis.location.hash);
+      check('and the tap lands on it', landed.includes('wellbeing'), landed);
+
+      const said = {};
+      const readScreen = async () => (await page.locator('.app-content').innerText()).trim();
+      const reopen = async () => {
+        // Through the dashboard, so the module is re-entered rather than left
+        // showing what it painted before the state changed.
+        await go(page, '#/dashboard');
+        await go(page, '#/wellbeing');
+        return readScreen();
+      };
+      const consentWays = () => page.getByRole('link', { name: /where consent is recorded/i }).count();
+      const settingsButtons = () => page.getByRole('button', { name: /usage access settings/i }).count();
+
+      // Somebody is signed in by now and nobody has asked them.
+      said.unasked = await readScreen();
+      check('a person who has not been asked is told that, not told it is unavailable',
+        /has not been asked/i.test(said.unasked)
+          && !/not available|unavailable/i.test(said.unasked),
+        said.unasked.slice(0, 400));
+      check('and there is a way to the screen where consent is recorded',
+        await consentWays() === 1);
+      // Usage access has no prompt, so a button claiming to ask for it would
+      // describe a request Android never makes.
+      check('and no settings button, because a settings page cannot fix an unasked question',
+        await settingsButtons() === 0);
+
+      // A person who said no. Their answer stands, so this state offers no
+      // way to be asked again.
+      await page.evaluate(async (specs) => {
+        const { app } = await import(specs[0]);
+        const { withdraw } = await import(specs[1]);
+        await withdraw(app().db, 'screenTime', { subject: app().db.actor.personId });
+      }, [IN_PAGE.context, IN_PAGE.consent]);
+
+      said.refused = await reopen();
+      check('a person who said no is told nothing is read',
+        /said no/i.test(said.refused) && /nothing is read/i.test(said.refused),
+        said.refused.slice(0, 400));
+      check('and is not offered a way to be asked again', await consentWays() === 0);
+
+      // Consent given, and a browser still cannot read: the device half is
+      // checked separately from the consent half rather than folded into it.
+      await page.evaluate(async (specs) => {
+        const { app } = await import(specs[0]);
+        const { grant } = await import(specs[1]);
+        await grant(app().db, 'screenTime', { subject: app().db.actor.personId });
+      }, [IN_PAGE.context, IN_PAGE.consent]);
+
+      said.noPlugin = await reopen();
+      check('consent given and a browser still says which half is missing',
+        /no screen-time service/i.test(said.noPlugin), said.noPlugin.slice(0, 400));
+      check('and the consent link is gone once consent is not the problem',
+        await consentWays() === 0);
+
+      // Nobody signed in at all: not the same as nobody having asked.
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        app().db.setActor({ personId: '', role: 'owner' });
+      }, IN_PAGE.context);
+
+      said.noPerson = await reopen();
+      check('with nobody signed in it says so, rather than "not available"',
+        /nobody is signed in/i.test(said.noPerson)
+          && !/not available|unavailable/i.test(said.noPerson),
+        said.noPerson.slice(0, 400));
+
+      // The point of keeping the states apart, checked as a property rather
+      // than four patterns that could all match one sentence.
+      const sentences = Object.values(said);
+      check('and all four blocked states print different sentences',
+        new Set(sentences).size === sentences.length,
+        Object.keys(said).join(', '));
+
+      // Every absence a phone's own wellbeing page shows and this one does
+      // not, on the screen rather than only in a comment.
+      /** @type {[string, RegExp][]} */
+      const absences = [
+        ['categories', /no categories/i],
+        ['screen time while walking or driving', /walking or driving/i],
+        ['listening volume', /listening volume|hearing/i],
+        ['app timers and bedtime mode', /app timers/i],
+      ];
+      for (const [what, pattern] of absences) {
+        check(`the screen says it cannot show ${what}`, pattern.test(said.noPerson),
+          said.noPerson.slice(0, 600));
+      }
+
+      // No reading was taken, so nothing may look like one.
+      check('and no reading is drawn when there is none',
+        await page.locator('.wellbeing-bar').count() === 0);
+
+      check('the screen-time screen raises no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      // Put the signed-in person back for anything after this.
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const who = await app().db.meta('auth.currentPerson');
+        app().db.setActor({ personId: who ?? '', role: 'owner' });
+      }, IN_PAGE.context);
     }
 
     await go(page, '#/dashboard');

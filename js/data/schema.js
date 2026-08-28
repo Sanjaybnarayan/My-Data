@@ -808,7 +808,7 @@ const medication = {
     pick('frequency', ['once daily', 'twice daily', 'thrice daily', 'weekly',
       'as needed', 'other'], { default: 'once daily', list: true }),
     day('startedOn'),
-    day('endsOn', { list: true }),
+    day('endsOn', { list: true, expiry: true, expiryLead: 7 }),
     text('prescribedBy', { encrypted: true }),
     text('purpose', { search: true }),
     { key: 'ongoing', type: 'boolean', default: true, list: true },
