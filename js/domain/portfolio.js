@@ -9,14 +9,14 @@
  * All amounts in minor units.
  */
 
-import { sum } from '../core/money.js';
+import { sum, roundMoney } from '../core/money.js';
 import { today, daysBetween, daysUntil } from '../core/dates.js';
 
 /* --------------------------------------------------------------- holdings */
 
 export function holdingValue(holding) {
   if (holding.currentValue) return holding.currentValue;
-  if (holding.units && holding.averageCost) return Math.round(holding.units * holding.averageCost);
+  if (holding.units && holding.averageCost) return roundMoney(holding.units * holding.averageCost);
   return holding.invested ?? 0;
 }
 

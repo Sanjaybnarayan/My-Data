@@ -30,6 +30,8 @@
  * review step as a PDF.
  */
 
+
+import { toMinor } from '../core/money.js';
 /**
  * Header words, per field. First match wins, so put the specific ones first.
  *
@@ -194,7 +196,10 @@ export function readAmount(cell) {
     .replace(/[₹$,\s]/g, '').replace(/^-/, '');
 
   if (!/^\d+(?:\.\d+)?$/.test(digits)) return null;
-  const minor = Math.round(Number(digits) * 100);
+  // `toMinor` rather than `* 100`. `digits` has had its sign stripped above
+  // and is put back below, so this only ever rounds a positive — but the
+  // scale belongs to the currency, not to this line.
+  const minor = toMinor(Number(digits));
   return negative ? -minor : minor;
 }
 

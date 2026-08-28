@@ -47,7 +47,7 @@
  * from so the household can disagree with it.
  */
 
-import { format } from '../core/money.js';
+import { format, divide } from '../core/money.js';
 
 /** Below this, a multiple is arithmetic rather than news. ₹2,000 in paise. */
 export const FLOOR = 2_000_00;
@@ -84,7 +84,7 @@ function median(values) {
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2
     ? sorted[middle]
-    : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+    : divide(sorted[middle - 1] + sorted[middle], 2);
 }
 
 /**

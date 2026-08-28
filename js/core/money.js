@@ -88,6 +88,24 @@ export const negate = (a) => -(a ?? 0);
 export const abs = (a) => Math.abs(a ?? 0);
 export const sum = (list) => list.reduce((t, n) => t + (n ?? 0), 0);
 
+/**
+ * Round a money figure that was worked out some other way.
+ *
+ * The three helpers below cover multiply, divide and percent. This is for the
+ * arithmetic they do not express — compound interest, a median, a running
+ * balance — where the result is money and the rounding rule still has to be
+ * this module's rather than `Math.round`'s.
+ *
+ * It exists because the rule above was stated and not followed. `roundHalfUp`
+ * was private, the three helpers that used it had no callers at all, and
+ * sixty-seven `Math.round` calls across the domain did money arithmetic with
+ * the rounding this module exists to avoid — so a debit and a credit of the
+ * same size did **not** round to the same size anywhere in the application.
+ */
+export function roundMoney(value) {
+  return Number.isFinite(value) ? roundHalfUp(value) : 0;
+}
+
 /** Multiply by a plain rate (quantity, tax rate, unit price). */
 export function mul(minor, rate) {
   return roundHalfUp((minor ?? 0) * rate);
