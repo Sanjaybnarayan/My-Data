@@ -136,6 +136,15 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
  * top of it. On a device with no inset — a desktop browser — this is exactly
  * what it was before.
  */
+/*
+ * The header's lock is the phone's copy of the rail's Lock now row. Where the
+ * rail is drawn, the row is there with a word on it and this would be a
+ * second path to one action on one screen.
+ */
+@media (min-width: 901px) {
+  .lock-now { display: none; }
+}
+
 .app-header {
   grid-area: header;
   min-width: 0;
@@ -267,17 +276,17 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
     grid-template-areas: 'header' 'main';
   }
 
-  .app-nav {
-    position: fixed;
-    inset: 0 auto 0 0;
-    width: min(84vw, var(--nav-width));
-    z-index: 60;
-    transform: translateX(-102%);
-    transition: transform var(--duration) var(--ease-out);
-    box-shadow: var(--shadow-3);
-  }
-
-  .app[data-drawer='open'] .app-nav { transform: none; }
+  /*
+   * The rail is a desktop surface. On a phone the bottom bar is the whole of
+   * the navigation.
+   *
+   * `display: none` rather than sliding it off-screen. A transformed panel is
+   * still in the accessibility tree and still in the tab order, so a screen
+   * reader met all twenty-five module links and then met five of them again
+   * on the bar below — the same duplication a sighted person saw as a burger
+   * beside a tab bar, and the harder half to notice.
+   */
+  .app-nav { display: none; }
 
   .app-main {
     padding: var(--space-4) var(--space-3);
@@ -382,21 +391,6 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
 
 }
 
-@media (min-width: 901px) {
-  .drawer-scrim { display: none !important; }
-}
-
-.drawer-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  background: var(--overlay);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--duration) var(--ease);
-}
-
-.app[data-drawer='open'] .drawer-scrim { opacity: 1; pointer-events: auto; }
 
 /* Printing a report should not print the navigation. */
 @media print {

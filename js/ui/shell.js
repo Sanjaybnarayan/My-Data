@@ -1,8 +1,8 @@
 /**
  * The application frame.
  *
- * Navigation, header, global search, sync indicator, theme toggle, and the
- * outlet the router renders into. Built once at boot and never re-created —
+ * Navigation, header, global search, sync indicator, lock, theme toggle, and
+ * the outlet the router renders into. Built once at boot and never re-created —
  * only its state changes — so navigating does not rebuild the sidebar or lose
  * the scroll position of the nav.
  *
@@ -11,7 +11,7 @@
  * because `visibleModules` did not return one.
  */
 
-import { h, replace, $, delegate, announce } from './dom.js';
+import { h, replace, $, announce } from './dom.js';
 import { icon } from './icons.js';
 import { Router } from './router.js';
 import { modules } from '../data/schema.js';
@@ -31,7 +31,10 @@ import { moduleLabel } from '../core/labels.js';
  * longer here itself.
  *
  * Five, and it stays five. A sixth makes each target narrower than a thumb,
- * and the drawer already reaches every other module.
+ * and Profile's own groups already reach the other twenty — which is why a
+ * phone has this bar and nothing else. There used to be a drawer as well,
+ * listing all twenty-five behind a burger, so a phone carried two complete
+ * navigations at once.
  */
 export const PRIMARY = Object.freeze(['dashboard', 'notifications', 'chat', 'finance', 'profile']);
 
@@ -82,10 +85,24 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
   }
   renderThemeIcon();
 
-  const drawerToggle = iconButton('menu', {
-    label: 'Open navigation',
-    class: 'nav-toggle',
-    onClick: () => toggleDrawer(),
+  /*
+   * Lock, in the header, where the drawer button used to be.
+   *
+   * `.app-nav` is the desktop rail and it carries a Lock now row. On a phone
+   * the rail is not drawn at all, so without this the only way to lock is
+   * Profile → Settings → Security → Lock now: four taps for the control
+   * somebody reaches for when they are handing the phone to someone else.
+   * It stays one.
+   *
+   * Grouped with sync and theme rather than left where the burger was: it is
+   * a global control, not a way to somewhere. Hidden on desktop by CSS,
+   * because the rail's own Lock now row is right there with a word on it —
+   * two paths to one action on one screen is the thing this change removes.
+   */
+  const lockButton = iconButton('lock', {
+    label: 'Lock now',
+    class: 'lock-now',
+    onClick: () => onLock?.(),
   });
 
   const nav = h('nav', { class: 'app-nav', 'aria-label': 'Sections' }, [
@@ -131,13 +148,11 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
         }, [icon(mod.icon, { size: 22 }), badge, h('span', {}, moduleLabel(mod))]);
       }));
 
-  const scrim = h('div', { class: 'drawer-scrim', onClick: () => toggleDrawer(false) });
-
   const header = h('header', { class: 'app-header' }, [
-    drawerToggle,
     h('div', { class: 'search-box' }, [icon('search', { size: 18 }), searchInput, results]),
     h('div', { class: 'spacer' }),
     syncPill,
+    lockButton,
     themeButton,
   ]);
 
@@ -147,7 +162,6 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
     header,
     h('main', { class: 'app-main' }, outlet),
     bottomNav,
-    scrim,
   ]);
 
   function navLink(mod) {
@@ -157,37 +171,6 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
       dataset: { module: mod.id },
     }, [icon(mod.icon, { size: 20 }), h('span', {}, moduleLabel(mod))]);
   }
-
-  /**
-   * Open or close the drawer.
-   *
-   * Closing moves focus back to the button that opened it. Without that, a
-   * keyboard or screen-reader user who opens the drawer and closes it again is
-   * left with focus on a panel that is no longer on screen, and the next Tab
-   * starts from the top of the document.
-   *
-   * Only when the focus is still inside the drawer: closing it because
-   * somebody followed a link should leave focus where the new screen puts it,
-   * not drag it back to the header.
-   *
-   * Opening deliberately does *not* move focus. The drawer is a panel beside
-   * the content rather than a dialog over it, and pulling focus into it would
-   * take a pointer user's caret out of the search box they were typing in.
-   */
-  function toggleDrawer(open) {
-    const next = open ?? root.dataset.drawer !== 'open';
-    const wasInside = !next && nav.contains(document.activeElement);
-
-    root.dataset.drawer = next ? 'open' : 'closed';
-    drawerToggle.setAttribute('aria-label', next ? 'Close navigation' : 'Open navigation');
-    drawerToggle.setAttribute('aria-expanded', String(next));
-
-    if (!next && wasInside) drawerToggle.focus();
-  }
-
-  // Following a link inside the drawer should close it; leaving it open over
-  // the content the user just navigated to is the classic mobile-nav bug.
-  delegate(nav, 'click', 'a', () => toggleDrawer(false));
 
   bus.on(TOPIC.route, (route) => {
     for (const link of root.querySelectorAll('[data-module]')) {
@@ -225,7 +208,6 @@ export function buildShell({ actor, onSearch, onSync, onLock, router }) {
     router: router ?? new Router(outlet),
     searchInput,
     searchResults: results,
-    setDrawer: toggleDrawer,
     /** Refresh the nav after a role change without rebuilding the shell. */
     refreshNav(nextActor) {
       const next = visibleModules(nextActor, modules);

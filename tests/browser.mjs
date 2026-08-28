@@ -1963,6 +1963,94 @@ async function main() {
       await page.waitForTimeout(300);
     }
 
+    /* ------------------------------------------- one navigation, not two */
+
+    /*
+     * A phone drew a burger opening a drawer of all twenty-five modules and
+     * a bottom bar of five, at the same time — two complete navigations, one
+     * over the other. That is what a device showed.
+     *
+     * The drawer shared its markup with the desktop rail, which the phone
+     * layout moved off-screen with a transform. A transformed panel is still
+     * rendered, still in the accessibility tree and still in the tab order,
+     * so the duplication a sighted person saw as a burger was, for a screen
+     * reader, twenty-five module links followed by five of them again. It is
+     * `display: none` below 901px now, which is why the rail's own computed
+     * style is checked and not just whether a burger is on screen.
+     */
+    {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+
+      const drawn = () => page.evaluate(() => {
+        const shown = (el) => el.getClientRects().length > 0;
+        const nav = document.querySelector('.app-nav');
+        return {
+          rail: nav ? getComputedStyle(nav).display : 'absent',
+          // Destinations somebody can actually reach from the frame, counted
+          // off what is drawn rather than what is in the DOM.
+          links: [...document.querySelectorAll('.app-nav [data-module], .bottom-nav [data-module]')]
+            .filter(shown).length,
+          burgers: [...document.querySelectorAll('[aria-label*="navigation" i]')]
+            .filter(shown).length,
+          scrims: document.querySelectorAll('.drawer-scrim').length,
+          locks: [...document.querySelectorAll('[aria-label="Lock now"]')].filter(shown).length,
+        };
+      });
+
+      const phone = await drawn();
+      check('a phone draws one navigation, not two',
+        phone.links === 5, `${phone.links} module links drawn in the frame`);
+      check('and the rail is gone from the tree, not moved off-screen',
+        phone.rail === 'none', phone.rail);
+      check('no burger remains', phone.burgers === 0, String(phone.burgers));
+      check('and no drawer scrim is left behind', phone.scrims === 0, String(phone.scrims));
+
+      // The drawer's one control that is not a module. Without it in the
+      // header this goes from one tap to four — Profile, Settings, Security,
+      // Lock now — for what somebody reaches for handing over the phone.
+      check('lock stays one tap on a phone', phone.locks === 1, String(phone.locks));
+
+      /*
+       * Removing a navigation must not remove a destination. The unit suite
+       * checks `grouped()` claims every module; this checks the screen draws
+       * them, which is the half that can be true in the data and missing on
+       * the page.
+       */
+      await go(page, '#/profile');
+      await page.waitForTimeout(500);
+      // An array, not a Set: `evaluate` hands back JSON, and a Set arrives as
+      // `{}` — which threw rather than passing, but a shape that cannot cross
+      // the boundary is worth naming where somebody will copy this.
+      const reachable = new Set(await page.evaluate(
+        () => [...document.querySelectorAll('.app-content a[href*="#/"], .bottom-nav [data-module]')]
+          .filter((el) => el.getClientRects().length > 0)
+          .map((el) => (el.getAttribute('href') ?? '').replace(/^#\//, '').split('/')[0])
+          .filter(Boolean),
+      ));
+      const unreachable = SCHEMA_MODULES.map((m) => m.id).filter((id) => !reachable.has(id));
+      check('and every module is still reachable without a drawer',
+        unreachable.length === 0, `unreachable: ${unreachable.join(', ')}`);
+
+      /* ------------------------------------------------------- desktop */
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+
+      const desk = await drawn();
+      check('a desktop draws the rail instead',
+        desk.rail !== 'none' && desk.links > 5, `${desk.rail}, ${desk.links} links`);
+      check('and still has no burger — it toggled an attribute nothing read',
+        desk.burgers === 0, String(desk.burgers));
+      // The rail carries a Lock now row with a word on it. A second one in
+      // the header would be the pattern this whole change removes.
+      check('and one path to lock, not two', desk.locks === 1, String(desk.locks));
+
+      await page.waitForTimeout(200);
+    }
+
     /* ------------------------------------------------- removing an import */
 
     {
@@ -5141,7 +5229,8 @@ async function main() {
       await shell.waitForSelector('text=Your recovery phrase', { timeout: 20_000 });
       await shell.locator('#kit-ack').check();
       await shell.getByRole('button', { name: 'I have written it down' }).click();
-      await shell.waitForSelector('.app-nav', { timeout: 20_000 });
+      // The bar, not the rail: this context is a phone, where the rail is not drawn.
+      await shell.waitForSelector('.bottom-nav', { timeout: 20_000 });
 
       check('the app boots and unlocks inside a native shell', true);
       check('and raises no error doing it', shellErrors.length === 0, shellErrors.join(' | '));

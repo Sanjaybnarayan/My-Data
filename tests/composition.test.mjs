@@ -106,10 +106,10 @@ describe('a caller-supplied class is added, never substituted', () => {
   });
 
   test('iconButton keeps btn and btn--icon', () => {
-    const el = withDom(() => iconButton('menu', { label: 'Open navigation', class: 'nav-toggle' }));
+    const el = withDom(() => iconButton('lock', { label: 'Lock now', class: 'lock-now' }));
     assert.equal(el.classList.has('btn'), true, el.className);
     assert.equal(el.classList.has('btn--icon'), true, el.className);
-    assert.equal(el.classList.has('nav-toggle'), true, el.className);
+    assert.equal(el.classList.has('lock-now'), true, el.className);
   });
 
   test('card keeps card — it always did, and that is the comparison', () => {
