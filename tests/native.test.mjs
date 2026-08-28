@@ -608,3 +608,52 @@ describe('what iOS has to declare before it may ask for a location', () => {
     assert.equal(/<key>NSLocationAlwaysUsageDescription<\/key>/.test(xml), false);
   });
 });
+
+describe('what the recents switcher is allowed to keep', () => {
+  const activity = () => readFile(
+    join(ROOT, 'android/app/src/main/java/com/familyos/app/MainActivity.java'), 'utf8');
+
+  /**
+   * The file with its comments taken out.
+   *
+   * The lifecycle check below reads for the *absence* of `onPause`, and the
+   * comment beside the flag argues about onPause by name — so against the
+   * raw text it failed on correct code, which is the same defect as passing
+   * on wrong code.
+   */
+  const code = async () => (await activity())
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/[^\n]*/g, ' ');
+
+  test('the window is FLAG_SECURE, so the switcher thumbnail is blank', async () => {
+    const java = await activity();
+    assert.ok(/setFlags\(\s*WindowManager\.LayoutParams\.FLAG_SECURE\s*,\s*WindowManager\.LayoutParams\.FLAG_SECURE\s*\)/
+      .test(java),
+    'without it Android keeps a photograph of whatever was on screen when the app was backgrounded');
+    assert.ok(/^import android\.view\.WindowManager;$/m.test(java),
+      'the constant has to be imported or the APK build is the first to know');
+  });
+
+  test('and it is set for the window, not toggled around the lifecycle', async () => {
+    // The toggle — set in onPause, clear in onResume — leaves deliberate
+    // screenshots working, and depends on the flag landing before Android
+    // takes its snapshot. That timing varies by OEM and version and cannot
+    // be tested from a build machine, so the app does not rely on it. If
+    // somebody adds the toggle later, this is where the argument is.
+    const java = await code();
+    assert.not(/onPause|onResume|clearFlags/.test(java),
+      'a lifecycle toggle is a protection resting on a race nobody here can test');
+  });
+
+  test('and the flag is set inside onCreate, where the window exists', async () => {
+    // `getWindow()` is null before the activity is attached. Setting the
+    // flag from a field initialiser or the constructor throws on launch —
+    // which the APK job would catch, but only after a build.
+    const java = await code();
+    const onCreate = /void onCreate\([^)]*\)\s*\{([\s\S]*?)\n    \}/.exec(java)?.[1] ?? '';
+    assert.ok(onCreate.length > 0, 'onCreate not found — this test is reading the wrong shape');
+    assert.ok(/FLAG_SECURE/.test(onCreate), 'the flag is set outside onCreate');
+    assert.ok(onCreate.indexOf('super.onCreate') < onCreate.indexOf('FLAG_SECURE'),
+      'set it after super.onCreate, which is where Capacitor builds the window');
+  });
+});
