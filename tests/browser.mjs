@@ -1326,10 +1326,27 @@ async function main() {
         /Google permissions/.test(body), body.slice(0, 400));
       check('and names the console page they go on',
         /OAuth consent screen/.test(body));
+      /*
+       * Opened, the way a person opens it.
+       *
+       * The scope list folds away now — a hundred lines of setup reference
+       * that used to sit open above Security and Backup. The checks below
+       * read what is inside it, so they open it first rather than asserting
+       * on text a `<details>` is not rendering. The two strings a broken
+       * sign-in needs are *not* in here: they were, folding hid them, and
+       * they have their own visible card now.
+       */
+      const scopeFold = page.locator('details.card', { hasText: 'Google permissions' }).first();
+      if (await scopeFold.count()) {
+        await scopeFold.locator('summary').click();
+        await page.waitForTimeout(200);
+      }
+      const scopes = (await page.locator('.app-content').innerText()).trim();
+
       check('and marks the optional ones as optional',
         (await page.locator('.badge', { hasText: 'optional' }).count()) >= 2);
       check('and says drive.appdata is not needed',
-        /do not need drive\.appdata/i.test(body), body.slice(0, 1200));
+        /do not need drive\.appdata/i.test(scopes), scopes.slice(0, 1200));
 
       // The tightening that matters: an ordinary sign-in asks who you are and
       // nothing else, so the required list must not name a Google API.
@@ -1343,6 +1360,9 @@ async function main() {
       // error inside the popup and the app can only tell that a window shut,
       // so the two strings that have to match are printed rather than
       // described.
+      // `body`, not `scopes`: these two moved out of the fold on purpose and
+      // have to be readable without opening anything. Reading them from the
+      // opened text would pass either way and stop being a check.
       check('the origin and redirect URI are shown, exactly',
         body.includes('Authorised redirect URI')
         && body.includes('/oauth-callback.html'), body.slice(0, 1600));
@@ -5344,6 +5364,109 @@ async function main() {
         nameless.length === 0, [...new Set(nameless)].slice(0, 6).join(' | '));
       check('and every input has a label of some kind',
         unlabelled.length === 0, [...new Set(unlabelled)].slice(0, 6).join(' | '));
+    }
+
+    /* ------------------------------------------------ settings, measured */
+
+    /*
+     * Nineteen cards in one flat grid.
+     *
+     * The note at the top of `js/modules/settings.js` says the cards live in
+     * `js/modules/settings/` "grouped by the question somebody came to this
+     * screen to ask". That was true of the *files* and had never been true of
+     * the screen: measured on a 390×844 phone it was 6,905px — **8.2 screens
+     * of scrolling** — with nothing to navigate by, and a single 1,301px card
+     * of OAuth scopes (19% of the page, read once during setup) sitting above
+     * Security, Appearance and Backup.
+     *
+     * This measures the rendered document rather than reading the source,
+     * because the source is what made the claim.
+     */
+    {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/settings');
+      await page.waitForTimeout(900);
+
+      const settings = await page.evaluate(() => {
+        const content = document.querySelector('.app-content');
+        const groups = [...document.querySelectorAll('.settings-group')];
+        const tallest = [...document.querySelectorAll('.app-content .card')]
+          .map((el) => ({
+            title: (el.querySelector('h2')?.textContent ?? '').trim(),
+            height: Math.round(el.getBoundingClientRect().height),
+          }))
+          .sort((a, b) => b.height - a.height)[0] ?? { title: '', height: 0 };
+
+        return {
+          height: content instanceof HTMLElement ? content.scrollHeight : 0,
+          viewport: globalThis.innerHeight,
+          groups: groups.map((el) => (el.querySelector('.settings-group-title')?.textContent ?? '').trim()),
+          cards: document.querySelectorAll('.app-content .card').length,
+          tallest,
+          // Every card contributes a heading, including the folded ones.
+          headings: document.querySelectorAll('.app-content .card h2').length,
+          jumps: document.querySelectorAll('.settings-jump .chip').length,
+        };
+      });
+
+      check('settings is grouped rather than one flat grid',
+        settings.groups.length >= 5, JSON.stringify(settings.groups));
+      check('and every group can be jumped to', settings.jumps === settings.groups.length,
+        `${settings.jumps} jump chips for ${settings.groups.length} groups`);
+      check('and every group is named', settings.groups.every((one) => one.length > 0),
+        JSON.stringify(settings.groups));
+      check('and it still draws every card it did before',
+        settings.cards >= 19, `${settings.cards} cards`);
+
+      /*
+       * Every card carries a heading, folded ones included.
+       *
+       * `breachCard` was a `<details>` whose summary was bare text, so it
+       * contributed nothing to heading navigation while all eighteen others
+       * contributed one. The scope list now folds the same way and had to not
+       * repeat that.
+       */
+      check('every card contributes a heading, including the folded ones',
+        settings.headings >= settings.cards,
+        `${settings.headings} headings for ${settings.cards} cards`);
+
+      /*
+       * The folded card, specifically — not a budget on every card.
+       *
+       * The first version of this check asserted that no card exceeded one
+       * viewport, on the reasoning that card height does not depend on the
+       * fixture. That was wrong and the suite said so: the audit log came out
+       * at 951px because it lists whatever activity this run happened to
+       * create, and so do conflicts and deleted items. A budget on those is a
+       * budget on the fixture.
+       *
+       * What is worth pinning is the thing that was actually wrong: a
+       * hundred-line scope reference open by default above Security and
+       * Backup. Closed, it is a heading.
+       */
+      const folded = await page.evaluate(() => {
+        const scopes = [...document.querySelectorAll('details.card')]
+          .find((el) => /Google permissions/.test(el.textContent ?? ''));
+        if (!(scopes instanceof HTMLElement)) return null;
+        return { open: scopes.hasAttribute('open'),
+          height: Math.round(scopes.getBoundingClientRect().height) };
+      });
+      check('the scope reference is folded away by default',
+        folded !== null && !folded.open && folded.height < 120, JSON.stringify(folded));
+
+      /*
+       * And the two strings a broken sign-in needs are *not* folded with it.
+       *
+       * They were inside that card, and folding it took them too — the
+       * commonest reason a Google sign-in fails has nothing to do with
+       * scopes, so hiding them was the wrong call. Two existing checks failed
+       * the moment it happened, which is how it surfaced.
+       */
+      const body = (await page.locator('.app-content').innerText()).trim();
+      check('and the redirect URI is still visible without opening anything',
+        /Authorised redirect URI/.test(body), body.slice(0, 300));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
     }
 
     /* --------------------------------------------- the secondary modules */

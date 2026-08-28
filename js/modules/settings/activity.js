@@ -216,8 +216,11 @@ export function breachCard(answer) {
   const urgent = answer.indicators.filter((i) => i.severity === SEVERITY.URGENT);
 
   return h('details', { class: 'card card--quiet' }, [
-    h('summary', {}, [
-      'If you think your records have got out',
+    // The heading is an `h2` inside the summary, not bare text: a `<summary>`
+    // is not a heading, so this card contributed nothing to heading
+    // navigation while every other card on the screen contributed one.
+    h('summary', { class: 'card-summary' }, [
+      h('h2', {}, 'If you think your records have got out'),
       urgent.length ? badge(String(urgent.length), 'warning') : null,
     ].filter(Boolean)),
 

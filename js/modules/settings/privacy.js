@@ -266,11 +266,27 @@ export function permissionsCard() {
     value: '',
   });
 
-  return card({}, [
-    cardHeader('Google permissions', [copy([...required, ...optional], 'Copy all')], {
-      subtitle: 'Cloud Console → APIs & Services → OAuth consent screen → Scopes',
-      iconName: 'key',
-    }),
+  /*
+   * Folded away, because it is setup reference rather than a control.
+   *
+   * Measured on a 390×844 phone this card was **1,301px** — one and a half
+   * screens, 19% of the whole Settings page — sitting above Security,
+   * Appearance and Backup. It is a list of OAuth scopes to paste into Cloud
+   * Console, read once while setting the application up and never again, and a
+   * household changing their PIN was scrolling past all of it.
+   *
+   * `<details class="card">` rather than something new: `breachCard` in
+   * `settings/activity.js` already folds itself away this way. The heading is
+   * a real `h2` inside the summary so the section still appears when somebody
+   * navigates by heading — a `<summary>` on its own does not.
+   */
+  return h('details', { class: 'card' }, [
+    h('summary', { class: 'card-summary' }, [
+      h('h2', {}, t('settings.scopes.title')),
+      h('span', { class: ['small', 'muted'] }, t('settings.scopes.where')),
+    ]),
+
+    h('div', { class: 'card-summary-actions' }, copy([...required, ...optional], 'Copy all')),
 
     h('p', { class: 'small muted' },
       'Two consent surfaces, and mixing them up is why adding a scope in the console '
@@ -282,24 +298,44 @@ export function permissionsCard() {
     h('div', { class: 'list' }, required.map(row)),
     copy(required, 'Copy the required scopes'),
 
-    // The commonest reason a sign-in fails has nothing to do with scopes: the
-    // OAuth client does not list where this copy of the app is served from.
-    // Google shows its own error inside the popup, the person closes it, and
-    // the application can only tell that a window shut. So the two strings it
-    // has to match are printed here, exactly, rather than described.
-    h('h3', { class: 'small', style: { marginTop: 'var(--space-4)' } }, 'Where this copy is served from'),
-    h('p', { class: 'small muted' },
-      'On the OAuth client — not the consent screen — these two must be listed '
-      + 'exactly, or Google refuses the sign-in before it asks you anything.'),
+    h('h3', { class: 'small', style: { marginTop: 'var(--space-4)' } }, 'Optional'),
+    h('div', { class: 'list' }, optional.map((scope) => listItem({
+      title: scope.id.replace('https://www.googleapis.com/auth/', ''),
+      subtitle: `${scope.title} — ${scope.why}`,
+      trailing: badge('optional', ''),
+    }))),
+    h('p', { class: 'small faint' },
+      'Each optional one buys a single named feature and nothing works worse without it. '
+      + 'Notably you do not need drive.appdata: without it the unlock key goes in an '
+      + 'ordinary visible file in your Drive, which works identically.'),
+  ]);
+}
+
+/**
+ * Where this copy is served from — its own card, and not folded.
+ *
+ * This was inside the scope list, and folding that list away took this with
+ * it. That was the wrong call, and the card's own comment said why before I
+ * moved it: **the commonest reason a sign-in fails has nothing to do with
+ * scopes.** The OAuth client does not list where this copy of the app is
+ * served from, Google shows its own error inside the popup, the person closes
+ * it, and the application can only tell that a window shut.
+ *
+ * So the two strings somebody needs when sign-in is broken are visible, and
+ * the hundred-line scope reference they do not need is the part that folds.
+ * Two browser checks read this text and started failing the moment it went
+ * behind a disclosure, which is how the mistake surfaced.
+ */
+export function originCard() {
+  return card({ class: 'card--quiet' }, [
+    cardHeader(t('settings.origin.title'), null, { iconName: 'key' }),
+    h('p', { class: ['small', 'muted'] }, t('settings.origin.why')),
     h('div', { class: 'list' }, [
       listItem({
         title: 'Authorised JavaScript origin',
         subtitle: globalThis.location?.origin ?? '',
       }),
-      listItem({
-        title: 'Authorised redirect URI',
-        subtitle: redirectUri(),
-      }),
+      listItem({ title: 'Authorised redirect URI', subtitle: redirectUri() }),
     ]),
     button('Copy both', {
       variant: 'subtle',
@@ -315,17 +351,6 @@ export function permissionsCard() {
         }
       },
     }),
-
-    h('h3', { class: 'small', style: { marginTop: 'var(--space-4)' } }, 'Optional'),
-    h('div', { class: 'list' }, optional.map((scope) => listItem({
-      title: scope.id.replace('https://www.googleapis.com/auth/', ''),
-      subtitle: `${scope.title} — ${scope.why}`,
-      trailing: badge('optional', ''),
-    }))),
-    h('p', { class: 'small faint' },
-      'Each optional one buys a single named feature and nothing works worse without it. '
-      + 'Notably you do not need drive.appdata: without it the unlock key goes in an '
-      + 'ordinary visible file in your Drive, which works identically.'),
   ]);
 }
 

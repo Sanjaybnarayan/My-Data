@@ -706,6 +706,48 @@
   background: var(--accent);
 }
 
+/* ----------------------------------------------- settings groups & folds */
+
+/*
+ * Named sections on the Settings screen.
+ *
+ * The screen was one flat grid of nineteen cards — 6,905px, 8.2 screens on a
+ * 390px phone, with nothing to navigate by. The grouping the source tree
+ * already had is now on the screen too.
+ */
+.settings-jump { margin-bottom: var(--space-5); }
+.settings-group { margin-bottom: var(--space-6); }
+/* Somewhere to land that is not under the sticky header. */
+.settings-group > div:first-child { scroll-margin-top: var(--space-6); }
+.settings-group-title {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-3);
+}
+
+/*
+ * A card that folds itself away, for reference rather than control.
+ *
+ * `breachCard` did this already with browser-default summary styling. Both it
+ * and the OAuth scope list now read as a card header when closed.
+ */
+details.card > .card-summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+}
+details.card > .card-summary h2 {
+  font-size: var(--text-lg);
+  margin: 0;
+  margin-right: auto;
+}
+details.card > .card-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+details.card > .card-summary-actions { margin: var(--space-3) 0; }
+
 /* ------------------------------------------------------------ misc atoms */
 
 .search-box { position: relative; flex: 1; max-width: 520px; }
