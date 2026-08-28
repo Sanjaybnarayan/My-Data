@@ -17,6 +17,7 @@
  */
 
 import { bus, TOPIC } from '../core/bus.js';
+import { closeAllModals } from './components/modal.js';
 
 export class Router {
   #routes = new Map();
@@ -127,6 +128,13 @@ export class Router {
     // listener and the tenth visit renders ten times.
     this.#teardown?.();
     this.#teardown = null;
+
+    // A dialog is mounted on `document.body`, so replacing the outlet's
+    // children leaves it standing over whatever the next screen turns out to
+    // be — scroll still locked, focus still trapped, and a confirmation's
+    // buttons still wired to the record it was asked about. Whatever caused
+    // this navigation, the dialog does not survive it.
+    closeAllModals();
 
     this.#outlet.setAttribute('aria-busy', 'true');
     try {

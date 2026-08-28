@@ -31,6 +31,7 @@ import { SyncEngine } from './sync/engine.js';
 import { DocumentStore } from './sync/drive.js';
 import { Assistant } from './ai/assistant.js';
 import { mountToasts, toast } from './ui/components/toast.js';
+import { closeTopModal } from './ui/components/modal.js';
 import { bus, TOPIC } from './core/bus.js';
 import { h, replace } from './ui/dom.js';
 import { ACTIONS } from './data/audit.js';
@@ -406,10 +407,15 @@ function quickSearch(db, term, results) {
  * three screens into a record taps back and FamilyOS disappears — with, on a
  * form, whatever they had typed.
  *
- * The router pushes a history entry per navigation, so the browser's own
- * history is the correct thing to walk. At the bottom of it there is nowhere
- * left to go and closing the app *is* the right answer; anything else traps
- * somebody in an application they are trying to leave.
+ * An open dialog comes first. A WebView has no Escape key, so on Android the
+ * back button *is* the dismiss gesture, and treating it as navigation would
+ * take the screen out from under a dialog that stays mounted on top of it —
+ * the scrim is on `document.body`, not in the route outlet.
+ *
+ * Otherwise the router pushes a history entry per navigation, so the browser's
+ * own history is the correct thing to walk. At the bottom of it there is
+ * nowhere left to go and closing the app *is* the right answer; anything else
+ * traps somebody in an application they are trying to leave.
  *
  * Nothing here runs in a browser: `plugin()` returns null off a native
  * platform, and the browser has its own back button that already works.
@@ -419,6 +425,7 @@ function wireHardwareBack() {
   if (!App) return;
 
   App.addListener('backButton', ({ canGoBack }) => {
+    if (closeTopModal()) return;
     if (canGoBack) globalThis.history.back();
     else App.exitApp();
   }).catch(() => {
