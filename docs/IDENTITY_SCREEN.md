@@ -102,3 +102,80 @@ budgeted.
 The estate and explainability engines from the two tranches after this one are
 still headless — `docs/NOMINATIONS.md` and `docs/EXPLAINABILITY.md` both close
 the same way this one opened. Profile completion is still missing from Phase 2.
+
+## UI-9: the identity wallet
+
+Identity documents as cards, above the table that edits them.
+
+### Why a card and not another row
+
+A passport is a physical object a household recognises by its shape. The table
+is the right way to *edit* one and the wrong way to answer *"has anything
+lapsed"* — which is the question somebody opens this screen with, and which a
+column of dates makes them do arithmetic for.
+
+The design principle is borrowed; the execution is not. No issuer artwork, no
+imitation of anybody's wallet application, no logo a household could read as a
+connection to an authority that does not exist.
+
+### What a card may carry, and no sixth thing
+
+The kind, whose it is, the number **masked**, the state of the expiry date they
+typed, and when the record was last changed. Each comes from a stored field.
+`walletCard` makes `updated` a required argument — a card that does not say
+when it was last touched invites a household to read it as current.
+
+### Unknown is an answer
+
+`expiryState` returns four states, and `unknown` is one of them. A document
+with no expiry recorded is **not** "in date"; it is a document nobody has said
+when it runs out. Cards sort worst-first — expired, expiring, unknown, in date
+— because a wallet that led with the documents that are fine would bury the one
+that is not.
+
+### Verified is the word that must never appear on a card
+
+Nothing here contacts an issuing authority. There is no CKYCRR, no DigiLocker,
+no ABDM, no passport office. Every number was typed in from a document somebody
+was holding, and the line under the cards says so. The only status a card
+carries is about the date they entered.
+
+### Masking lives in the service, not the screen
+
+A wallet card is exactly the hand-built surface `js/data/schema.js` warns
+about — the kind that never passes through the field renderer, alongside record
+headers, list subtitles, search results and reference pickers. So
+`IdentityService.wallet` masks before the screen sees a number, where a second
+screen cannot forget to.
+
+### The lead time is read, not repeated
+
+`identityDocument.expiresOn` already declares `expiryLead: 180`.
+`walletLead()` reads it off the field; `DEFAULT_LEAD` is only a fallback for a
+caller with no schema in hand, and a test asserts the two agree. Two numbers
+meaning one thing drift, and this drift would be silent — the cards would
+simply start warning at a different time from every other expiry.
+
+### Two checks that could not fail, found by mutating
+
+**The sweep never opened this screen.** UI-7's identifier sweep walks each
+module's default route and each seeded record's own screen. The wallet lives on
+`#/identity/identityDocument` — a *tab*, reached only by naming the entity — so
+a hand-built card there was invisible to it. The sweep now walks every entity's
+list screen too, and with that in place it catches an unmasked wallet card by
+itself, without knowing the wallet exists.
+
+**"A document with no expiry says so rather than reading as in date"** passed
+against a mutation that made a missing date read as in date. It was looking for
+the words *no expiry recorded*, which the card prints as its meta line whatever
+state it is in. The badge is what carries the claim, so the badge is what is
+asserted now.
+
+A third check had to be relaxed rather than tightened: *"nothing on the screen
+says verified"* failed on the sentence that exists to deny it — *nothing here
+is verified, only recorded*. Forbidding a word punishes its honest use. The
+check is scoped to the cards, where the claim would actually be made.
+
+**535 browser checks, 2541 unit tests. 2 of 2 mutations caught**: the wallet
+printing numbers in full (six failures, three of them from the general sweep),
+and a missing expiry reading as in date.

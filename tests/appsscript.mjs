@@ -90,17 +90,19 @@ export function loadAppsScript(files, globals, exports) {
  *
  * @param {{owner?: string, tokens?: Record<string, object>, properties?: object,
  *          driveFiles?: Record<string, object>, files?: string[],
- *          workbook?: object|null}} setup
+ *          workbook?: object|null, randomBytes?: () => number[]}} setup
  */
 export function backend({
   owner = 'owner@example.com', tokens = {}, properties = {},
   driveFiles = {}, files = ['Policy.gs', 'Code.gs', 'Drive.gs'],
   workbook = null,
+  randomBytes = () => [0, 0, 0, 0],
 } = {}) {
   const props = propertyStore(properties);
   const cache = cacheStore();
   const fetched = [];
   const logged = [];
+  const mailed = [];
 
   const globals = {
     PropertiesService: { getUserProperties: () => props, getScriptProperties: () => props },
@@ -124,7 +126,21 @@ export function backend({
       computeDigest: (_algorithm, value) => Buffer.from(String(value)),
       DigestAlgorithm: { SHA_256: 'SHA_256' },
       formatDate: (date) => date.toISOString().slice(0, 10),
+
+      /*
+       * Deterministic here, and that is the point of it being injectable.
+       *
+       * The real one is a CSPRNG; a test that could not choose the bytes
+       * could only assert that a code is six digits, which is the least
+       * interesting thing about it. `randomBytes` below lets a test know the
+       * code it is about to verify without the code ever being returned by
+       * the endpoint — which is the property being tested.
+       */
+      getSecureRandomBytes: () => randomBytes(),
     },
+
+    /** Every message the script tried to send, for assertions. */
+    MailApp: { sendEmail: (message) => { mailed.push(message); } },
 
     ContentService: {
       createTextOutput: (text) => ({ text, setMimeType() { return this; }, getContent: () => text }),
@@ -171,6 +187,9 @@ export function backend({
     'policyAllows', 'readableEntities', 'roleRank',
     'manageDevices', 'noteDevice', 'readDevices',
     ...(files.includes('Sheets.gs') ? ['sheetPush', 'sheetPull'] : []),
+    ...(files.includes('Otp.gs')
+      ? ['otpRequest', 'otpVerify', 'otpIsPublic', 'otpPublicActions']
+      : []),
   ]);
 
   /**
@@ -189,5 +208,5 @@ export function backend({
     }).getContent(),
   );
 
-  return Object.assign(api, { props, cache, fetched, logged, owner, driveFiles });
+  return Object.assign(api, { props, cache, fetched, logged, owner, driveFiles, mailed });
 }

@@ -54,6 +54,9 @@ export const BUBBLE_KEY = 'familyos.chat.bubble';
 /** How large the text in a conversation is. Also real, also stored. */
 export const SIZE_KEY = 'familyos.chat.size';
 
+/** Whether Enter sends, or starts a new line. Also real, also stored. */
+export const ENTER_KEY = 'familyos.chat.enter';
+
 /**
  * The tints on offer.
  *
@@ -87,6 +90,25 @@ export const SIZES = Object.freeze([
 export function storedBubble(storage = globalThis.localStorage) {
   const value = storage?.getItem(BUBBLE_KEY);
   return BUBBLES.some((one) => one.id === value) ? value : 'accent';
+}
+
+/**
+ * Whether pressing Enter sends the message.
+ *
+ * Off by default, which is the opposite of most messengers and is deliberate.
+ * A household typing a multi-line note about a policy renewal loses it to a
+ * stray Enter; somebody who wants the faster habit can say so once.
+ *
+ * @param {Storage} [storage]
+ */
+export function storedEnterSends(storage = globalThis.localStorage) {
+  return storage?.getItem(ENTER_KEY) === 'send';
+}
+
+/** @param {boolean} on @param {{storage?: Storage}} [options] */
+export function applyEnterSends(on, { storage = globalThis.localStorage } = {}) {
+  storage?.setItem(ENTER_KEY, on ? 'send' : 'newline');
+  return Boolean(on);
 }
 
 /** @param {Storage} [storage] */
@@ -144,6 +166,7 @@ export async function render() {
       devicesCard(identity, devices, nameOf, chat, paint),
       privacyCard(),
       notificationsCard(),
+      composerCard(paint),
       storageCard(usage),
       accessibilityCard(
         SIZES.map((one) => ({ id: one.id, label: t(`chatSettings.size.${one.id}`) })),
@@ -156,6 +179,31 @@ export async function render() {
 
   await paint();
   return { node: host };
+}
+
+/**
+ * The composer.
+ *
+ * One switch, and it is real: the conversation screen reads it on every
+ * keystroke. There is no second switch here for anything the service cannot
+ * do — no read receipts to turn off, no notification tones to choose, no
+ * "mute" for notifications that are never sent.
+ */
+function composerCard(repaint) {
+  const on = storedEnterSends();
+
+  return card({}, [
+    cardHeader(t('chatSettings.composer.title'), null, { iconName: 'chat' }),
+    h('p', { class: ['small', 'muted'] }, t('chatSettings.composer.body')),
+    h('button', {
+      type: 'button',
+      class: ['chip', on && 'chip--on'],
+      'aria-pressed': String(on),
+      onClick: async () => { applyEnterSends(!on); await repaint(); },
+    }, t(on ? 'chatSettings.composer.sends' : 'chatSettings.composer.newline')),
+    h('p', { class: ['small', 'faint'], style: { marginBottom: 0 } },
+      t('chatSettings.composer.note')),
+  ]);
 }
 
 /** Chat theme — a stored preference the thread actually reads. */

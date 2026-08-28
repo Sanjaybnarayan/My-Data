@@ -105,6 +105,9 @@ const SHELL = [
   './js/auth/lock.js',
 
   './js/domain/automation.js',
+  './js/domain/wallet.js',
+  './js/domain/chatstate.js',
+  './js/domain/otp.js',
   './js/domain/extract.js',
   './js/domain/filing.js',
   './js/domain/breach.js',
@@ -218,6 +221,7 @@ const SHELL = [
   './js/modules/belongings.js',
   './js/modules/chat.js',
   './js/modules/chat-settings.js',
+  './js/modules/signin.js',
   './js/modules/chat-settings/sections.js',
   './js/modules/notifications.js',
   './js/modules/profile.js',

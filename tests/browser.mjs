@@ -1545,6 +1545,126 @@ async function main() {
       if (SHOTS) await shot(page, 'identity-completion');
     }
 
+    /* --------------------------------------------------- the identity wallet */
+
+    /*
+     * Identity documents as cards, and what the cards refuse to claim.
+     *
+     * Two things are being checked and they pull in opposite directions: the
+     * card has to be *useful* — you can tell at a glance which document has
+     * lapsed — and it has to be *honest*, which here means it must not carry
+     * the number and must not imply anybody checked it.
+     */
+    {
+      const before = consoleErrors.length;
+
+      const seeded = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const db = app().db;
+        const person = await db.repo('person').create({ name: 'Wallet Holder' });
+
+        // One of each state, so the ordering has something to order.
+        await db.repo('identityDocument').create({
+          person: person.id, kind: 'Passport', number: 'Z9876543',
+          expiresOn: '2020-01-01', issuedBy: 'RPO',
+        });
+        await db.repo('identityDocument').create({
+          // Each kind has its own format rule in `data/formats.js`, so these
+          // are real-shaped numbers rather than obviously fake ones.
+          person: person.id, kind: 'Driving licence', number: 'KA0120191234567',
+          expiresOn: new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10),
+        });
+        await db.repo('identityDocument').create({
+          person: person.id, kind: 'Voter ID', number: 'VOT7654321',
+        });
+        return { person: person.id };
+      }, IN_PAGE.context);
+
+      await go(page, '#/identity/identityDocument');
+      await page.waitForTimeout(700);
+
+      const strip = await page.evaluate(() => ({
+        cards: [...document.querySelectorAll('.wallet-strip .wallet-card')].map((el) => ({
+          text: /** @type {any} */ (el).innerText ?? '',
+          href: el.getAttribute('href') ?? '',
+        })),
+        text: /** @type {any} */ (document.querySelector('.app-content'))?.innerText ?? '',
+      }));
+
+      check('identity documents are drawn as cards', strip.cards.length === 3,
+        `${strip.cards.length} cards`);
+
+      // The order is the finding, not decoration: the expired one first.
+      // Case-insensitive: the card title is upper-cased in CSS, and
+      // `innerText` returns what is rendered rather than what was written.
+      check('and the expired one comes first',
+        /passport/i.test(strip.cards[0]?.text ?? ''), strip.cards[0]?.text?.slice(0, 80) ?? '');
+
+      /*
+       * A document with no expiry is not a document that is fine.
+       *
+       * The first version of this check only looked for the words "no expiry
+       * recorded" — which the card prints as its meta line whatever state it
+       * is in. It passed against a mutation that made a missing date read as
+       * *in date*, so it could not fail for the thing its own name described.
+       * The badge is what carries the claim, so the badge is what is asserted.
+       */
+      const voterCard = strip.cards.find((one) => /voter/i.test(one.text));
+      check('a document with no expiry says so rather than reading as in date',
+        Boolean(voterCard) && /no expiry recorded/i.test(voterCard.text)
+        && !/in date/i.test(voterCard.text),
+        (voterCard?.text ?? 'no voter card').replace(/\n/g, ' ').slice(0, 200));
+
+      // Every card carries when the record was last changed. `walletCard`
+      // makes `updated` required for exactly this reason.
+      check('every card says when the record was last changed',
+        strip.cards.every((one) => /last changed|never changed/i.test(one.text)),
+        strip.cards.map((one) => one.text.replace(/\n/g, ' ')).join(' | ').slice(0, 300));
+
+      // The numbers. This is the sweep's rule applied at the point it matters
+      // most — a hand-built card is exactly the surface that bypasses the
+      // field renderer.
+      for (const raw of ['Z9876543', 'KA0120191234567', 'VOT7654321']) {
+        check(`the wallet does not print ${raw.slice(0, 2)}… in full`,
+          !strip.text.includes(raw), strip.text.slice(0, 200));
+      }
+      check('but it does show the last four characters, so a card is recognisable',
+        /6543/.test(strip.text) && /4321/.test(strip.text), strip.text.slice(0, 300));
+
+      /*
+       * And the claim a card must never make.
+       *
+       * Scoped to the cards, not the page. The first version asserted the
+       * word "verified" appeared nowhere on the screen and failed on the
+       * sentence that exists to deny it — *nothing here is verified, only
+       * recorded*. A check that forbids a word punishes the honest use of it;
+       * what matters is that no card carries it as a status.
+       */
+      check('no card claims to be verified',
+        strip.cards.every((one) => !/verified/i.test(one.text)),
+        strip.cards.map((one) => one.text.replace(/\n/g, ' ')).join(' | ').slice(0, 300));
+      check('and it says plainly that nothing was checked against a registry',
+        /DigiLocker/.test(strip.text) && /not verified|only recorded/i.test(strip.text),
+        strip.text.slice(-400));
+
+      check('a card links to the record it came from',
+        (strip.cards[0]?.href ?? '').includes('identityDocument/'), strip.cards[0]?.href ?? '');
+
+      check('the wallet renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'identity-wallet');
+
+      // Put it back: later checks count records and read this screen.
+      await page.evaluate(async ([spec, personId]) => {
+        const { app } = await import(spec);
+        for (const row of await app().db.repo('identityDocument').list({ limit: 50 })) {
+          if (row.person === personId) await app().db.repo('identityDocument').remove(row.id);
+        }
+        await app().db.repo('person').remove(personId);
+      }, [IN_PAGE.context, seeded.person]);
+    }
+
     /* ------------------------------------------- a delete that cannot happen */
 
     {
@@ -3170,6 +3290,69 @@ async function main() {
     check('the assistant answers a question from stored data',
       /net worth/i.test(answer), answer.slice(0, 120));
 
+    /* ------------------------------- a listed row that said it was fine */
+
+    /*
+     * The badge must agree with the list it is in.
+     *
+     * `expiryReminders` decides a passport is worth showing 180 days out,
+     * because that is what the schema declares for it. The dashboard then
+     * re-decided urgency with a flat thirty days — so a passport 100 days from
+     * expiry appeared under "Expiring & due" wearing a green badge.
+     *
+     * Nothing caught it: every unit test of the domain was right, every unit
+     * test of the badge was right, and the disagreement lived in the gap
+     * between them where only a rendered row can be looked at.
+     */
+    {
+      const soon = new Date(Date.now() + 100 * 86400_000).toISOString().slice(0, 10);
+
+      const holder = await page.evaluate(async ([spec, expires]) => {
+        const { app } = await import(spec);
+        const person = await app().db.repo('person').create({ name: 'Lead Holder' });
+        await app().db.repo('identityDocument').create({
+          person: person.id, kind: 'Passport', number: 'P1234567', expiresOn: expires,
+        });
+        return person.id;
+      }, [IN_PAGE.context, soon]);
+
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(900);
+
+      const row = await page.evaluate(() => {
+        const found = [...document.querySelectorAll('.app-content .list-item')]
+          .find((el) => /passport/i.test(/** @type {any} */ (el).innerText ?? ''));
+        if (!found) return null;
+        const badge = found.querySelector('.badge');
+        return {
+          text: /** @type {any} */ (found).innerText ?? '',
+          badge: badge?.textContent?.trim() ?? '',
+          classes: badge?.className ?? '',
+        };
+      });
+
+      check('a passport inside its own warning window reaches the dashboard',
+        Boolean(row), 'no row mentioning a passport was drawn');
+
+      check('and its badge does not say it is fine',
+        Boolean(row) && !/badge--positive/.test(row.classes),
+        row ? `${row.badge} (${row.classes})` : 'no row');
+
+      // The control: a badge that rendered no tone at all would pass the line
+      // above for the wrong reason.
+      check('and the badge does carry a tone',
+        Boolean(row) && /badge--(danger|warning)/.test(row.classes),
+        row ? `${row.badge} (${row.classes})` : 'no row');
+
+      await page.evaluate(async ([spec, personId]) => {
+        const { app } = await import(spec);
+        for (const one of await app().db.repo('identityDocument').list({ limit: 50 })) {
+          if (one.person === personId) await app().db.repo('identityDocument').remove(one.id);
+        }
+        await app().db.repo('person').remove(personId);
+      }, [IN_PAGE.context, holder]);
+    }
+
     /* -------------------------------------------- nominations on the dashboard */
 
     {
@@ -3597,6 +3780,143 @@ async function main() {
         !/\bread\b.*\u2713|seen|delivered/i.test(thread.text),
         thread.text.slice(0, 160));
 
+      /* ------------------------------- search, filters, pins and stars */
+
+      /*
+       * The per-device chat state.
+       *
+       * All three flags live in `meta`, which never reaches the outbox, and
+       * every screen that shows them says so. What is checked here is that
+       * they do something: a filter that hides nothing and a star that
+       * survives no repaint are decoration.
+       */
+      {
+        // A second conversation, so filtering has something to exclude.
+        await page.evaluate(async (spec) => {
+          const { app } = await import(spec);
+          const db = app().db;
+          const me = db.actor?.personId ?? '';
+          // `.id`, not the record. A multiref holding an object fails
+          // integrity with "points at a person that is not here — Between
+          // names [object Object]", which is a long way from saying so.
+          const one = await db.repo('person').create({ name: 'Chat Second' });
+          const two = await db.repo('person').create({ name: 'Chat Third' });
+          const day = new Date().toISOString().slice(0, 10);
+
+          await db.repo('conversation').create({
+            title: 'Plumber', participants: [me], startedAt: day,
+          });
+          // Three participants, so the Groups filter has one to find.
+          await db.repo('conversation').create({
+            title: 'Parents', participants: [me, one.id, two.id], startedAt: day,
+          });
+        }, IN_PAGE.context);
+
+        await go(page, '#/chat');
+        await page.waitForTimeout(800);
+
+        // Scoped to the thread blocks. `.app-content .list-item-title` also
+        // matches the linked-devices card further down the screen, so the
+        // search check was reading "This device" as a conversation.
+        const titles = () => page.evaluate(() =>
+          [...document.querySelectorAll('.thread-block .list-item-title')]
+            .map((el) => /** @type {any} */ (el).innerText.trim()));
+
+        const before = await titles();
+        check('every conversation is listed under All', before.length >= 3,
+          before.join(' | '));
+
+        // Search, on the title.
+        await page.locator('.chat-tools input[type="search"]').fill('Plumb');
+        await page.waitForTimeout(500);
+        const found = await titles();
+        check('searching narrows the conversations',
+          found.length === 1 && /Plumber/.test(found[0]), found.join(' | '));
+
+        // A term nothing matches must not read as "you have no conversations".
+        await page.locator('.chat-tools input[type="search"]').fill('zzzznothing');
+        await page.waitForTimeout(500);
+        const none = await page.evaluate(() => /** @type {any} */ (
+          document.querySelector('.app-content'))?.innerText ?? '');
+        check('a search matching nothing says nothing matches, not that there are none',
+          /Nothing matches/.test(none) && !/No conversations yet/.test(none),
+          none.slice(0, 200));
+
+        await page.locator('.chat-tools input[type="search"]').fill('');
+        await page.waitForTimeout(500);
+
+        // Pin. The row must move to the top, not merely gain a badge.
+        const rows = page.locator('.thread-block');
+        const lastIndex = (await rows.count()) - 1;
+        const lastTitle = (await rows.nth(lastIndex).locator('.list-item-title').innerText()).trim();
+        await rows.nth(lastIndex).getByRole('button', { name: 'Pin' }).click();
+        await page.waitForTimeout(700);
+
+        const pinned = await titles();
+        check('pinning moves a conversation to the top',
+          pinned[0] === lastTitle, `${pinned[0]} vs ${lastTitle}`);
+        check('and the row says so in a word, not only a colour',
+          (await page.evaluate(() => /** @type {any} */ (
+            document.querySelector('.thread-block'))?.innerText ?? '')).includes('pinned'),
+          'no pinned badge');
+
+        // Archive. It must leave All and appear under Archived, not vanish.
+        await page.locator('.thread-block').first()
+          .getByRole('button', { name: 'Archive' }).click();
+        await page.waitForTimeout(700);
+
+        const afterArchive = await titles();
+        check('archiving takes a conversation out of All',
+          !afterArchive.includes(lastTitle), afterArchive.join(' | '));
+
+        await page.getByRole('button', { name: /^Archived \(/ }).click();
+        await page.waitForTimeout(600);
+        const inArchive = await titles();
+        check('and it is in the archive rather than gone',
+          inArchive.includes(lastTitle), inArchive.join(' | '));
+
+        await page.getByRole('button', { name: /^All \(/ }).click();
+        await page.waitForTimeout(600);
+
+        /*
+         * Starring, and the screen it feeds.
+         *
+         * The star has to survive a navigation, because the whole point of a
+         * per-device flag is that it is stored rather than held in a variable
+         * that a repaint discards.
+         */
+        await page.getByRole('link', { name: 'Household' }).first().click();
+        await page.waitForTimeout(700);
+
+        const starButton = page.getByRole('button', { name: 'Star' }).first();
+        const canStar = await starButton.count();
+        check('a message can be starred', canStar > 0, `${canStar} star controls`);
+
+        if (canStar) {
+          await starButton.click();
+          await page.waitForTimeout(700);
+
+          check('and the control then offers to unstar it',
+            (await page.getByRole('button', { name: 'Unstar' }).count()) > 0);
+
+          await go(page, '#/chat/starred');
+          await page.waitForTimeout(700);
+          const starred = await page.evaluate(() => /** @type {any} */ (
+            document.querySelector('.app-content'))?.innerText ?? '');
+
+          check('the starred screen shows it, with the conversation it came from',
+            /Household/.test(starred) && !/Nothing starred yet/.test(starred),
+            starred.slice(0, 250));
+
+          // The one thing this screen must not let anybody assume.
+          check('and says the stars are on this device only',
+            /this device only/i.test(starred), starred.slice(0, 250));
+        }
+
+        await go(page, '#/chat');
+        await page.waitForTimeout(600);
+      }
+
       /* ---------------------------------------------- the chat settings */
 
       await go(page, '#/chat/settings');
@@ -3808,8 +4128,22 @@ async function main() {
           el.querySelector('.badge')?.textContent?.trim() ?? '',
         ])));
 
-      check('the storage card counts the conversation',
-        storage.Conversations === '1', JSON.stringify(storage).slice(0, 200));
+      /*
+       * Compared against the database, not against a number typed here.
+       *
+       * This asserted `'1'` and broke the moment another block seeded a second
+       * conversation — a check coupled to a fixture rather than to the thing
+       * it is about. What the card must do is agree with what is stored.
+       */
+      const reallyThere = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const rows = await app().db.repo('conversation').list({ limit: 500, decrypt: false });
+        return rows.filter((one) => !one.deletedAt).length;
+      }, IN_PAGE.context);
+
+      check('the storage card counts the conversations that are actually stored',
+        storage.Conversations === String(reallyThere),
+        `card says ${storage.Conversations}, database has ${reallyThere}`);
       check('and counts the withdrawn message separately from the readable ones',
         storage['Withdrawn messages'] === '1'
         && storage['Messages held on this device'] === '0',
@@ -4066,6 +4400,52 @@ async function main() {
       // for the wrong reason, because every module would look primary.
       check('and Profile really is a page full of links', linked.size >= 15,
         `${linked.size} distinct modules linked`);
+
+      /*
+       * The sign-in card, on a copy with no backend configured.
+       *
+       * Which is the state this suite runs in, and the state most first
+       * installs are in. A one-time code has to be sent and checked by a
+       * server — a browser cannot check its own — so with no Apps Script URL
+       * there is nothing to answer, and the card has to say that instead of
+       * drawing a button whose only outcome is an error toast.
+       *
+       * That is the fault the chat composer had: a form that takes your
+       * typing and fails afterwards. Worth not repeating, and worth checking.
+       */
+      await go(page, '#/profile');
+      await page.waitForTimeout(600);
+
+      const signin = await page.evaluate(() => {
+        const el = [...document.querySelectorAll('.app-content .card')]
+          .find((one) => /Confirm who you are/.test(/** @type {any} */ (one).innerText ?? ''));
+        return {
+          found: Boolean(el),
+          text: el ? /** @type {any} */ (el).innerText : '',
+          inputs: el ? el.querySelectorAll('input').length : -1,
+          buttons: el ? el.querySelectorAll('button').length : -1,
+        };
+      });
+
+      check('the sign-in card is on Profile', signin.found, 'no card headed "Confirm who you are"');
+      check('and with no backend it says so rather than offering a dead button',
+        /no Google backend configured/.test(signin.text) && signin.inputs === 0
+        && signin.buttons === 0,
+        `${signin.inputs} inputs, ${signin.buttons} buttons`);
+
+      /*
+       * And the three sentences it may never leave out.
+       *
+       * They are the reason this feature is safe to ship at all: a code
+       * confirms who you are and protects nothing, and a sign-in card is
+       * exactly where somebody would assume otherwise.
+       */
+      check('it says a code is not what protects the records',
+        /not what protects/.test(signin.text), signin.text.slice(0, 200));
+      check('and that signing in this way decrypts nothing',
+        /decrypts nothing/.test(signin.text), signin.text.slice(0, 300));
+      check('and that a new phone still needs enrolling',
+        /until it is enrolled/.test(signin.text), signin.text.slice(0, 400));
 
       // The tab for the screen you are on is the one marked current.
       await go(page, '#/notifications');
@@ -4530,6 +4910,12 @@ async function main() {
         // The same two registered outside the schema that the module walk
         // names. Written out because that walk's copy is block-scoped to it.
         '#/assistant', '#/timeline',
+        // Each entity's own list screen as well as its record screen. A
+        // module's default tab is one entity's list; the others are only
+        // reached by naming the entity, and a hand-built card on one of those
+        // tabs — the identity wallet is exactly that — would otherwise never
+        // be looked at by this sweep.
+        ...[...new Set(seeded.made.map((one) => `#/${one.module}/${one.entity}`))],
         ...seeded.made.map((one) => `#/${one.module}/${one.entity}/${one.id}`),
       ];
 

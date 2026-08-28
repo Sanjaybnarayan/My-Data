@@ -134,3 +134,41 @@ know.
   subscription it forgot; it is not, yet, and connecting the two is a decision
   about how often this application is allowed to interrupt somebody rather than
   a missing function.
+
+## UI-10: the badge that disagreed with the list it was in
+
+`expiryReminders` decides a row is worth showing using the window the **schema
+declares for that field** — 180 days for a passport, 3 for an appointment, 45
+for a policy renewal. Twenty-two of those windows are declared.
+
+The dashboard then re-decided urgency with a flat thirty days.
+
+So a passport 100 days from expiry appeared under **"Expiring & due"** wearing
+a **green** badge. The screen contradicting itself about the row it had just
+chosen to show.
+
+### Why nothing caught it
+
+Every unit test of `expiryReminders` was right. Every unit test of `dueBadge`
+was right. The disagreement lived in the gap between them, which only a
+rendered row can be looked at in.
+
+### The fix is to stop deciding twice
+
+`expiryReminders` now returns the `lead` it used, and the screens pass that to
+`dueBadge`. Severity and badge agree by construction rather than by two people
+choosing the same number.
+
+`leadFor(entity, field)` reads the declared window in one place.
+`js/modules/documents.js` had `60` typed in three times beside the `60` on
+`document.expiresOn` — four copies of one number, agreeing until one changed.
+`walletLead()` from UI-9 collapsed into it too.
+
+### The ratchet
+
+The fix is worth nothing if the next screen types the number in again.
+`leadDays` is the argument that carries this decision, so a numeric literal
+passed to it anywhere in `js/modules/` fails the suite.
+
+**538 browser checks, 2546 unit tests. 1 of 1 mutation caught** — restoring the
+flat thirty days fails the ratchet, the badge check, and its control.

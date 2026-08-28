@@ -34,6 +34,7 @@
 /* eslint-env googleappsscript */
 /* global SpreadsheetApp, DriveApp, PropertiesService, LockService, CacheService,
           ContentService, UrlFetchApp, Utilities, Session, schemaEnsure,
+          otpIsPublic, otpRequest, otpVerify,
           sheetPull, sheetPush, sheetCounts, driveEnsureTree, driveUpload,
           driveDownload, driveVersions, auditAppend */
 
@@ -51,6 +52,30 @@ function doPost(e) {
     request = JSON.parse(e.postData.contents);
   } catch (err) {
     return reply(false, null, 'the request body was not JSON', 400, false);
+  }
+
+  /*
+   * The one path that runs before `verifyToken`, and the only one.
+   *
+   * A one-time code has to be requestable by somebody who has not signed in —
+   * that is what it is for — so these two actions are answered here. They
+   * carry their own limits (see Otp.gs), because `enforceRateLimit` keys on
+   * the verified email and uses a per-session cache, and neither of those
+   * means anything to a caller who has not authenticated.
+   *
+   * `otpIsPublic` reads a list rather than testing a prefix, so naming a new
+   * action `otp.anything` does not make it public by accident.
+   */
+  try {
+    if (typeof otpIsPublic === 'function' && otpIsPublic(request.action)) {
+      var payload = request.payload || {};
+      var result = request.action === 'otp.request' ? otpRequest(payload) : otpVerify(payload);
+      return reply(true, result);
+    }
+  } catch (err) {
+    var otpStatus = err.status || 500;
+    log('error', request.action, err.message, Date.now() - started);
+    return reply(false, null, err.message, otpStatus, otpStatus >= 500);
   }
 
   try {

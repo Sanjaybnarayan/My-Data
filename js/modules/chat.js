@@ -12,7 +12,9 @@
  */
 
 import { h, replace } from '../ui/dom.js';
-import { card, cardHeader, badge, pageHeader, listItem, empty, button } from '../ui/components/basics.js';
+import {
+  card, cardHeader, badge, pageHeader, listItem, empty, button, chip,
+} from '../ui/components/basics.js';
 import { toast } from '../ui/components/toast.js';
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
@@ -23,6 +25,8 @@ import { userMessage } from '../core/errors.js';
 import { t } from '../core/locale.js';
 import { icon } from '../ui/icons.js';
 import { formatDay } from '../core/dates.js';
+import { FILTERS, filterCounts, visibleThreads } from '../domain/chatstate.js';
+import { storedEnterSends as enterSends } from './chat-settings.js';
 
 export async function render(route) {
   // A conversation opens into its own view rather than the generic record
@@ -38,6 +42,7 @@ export async function render(route) {
     const view = await import('./chat-settings.js');
     return view.render();
   }
+  if (route.entity === 'starred') return starredView();
 
   if (route.id && route.id !== 'new' && route.entity) return recordDetail(route.entity, route.id);
 
@@ -45,29 +50,71 @@ export async function render(route) {
   const { db } = app();
   const chat = new ChatService(db);
 
+  // Which chip is pressed and what is typed in the box. Kept out of `paint`
+  // so a repaint does not throw away what somebody was in the middle of.
+  let filter = 'all';
+  let term = '';
+
+  const search = h('input', {
+    class: 'input', type: 'search', placeholder: t('chat.search'),
+    'aria-label': t('chat.search'),
+    onInput: (event) => { term = event.target.value; void paint({ keepFocus: true }); },
+  });
+
   // Built once, outside `paint`. Two bugs met here: the object was being put
   // into the children array instead of its `node`, so the screen rendered the
   // literal text `[object Object]`; and building it inside `paint` would add a
   // fresh bus subscription and a fresh table on every repaint.
   const section = await listSection('conversation', { autoOpenNew: route.id === 'new' });
 
-  async function paint() {
-    const [identity, devices, threads] = await Promise.all([
+  async function paint({ keepFocus = false } = {}) {
+    const [identity, devices, threads, flags] = await Promise.all([
       chat.identity(),
       chat.devices(),
       chat.threads(),
+      chat.flags(),
     ]);
+
+    const counts = filterCounts(threads, flags);
+    const shown = visibleThreads(threads, flags, { filter, term });
 
     replace(host, [
       pageHeader(t('chat.title'), {
         subtitle: t('chat.subtitle'),
-        actions: [h('a', {
-          class: 'btn btn--subtle btn--small',
-          href: Router.href({ module: 'chat', entity: 'settings' }),
-        }, t('chat.settings.open'))],
+        actions: [
+          h('a', {
+            class: 'btn btn--subtle btn--small',
+            href: Router.href({ module: 'chat', entity: 'starred' }),
+          }, t('chat.starred.title')),
+          h('a', {
+            class: 'btn btn--subtle btn--small',
+            href: Router.href({ module: 'chat', entity: 'settings' }),
+          }, t('chat.settings.open')),
+        ],
       }),
 
-      threadList(threads, section),
+      // Search and filters only once there is something to filter. On an empty
+      // household they are furniture in front of the one control that matters.
+      threads.length
+        ? h('div', { class: 'chat-tools' }, [
+          h('div', { class: 'search-box' }, [icon('search', { size: 18 }), search]),
+          h('div', { class: 'chip-row', role: 'group', 'aria-label': t('chat.filters') },
+            FILTERS.map((one) => chip(
+              t(`chat.filter.${one.id}`, { n: counts[one.id] ?? 0 }),
+              {
+                pressed: filter === one.id,
+                onClick: () => { filter = one.id; void paint(); },
+              },
+            ))),
+        ])
+        : null,
+
+      threadList(shown, section, {
+        chat,
+        flags,
+        filtered: Boolean(term) || filter !== 'all',
+        repaint: paint,
+      }),
 
       // The generic list stays: it is how a conversation is created, renamed
       // or has its participants changed, and none of that is worth
@@ -87,6 +134,14 @@ export async function render(route) {
       honestyCard(),
       deviceCard(identity, devices, chat, paint),
     ]);
+
+    // `replace` rebuilds the tree, so the box somebody is typing in is a new
+    // node with no focus and no caret. Put both back, at the end.
+    if (keepFocus) {
+      search.focus();
+      const at = search.value.length;
+      search.setSelectionRange?.(at, at);
+    }
   }
 
   await paint();
@@ -108,6 +163,61 @@ export async function render(route) {
       section.destroy();
     },
   };
+}
+
+/**
+ * Every starred message, newest first.
+ *
+ * The one screen in this application whose contents are **per device**, and it
+ * says so at the top rather than in a settings page nobody opens. Somebody who
+ * starred nine things on their phone and finds none of them on a tablet is
+ * entitled to know that is the design and not a loss.
+ */
+async function starredView() {
+  const host = h('div', {});
+  const { db } = app();
+  const chat = new ChatService(db);
+
+  async function paint() {
+    const messages = await chat.starred();
+
+    replace(host, [
+      pageHeader(t('chat.starred.title'), { subtitle: t('chat.deviceOnly') }),
+
+      messages.length
+        ? card({ class: 'card--flush thread' }, h('div', { class: 'thread-scroll' },
+          messages.map((one) => h('div', { class: 'starred-block' }, [
+            h('p', { class: 'small muted starred-where' },
+              one.conversation?.title || t('chat.untitled')),
+            messageItem(one, (id) => one.nameOf(id) ?? t('chat.someone'),
+              () => {}, db.actor?.personId ?? null, null,
+              { star: unstar, starred: true }),
+            h('a', {
+              class: 'btn btn--subtle btn--small',
+              href: Router.href({
+                module: 'chat', entity: 'conversation', id: one.conversation?.id,
+              }),
+            }, t('chat.starred.open')),
+          ]))))
+        : card({}, empty({
+          title: t('chat.starred.none'),
+          message: t('chat.starred.hint'),
+          iconName: 'chat',
+        })),
+    ]);
+  }
+
+  async function unstar(messageId) {
+    try {
+      await chat.setFlag('starred', messageId, false);
+      await paint();
+    } catch (error) {
+      toast(userMessage(error), { kind: 'error' });
+    }
+  }
+
+  await paint();
+  return { node: host };
 }
 
 /* ------------------------------------------------------ one conversation */
@@ -135,6 +245,16 @@ async function conversationView(conversationId) {
 
   const box = h('textarea', {
     id: 'chat-text', rows: 2, class: 'input', placeholder: t('chat.say'),
+    onKeyDown: (event) => {
+      // Read on every keystroke rather than captured once, so changing the
+      // setting in another tab takes effect without a reload. Shift+Enter is
+      // always a new line: a modifier that did nothing would be a trap for
+      // anybody typing a second paragraph.
+      if (event.key !== 'Enter' || event.shiftKey) return;
+      if (!enterSends()) return;
+      event.preventDefault();
+      void sendText();
+    },
   });
 
   const picker = h('input', {
@@ -194,6 +314,15 @@ async function conversationView(conversationId) {
     }
   }
 
+  async function starMessage(messageId) {
+    try {
+      await chat.setFlag('starred', messageId);
+      await paint();
+    } catch (error) {
+      toast(userMessage(error), { kind: 'error' });
+    }
+  }
+
   async function withdrawMessage(messageId) {
     try {
       await chat.withdraw(messageId);
@@ -213,10 +342,12 @@ async function conversationView(conversationId) {
      * typing, and failed afterwards. What a device cannot do it should not
      * offer.
      */
-    const [{ conversation, messages, nameOf: named }, identity] = await Promise.all([
+    const [{ conversation, messages, nameOf: named }, identity, flags] = await Promise.all([
       chat.view(conversationId),
       chat.identity(),
+      chat.flags(),
     ]);
+    const starred = new Set(flags.starred);
     const nameOf = (id) => named(id) ?? t('chat.someone');
 
     replace(host, [
@@ -230,6 +361,7 @@ async function conversationView(conversationId) {
           ? h('div', { class: 'thread-scroll' },
             messages.map((m) => messageItem(
               m, nameOf, saveFile, db.actor?.personId ?? null, withdrawMessage,
+              { star: starMessage, starred: starred.has(m.row?.id) },
             )))
           : h('div', { class: 'thread-empty' },
             empty({ title: t('chat.empty'), iconName: 'chat' })),
@@ -268,33 +400,89 @@ async function conversationView(conversationId) {
  * `message.readBy` is declared in the schema and written by nothing, so a
  * number there would be read off a field that has never held a value.
  */
-function threadList(threads, section) {
+/**
+ * @param {Array<object>} threads
+ * @param {object} section
+ * @param {{chat?: object, flags?: object, filtered?: boolean,
+ *   repaint?: () => Promise<void>}} [options]
+ */
+function threadList(threads, section, { chat, flags, filtered = false, repaint } = {}) {
   if (!threads.length) {
-    return card({}, empty({
-      title: t('chat.none.title'),
-      message: t('chat.none.message'),
-      iconName: 'chat',
-      // The action, not a sentence pointing at one. `listSection` hands back
-      // `openForm` precisely so a screen can offer its own way in.
-      action: button(t('chat.none.action'), {
-        variant: 'primary',
-        iconName: 'plus',
-        onClick: () => section.openForm(),
-      }),
-    }));
+    /*
+     * Two empty states, because they are different facts.
+     *
+     * "No conversations yet" invites somebody to start one. Saying that to a
+     * household with nine conversations and a search term that matched none of
+     * them would be telling them their messages had gone.
+     */
+    return card({}, filtered
+      ? empty({
+        title: t('chat.noMatch.title'),
+        message: t('chat.noMatch.message'),
+        iconName: 'search',
+      })
+      : empty({
+        title: t('chat.none.title'),
+        message: t('chat.none.message'),
+        iconName: 'chat',
+        // The action, not a sentence pointing at one. `listSection` hands back
+        // `openForm` precisely so a screen can offer its own way in.
+        action: button(t('chat.none.action'), {
+          variant: 'primary',
+          iconName: 'plus',
+          onClick: () => section.openForm(),
+        }),
+      }));
   }
 
+  const pinned = new Set(flags?.pinned ?? []);
+  const archived = new Set(flags?.archived ?? []);
+
   return card({ class: 'card--flush' }, [
-    h('div', { class: 'list' }, threads.map(({ conversation, last, at }) => listItem({
-      title: conversation.title || t('chat.untitled'),
-      subtitle: last
-        ? (last.why ? t('chat.lastSealed') : (last.file ? last.file.name : last.text))
-        : t('chat.nothingSaid'),
-      trailing: at
-        ? h('span', { class: 'small faint' }, formatDay(String(at).slice(0, 10)))
-        : null,
-      href: Router.href({ module: 'chat', entity: 'conversation', id: conversation.id }),
-    }))),
+    h('div', { class: 'list' }, threads.map(({ conversation, last, at }) => {
+      const row = listItem({
+        title: conversation.title || t('chat.untitled'),
+        subtitle: last
+          ? (last.why ? t('chat.lastSealed') : (last.file ? last.file.name : last.text))
+          : t('chat.nothingSaid'),
+        // Word as well as glyph. A pin drawn as an icon alone is a state
+        // somebody using a screen reader — or not seeing colour — cannot read.
+        trailing: h('div', { class: 'row', style: { gap: 'var(--space-2)' } }, [
+          pinned.has(conversation.id) ? badge(t('chat.pinned'), 'accent') : null,
+          at ? h('span', { class: 'small faint' }, formatDay(String(at).slice(0, 10))) : null,
+        ].filter(Boolean)),
+        href: Router.href({ module: 'chat', entity: 'conversation', id: conversation.id }),
+      });
+
+      if (!chat) return row;
+
+      // The ternary sits outside the template on purpose: with it inside, the
+      // literal gains a space and `tools/strings.mjs` counts a locale key as
+      // an English sentence. A false positive in a ratchet is a ratchet
+      // somebody starts arguing with.
+      const flagKey = (kind, on) => `chat.${kind}.` + (on ? 'off' : 'on');
+
+      const flagButton = (kind, on) => button(t(flagKey(kind, on)), {
+        variant: 'subtle',
+        class: 'btn btn--subtle btn--small',
+        onClick: async () => {
+          try {
+            await chat.setFlag(kind, conversation.id);
+            await repaint?.();
+          } catch (error) {
+            toast(userMessage(error), { kind: 'error' });
+          }
+        },
+      });
+
+      return h('div', { class: 'thread-block' }, [
+        row,
+        h('div', { class: 'row thread-actions', style: { gap: 'var(--space-2)' } }, [
+          flagButton('pinned', pinned.has(conversation.id)),
+          flagButton('archived', archived.has(conversation.id)),
+        ]),
+      ]);
+    })),
   ]);
 }
 
@@ -321,8 +509,10 @@ function threadList(threads, section) {
  * @param {(file: object) => void} saveFile
  * @param {string|null} me the signed-in person, or null — decides which side
  * @param {((id: string) => void)|null} withdraw offered on my own messages only
+ * @param {{star?: (id: string) => void, starred?: boolean}} [marks]
  */
-function messageItem(message, nameOf, saveFile, me = null, withdraw = null) {
+function messageItem(message, nameOf, saveFile, me = null, withdraw = null, marks = {}) {
+  const { star = null, starred = false } = marks;
   const who = nameOf(message.row.sender);
   const mine = Boolean(me) && message.row.sender === me;
 
@@ -346,6 +536,16 @@ function messageItem(message, nameOf, saveFile, me = null, withdraw = null) {
    */
   const canWithdraw = mine && withdraw && !message.why;
 
+  /*
+   * Starring, on anybody's message including my own.
+   *
+   * Kept on this device and nowhere else — see `domain/chatstate.js`. The
+   * label says which state pressing it produces rather than which state the
+   * message is in, because a button that reads "Starred" is one nobody can
+   * tell is a toggle.
+   */
+  const starable = star && !message.why && message.row?.id;
+
   /** The shell every bubble shares: side, who said it, and when. */
   const bubble = (body, { tone = '' } = {}) => h('div', {
     class: ['bubble-row', mine ? 'bubble-row--mine' : 'bubble-row--theirs'],
@@ -354,6 +554,27 @@ function messageItem(message, nameOf, saveFile, me = null, withdraw = null) {
     mine ? null : h('p', { class: 'bubble-who' }, who),
     body,
     h('p', { class: 'bubble-meta' }, at || formatDay(stamp.slice(0, 10))),
+    starable
+      ? button(t(starred ? 'chat.unstar' : 'chat.star'), {
+        variant: 'subtle',
+        /*
+         * Two whole class lists, not one built by template.
+         *
+         * The array form failed the typecheck (`button` types `class` as a
+         * string) and the template form failed the unrouted-string ratchet,
+         * because interpolating a ternary gives the literal a space and
+         * `tools/strings.mjs` then reads a class list as an English sentence.
+         * Fixing one gate by breaking another is not a fix; a plain class list
+         * satisfies both.
+         */
+        class: starred
+          ? 'btn btn--subtle btn--small bubble-star bubble-star--on'
+          : 'btn btn--subtle btn--small bubble-star',
+        'aria-pressed': String(Boolean(starred)),
+        onClick: () => star(message.row.id),
+      })
+      : null,
+
     canWithdraw
       ? button(t('chat.withdraw'), {
         variant: 'subtle',

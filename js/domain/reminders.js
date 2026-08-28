@@ -26,9 +26,26 @@ function severityFor(days, lead) {
 }
 
 /**
+ * The warning window the schema declares for one expiry field.
+ *
+ * One place, because the alternative is what this file found: a number typed
+ * into a screen beside a number declared in the schema, agreeing until one of
+ * them changes.
+ *
+ * @param {string} entityName
+ * @param {string} fieldKey
+ * @param {number} [fallback] when the field declares none
+ */
+export function leadFor(entityName, fieldKey, fallback = 45) {
+  const field = (entities[entityName]?.fields ?? []).find((one) => one.key === fieldKey);
+  return Number.isFinite(field?.expiryLead) ? field.expiryLead : fallback;
+}
+
+/**
  * @param {Record<string, object[]>} recordsByEntity
  * @param {{horizonDays?: number, clock?: () => number}} [options]
- * @returns {Array<{id, entity, recordId, field, label, date, days, severity, title}>}
+ * @returns {Array<{id, entity, module, recordId, field, label, date, days, lead,
+ *   severity, title}>}
  */
 export function expiryReminders(recordsByEntity, { horizonDays = 45, clock = Date.now } = {}) {
   const out = [];
@@ -67,6 +84,14 @@ export function expiryReminders(recordsByEntity, { horizonDays = 45, clock = Dat
           title: String(def.title(record) ?? def.labels.one),
           date,
           days,
+          // The window this row was judged against, carried out with it.
+          //
+          // Screens were re-deciding urgency with a flat 30 days while the
+          // severity above used the field's own lead. A passport is warned
+          // about 180 days out, so one 100 days from expiry was listed under
+          // "Expiring & due" wearing a green badge — the screen disagreeing
+          // with itself about the row it had just chosen to show.
+          lead,
           severity: severityFor(days, lead),
         });
       }

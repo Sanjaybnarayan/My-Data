@@ -35,6 +35,7 @@ import { app } from '../context.js';
 import { IdentityService } from '../services/identity.js';
 import { describeCompletion } from '../domain/profile.js';
 import { visibleModules } from '../security/rbac.js';
+import { signInCard } from './signin.js';
 import { PRIMARY } from '../ui/shell.js';
 import { modules } from '../data/schema.js';
 import { moduleLabel } from '../core/labels.js';
@@ -107,6 +108,13 @@ export async function render() {
   replace(host, [
     pageHeader(t('profile.title'), { subtitle: t('profile.subtitle') }),
     headerCard(actor, mine),
+    signInCard(() => {
+      // A confirmed person changes who the whole shell thinks is here, and
+      // half this screen is drawn from that. Reloading is blunt and it is
+      // also correct: `resolveActor` runs at boot, so repainting one card
+      // would leave the rest of the application disagreeing with it.
+      globalThis.location?.reload();
+    }),
     householdCard(family, people.length),
     ...grouped().map((group) => groupCard(group, allowed)),
     settingsCard(allowed),

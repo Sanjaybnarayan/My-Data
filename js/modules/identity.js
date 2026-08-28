@@ -21,7 +21,9 @@
  */
 
 import { h, replace } from '../ui/dom.js';
-import { card, cardHeader, badge, listItem, chip, pageHeader, button } from '../ui/components/basics.js';
+import {
+  card, cardHeader, badge, listItem, chip, pageHeader, button, carousel, walletCard,
+} from '../ui/components/basics.js';
 import { listSection, recordDetail } from './crud.js';
 import { t } from '../core/locale.js';
 import { app } from '../context.js';
@@ -31,6 +33,7 @@ import { describeDrift } from '../domain/kyc.js';
 import { describeConflict, SEVERITY, KIND } from '../domain/kycconflict.js';
 import { IdentityService } from '../services/identity.js';
 import { describeCompletion } from '../domain/profile.js';
+import { summarise } from '../domain/wallet.js';
 import { formatDay } from '../core/dates.js';
 
 const TABS = ['person', 'identityDocument', 'kycRecord', 'employment'];
@@ -65,6 +68,7 @@ export async function render(route) {
     autoOpenNew: route.id === 'new',
     banner: active === 'kycRecord' ? kycBanner
       : active === 'person' ? completionBanner
+      : active === 'identityDocument' ? walletBanner
       : undefined,
   });
   replace(body, section.node);
@@ -100,6 +104,84 @@ async function completionBanner() {
       }),
     }))),
   ])];
+}
+
+/**
+ * The identity documents, as cards.
+ *
+ * ## Why a card and not another row
+ *
+ * A passport is a physical object a household recognises by its shape. The
+ * table below is the right way to *edit* one and the wrong way to answer "has
+ * anything lapsed" — which is the question somebody opens this screen with,
+ * and which a column of dates makes them do arithmetic for.
+ *
+ * The design principle is borrowed and the execution is not: no issuer
+ * artwork, no imitation of anybody's wallet application, no logo a household
+ * would read as a connection to an authority that does not exist.
+ *
+ * ## What these cards refuse to say
+ *
+ * **Verified.** Nothing here contacts an issuing authority — no CKYCRR, no
+ * DigiLocker, no ABDM. Every number was typed in from a document somebody was
+ * holding, and the line under the cards says exactly that. The only status a
+ * card carries is about the expiry date they entered, and *unknown* is one of
+ * its values: a document with no expiry recorded is not "valid", it is one
+ * nobody has said when it runs out.
+ *
+ * The number is masked by `IdentityService.wallet`, not here. A wallet card is
+ * precisely the hand-built surface `data/schema.js` warns about — the kind
+ * that never passes through the field renderer — so the masking happens where
+ * a second screen cannot forget it.
+ */
+async function walletBanner() {
+  const cards = await new IdentityService(app().db).wallet();
+  if (!cards.length) return null;
+
+  const counts = summarise(cards);
+  const pressing = counts.expired + counts.soon;
+
+  return [
+    card({ class: 'card--flush wallet-strip' }, [
+      h('div', { class: 'profile-group-head' }, cardHeader(t('wallet.title'),
+        badge(pressing
+          ? t('wallet.pressing', { n: pressing })
+          : t('wallet.count', { n: cards.length }),
+        pressing ? 'warning' : ''), { iconName: 'wallet' })),
+
+      carousel(cards.map(walletDocument), { label: t('wallet.title') }),
+
+      h('p', { class: ['small', 'muted', 'profile-group-head'] }, t('wallet.typed')),
+    ]),
+  ];
+}
+
+/** The five things a card may carry, and no sixth. */
+function walletDocument(one) {
+  const STATUS = {
+    expired: { label: t('wallet.state.expired'), tone: 'danger' },
+    soon: { label: t('wallet.state.soon'), tone: 'warning' },
+    valid: { label: t('wallet.state.valid'), tone: 'positive' },
+    unknown: { label: t('wallet.state.unknown'), tone: '' },
+  };
+
+  return walletCard({
+    title: one.kind,
+    subtitle: one.holder ?? t('wallet.nobody'),
+    // Already masked. Printing `one.number` raw here is what the browser
+    // suite's identifier sweep exists to catch.
+    value: one.number ?? t('wallet.noNumber'),
+    meta: one.expiresOn
+      ? t('wallet.expires', { day: formatDay(one.expiresOn) })
+      : t('wallet.noExpiry'),
+    updated: one.updatedAt
+      ? t('wallet.updated', { day: formatDay(String(one.updatedAt).slice(0, 10)) })
+      : t('wallet.neverUpdated'),
+    status: STATUS[one.state],
+    href: one.id
+      ? Router.href({ module: 'identity', entity: 'identityDocument', id: one.id })
+      : undefined,
+  });
 }
 
 /**

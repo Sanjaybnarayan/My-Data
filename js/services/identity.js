@@ -34,6 +34,10 @@ import {
 import { visibleEntities } from '../security/rbac.js';
 import { kycDrift, stale, kinNote, latestPerInstitution } from '../domain/kyc.js';
 import { today } from '../core/dates.js';
+import { entities } from '../data/schema.js';
+import { classify, mask } from '../data/classification.js';
+import { wallet, DEFAULT_LEAD } from '../domain/wallet.js';
+import { leadFor } from '../domain/reminders.js';
 
 /** @type {Record<string, import('./service.js').Load>} */
 export const IDENTITY_REVIEW_LOAD = Object.freeze({
@@ -82,6 +86,33 @@ export function assembleIdentityReview(data, { clock = Date.now } = {}) {
 }
 
 export class IdentityService extends Service {
+  /**
+   * The identity documents, as wallet cards.
+   *
+   * The masking is applied here, not in the screen. `identityDocument.number`
+   * is one of the fields the browser suite's sweep watches, and a wallet card
+   * is exactly the sort of hand-built surface that bypasses the field renderer
+   * — the trap `data/schema.js` names for record headers, list subtitles,
+   * search results and reference pickers.
+   */
+  async wallet({ clock = Date.now } = {}) {
+    const loaded = await this.load({
+      documents: ['identityDocument', { limit: 500 }],
+      people: ['person', { limit: 500 }],
+    });
+
+    const names = new Map((loaded.people ?? []).map((one) => [one.id, one.name]));
+    const field = entities.identityDocument?.fieldMap?.number ?? null;
+    const level = classify(field, entities.identityDocument);
+
+    return wallet(
+      loaded.documents,
+      (value) => mask(value, level),
+      (id) => names.get(id) ?? null,
+      { lead: leadFor('identityDocument', 'expiresOn', DEFAULT_LEAD), clock },
+    );
+  }
+
   /** @param {{clock?: () => number}} [options] */
   async review({ clock = Date.now } = {}) {
     return assembleIdentityReview(await this.load(IDENTITY_REVIEW_LOAD), { clock });

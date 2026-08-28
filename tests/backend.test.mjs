@@ -1,5 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { backend } from './appsscript.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 setSuite('backend');
 
@@ -775,5 +780,50 @@ describe('the identity that reaches the action', () => {
 
     assert.length(result.data.applied, 0);
     assert.length(result.data.rejected, 1);
+  });
+});
+
+/**
+ * The deployment setting, in the three places that describe it.
+ *
+ * `docs/ARCHITECTURE.md` said the web app runs as the *user accessing*, and
+ * drew a security conclusion from it: that each member's Sheets and Drive work
+ * happens under their own Google account. The manifest agreed. `docs/SETUP.md`
+ * — the only page that tells a household what to click — said **Execute as:
+ * Me**, which is the opposite.
+ *
+ * The setup page was right, and not by a narrow margin:
+ * `PropertiesService.getUserProperties()` holds `sheetMap` and the Drive tree,
+ * so under "user accessing" every member would read their own empty copy and
+ * sync would work for nobody but the owner. A deployment that functions is one
+ * deployed as *Me*.
+ *
+ * A security claim with nothing checking it is how a wrong one survived in the
+ * architecture document. This is the check.
+ */
+describe('the deployment setting is described the same way everywhere', () => {
+  const read = (path) => readFileSync(join(ROOT, path), 'utf8');
+
+  test('the manifest deploys as the owner, which is what setup tells you to pick', () => {
+    const manifest = JSON.parse(read('apps-script/appsscript.json'));
+    assert.equal(manifest.webapp.executeAs, 'USER_DEPLOYING');
+
+    // The words a household actually reads, in the step where they choose.
+    assert.equal(/Execute as:\s*\*\*Me\*\*/.test(read('docs/SETUP.md')), true,
+      'SETUP.md no longer says to execute as Me');
+  });
+
+  test('and the architecture document does not claim the opposite', () => {
+    const architecture = read('docs/ARCHITECTURE.md');
+    const claim = /deployed as "execute as user accessing"/.test(architecture);
+    assert.equal(claim, false, 'ARCHITECTURE.md claims a model the setup page contradicts');
+  });
+
+  test('sending a one-time code needs the scope that sends mail', () => {
+    // `MailApp.sendEmail` fails at run time without it, and the failure would
+    // be a household staring at a code that never arrives.
+    const manifest = JSON.parse(read('apps-script/appsscript.json'));
+    assert.equal(manifest.oauthScopes.includes(
+      'https://www.googleapis.com/auth/script.send_mail'), true);
   });
 });
