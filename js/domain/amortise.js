@@ -35,6 +35,8 @@
  * gone stale, and a way to see how much of an EMI is actually a cost.
  */
 
+
+import { mul, roundMoney } from '../core/money.js';
 /** A year of an annual rate, as a monthly fraction. */
 export const monthlyRate = (annualPercent) => (annualPercent ?? 0) / 100 / 12;
 
@@ -46,7 +48,7 @@ export const monthlyRate = (annualPercent) => (annualPercent ?? 0) / 100 / 12;
  * principal.
  */
 export function splitPayment(balance, annualPercent, emi) {
-  const interest = Math.round(balance * monthlyRate(annualPercent));
+  const interest = mul(balance, monthlyRate(annualPercent));
   // A payment smaller than the interest does not repay anything — the balance
   // grows. Real, and it happens when a floating rate rises without the EMI
   // being revised. Reported rather than modelled away.
@@ -82,7 +84,7 @@ export function amortise(loan, payments) {
 
   return {
     rows,
-    balance: Math.max(0, Math.round(balance)),
+    balance: Math.max(0, roundMoney(balance)),
     interestPaid,
     principalPaid,
     negative,

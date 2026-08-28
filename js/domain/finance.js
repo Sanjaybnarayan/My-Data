@@ -10,7 +10,7 @@
  * rupees would put a float back into a chain of exact integers.
  */
 
-import { sum, changePercent } from '../core/money.js';
+import { sum, changePercent, divide } from '../core/money.js';
 import { cardBills, isBillableCard } from './cards.js';
 import { subscriptionBills, commitmentSummary } from './commitments.js';
 import {
@@ -180,8 +180,8 @@ export function budgetStatus(budgets, transactions, { month = today() } = {}) {
 
 function perMonth(budget) {
   const limit = budget.monthlyLimit ?? 0;
-  if (budget.period === 'quarterly') return Math.round(limit / 3);
-  if (budget.period === 'yearly') return Math.round(limit / 12);
+  if (budget.period === 'quarterly') return divide(limit, 3);
+  if (budget.period === 'yearly') return divide(limit, 12);
   return limit;
 }
 
@@ -622,10 +622,10 @@ export function committedMonthlyOutflow(recurring, loans) {
   const perMonthAmount = (r) => {
     const amount = r.amount ?? 0;
     switch (r.frequency) {
-      case 'weekly': return Math.round((amount * 52) / 12);
-      case 'quarterly': return Math.round(amount / 3);
-      case 'half-yearly': return Math.round(amount / 6);
-      case 'yearly': return Math.round(amount / 12);
+      case 'weekly': return divide(amount * 52, 12);
+      case 'quarterly': return divide(amount, 3);
+      case 'half-yearly': return divide(amount, 6);
+      case 'yearly': return divide(amount, 12);
       default: return amount;
     }
   };

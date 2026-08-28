@@ -46,6 +46,8 @@
  *     else entirely.
  */
 
+
+import { roundMoney } from '../core/money.js';
 /**
  * How often each instrument compounds, by convention in India.
  *
@@ -168,8 +170,8 @@ export function accruedValue(holding, asOf) {
     // assumed, and neither is knowable from the arithmetic alone.
     holding,
     base,
-    value: Math.round(value),
-    interest: Math.round(value - base),
+    value: roundMoney(value),
+    interest: roundMoney(value - base),
     years,
     compoundedTimesAYear: n,
     matured: Boolean(holding.maturesOn && holding.maturesOn < asOf),
@@ -288,8 +290,8 @@ export function recurringValue(holding, transactions, asOf) {
   return {
     holding,
     base,
-    value: Math.round(value),
-    interest: Math.round(value - base),
+    value: roundMoney(value),
+    interest: roundMoney(value - base),
     instalments: instalments.length,
     // The first instalment, which is what "and not since" means for an RD —
     // there is no single `valuedOn` that describes a deposit paid into monthly.

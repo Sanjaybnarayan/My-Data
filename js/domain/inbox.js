@@ -27,7 +27,7 @@
  * and a receipt with no such word yields no amount rather than a guess.
  */
 
-import { toMinor } from '../core/money.js';
+import { toMinor, divide } from '../core/money.js';
 import { recognise } from './merchants.js';
 import { readDate } from './extract.js';
 import { receiptKey } from './mailboxes.js';
@@ -145,7 +145,7 @@ export function byMerchant(receipts) {
     .map((bucket) => ({
       ...bucket,
       net: bucket.spent - bucket.refunded,
-      average: bucket.orders ? Math.round(bucket.spent / bucket.orders) : 0,
+      average: bucket.orders ? divide(bucket.spent, bucket.orders) : 0,
     }))
     .sort((a, b) => b.net - a.net);
 }
@@ -169,7 +169,7 @@ export function subscriptions(receipts) {
       // Rounded to the nearest sensible period rather than reported as a
       // fraction: "every 1.03 months" tells nobody anything.
       period: cadence >= 10 ? 'yearly' : cadence >= 2 ? 'quarterly' : 'monthly',
-      yearly: cadence > 0 ? Math.round((entry.average * 12) / cadence) : entry.average * 12,
+      yearly: cadence > 0 ? divide(entry.average * 12, cadence) : entry.average * 12,
     };
   });
 }

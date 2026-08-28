@@ -52,6 +52,7 @@
  */
 
 import { addDays, daysBetween, today } from '../core/dates.js';
+import { divide, roundMoney } from '../core/money.js';
 import { accountBalances, liquidCash } from './finance.js';
 
 /** Fewer months than this and "typical" is one month with a name. */
@@ -65,7 +66,7 @@ function median(values) {
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2
     ? sorted[middle]
-    : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+    : divide(sorted[middle - 1] + sorted[middle], 2);
 }
 
 /**
@@ -110,7 +111,7 @@ export function typicalDailySpend(transactions, { billCategories = null, clock =
   }
 
   return {
-    perDay: Math.round(median(complete.map(([, amount]) => amount)) / 30),
+    perDay: divide(median(complete.map(([, amount]) => amount)), 30),
     months: complete.length,
     why: null,
   };
@@ -158,7 +159,7 @@ export function typicalMonthlyOutgoings(transactions, { clock = Date.now } = {})
   }
 
   return {
-    perMonth: Math.round(median(complete.map(([, amount]) => amount))),
+    perMonth: roundMoney(median(complete.map(([, amount]) => amount))),
     months: complete.length,
     why: null,
   };

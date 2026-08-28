@@ -74,14 +74,15 @@
  */
 
 import { today } from '../core/dates.js';
+import { divide } from '../core/money.js';
 
 /** A year of a thing, as a month of it. */
 const PER_MONTH = {
-  weekly: (a) => Math.round((a * 52) / 12),
+  weekly: (a) => divide(a * 52, 12),
   monthly: (a) => a,
-  quarterly: (a) => Math.round(a / 3),
-  'half-yearly': (a) => Math.round(a / 6),
-  yearly: (a) => Math.round(a / 12),
+  quarterly: (a) => divide(a, 3),
+  'half-yearly': (a) => divide(a, 6),
+  yearly: (a) => divide(a, 12),
 };
 
 /** What a subscription costs per month, whatever cycle it bills on. */
@@ -130,7 +131,7 @@ export function subscriptionOutflow(subscriptions = [], digitalAssets = []) {
       id: d.id,
       entity: 'digitalAsset',
       name: d.name,
-      perMonth: Math.round(d.annualCost / 12),
+      perMonth: divide(d.annualCost, 12),
       amount: d.annualCost,
       frequency: 'yearly',
       renewsOn: d.renewsOn ?? null,
@@ -349,7 +350,7 @@ function perMonth(charge) {
 function monthlyEquivalent(record, charge) {
   const recordPerMonth = monthlyCost(record);
   const cycles = { weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 };
-  return Math.round(recordPerMonth / (cycles[charge?.period] ?? 1));
+  return divide(recordPerMonth, cycles[charge?.period] ?? 1);
 }
 
 /**

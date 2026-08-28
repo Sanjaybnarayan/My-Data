@@ -65,6 +65,7 @@ export const CATEGORY = Object.freeze([
 // Imported as well as re-exported: a bare `export ... from` forwards the name
 // without binding it in this module, and `nativeStatus` below reads it.
 import { CONNECTOR_STATUS } from './connector.js';
+import { toMinor } from '../core/money.js';
 
 export { CONNECTOR_STATUS };
 
@@ -173,7 +174,11 @@ const DATE = /\b(\d{2})[-/](\d{2})[-/](\d{2,4})\b/;
 const minor = (text) => {
   if (!text) return null;
   const value = Number(String(text).replace(/,/g, ''));
-  return Number.isFinite(value) ? Math.round(value * 100) : null;
+  // `toMinor`, not `* 100`: one rounding rule, and the scale comes from the
+  // currency rather than from an assumption about how many minor digits it
+  // has. The text this matches is never signed, so the rounding of a
+  // negative half does not arise here — it is the consistency that matters.
+  return Number.isFinite(value) ? toMinor(value) : null;
 };
 
 /**

@@ -46,6 +46,8 @@
  * `domain/amortise.js`: derive, show, name the disagreement, never substitute.
  */
 
+
+import { roundMoney } from '../core/money.js';
 /** Money going in: units acquired and cost incurred. */
 const INWARD = new Set(['buy', 'contribution']);
 
@@ -69,7 +71,7 @@ function amountOf(txn) {
   if (txn.amount !== null && txn.amount !== undefined) return txn.amount;
   // `pricePerUnit` was recorded on every buy and read by nothing. Where the
   // amount is missing it is the only thing that can say what was paid.
-  if (txn.units && txn.pricePerUnit) return Math.round(txn.units * txn.pricePerUnit);
+  if (txn.units && txn.pricePerUnit) return roundMoney(txn.units * txn.pricePerUnit);
   return 0;
 }
 
@@ -136,7 +138,7 @@ export function costBasis(holding, transactions = []) {
       // the average is the only reading available, and it is better than
       // treating the sale as having disposed of nothing at all.
       const sold = txn.units ?? (average ? amount / average : 0);
-      const removed = Math.round(average * Math.min(sold, units));
+      const removed = roundMoney(average * Math.min(sold, units));
 
       units = Math.max(0, units - sold);
       cost = Math.max(0, cost - removed);
@@ -166,15 +168,15 @@ export function costBasis(holding, transactions = []) {
     }
   }
 
-  const invested = Math.round(cost);
+  const invested = roundMoney(cost);
   const rounded = Math.round(units * 1000) / 1000;
 
   return {
     invested,
     units: rounded,
     charges,
-    realised: Math.round(realised),
-    income: Math.round(income),
+    realised: roundMoney(realised),
+    income: roundMoney(income),
     count: rows.length,
     from: 'transactions',
     stored,
