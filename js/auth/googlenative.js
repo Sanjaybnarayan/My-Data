@@ -38,7 +38,8 @@
 
 import { config } from '../core/config.js';
 import { AppError } from '../core/errors.js';
-import { randomBytes } from '../security/crypto.js';
+import { t } from '../core/locale.js';
+import { randomBytes, encryptText, decryptText, isEncrypted } from '../security/crypto.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { plugin, isNative } from '../core/native.js';
 import {
@@ -50,8 +51,15 @@ const USERINFO_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/userinfo';
 const REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
 const RENEW_MARGIN_MS = 5 * 60_000;
 
-/** Where the refresh token lives. Encrypted; see `data/schema.js` meta rules. */
+/** Where the refresh token lives. */
 export const REFRESH_KEY = 'auth.googleRefreshToken';
+
+/**
+ * Binds the ciphertext to this one key. A sealed value lifted out of `meta`
+ * and pasted under a different key fails its authentication tag rather than
+ * decrypting — the same argument `fieldcrypto.js` makes per cell.
+ */
+const REFRESH_AAD = `familyos:meta:${REFRESH_KEY}`;
 
 /**
  * Whether a native sign-in is possible at all, and if not, why.
@@ -213,9 +221,68 @@ export class NativeGoogleAuth {
     await this.#accept(body);
   }
 
+  /**
+   * Store the refresh token sealed under the household data key.
+   *
+   * ## Why this exists
+   *
+   * The line naming `REFRESH_KEY` used to read *"Encrypted; see
+   * `data/schema.js` meta rules"*. There are no such rules: `meta` is
+   * `{ keyPath: 'key', indexes: [] }` and `setMeta` writes straight to the
+   * adapter. So a Google **refresh token** — long-lived authority over the
+   * household's Drive, Sheets and Gmail — sat in plaintext in IndexedDB
+   * behind a comment saying it did not. A security claim with nothing
+   * checking it is the fault this repository has found most often, and this
+   * was the most expensive instance of it.
+   *
+   * ## Refusing rather than falling back
+   *
+   * With no keyring, or a locked one, this **does not store the token**. The
+   * tempting fallback — write it in the clear and carry on — would make the
+   * seal optional, and an optional seal is the plaintext it replaced with an
+   * extra branch. A device that cannot seal it simply has to sign in again,
+   * which is an inconvenience rather than a leak.
+   */
+  async #keepRefresh(value) {
+    const key = this.store?.keyring?.key;
+    if (!key) return false;
+    await this.store.setMeta(REFRESH_KEY, await encryptText(key, String(value), REFRESH_AAD));
+    return true;
+  }
+
+  /**
+   * Read it back, and upgrade a token written before it was sealed.
+   *
+   * A plaintext value here is a real refresh token from an older version. It
+   * is used and immediately re-sealed rather than discarded — throwing it away
+   * would sign the household out of Google on upgrade, which is a worse thing
+   * to do to somebody than the exposure it is fixing.
+   */
+  async #readRefresh() {
+    const stored = await this.store?.meta(REFRESH_KEY);
+    if (!stored) return '';
+
+    if (!isEncrypted(stored)) {
+      // Written before this was sealed. Take it, then put it back properly.
+      await this.#keepRefresh(stored);
+      return String(stored);
+    }
+
+    const key = this.store?.keyring?.key;
+    if (!key) throw new AppError(t('auth.google.locked'), { code: 'locked' });
+
+    try {
+      return await decryptText(key, stored, REFRESH_AAD);
+    } catch {
+      // A different data key, or a tampered value. Either way it is not this
+      // household's token and pretending otherwise fails further in.
+      throw new AppError(t('auth.google.unreadable'), { code: 'renew-failed' });
+    }
+  }
+
   /** Renew from the stored refresh token. Throws when there is nothing to use. */
   async renewSilently() {
-    const refreshToken = await this.store?.meta(REFRESH_KEY);
+    const refreshToken = await this.#readRefresh();
     if (!refreshToken) throw new AppError('nothing to renew with', { code: 'not-configured' });
 
     const request = refreshRequest({ clientId: this.clientId, refreshToken });
@@ -243,7 +310,7 @@ export class NativeGoogleAuth {
 
     // Google returns a refresh token on the first consent and not on renewals,
     // so an absent one means "keep the one you have" rather than "you have none".
-    if (refresh) await this.store?.setMeta(REFRESH_KEY, refresh);
+    if (refresh) await this.#keepRefresh(refresh);
 
     clearTimeout(this.#renewTimer);
     const delay = Math.max(30_000, this.#expiresAt - Date.now() - RENEW_MARGIN_MS);
@@ -276,7 +343,10 @@ export class NativeGoogleAuth {
    * household has asked to be rid of.
    */
   async signOut() {
-    const refreshToken = await this.store?.meta(REFRESH_KEY);
+    // Signing out must work on a locked device — it is the one thing somebody
+    // handing a phone over needs to succeed. An unreadable token falls back to
+    // the access token, which is what `||` did before this was sealed.
+    const refreshToken = await this.#readRefresh().catch(() => '');
     const token = refreshToken || this.#token;
 
     this.#token = null;

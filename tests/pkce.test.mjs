@@ -4,6 +4,7 @@ import {
   authUrl, parseRedirect, tokenRequest, refreshRequest, WHY,
 } from '../js/auth/pkce.js';
 import { NativeGoogleAuth, nativeSignInReady, REFRESH_KEY } from '../js/auth/googlenative.js';
+import { generateDataKey, isEncrypted, decryptText } from '../js/security/crypto.js';
 import { googleAuth } from '../js/auth/googleauth.js';
 import { forgetPlugins } from '../js/core/native.js';
 
@@ -269,10 +270,24 @@ function google(responses) {
   };
 }
 
-const memory = () => {
+/**
+ * A store, with a real data key on it by default.
+ *
+ * The keyring is not decoration: `NativeGoogleAuth` seals the refresh token
+ * under it and **refuses to store the token at all** without one. Passing
+ * `{ keyring: null }` is how a test asks for that refusal.
+ */
+const memory = ({ keyring = { key: null } } = {}) => {
   const kv = new Map();
-  return { meta: async (k) => kv.get(k) ?? null, setMeta: async (k, v) => kv.set(k, v) };
+  return {
+    keyring,
+    meta: async (k) => kv.get(k) ?? null,
+    setMeta: async (k, v) => kv.set(k, v),
+  };
 };
+
+/** A store whose keyring holds a genuine AES key. */
+const unlocked = async () => memory({ keyring: { key: await generateDataKey() } });
 
 describe('before anything opens', () => {
   test('a shell with no native client id says which id is missing', () => {
@@ -328,10 +343,16 @@ describe('signing in', () => {
     } finally { s.restore(); }
   });
 
-  test('keeps the refresh token so a reload does not ask again', async () => {
+  test('keeps the refresh token so a reload does not ask again, and seals it', async () => {
+    /*
+     * The line naming `REFRESH_KEY` used to say the token was encrypted and
+     * point at meta rules that do not exist. It was in the clear: long-lived
+     * authority over the household's Drive, Sheets and Gmail, in IndexedDB,
+     * behind a comment saying otherwise.
+     */
     const s = shell();
     const g = google([{ ok: true, body: { access_token: 'at', expires_in: 3600, refresh_token: 'rt' } }]);
-    const store = memory();
+    const store = await unlocked();
 
     try {
       const auth = new NativeGoogleAuth({ clientId: CLIENT, scopes: SCOPES, store, fetchImpl: g.fetch });
@@ -340,7 +361,35 @@ describe('signing in', () => {
       s.answer(`${redirectUriFor(CLIENT)}?code=4/xyz&state=${encodeURIComponent(state)}`);
       await within(signingIn, 'the sign-in');
 
-      assert.equal(await store.meta(REFRESH_KEY), 'rt');
+      const stored = await store.meta(REFRESH_KEY);
+      assert.not(String(stored).includes('rt'), 'the refresh token is in the clear');
+      assert.ok(isEncrypted(stored), 'the stored value is not a sealed envelope');
+      assert.equal(
+        await decryptText(store.keyring.key, stored, `familyos:meta:${REFRESH_KEY}`),
+        'rt',
+        'the sealed value does not open back to the token',
+      );
+    } finally { s.restore(); }
+  });
+
+  test('and refuses to store it at all on a device that cannot seal it', async () => {
+    // The fallback nobody should write: store it in the clear and carry on.
+    // An optional seal is the plaintext it replaced with an extra branch.
+    const s = shell();
+    const g = google([{ ok: true, body: { access_token: 'at', expires_in: 3600, refresh_token: 'rt' } }]);
+    const store = memory({ keyring: null });
+
+    try {
+      const auth = new NativeGoogleAuth({ clientId: CLIENT, scopes: SCOPES, store, fetchImpl: g.fetch });
+      const signingIn = auth.signIn();
+      const state = new URL(await until(() => s.opened(), 'the browser opening')).searchParams.get('state');
+      s.answer(`${redirectUriFor(CLIENT)}?code=4/xyz&state=${encodeURIComponent(state)}`);
+      await within(signingIn, 'the sign-in');
+
+      assert.equal(await store.meta(REFRESH_KEY), null,
+        'a device that cannot seal the token wrote it anyway');
+      // The sign-in still worked; only the durable half was refused.
+      assert.equal(await auth.getToken(), 'at');
     } finally { s.restore(); }
   });
 
@@ -429,6 +478,77 @@ describe('which implementation a caller gets', () => {
     const s = shell();
     try {
       assert.not(googleAuth({ scopes: SCOPES, nativeClientId: '' }) instanceof NativeGoogleAuth);
+    } finally { s.restore(); }
+  });
+});
+
+describe('the refresh token, once it is sealed', () => {
+  test('a token written before this was sealed still works, and is re-sealed', async () => {
+    /*
+     * The upgrade path. Discarding a plaintext token would sign the household
+     * out of Google the moment they updated — a worse thing to do to somebody
+     * than the exposure being fixed. So it is used, then put back properly.
+     */
+    const s = shell();
+    const g = google([{ ok: true, body: { access_token: 'fresh', expires_in: 3600 } }]);
+    const store = await unlocked();
+    await store.setMeta(REFRESH_KEY, 'legacy-plaintext-token');
+
+    try {
+      const auth = new NativeGoogleAuth({ clientId: CLIENT, scopes: SCOPES, store, fetchImpl: g.fetch });
+      assert.equal(await auth.renewSilently(), 'fresh');
+
+      // It was presented to Google...
+      assert.equal(new URLSearchParams(g.seen[0].body).get('refresh_token'),
+        'legacy-plaintext-token');
+
+      // ...and it is no longer sitting there in the clear.
+      const stored = await store.meta(REFRESH_KEY);
+      assert.ok(isEncrypted(stored), 'the legacy token was left in plaintext');
+      assert.equal(
+        await decryptText(store.keyring.key, stored, `familyos:meta:${REFRESH_KEY}`),
+        'legacy-plaintext-token',
+      );
+    } finally { s.restore(); }
+  });
+
+  test('a locked device says so rather than renewing', async () => {
+    // Not "nothing to renew with", which would send somebody looking for a
+    // sign-in they already have. The token is there; this device cannot read it.
+    const s = shell();
+    const store = await unlocked();
+    const g = google([{ ok: true, body: { access_token: 'at', expires_in: 3600, refresh_token: 'rt' } }]);
+
+    try {
+      const auth = new NativeGoogleAuth({ clientId: CLIENT, scopes: SCOPES, store, fetchImpl: g.fetch });
+      const signingIn = auth.signIn();
+      const state = new URL(await until(() => s.opened(), 'the browser opening')).searchParams.get('state');
+      s.answer(`${redirectUriFor(CLIENT)}?code=4/xyz&state=${encodeURIComponent(state)}`);
+      await within(signingIn, 'the sign-in');
+
+      // The device locks: the keyring stops answering.
+      store.keyring = { key: null };
+
+      const locked = new NativeGoogleAuth({ clientId: CLIENT, scopes: SCOPES, store, fetchImpl: g.fetch });
+      await assert.throws(() => locked.renewSilently(), /locked/i);
+    } finally { s.restore(); }
+  });
+
+  test('a token sealed under a different data key is refused, not presented', async () => {
+    // A restored backup, or somebody else's meta row. Sending it to Google
+    // would leak that it exists; failing further in would say nothing useful.
+    const s = shell();
+    const store = await unlocked();
+    const other = await generateDataKey();
+    const { encryptText } = await import('../js/security/crypto.js');
+    await store.setMeta(REFRESH_KEY,
+      await encryptText(other, 'someone-elses', `familyos:meta:${REFRESH_KEY}`));
+
+    try {
+      const g = google([]);
+      const auth = new NativeGoogleAuth({ clientId: CLIENT, scopes: SCOPES, store, fetchImpl: g.fetch });
+      await assert.throws(() => auth.renewSilently(), /cannot be read/i);
+      assert.length(g.seen, 0, 'an unreadable token was sent to Google anyway');
     } finally { s.restore(); }
   });
 });
