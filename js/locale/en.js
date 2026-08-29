@@ -340,6 +340,8 @@ export const strings = {
   // orders them differently can say so.
   'safety.none': '{name} has no location on this device.',
   'safety.seen': '{name} was {place} {when}.',
+  'safety.seenUncertain': '{name} was near {zone} {when}, and the reading is too coarse to say whether they were inside it.',
+  'safety.seenUncertainStale': '{name} was near {zone} {when}, and the reading is too coarse to say whether they were inside it. That is the last reading on this device, and it is old enough that it says nothing about now.',
   'safety.seenStale': '{name} was {place} {when}. That is the last reading on this device, and it is old enough that it says nothing about now.',
   'safety.atZone': 'at {zone}',
   'safety.awayFromZones': 'away from every saved zone',
