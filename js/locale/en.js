@@ -349,6 +349,16 @@ export const strings = {
   'position.unsupported': 'This device has no location service available to the app.',
   'position.unknown': 'The location could not be read.',
 
+  // Rule 57 counted across a household. `scopeCapped` exists because the old
+  // sentence said "movements" while counting only the sample it had walked.
+  'explain.scopeAll': '{total} movements',
+  'explain.scopeCapped': 'the {examined} most recent of {total} movements',
+  'explain.counts': 'Of {scope}: {documented} are made only of rows parsed from a statement, '
+    + '{partlyTyped} include a row somebody typed, and {unexplained} have no rows behind them '
+    + 'at all. None of this was checked by a person.',
+  'explain.unreadable': '{n} could not be read on this device and are in none of those '
+    + 'three counts.',
+
   // What a report says when part of it could not be read. On the document
   // itself, in `summary`, which leads every format — a report is kept, and the
   // moment it was made is forgotten long before it is read again.
