@@ -18,8 +18,9 @@
 
 import { today, addDays, addMonths, addYears, daysUntil } from '../core/dates.js';
 import { advanceRecurring } from './finance.js';
+import { t } from '../core/locale.js';
 import {
-  allReminders, moneyReminders, mergeReminders, describeReminder, SEVERITY,
+  allReminders, moneyReminders, mergeReminders, SEVERITY,
   datedEntities, BY_NAME,
 } from './reminders.js';
 
@@ -117,20 +118,54 @@ export function notifiableReminders(reminders) {
     });
 }
 
-/** One notification for one thing, a digest for several. */
+/**
+ * One notification for one thing, a digest for several.
+ *
+ * ## Why this says how many and how urgent, and never what
+ *
+ * The body used to be `describeReminder(reminders[0])`, which is the right
+ * sentence for the assistant and for a screen and the wrong one here. It
+ * produced, verbatim from the tests that asserted it:
+ *
+ *     "KA01AB1234: PUC expiry expired 3 days ago"
+ *     "Rent is due in 1 day (₹35,000.00)"
+ *
+ * **A notification is read off a lock screen by whoever is holding the
+ * phone.** This application has a PIN and locks itself, which is a statement
+ * that its contents need authentication — and this was posting a vehicle
+ * registration number and a household's rent, with the amount, outside it.
+ * v8.0 names notifications in the same breath as URLs and console logs.
+ *
+ * `describeReminder` is unchanged and still says everything, in the places
+ * that are behind the lock. What is lost here is nothing a person needs from a
+ * notification: its job is to get somebody to open the application, and the
+ * application then tells them everything.
+ */
 export function notificationFor(reminders) {
   if (!reminders.length) return null;
-  if (reminders.length === 1) {
-    return { title: 'FamilyOS', body: describeReminder(reminders[0]), tag: reminders[0].id };
-  }
+
   const overdue = reminders.filter((r) => r.days < 0).length;
+  const n = reminders.length;
+
+  // `tag` is never displayed — it is the browser's key for replacing an
+  // earlier notification — so a record id here discloses nothing.
+  const tag = n === 1 ? reminders[0].id : 'familyos-digest';
+
+  if (overdue) {
+    return {
+      title: t('notify.push.title', { n }),
+      body: t('notify.push.lapsed', { overdue }),
+      tag,
+    };
+  }
+
+  // Soonest first: `notifiableReminders` sorts by severity then by days, so
+  // the head is what the household would want to be told about.
+  const days = Math.max(0, Number(reminders[0].days) || 0);
   return {
-    title: `${reminders.length} things need attention`,
-    body: [
-      overdue ? `${overdue} already lapsed` : null,
-      describeReminder(reminders[0]),
-    ].filter(Boolean).join(' · '),
-    tag: 'familyos-digest',
+    title: t('notify.push.title', { n }),
+    body: days === 0 ? t('notify.push.today') : t('notify.push.soon', { days }),
+    tag,
   };
 }
 

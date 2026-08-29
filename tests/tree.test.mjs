@@ -448,18 +448,58 @@ describe('notifications', () => {
     assert.not(due.some((r) => r.days === 40), 'six weeks out teaches people to dismiss');
   });
 
-  test('one thing gets a sentence, several get a digest', () => {
+  test('a notification says how many and how urgent, never what', () => {
+    // Read off a lock screen by whoever is holding the phone. This test used
+    // to assert the opposite — the body was `describeReminder` and the fixture
+    // title is a vehicle registration number, so it asserted that a
+    // registration plate reached the lock screen.
     const single = notificationFor([
       { id: 'x', group: 'expiry', days: -3, title: 'KA01AB1234', field: 'pucExpiresOn', label: 'PUC expiry' },
     ]);
-    assert.includes(single.body, 'expired 3 days ago');
+    assert.not(single.body.includes('KA01AB1234'), 'a registration number reached the lock screen');
+    assert.not(single.body.includes('PUC'), 'what expired reached the lock screen');
+    assert.includes(single.body, '1 already lapsed');
 
     const many = notificationFor([
       { id: 'a', group: 'expiry', days: -1, title: 'A', label: 'x' },
       { id: 'b', group: 'expiry', days: 2, title: 'B', label: 'y' },
     ]);
-    assert.includes(many.title, '2 things');
+    assert.includes(many.title, '2 thing');
     assert.includes(many.body, '1 already lapsed');
+  });
+
+  test('and an amount never reaches it', () => {
+    // The money branch is the one worth naming separately: the amount is
+    // exactly what makes a bill worth interrupting somebody for, and exactly
+    // what should not be legible to somebody who has not unlocked the phone.
+    const body = notificationFor([
+      { id: 'r', group: 'money', days: 1, title: 'Rent', amount: 35_000_00 },
+    ]).body;
+    assert.not(/35,?000/.test(body), `an amount reached the lock screen: ${body}`);
+    assert.not(body.includes('Rent'), 'a payee reached the lock screen');
+    assert.includes(body, 'due in 1 day');
+  });
+
+  test('but it still tells somebody whether to hurry', () => {
+    // Without this, a body reduced to a constant would pass every check above
+    // and make the notification useless.
+    const today = notificationFor([{ id: 'a', group: 'money', days: 0, title: 'X', amount: 1 }]);
+    const later = notificationFor([{ id: 'b', group: 'money', days: 5, title: 'X', amount: 1 }]);
+    const lapsed = notificationFor([{ id: 'c', group: 'money', days: -2, title: 'X', amount: 1 }]);
+
+    assert.includes(today.body, 'today');
+    assert.includes(later.body, '5 day');
+    assert.includes(lapsed.body, 'lapsed');
+    assert.not(today.body === later.body);
+  });
+
+  test('the full sentence is still available where it is behind the lock', () => {
+    // `describeReminder` is unchanged. The assistant and the screens still get
+    // everything — only the notification is narrowed.
+    assert.includes(
+      describeReminder({ group: 'money', title: 'Rent', days: 1, amount: 35_000_00 }),
+      'Rent',
+    );
   });
 
   test('nothing due produces no notification at all', () => {
@@ -508,8 +548,11 @@ describe('notifications', () => {
       { id: 'p', group: 'expiry', days: 6, title: 'Passport', label: 'Expires on', severity: 'urgent' },
       ...moneyReminders(money, { clock, days: 7 }),
     ]);
-    assert.equal(notificationFor(due).body, describeReminder(due[0]));
-    assert.includes(notificationFor(due).body, 'Rent');
+    // Asserted on the ordering rather than on the notification body, which no
+    // longer names anything. The head of the list is what the digest speaks
+    // for, and that is the property this test was always about.
+    assert.equal(due[0].title, 'Rent');
+    assert.includes(describeReminder(due[0]), 'Rent');
   });
 
   test('the default window is the same 45 days the other reminders use', () => {

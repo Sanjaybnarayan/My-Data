@@ -349,6 +349,16 @@ export const strings = {
   'position.unsupported': 'This device has no location service available to the app.',
   'position.unknown': 'The location could not be read.',
 
+  // What a notification is allowed to say. Read off a lock screen by whoever
+  // is holding the phone, so it carries how many and how urgent and never
+  // what: the body used to be the full reminder sentence, which put a vehicle
+  // registration number and a household's rent outside the application's own
+  // PIN. `describeReminder` still says everything, in the places behind it.
+  'notify.push.title': '{n} thing(s) need attention',
+  'notify.push.lapsed': '{overdue} already lapsed. Open FamilyOS to see what.',
+  'notify.push.today': 'Something is due today. Open FamilyOS to see what.',
+  'notify.push.soon': 'The next one is due in {days} day(s). Open FamilyOS to see what.',
+
   // Rule 57 counted across a household. `scopeCapped` exists because the old
   // sentence said "movements" while counting only the sample it had walked.
   'explain.scopeAll': '{total} movements',
