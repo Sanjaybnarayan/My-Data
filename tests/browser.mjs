@@ -5965,6 +5965,8 @@ async function main() {
       const nameless = [];
       /** @type {string[]} */
       const unlabelled = [];
+      /** @type {string[]} */
+      const raw = [];
 
       const walked = [];
       for (const mod of SCHEMA_MODULES) walked.push(`#/${mod.id}`);
@@ -6014,7 +6016,44 @@ async function main() {
             return box.width > 0 || box.height > 0;
           };
 
-          const out = { skips: [], nameless: [], unlabelled: [] };
+          const out = { skips: [], nameless: [], unlabelled: [], raw: [] };
+
+          /*
+           * A locale key, or a placeholder, drawn where a sentence belongs.
+           *
+           * `t()` returns the key itself when the catalogue has no entry —
+           * `text = english ?? key` — so a missing entry paints
+           * `profile.lockNow` onto the screen rather than throwing. The
+           * static half of this is checkable off the source and comes out
+           * clean: every `t('...')` literal in the tree resolves. What that
+           * cannot see is a computed key, and this application builds plenty
+           * (`phraseKey(field, tense)`, `t(group.title)`), so the reading is
+           * taken from what is actually painted.
+           *
+           * `{name}` catches the other half: `interpolate` leaves a
+           * placeholder alone when its variable was not passed, so a caller
+           * that forgets one ships a brace to a household.
+           *
+           * Text nodes only, and only where they are drawn — an id or a class
+           * in an attribute looks identical and is not a sentence.
+           */
+          const KEYISH = /^[a-z][a-z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*){1,4}$/;
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const text = (node.textContent ?? '').trim();
+            if (!text) continue;
+            const parent = node.parentElement;
+            if (!parent || !drawn(parent)) continue;
+            // `code` is where the application puts a machine identifier on
+            // purpose — an OAuth scope, a path, an id. Those are dotted and
+            // are meant to be read exactly.
+            if (parent.closest('code, pre, .mono')) continue;
+            // A filename, a domain and a version are all dotted and all real.
+            if (/\.(js|css|html|json|pdf|png|jpg|csv|xlsx|com|in|org)$/i.test(text)) continue;
+            if (KEYISH.test(text)) out.raw.push(`key "${text}"`);
+            const brace = /\{[a-zA-Z][\w]*\}/.exec(text);
+            if (brace) out.raw.push(`placeholder "${brace[0]}" in "${text.slice(0, 40)}"`);
+          }
 
           for (const el of document.querySelectorAll('button, a[href], [role="button"]')) {
             if (drawn(el) && !named(el)) {
@@ -6050,6 +6089,7 @@ async function main() {
         for (const one of found.skips) skips.push(`${hash}: ${one}`);
         for (const one of found.nameless) nameless.push(`${hash}: ${one}`);
         for (const one of found.unlabelled) unlabelled.push(`${hash}: ${one}`);
+        for (const one of found.raw) raw.push(`${hash}: ${one}`);
       }
 
       // The premise. A walk that rendered nothing would satisfy all three.
@@ -6062,6 +6102,12 @@ async function main() {
         nameless.length === 0, [...new Set(nameless)].slice(0, 6).join(' | '));
       check('and every input has a label of some kind',
         unlabelled.length === 0, [...new Set(unlabelled)].slice(0, 6).join(' | '));
+
+      // Phase 25's silent failure: `t()` paints the key when the catalogue
+      // has no entry, so a household reads `profile.lockNow` instead of
+      // "Lock now" and nothing errors.
+      check('no screen shows a locale key or an unfilled placeholder',
+        raw.length === 0, [...new Set(raw)].slice(0, 6).join(' | '));
     }
 
     /* ------------------------------------------------ settings, measured */

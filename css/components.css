@@ -827,6 +827,14 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
 .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mono { font-family: var(--font-mono); font-size: 0.9em; }
 
+/* An OAuth scope is a string Google defines, read character by character by
+   somebody comparing this list against the consent screen. */
+.scope-name {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  word-break: break-all;
+}
+
 .reveal { display: inline-flex; align-items: center; gap: var(--space-2); }
 .reveal code {
   font-family: var(--font-mono);

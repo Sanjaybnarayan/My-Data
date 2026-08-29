@@ -260,8 +260,26 @@ export function permissionsCard() {
     },
   });
 
+  /*
+   * The scope's own name, marked as the machine identifier it is.
+   *
+   * `drive.file` is a string Google defines, not a sentence FamilyOS wrote —
+   * it belongs in `code` for the same reason a filename does, and a household
+   * comparing this list against the Google consent screen is reading it
+   * character by character.
+   *
+   * It also keeps the browser suite's locale-key walk honest. That check
+   * fails on dotted text drawn where a sentence belongs, because `t()` paints
+   * the key when the catalogue has no entry; these four scope names were the
+   * only things it flagged, and they are not a fault. Excluding `code`
+   * exempts exactly the identifiers somebody meant to show, rather than
+   * exempting the four strings by name.
+   */
+  const scopeName = (scope) => h('code', { class: 'scope-name' },
+    scope.id.replace('https://www.googleapis.com/auth/', ''));
+
   const row = (scope) => listItem({
-    title: scope.id.replace('https://www.googleapis.com/auth/', ''),
+    title: scopeName(scope),
     subtitle: `${scope.title} — ${scope.why}`,
     value: '',
   });
@@ -300,7 +318,7 @@ export function permissionsCard() {
 
     h('h3', { class: 'small', style: { marginTop: 'var(--space-4)' } }, 'Optional'),
     h('div', { class: 'list' }, optional.map((scope) => listItem({
-      title: scope.id.replace('https://www.googleapis.com/auth/', ''),
+      title: scopeName(scope),
       subtitle: `${scope.title} — ${scope.why}`,
       trailing: badge('optional', ''),
     }))),
