@@ -29,6 +29,9 @@ const TABS = [
   { id: 'portfolio', label: 'Portfolio' },
   { id: 'holding', label: 'Holdings' },
   { id: 'investmentTransaction', label: 'Transactions' },
+  // Not an entity, so it is not a `listSection` — it is the one tab that
+  // writes rows rather than listing them. See `modules/tradeimport.js`.
+  { id: 'import', label: 'Import' },
 ];
 
 export async function render(route) {
@@ -43,7 +46,7 @@ export async function render(route) {
   const host = h('div', {}, [
     pageHeader('Investments', {
       subtitle: 'What is invested, and what it has done',
-      actions: active !== 'portfolio'
+      actions: active !== 'portfolio' && active !== 'import'
         ? [button('Add', { variant: 'primary', iconName: 'plus', onClick: () => section?.openForm() })]
         : [button('Add holding', {
           variant: 'primary',
@@ -63,6 +66,13 @@ export async function render(route) {
 
   if (active === 'portfolio') {
     const view = await portfolioView();
+    replace(body, view.node);
+    return { node: host, destroy: view.destroy };
+  }
+
+  if (active === 'import') {
+    const { render: renderImport } = await import('./tradeimport.js');
+    const view = await renderImport();
     replace(body, view.node);
     return { node: host, destroy: view.destroy };
   }

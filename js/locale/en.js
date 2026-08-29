@@ -21,9 +21,11 @@
  */
 
 import { signinStrings } from './en-signin.js';
+import { tradebookStrings } from './en-tradebook.js';
 
 export const strings = {
   ...signinStrings,
+  ...tradebookStrings,
 
   // Dates. Abbreviated month names, because a table column has no room for
   // the full ones and a household reading its own records knows which is which.
