@@ -48,6 +48,7 @@
 
 import { lineageOf, describe as describeLineage, depth } from '../data/lineage.js';
 import { provenanceOf, SOURCES } from '../data/provenance.js';
+import { t } from '../core/locale.js';
 
 /**
  * The rows recorded as legs of one movement.
@@ -174,12 +175,48 @@ export async function explainEvent(db, id) {
  * The count is the point, the way `coverage` is the point of `provenance.js`:
  * *"every financial event is explainable"* is not a property you have until
  * you can name the ones that are not.
+ *
+ * ## Two ways this used to fail to name them
+ *
+ * **`total` was the size of the sample.** It read `events.length` after a
+ * `list({ limit })` capped at 500, so a household with nine hundred movements
+ * was told about five hundred and the sentence on the screen said
+ * "movements" — not "the five hundred most recent". Measured with seven
+ * events and a limit of three, the screen said **"0 of 3 movements"**. `total`
+ * is now the repository's own count and `examined` is what was walked, so the
+ * screen can say which it is talking about.
+ *
+ * **An event that could not be read vanished.** `explainEvent` returns null
+ * when the row cannot be fetched — a decryption failure, a corrupt record —
+ * and this loop did `continue`, so the three categories no longer added up to
+ * the total beside them while still reading as exhaustive. Measured with two
+ * of five unreadable: the buckets summed to three under a stated total of
+ * five.
+ *
+ * So the counts now satisfy an identity, and a test holds it:
+ *
+ *     documented + partlyTyped + unexplained + unreadable === examined
+ *
+ * That is the right shape for this file. A ledger whose parts do not add up to
+ * its whole is the thing it exists to report, and it was true of its own
+ * arithmetic.
  */
 export async function explainability(db, { limit = 500 } = {}) {
   const events = await db.repo('economicEvent').list({ limit });
 
+  // The household's real number, not the sample's. `count` walks the store
+  // without decrypting, which is why asking is cheap enough to always do.
+  const total = await db.repo('economicEvent').count().catch(() => events.length);
+
   const out = {
-    total: events.length,
+    total,
+    // How many were actually walked. Equal to `total` unless the limit bit.
+    examined: events.length,
+    // Walked and not readable. Never folded into `unexplained`: "nothing is
+    // recorded behind this movement" and "this movement could not be read" are
+    // different sentences, and only one of them is about the household's
+    // bookkeeping.
+    unreadable: 0,
     // Every leg parsed from a statement, an email or a document.
     documented: 0,
     // At least one leg somebody typed. A real provenance, a weaker one, and
@@ -196,7 +233,7 @@ export async function explainability(db, { limit = 500 } = {}) {
 
   for (const event of events) {
     const explanation = await explainEvent(db, event.id);
-    if (!explanation) continue;
+    if (!explanation) { out.unreadable += 1; continue; }
 
     if (explanation.amount.agrees === false) out.disagreeing += 1;
     if (!explanation.legs.length) out.unexplained += 1;
@@ -209,6 +246,41 @@ export async function explainability(db, { limit = 500 } = {}) {
   }
 
   return out;
+}
+
+/**
+ * The household's explainability, in words.
+ *
+ * Here rather than in the screen for the same reason `describeExplanation` is:
+ * these sentences are the answer to rule 57, and an answer that can only be
+ * checked by opening a browser is not being checked.
+ *
+ * Returns two strings. The second is null unless something could not be read —
+ * kept apart from the first because it is not a fourth category of
+ * bookkeeping, it is a statement about this device.
+ *
+ * @param {{total: number, examined: number, documented: number,
+ *          partlyTyped: number, unexplained: number, unreadable: number}} review
+ * @returns {{counts: string, unreadable: string|null}}
+ */
+export function describeExplainability(review) {
+  // "of N movements" used to be the sample size while saying "movements". A
+  // household with nine hundred was told about five hundred.
+  const scope = review.examined < review.total
+    ? t('explain.scopeCapped', { examined: review.examined, total: review.total })
+    : t('explain.scopeAll', { total: review.total });
+
+  return {
+    counts: t('explain.counts', {
+      scope,
+      documented: review.documented,
+      partlyTyped: review.partlyTyped,
+      unexplained: review.unexplained,
+    }),
+    unreadable: review.unreadable
+      ? t('explain.unreadable', { n: review.unreadable })
+      : null,
+  };
 }
 
 /** A movement's story, for a screen. Never a claim that anybody checked it. */

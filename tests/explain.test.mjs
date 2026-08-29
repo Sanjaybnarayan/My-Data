@@ -8,7 +8,8 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb } from './fixture.mjs';
 import {
-  explainEvent, explainability, describeExplanation, legsOf, amountFromLegs,
+  explainEvent, explainability, describeExplanation, describeExplainability,
+  legsOf, amountFromLegs,
 } from '../js/domain/explain.js';
 import { lineageOf, describe as describeLineage } from '../js/data/lineage.js';
 
@@ -280,6 +281,102 @@ describe('counting the ones that cannot be explained', () => {
     const out = await explainability(db);
     assert.equal(out.total, 0);
     assert.length(out.problems, 0);
+  });
+
+  test('the sample is not reported as the household', async () => {
+    // Measured before the fix: seven movements and a limit of three produced
+    // `total: 3`, and the screen said "0 of 3 movements".
+    const { db } = await household();
+    for (let i = 0; i < 7; i += 1) {
+      await db.repo('economicEvent').create({
+        date: '2026-05-01', kind: 'transfer', amount: 100_00 + i, title: `Event ${i}`,
+      });
+    }
+
+    const capped = await explainability(db, { limit: 3 });
+    assert.equal(capped.examined, 3);
+    assert.equal(capped.total, 7, 'the sample size was reported as the household');
+
+    // And the words follow the numbers.
+    assert.includes(describeExplainability(capped).counts, 'the 3 most recent of 7 movements');
+  });
+
+  test('and an uncapped count says so plainly', async () => {
+    // Without this, always claiming a cap would pass the test above and put a
+    // needless qualification on every household small enough not to need one.
+    const { db } = await household();
+    await db.repo('economicEvent').create({
+      date: '2026-05-01', kind: 'transfer', amount: 100_00, title: 'One',
+    });
+
+    const out = await explainability(db);
+    assert.equal(out.examined, out.total);
+    const said = describeExplainability(out);
+    assert.includes(said.counts, '1 movements');
+    assert.not(said.counts.includes('most recent'));
+    assert.equal(said.unreadable, null);
+  });
+
+  test('a movement that could not be read is counted, not dropped', async () => {
+    // Measured before the fix: two of five unreadable, and the three
+    // categories summed to three under a stated total of five — while reading
+    // on screen as though they were exhaustive.
+    const { db } = await household();
+    const ids = [];
+    for (let i = 0; i < 5; i += 1) {
+      const event = await db.repo('economicEvent').create({
+        date: '2026-05-01', kind: 'transfer', amount: 100_00 + i, title: `Event ${i}`,
+      });
+      ids.push(event.id);
+    }
+
+    const unreadable = new Set(ids.slice(0, 2));
+    // Delegated by hand rather than spread: a repository is a class instance,
+    // and `{ ...real }` copies its own fields and drops every method on the
+    // prototype. The first version of this stub did that and failed on `list`
+    // — which is worth a sentence, because a stub that quietly loses a method
+    // is how a test ends up exercising something other than the code.
+    const broken = {
+      ...db,
+      repo: (name) => {
+        const real = db.repo(name);
+        if (name !== 'economicEvent') return real;
+        return {
+          list: (...args) => real.list(...args),
+          count: (...args) => real.count(...args),
+          get: async (id) => {
+            if (unreadable.has(id)) throw new Error('cannot decrypt');
+            return real.get(id);
+          },
+        };
+      },
+    };
+
+    const out = await explainability(broken);
+    assert.equal(out.unreadable, 2);
+    // Not folded in: "nothing is recorded behind this" and "this could not be
+    // read" are different sentences about different things.
+    assert.equal(out.unexplained, 3);
+    assert.includes(describeExplainability(out).unreadable, '2 could not be read');
+  });
+
+  test('the counts add up to what was examined', async () => {
+    // The identity this file exists to be able to state. A ledger whose parts
+    // do not add up to its whole is exactly what this report is for, and it
+    // used to be true of its own arithmetic.
+    const { db } = await household();
+    for (let i = 0; i < 4; i += 1) {
+      await db.repo('economicEvent').create({
+        date: '2026-05-01', kind: 'transfer', amount: 100_00 + i, title: `Event ${i}`,
+      });
+    }
+
+    const out = await explainability(db);
+    assert.equal(
+      out.documented + out.partlyTyped + out.unexplained + out.unreadable,
+      out.examined,
+      'the categories do not account for every movement walked',
+    );
   });
 
   test('a movement that does not exist explains nothing rather than throwing',

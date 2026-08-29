@@ -38,6 +38,7 @@ import { EvidenceService } from '../services/evidence.js';
 import { ConflictService } from '../services/conflict.js';
 import { t } from '../core/locale.js';
 import { ExplainService } from '../services/explain.js';
+import { describeExplainability } from '../domain/explain.js';
 import { describeExplanation } from '../domain/explain.js';
 import { toast } from '../ui/components/toast.js';
 import { userMessage } from '../core/errors.js';
@@ -331,13 +332,13 @@ async function explainBanner() {
     ]));
   }
 
+  const said = describeExplainability(review);
   cards.push(card({ class: 'card--quiet explain-count' }, [
-    h('p', { class: 'small muted', style: { margin: 0 } },
-      `${review.documented} of ${review.total} movements are made only of rows `
-      + `parsed from a statement. ${review.partlyTyped} include a row somebody `
-      + `typed, and ${review.unexplained} have no rows behind them at all. `
-      + 'None of this was checked by a person.'),
-  ]));
+    h('p', { class: 'small muted', style: { margin: 0 } }, said.counts),
+    said.unreadable
+      ? h('p', { class: 'small money--negative', style: { marginBottom: 0 } }, said.unreadable)
+      : null,
+  ].filter(Boolean)));
 
   return cards;
 }
