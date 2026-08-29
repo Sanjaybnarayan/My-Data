@@ -40,6 +40,13 @@
  *     that an engine exists, and *"the engine exists and no screen calls it"*
  *     is the finding this codebase has made more often than any other. A row
  *     could assert the engine and stay green while nothing drew it.
+ *   - `unwired:<path>#<term>` — that file must **not** mention it. The inverse,
+ *     and the row it makes checkable is the honest one: *"this is built and
+ *     nothing calls it."* Such a row goes stale the other way round — somebody
+ *     wires the engine up and the sentence saying nothing does survives — and
+ *     `absent:` cannot catch that, because it asks whether a term appears
+ *     anywhere in `js/` and the engine's own file always mentions it. This
+ *     asks one file, the screen, and fails the moment the wiring appears.
  *
  * The absent probe is half the point. A document only drifts in the direction of
  * understating what is built, because building is what people do.
@@ -74,6 +81,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
+import { withoutComments } from './field-coverage.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 /**
@@ -126,7 +134,7 @@ export function probesIn(markdown) {
     // rule that breaks when a column is added — and it breaks *silently*,
     // because a probe that is not found is a claim that cannot fail.
     for (const cell of cells.slice(1, -1)) {
-      const match = /(?:^|·\s*)`(file|export|absent|wired):(.+)`$/.exec(cell);
+      const match = /(?:^|·\s*)`(file|export|absent|wired|unwired):(.+)`$/.exec(cell);
       if (match) {
         out.push({
           line: index + 1,
@@ -141,7 +149,7 @@ export function probesIn(markdown) {
       // it is silently not a claim, so the row can never fail. That is exactly
       // how `absent:grep:forecast|projection` sat in this document doing
       // nothing — a pipe inside a markdown table cell splits the cell.
-      if (/`(file|export|absent|wired):/.test(cell)) {
+      if (/`(file|export|absent|wired|unwired):/.test(cell)) {
         out.push({
           line: index + 1,
           component: cells[1] ?? '',
@@ -194,7 +202,12 @@ export function checkProbe(probe, { sources = null, read = readFileSync } = {}) 
     if (!existsSync(join(ROOT, path))) {
       return `cites ${path}, which does not exist`;
     }
-    const text = String(read(join(ROOT, path), 'utf8'));
+    // Comments stripped, for both directions of this probe. A file that
+    // *talks about* calling something is not a file that calls it, and this
+    // repository writes long comments — the prose in `js/modules/safety.js`
+    // saying the screen offers "a way to raise an alarm" was the whole finding
+    // that added `unwired:`, and it would have satisfied a probe reading it.
+    const text = withoutComments(String(read(join(ROOT, path), 'utf8')));
     // Escaped: a term like `options.extra` carries a dot, and an unescaped dot
     // matches any character — a probe that goes green on `optionsXextra` is a
     // probe with a hole in it.
@@ -202,6 +215,29 @@ export function checkProbe(probe, { sources = null, read = readFileSync } = {}) 
     return new RegExp(`\\b${literal}\\b`).test(text) ? null
       : `says "${probe.state}" and cites ${path}, which does not mention ${term} — `
         + 'the wiring this row claims is not there';
+  }
+
+  if (probe.kind === 'unwired') {
+    // The inverse of `wired:`, and the reason it exists: a row that honestly
+    // says an engine has no screen calling it is a claim like any other, and
+    // it goes stale in the *opposite* direction — somebody wires the thing and
+    // the row still says nothing does. `absent:` cannot express this, because
+    // it asks whether a term appears anywhere in `js/`, and the engine's own
+    // file always mentions it.
+    //
+    // So this asks one file — the screen — and fails when the wiring appears.
+    // Whoever wires it has to come back and say so.
+    const [path, term] = probe.target.split('#');
+    if (!existsSync(join(ROOT, path))) {
+      return `cites ${path}, which does not exist`;
+    }
+    const text = withoutComments(String(read(join(ROOT, path), 'utf8')));
+    const literal = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`\\b${literal}\\b`).test(text)
+      ? `says "${probe.state}", but ${path} now calls ${term} — this row has `
+        + 'gone stale in the direction that matters: the wiring it says is '
+        + 'absent has been done'
+      : null;
   }
 
   if (probe.kind === 'malformed') {

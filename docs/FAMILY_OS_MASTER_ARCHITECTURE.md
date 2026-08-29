@@ -119,9 +119,10 @@ notes, vault, digital, emergency, reports, settings.
 | Module registry drives navigation | **exists** | `export:js/data/schema.js#modules` |
 | Assistant screen | **exists** | `file:js/modules/assistant-screen.js` |
 | Domain-service layer | **exists, barely adopted** | `file:js/services/service.js` |
-| Household staff (distinct from family) | **exists — the role, not a second identity** | `wired:js/services/records.js#documentsForStaff` |
-| Chat | **exists — real per-device E2EE, with escrow** | `wired:js/services/chat.js#send` |
-| Safety | **exists — foreground only, no background capture** | `wired:js/services/safety.js#whereEveryone` |
+| Household staff (distinct from family) | **exists — the role, not a second identity** | `wired:js/modules/family.js#documentsForStaff` |
+| Chat | **exists — real per-device E2EE, with escrow** | `wired:js/modules/chat.js#send` |
+| Safety | **exists — foreground only, no background capture** | `wired:js/modules/safety.js#whereEveryone` |
+| An SOS a household can raise | **built and unreachable — no screen calls it** | `unwired:js/modules/safety.js#raise` |
 
 Privacy is reachable through Settings rather than as a top-level entry, and the
 assistant is routed at `#/assistant`. Staff was
@@ -140,11 +141,19 @@ forward secrecy, and no cryptographer has reviewed any of it.
 **Safety exists, and the reason it was once recorded as "deliberately not
 scheduled" has not gone away.** A PWA still cannot deliver background location
 or send an SOS. What Phase 15 built is what a foreground application honestly
-can: a position read while somebody is looking at the screen, zones compared
-against it in arithmetic rather than registered with the operating system, and
-an SOS that composes a message for a person to send. Crossing a zone with the
-app closed still produces nothing, and `docs/LOCATION.md` opens with that
-rather than burying it.
+can: a position read while somebody is looking at the screen, and zones
+compared against it in arithmetic rather than registered with the operating
+system. Crossing a zone with the app closed still produces nothing, and
+`docs/LOCATION.md` opens with that rather than burying it.
+
+**The SOS is not one of the things it built.** This paragraph used to end with
+*"and an SOS that composes a message for a person to send"*, in the present
+tense, and the composer does exist — `SafetyService.raise`, `sosMessage`, an
+encrypted `sosAlert` entity, five locale strings. **No screen calls any of
+it.** A household reading this document would have believed they could raise
+an alarm from a phone that offers no way to. The row above now carries it as
+`unwired:`, which fails the moment somebody wires it and leaves the sentence
+behind.
 
 **The architectural debt here is the missing domain-service layer.** Screens
 call the repository directly, so every module added before the layer exists is
