@@ -464,6 +464,8 @@ export const strings = {
   'profile.wellbeingHint': 'How long applications were open on this phone, when the person it belongs to has agreed to it being read.',
   'profile.settings': 'Settings',
   'profile.settingsHint': 'Security, privacy, connections, display, data',
+  'amounts.unreadable.one': 'One record has an amount this device cannot read, so it is not in these totals. Check it in your spreadsheet.',
+  'amounts.unreadable.many': '{n} records have an amount this device cannot read, so they are not in these totals. Check them in your spreadsheet.',
   'assistant.unreadable': 'I could not read your {names} records, so I cannot answer that. This is not the same as having none — something went wrong reading them.',
   'search.keepTyping': 'Keep typing — {n} letters or more to search',
   'profile.lockNow': 'Lock now',

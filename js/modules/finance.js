@@ -638,7 +638,7 @@ async function financeOverview() {
     const {
       transactions, loans, balances, compare, series, balanceSeries, runway, truncated,
       categories, settlement, emi, byMember, bills, budgetRows, commitment,
-      transfers,
+      transfers, unreadable,
     } = await new FinanceService(db).overview();
 
     replace(host, h('div', { class: 'grid grid--wide' }, [
@@ -671,11 +671,10 @@ async function financeOverview() {
         // itself. A total that quietly shrank because a second file was
         // imported would be worse than the double count, because nobody would
         // know why.
-        settlement.settlements.length
-          ? h('p', {
-            class: settlement.corrected ? 'small money--negative' : 'small faint',
-          }, describeSettlement(settlement, compare.current.expense, format))
-          : null,
+        settlement.settlements.length ? h('p', {
+          class: settlement.corrected ? 'small money--negative' : 'small faint',
+        }, describeSettlement(settlement, compare.current.expense, format)) : null,
+        unreadable ? h('p', { class: 'small money--negative' }, unreadable) : null,
 
         // Deliberately `faint` rather than a warning: unlike the card bill,
         // nothing here is wrong. The figure above is a correct cash-flow

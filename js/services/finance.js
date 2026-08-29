@@ -31,6 +31,7 @@ import { Service, TRANSACTION_LIMIT, transactionsTruncated } from './service.js'
 import { TransfersService } from './transfers.js';
 import * as fin from '../domain/finance.js';
 import { settlementReport } from '../domain/settlement.js';
+import { unreadableAmounts, describeUnreadable } from '../domain/amounts.js';
 import { emiBreakdown } from '../domain/amortise.js';
 import { spendByMember } from '../domain/household.js';
 import { fromRecords } from '../domain/ledger.js';
@@ -83,6 +84,12 @@ export function assembleOverview(data, { clock = Date.now } = {}) {
   // went through the card twice.
   const settlement = settlementReport(inMonth, accounts);
 
+  // Rows whose amount cannot be summed. `total` skips them so the figures are
+  // arithmetic rather than string concatenation, and this is what stops that
+  // being a silent omission — the sentence is built here so the screen carries
+  // no branch. Why any row is unreadable is in `js/domain/amounts.js`.
+  const unreadable = describeUnreadable(unreadableAmounts(inMonth));
+
   // The other half of the same question. A card bill is counted twice and is
   // simply wrong; an EMI is counted once and is correct — it just conflates a
   // cost with money that moved from cash into a smaller debt. The whole history
@@ -131,6 +138,7 @@ export function assembleOverview(data, { clock = Date.now } = {}) {
     balanceSeries,
     categories: fin.byCategory(inMonth),
     settlement,
+    unreadable,
     emi,
     byMember,
     // `account.statementDay` and `account.dueDay` are on the account form and
