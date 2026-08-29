@@ -170,6 +170,88 @@ describe('how old a reading is', () => {
     assert.equal(lastKnown(rows, 'a', { now: NOW }), null);
   });
 
+  test('a reading too coarse to decide is not reported as away', () => {
+    /*
+     * `geo.js` opens by insisting there are three answers and not two, and
+     * `placeAgainst` produces all three. `zoneFor` answers only INSIDE, so an
+     * undecidable fix collapsed to `null` — the same value as "outside
+     * everything" — and the screen said the same sentence about both:
+     *
+     *     Asha was away from every saved zone 2 hours ago.
+     *
+     * A claim of absence, on evidence that could not tell absence from
+     * presence, on the screen a household uses to find a child.
+     */
+    // 150 m from the centre of a 200 m zone, with a 120 m accuracy circle:
+    // the band straddles the boundary and nobody can say.
+    const fuzzy = ping('p1', 'a', 120, north(SCHOOL, 150, 120));
+    assert.equal(placeAgainst(fuzzy, SCHOOL), WHERE.UNCERTAIN, 'the fixture is not undecidable');
+
+    const known = lastKnown([fuzzy], 'a', { now: NOW, zones: [SCHOOL] });
+    assert.equal(known.zone, null, 'zoneFor still answers only INSIDE');
+    assert.deep(known.undecided.map((z) => z.id), ['z1']);
+
+    const line = describeLastKnown(known, 'Asha');
+    assert.includes(line, 'near School');
+    assert.includes(line, 'too coarse to say');
+    assert.not(/away from every saved zone/.test(line), line);
+  });
+
+  test('and a reading that really is outside still says so', () => {
+    // The other direction: the third sentence must not have swallowed the
+    // second. A fix 5 km away with 20 m accuracy is decidably outside.
+    const far = ping('p1', 'a', 120, north(SCHOOL, 5000, 20));
+    const known = lastKnown([far], 'a', { now: NOW, zones: [SCHOOL] });
+    assert.length(known.undecided, 0);
+    assert.includes(describeLastKnown(known, 'Asha'), 'away from every saved zone');
+  });
+
+  test('being inside a zone is not being unsure about it', () => {
+    const known = lastKnown([ping('p1', 'a', 5, north(SCHOOL, 20, 10))], 'a',
+      { now: NOW, zones: [SCHOOL] });
+    assert.equal(known.zone.id, 'z1');
+    assert.length(known.undecided, 0);
+    assert.includes(describeLastKnown(known, 'Asha'), 'at School');
+  });
+
+  test('and a decided zone still wins when another zone is undecided', () => {
+    // The guard. Somewhere can be squarely inside one zone while its accuracy
+    // band straddles the edge of an overlapping one, and "at school" is the
+    // answer then — not "near the gate, cannot say". Without this the third
+    // sentence would swallow a reading that was never in doubt.
+    const gate = {
+      ...north(SCHOOL, 150), radiusMetres: 100, name: 'Gate', id: 'z3',
+    };
+    const fix = ping('p1', 'a', 5, north(SCHOOL, 60, 30));
+    assert.equal(placeAgainst(fix, SCHOOL), WHERE.INSIDE);
+    assert.equal(placeAgainst(fix, gate), WHERE.UNCERTAIN, 'the fixture does not exercise the guard');
+
+    const known = lastKnown([fix], 'a', { now: NOW, zones: [SCHOOL, gate] });
+    assert.equal(known.zone.id, 'z1');
+    assert.length(known.undecided, 1);
+    const line = describeLastKnown(known, 'Asha');
+    assert.includes(line, 'at School');
+    assert.not(/too coarse to say/.test(line), line);
+  });
+
+  test('the tighter of two undecided zones is the one named', () => {
+    // Mirrors `zoneFor`: the more specific statement wins. Being unsure about
+    // the school says more than being unsure about a wide zone.
+    //
+    // Both zones must actually be undecided or the ordering is unobservable —
+    // the first version of this used NEIGHBOURHOOD, whose 3 km radius makes
+    // this fix decidably INSIDE, so `undecided` had one entry and the
+    // assertion could not fail.
+    const wide = { ...north(SCHOOL, 1150), radiusMetres: 1000, name: 'Wide', id: 'z4' };
+    const fuzzy = ping('p1', 'a', 120, north(SCHOOL, 150, 120));
+    assert.equal(placeAgainst(fuzzy, SCHOOL), WHERE.UNCERTAIN);
+    assert.equal(placeAgainst(fuzzy, wide), WHERE.UNCERTAIN);
+
+    const known = lastKnown([fuzzy], 'a', { now: NOW, zones: [wide, SCHOOL] });
+    assert.deep(known.undecided.map((z) => z.id), ['z1', 'z4']);
+    assert.includes(describeLastKnown(known, 'Asha'), 'near School');
+  });
+
   test('the zone is recomputed, not taken from the row', () => {
     // A zone can be moved or resized after a reading was stored, and the
     // stored name would then be a claim about a place that is no longer there.

@@ -25,7 +25,7 @@
  * child.
  */
 
-import { WHERE, placeAgainst, zoneFor } from './geo.js';
+import { WHERE, placeAgainst, zoneFor, placements } from './geo.js';
 import { t } from '../core/locale.js';
 
 /** How long a reading stays worth quoting, in minutes. */
@@ -86,12 +86,29 @@ export function lastKnown(pings, personId, { now = Date.now(), zones = [] } = {}
   const latest = rows.at(-1);
   if (!latest) return null;
 
+  // `zoneFor` answers only INSIDE; a fix whose accuracy band straddles a
+  // boundary collapses to `null` there, the same value as "outside
+  // everything". Two different states, and the screen said the same sentence
+  // about both — "away from every saved zone" is a claim of absence, made on
+  // evidence that could not tell absence from presence.
+  //
+  // `geo.js` has always computed the third state and `placements` has always
+  // reported it. Nothing called it. This is that caller.
+  const undecided = placements(latest, zones)
+    .filter((row) => row.where === WHERE.UNCERTAIN)
+    .map((row) => row.zone)
+    // Smallest first, mirroring `zoneFor`: the tighter zone is the more
+    // specific thing to be unsure about, and "near the school" says more than
+    // "near Indiranagar" when both are undecided.
+    .sort((a, b) => Number(a.radiusMetres) - Number(b.radiusMetres));
+
   return {
     ping: latest,
     ...freshness(latest, now),
     // Recomputed rather than trusted: the stored `zone` was resolved when the
     // row was written, and a zone can be moved or its radius changed since.
     zone: zoneFor(latest, zones),
+    undecided,
   };
 }
 
@@ -171,7 +188,7 @@ export function expired(pings, { now = Date.now(), retainDays = RETAIN_DAYS } = 
 export function describeLastKnown(known, personName = t('safety.somebody')) {
   if (!known) return t('safety.none', { name: personName });
 
-  const { state, minutes, zone } = known;
+  const { state, minutes, zone, undecided = [] } = known;
   const place = zone ? t('safety.atZone', { zone: zone.name }) : t('safety.awayFromZones');
   const when = minutes === 0 ? t('safety.justNow')
     : minutes < 60 ? t('safety.minutesAgo', { n: minutes })
@@ -181,6 +198,17 @@ export function describeLastKnown(known, personName = t('safety.somebody')) {
   // screen telling somebody where their child is on the strength of a reading
   // from this morning. Whole sentences either way — a language that orders
   // "was at school two hours ago" differently cannot do it from fragments.
+  // Undecided is not absent. Said as its own sentence rather than squeezed
+  // into `place`, because "was near the school but the reading cannot say
+  // whether inside it" is a different shape of statement from "was at school",
+  // and a language that orders it differently cannot build it from fragments.
+  if (!zone && undecided.length) {
+    const near = undecided[0].name;
+    return state === FRESHNESS.STALE
+      ? t('safety.seenUncertainStale', { name: personName, zone: near, when })
+      : t('safety.seenUncertain', { name: personName, zone: near, when });
+  }
+
   return state === FRESHNESS.STALE
     ? t('safety.seenStale', { name: personName, place, when })
     : t('safety.seen', { name: personName, place, when });
