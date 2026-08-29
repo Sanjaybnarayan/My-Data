@@ -97,7 +97,7 @@ The service layer exists and is adopted in part:
 | Audit | **exists** | `file:js/data/audit.js` |
 | Privacy centre | **exists** | `file:js/domain/privacy.js` |
 | Local-only switch | **exists** | `export:js/core/config.js#loadLocalOnly` |
-| AI governance | **partial — one outbound gate** | `export:js/ai/mcp.js#callTool` |
+| AI governance | **a gate exists; nothing passes through it yet** | `unwired:js/app.js#callTool` |
 | Connector permissions | **partial — scope registry** | `file:js/core/scopes.js` |
 
 Eight of these rows said *missing* when this document was written. They were

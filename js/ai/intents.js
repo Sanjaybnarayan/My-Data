@@ -24,7 +24,7 @@ import { range, formatDay, today, daysUntil, relativeDays } from '../core/dates.
 import * as fin from '../domain/finance.js';
 import { netWorth } from '../domain/networth.js';
 import { portfolioSummary, allocation, holdingGain, xirr, cashFlows } from '../domain/portfolio.js';
-import { allReminders } from '../domain/reminders.js';
+import { allReminders, datedEntities } from '../domain/reminders.js';
 
 /** Phrases that name a time span, longest first so "last month" beats "month". */
 /** @type {[RegExp, string][]} */
@@ -158,9 +158,21 @@ export const intents = [
       /\b(expir\w*|renew\w*|due to lapse|lapsing)\b/i,
     ],
     async handle(ctx) {
+      /*
+       * Derived, not typed out. This handler named nine entities; the schema
+       * declares nineteen with an expiry field, and `expiryReminders` reads
+       * every one of them. So the ten it did not name were invisible here —
+       * a warranty running out, a tenancy ending, a vaccination due, a
+       * medication course finishing, a service falling due — and the answer
+       * was not "some of these are missing" but a flat "nothing is due to
+       * expire in the next year".
+       *
+       * `datedEntities()` is the same list the dashboard uses, and its own
+       * comment records `medication` being moved onto it after exactly this
+       * fault. The assistant was the caller that never followed.
+       */
       const data = {};
-      for (const name of ['policy', 'vehicle', 'document', 'identityDocument',
-        'subscription', 'digitalAsset', 'holding', 'property', 'certificate']) {
+      for (const name of datedEntities()) {
         data[name] = await ctx.load(name);
       }
 
