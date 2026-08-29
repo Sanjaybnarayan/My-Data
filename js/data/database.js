@@ -15,6 +15,7 @@ import { searchIndex, indexEntry } from './search.js';
 import { Chain, verify as verifyChain } from './chain.js';
 import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
 import { danglingIn } from './integrity.js';
+import { rowFilter } from '../security/rbac.js';
 import { Keyring } from '../security/keyring.js';
 import { deviceId as resolveDeviceId } from '../core/ids.js';
 import { memoryStorage } from '../security/session.js';
@@ -238,8 +239,58 @@ export class Database {
 
   /* ---------------------------------------------------------------- search */
 
-  async search(query, options) {
-    return searchIndex(this.adapter, query, options);
+  /**
+   * Search, filtered by who is asking.
+   *
+   * `searchIndex` reads the `search` store through the adapter, which is the
+   * one read path in this application that does not go through `Repository` —
+   * so it never met `rowFilter`, and the box on the app shell answered
+   * questions the record itself refuses. Measured on one device:
+   *
+   *     child repo('healthRecord').list()  →  0 rows
+   *     child db.search('psychiatry')      →  1 hit, with the title
+   *
+   * The index denormalises `title` and `subtitle` so a result can be drawn
+   * without a second read, which means a hit leaks the content of the field,
+   * not merely that a record exists. `js/security/rbac.js` names this exact
+   * case: "a shared family device does not expose one sibling's records to
+   * another."
+   *
+   * The rule is not restated here. Each hit is checked with the same
+   * `rowFilter` the repository uses, against the record itself — two copies of
+   * an authorisation rule is two places for it to drift.
+   */
+  async search(query, options = {}) {
+    const { limit = 30, ...rest } = options;
+    // Over-fetched, then trimmed. Filtering after a `limit` would let another
+    // person's records fill all twelve slots and leave somebody searching for
+    // their own with nothing — the index ranks over every record on the
+    // device, and on a shared one most of them belong to somebody else.
+    const hits = await searchIndex(this.adapter, query, { ...rest, limit: limit * 5 });
+
+    const out = [];
+    for (const hit of hits) {
+      if (out.length >= limit) break;
+      if (await this.#mayRead(hit)) out.push(hit);
+    }
+    return out;
+  }
+
+  /** Whether the signed-in actor may read the record behind one hit. */
+  async #mayRead(hit) {
+    let permitted;
+    try {
+      permitted = rowFilter(this.#actor, hit.entity);
+    } catch {
+      // An index row for an entity the schema no longer has. Refused rather
+      // than shown: nothing can say who it belongs to.
+      return false;
+    }
+    const record = await this.adapter.read(hit.entity, hit.recordId).catch(() => null);
+    // Deleted rows are dropped from the index on write and skipped by
+    // `reindex`, so this is belt and braces rather than the main defence.
+    if (!record || record.deletedAt) return false;
+    return permitted(record);
   }
 
   /**

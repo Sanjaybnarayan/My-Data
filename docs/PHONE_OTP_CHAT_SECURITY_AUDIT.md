@@ -235,7 +235,7 @@ the cost was smaller.*
 | **The sharpest pair** | `person.emergencyContactPhone` is `encrypted: true`. `emergencyContact.phone` — the same kind of number, in the entity built for exactly that purpose — is `required: true, list: true` and in the clear. Two representations of one thing, classified oppositely. |
 | **The finding** | Not that one field is wrong. That **no rule exists**: the schema has accreted nine independent decisions and the pattern between them does not resolve into a policy anybody could state. |
 | **Impact** | Six phone numbers are plaintext in IndexedDB **and in the backup Google Sheet**. The brief's §6 treats a phone number as sensitive personal information. |
-| **Status** | **Not fixed. Needs a rule, not a patch.** |
+| **Status** | **Fixed.** The rule — every `type: 'phone'` field sealed except `person.phone` — was applied, and `tests/privacy.test.mjs` now holds it against the schema rather than against a list, so a tenth phone field cannot arrive in the clear. What that cost is set out below. *(This row said "Not fixed" for longer than it was true, twenty lines above the section describing the fix.)* |
 
 #### What encrypting actually costs, measured
 
@@ -274,6 +274,35 @@ a number you need under stress is a different kind of value from a tenant's.
 correctly — ciphertext is non-empty, and an absent number is never sealed. That
 holds by arithmetic rather than by design, and is recorded here because the next
 person to touch `reachability` should know it is standing on that.
+
+### SEARCH-01 · HIGH · the one read path that never met the authorisation rule
+
+*Found while continuing this audit, and it belongs to it: the brief's privacy
+and authorisation sections are exactly what it breaks. It has nothing to do
+with phone numbers or one-time codes, which is why nothing here had looked at
+it.*
+
+| | |
+| --- | --- |
+| **Files** | `js/data/database.js`, `js/data/search.js`, `js/app.js` |
+| **What is actually there** | `searchIndex` reads the `search` store through `adapter.query` — the one read path in the application that does not go through `Repository`, and therefore the one that never met `rowFilter`. `Database.search` forwarded to it unchanged, and the box on the app shell rendered `hit.title` and `hit.subtitle` straight out. |
+| **Measured** | On one device, one actor swapped: `child repo('healthRecord').list()` → **0 rows**; `child db.search('psychiatry')` → **1 hit, with the title**. |
+| **Why it leaks content, not only existence** | `indexEntry` denormalises `title` and `subtitle` into the index "so a result can be shown without a second read". A hit therefore says what the field says. |
+| **Who it exposes** | `js/security/rbac.js` names this case in its own header: *"a shared family device does not expose one sibling's records to another."* This is that device. The search box is on the shell, reachable from every screen. |
+| **Status** | **Fixed.** Each hit is now checked with the same `rowFilter` the repository uses, against the record itself — not a second copy of the rule. |
+
+The index is over-fetched and trimmed rather than filtered after the caller's
+limit: `searchIndex` ranks over every record on the device, so a limit applied
+first lets twelve of somebody else's rows fill every slot and leaves the person
+searching for their own with nothing. That is a decision, and
+`tests/data.test.mjs` pins it with twelve records ranked above one.
+
+Four mutations. The one worth recording is the fourth — dropping the
+over-fetch — which **survived twice**: first because the fixture had two
+records and no limit could truncate, then because all thirteen records were
+created in the same millisecond, so the recency term in `score` was identical
+and the child's row did not in fact rank last. The fixture now separates them
+by title position, which `score` rates 30 against 60.
 
 ### ID-01 · LOW · ids leak creation time · **accepted**
 
@@ -397,7 +426,7 @@ Following the brief's phase structure, restricted to what exists here:
 | 6 | Network security | Already met |
 | 7 | Chat identity separation | Already met — chat uses person ids, not phone numbers |
 | 8 | Chat authorisation | CHAT-01 **done**, CHAT-02 **done** — and the blocker was a defect: nobody had a server-side `personId` at all |
-| 9 | Privacy / minimisation | **PRIV-01** — needs a rule for phone numbers, not a patch to one field |
+| 9 | Privacy / minimisation | PRIV-01 **done** — the rule is held by a test against the schema |
 | 10 | Play compliance | **PLAY-01** — needs a human decision |
 | — | ID-01 | **Accepted**, with the reason corrected — see above |
 
