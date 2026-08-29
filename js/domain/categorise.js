@@ -383,15 +383,15 @@ export const RULES = [
   { key: 'reversal', out: 'other-spend', in: 'refund', match: /^rev\b|reversal|refund|cashback|^dis\b|upi_cradj|chq rtn|cheque return|transfer inward/i },
   { key: 'charges', out: 'charges', in: 'refund', match: /^(chrg|charges|rem[-\s]|rem chrgs)|annual fee|ecs (return|mandate)|sms charges|bal alerts|dcc fee|chq issue/i },
 
-  { key: 'broker', out: 'investment-out', in: 'investment-in', match: /zerodha|groww|upstox|angel ?one|icici ?direct|kite|smallcase|nsdl|cdsl|indian clearing/i },
-  { key: 'mutual-fund', out: 'investment-out', in: 'investment-in', match: /mutual fund|\bamc\b|\bsip\b|bandhan|nippon|hdfc mf|axis mf|parag parikh|quant mf|billdesk mf/i },
+  { key: 'broker', out: 'investment-out', in: 'investment-in', match: /zerodha|groww|upstox|angel ?one|icici ?direct|smallcase|nsdl|cdsl|indian clearing/i },
+  { key: 'mutual-fund', out: 'investment-out', in: 'investment-in', match: /mutual ?fund|\bsip\b|\b(?:bandhan|nippon|hdfc|axis|icici|sbi|kotak|parag parikh|quant|uti|dsp|mirae|franklin|tata)(?:\s+\w+){0,2}\s+(?:mf|amc|fund)\b|billdesk mf/i },
 
   { key: 'vehicle-loan', out: 'emi', in: 'loan-disbursal', match: /kotakmahprime|mahindra prime|car ?emi|vehicle loan|auto loan/i },
   { key: 'bnpl', out: 'emi', in: 'loan-disbursal', match: /snapmint|simpl|lazypay|zestmoney|paylater|amazon pay later/i },
   { key: 'lender', out: 'loan-repayment', in: 'loan-disbursal', match: /truecredit|true credits|dreamplug|\bcred\b|muthoot|bajaj fin|kreditbee|moneyview|navi |fibe|earlysalary|slice|paisabazaar|smartcoin|indiagold|kissht|creva capital|loanamt|loan a.?.c|pyt loan|gold loan|personal loan/i },
   { key: 'credit-card', out: 'credit-card', in: 'refund', match: /cc%20payment|cc payment|creditcard|credit card|visaccpay|card payment|bbps.*card/i },
 
-  { key: 'insurance', out: 'insurance', in: 'other-income', match: /^ins\s|insurance|max life|lic |hdfc life|policybazaar|acko|digit|star health|kcfc|spln/i },
+  { key: 'insurance', out: 'insurance', in: 'other-income', match: /^ins\s|insurance|max life|lic |hdfc life|policybazaar|acko|\bdigit\b|star health|kcfc|spln/i },
 
   { key: 'quick-commerce', out: 'quick-commerce', in: 'refund', match: /blinkit|zepto|grofers|instamart|dunzo|country ?delight|bigbasket|swiggy ?instamart|licious|milkbasket/i },
   { key: 'food-delivery', out: 'food-delivery', in: 'refund', match: /zomato|swiggy|eternal limited|ubereats|dominos|domino'?s|pizza hut|kfc|mcdonald|faasos|box8|behrouz/i },
