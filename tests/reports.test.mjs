@@ -3,7 +3,9 @@ import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 import { toCsv, fromCsv, columnsFor } from '../js/reports/csv.js';
 import { toXlsx, zip, excelSerialDate, safeSheetName } from '../js/reports/xlsx.js';
 import { PdfDocument, textWidth, wrap } from '../js/reports/pdf.js';
-import { reports, reportById, produce, gather, renderCsv } from '../js/reports/build.js';
+import {
+  reports, reportById, produce, gather, renderCsv, unreadableSummary,
+} from '../js/reports/build.js';
 import { toMinor } from '../js/core/money.js';
 
 setSuite('reports');
@@ -213,7 +215,7 @@ describe('report definitions', () => {
   test('every report names entities that exist and builds from empty data', async () => {
     const db = await makeDb();
     for (const report of reports) {
-      const data = await gather(db, report);
+      const { data } = await gather(db, report);
       const built = report.build(data, {});
       assert.ok(Array.isArray(built.sections), `${report.id} did not return sections`);
       assert.ok(built.summary, `${report.id} has no summary`);
@@ -251,7 +253,7 @@ describe('report definitions', () => {
     const db = await makeDb();
     await makeAccount(db);
     const report = reportById('net-worth');
-    const csv = renderCsv(report.build(await gather(db, report)));
+    const csv = renderCsv(report.build((await gather(db, report)).data));
     assert.includes(csv, 'Summary');
     assert.includes(csv, 'Accounts');
   });
@@ -269,7 +271,7 @@ describe('report definitions', () => {
       date: '2020-01-15', kind: 'expense', amount: '500', account: account.id,
     });
     const report = reportById('monthly-finance');
-    const data = await gather(db, report);
+    const { data } = await gather(db, report);
 
     const old = report.build(data, { period: { from: '2020-01-01', to: '2020-01-31' } });
     const transactions = old.sections.find((s) => s.title === 'Transactions');
@@ -278,5 +280,71 @@ describe('report definitions', () => {
     const recent = report.build(data, { period: { from: '2025-01-01', to: '2025-01-31' } });
     assert.not(recent.sections.some((s) => s.title === 'Transactions'),
       'an empty section should be dropped, not printed with no rows');
+  });
+});
+
+describe('a report that could not read everything', () => {
+  /** A db whose `list` fails for one entity, with the code the caller decides on. */
+  const brokenFor = (db, entityName, code) => ({
+    ...db,
+    repo: (name) => (name === entityName
+      ? { list: async () => { throw Object.assign(new Error('nope'), code ? { code } : {}); } }
+      : db.repo(name)),
+  });
+
+  test('a read failure is carried out of gather, not turned into no records', async () => {
+    const db = await makeDb();
+    const report = reportById('net-worth');
+    const { data, unreadable } = await gather(brokenFor(db, 'account', 'decrypt'), report);
+
+    assert.includes(unreadable, 'account');
+    // The empty list is still produced — a report that throws is worse than a
+    // short one. What changed is that the shortfall travels with it.
+    assert.deep(data.account, []);
+  });
+
+  test('a permission refusal is not a read failure', async () => {
+    // A role that may not read accounts contributes none, and that is the
+    // design. Reporting it as unreadable would put a warning on every report a
+    // restricted household member exports.
+    const db = await makeDb();
+    const report = reportById('net-worth');
+    const { unreadable } = await gather(brokenFor(db, 'account', 'permission'), report);
+    assert.deep(unreadable, []);
+  });
+
+  test('and a report that read everything carries no warning', async () => {
+    const db = await makeDb();
+    const report = reportById('net-worth');
+    const { unreadable } = await gather(db, report);
+    assert.deep(unreadable, []);
+    assert.equal(unreadableSummary(unreadable), null);
+  });
+
+  test('the warning says it is not a statement that there are none', () => {
+    const [label, text] = unreadableSummary(['account', 'asset']);
+    assert.equal(label, 'Incomplete');
+    assert.includes(text, 'account, asset');
+    assert.includes(text, 'not a statement that there are none');
+  });
+
+  test('a CSV missing a record type does not say no records fall in the period', () => {
+    // The sentence this whole change exists to stop printing into a file a
+    // household keeps.
+    const built = {
+      sections: [],
+      summary: [unreadableSummary(['transaction'])],
+    };
+    const csv = renderCsv(built);
+    assert.not(csv.includes('No records fall in this period'),
+      'a failed read was reported as an empty period');
+    assert.includes(csv, 'Incomplete');
+  });
+
+  test('but a genuinely empty period still says so', () => {
+    // Without this, suppressing the sentence altogether would pass the test
+    // above and leave a household with a file that explains nothing.
+    assert.includes(renderCsv({ sections: [], summary: [] }),
+      'No records fall in this period');
   });
 });

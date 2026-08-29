@@ -349,6 +349,14 @@ export const strings = {
   'position.unsupported': 'This device has no location service available to the app.',
   'position.unknown': 'The location could not be read.',
 
+  // What a report says when part of it could not be read. On the document
+  // itself, in `summary`, which leads every format — a report is kept, and the
+  // moment it was made is forgotten long before it is read again.
+  'report.incomplete.label': 'Incomplete',
+  'report.incomplete.text': '{n} record type(s) could not be read on this device ({names}). '
+    + 'This report is missing them — it is not a statement that there are none.',
+  'report.emptyPeriod': 'No records fall in this period.',
+
   // The bottom bar's third badge state. A tab with no badge means nothing is
   // late; this means the check itself did not finish, which is a different
   // thing and used to look identical.
