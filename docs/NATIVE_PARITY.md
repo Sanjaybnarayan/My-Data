@@ -1,6 +1,17 @@
 # The Two Native Projects Did Not Agree
 
-`tests/native.test.mjs`, `.github/workflows/ios.yml`, `ios/App/App/Info.plist`.
+`tests/native.test.mjs`, `ios/App/App/Info.plist`.
+
+> **Superseded in part, 29 August 2026.** iOS is descoped and
+> `.github/workflows/ios.yml` is deleted, so the iOS half of everything below
+> is history rather than a live guard. The checks that compared the two
+> platforms were removed with it — one of them would have failed the next
+> Android plugin on iOS's behalf. What replaced them is a single test
+> recording that iOS is kept and unbuilt, and a **new** check in the direction
+> this document did not cover: that the name in Java's
+> `@CapacitorPlugin(name = ...)` is the name the JavaScript asks for. That was
+> the gap left after this was written — registration was asserted by *class*,
+> and Capacitor resolves by the *annotation*.
 
 ## What was found
 

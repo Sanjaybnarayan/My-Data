@@ -14,9 +14,7 @@
     "build:web": "node tools/webroot.mjs",
     "cap:sync": "npm run build:web && cap sync",
     "cap:android": "npm run cap:sync && cap run android",
-    "cap:ios": "npm run cap:sync && cap run ios",
     "cap:open:android": "cap open android",
-    "cap:open:ios": "cap open ios",
     "cap:doctor": "cap doctor",
     "capacitor:copy:before": "node tools/webroot.mjs"
   },

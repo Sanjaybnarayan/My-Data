@@ -521,16 +521,6 @@ describe('every plugin the app calls is wired into both platforms', () => {
     }
   });
 
-  test('and iOS links every npm one of them', async () => {
-    // The check that was missing. iOS had App, Filesystem and Share; the app
-    // also calls Browser and Geolocation, and had done since Phase 15.
-    const swift = await readFile(join(ROOT, 'ios', 'App', 'CapApp-SPM', 'Package.swift'), 'utf8');
-    for (const name of await fromNpm()) {
-      assert.ok(swift.includes(`Capacitor${name}`),
-        `${name} is called by the app and not linked into iOS`);
-    }
-  });
-
   test('the first-party plugin is registered by hand, since no package lists it', async () => {
     const main = await readFile(
       join(ROOT, 'android/app/src/main/java/com/familyos/app/MainActivity.java'), 'utf8');
@@ -585,72 +575,43 @@ describe('every plugin the app calls is wired into both platforms', () => {
     }
   });
 
-  test('and iOS is expected to have none of them', async () => {
-    // Stated rather than skipped. A reader who finds SmsInbox missing from
-    // the iOS project should find out here that it is a platform limit, not
-    // the same drift that left Browser and Geolocation behind.
-    const swift = await readFile(join(ROOT, 'ios', 'App', 'CapApp-SPM', 'Package.swift'), 'utf8');
-    for (const name of FIRST_PARTY) {
-      assert.equal(new RegExp(name, 'i').test(swift), false, `${name} on iOS`);
-    }
-  });
-
-  test('and the two platforms link the same set as each other', async () => {
-    // Read off both files rather than compared to a third list here, so this
-    // cannot pass because somebody updated the test.
-    const gradle = await readFile(join(ROOT, 'android', 'capacitor.settings.gradle'), 'utf8');
-    const swift = await readFile(join(ROOT, 'ios', 'App', 'CapApp-SPM', 'Package.swift'), 'utf8');
-    const onAndroid = [...gradle.matchAll(/@capacitor\/([a-z]+)\/android/g)].map((m) => m[1]).sort();
-    const onIos = [...swift.matchAll(/\.package\(name: "Capacitor([A-Za-z]+)"/g)]
-      .map((m) => m[1].toLowerCase()).sort();
-    assert.deep(onIos, onAndroid);
-  });
-
-  test('both native projects are actually present', async () => {
+  test('the Android project is actually present', async () => {
     // The first version of this asserted the keys of a constant declared four
     // lines above it, which is a check that cannot fail. This reads the disk.
-    for (const [path, what] of [
-      ['android/app/build.gradle', 'the Android module'],
-      ['ios/App/App.xcodeproj/project.pbxproj', 'the Xcode project'],
-      ['ios/App/CapApp-SPM/Package.swift', "iOS's plugin package"],
-    ]) {
-      const text = await readFile(join(ROOT, path), 'utf8').catch(() => null);
-      assert.ok(text, `${what} is missing (${path})`);
-    }
-  });
-});
-
-describe('what iOS has to declare before it may ask for a location', () => {
-  const plist = () => readFile(join(ROOT, 'ios', 'App', 'App', 'Info.plist'), 'utf8');
-
-  test('a usage description exists, or iOS terminates the app', async () => {
-    // Not a warning and not a denied prompt: iOS kills the process on a
-    // location request with no `NSLocationWhenInUseUsageDescription`. Both
-    // paths need it — the Geolocation plugin and the WebView fallback in
-    // `js/core/position.js`.
-    const xml = await plist();
-    assert.ok(/<key>NSLocationWhenInUseUsageDescription<\/key>/.test(xml),
-      'iOS will terminate the app the first time it asks for a position');
+    const text = await readFile(join(ROOT, 'android/app/build.gradle'), 'utf8').catch(() => null);
+    assert.ok(text, 'the Android module is missing (android/app/build.gradle)');
   });
 
-  test('and it says the position is never read in the background', async () => {
-    const xml = await plist();
-    const value = /<key>NSLocationWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/
-      .exec(xml)?.[1] ?? '';
-    assert.ok(/background/i.test(value),
-      'the string a person reads should say what the app will not do');
-    assert.ok(value.length > 60, 'a usage description is read by a person, not a linter');
-  });
+  test('and iOS is descoped, which is why nothing here checks it', async () => {
+    /*
+     * Five checks used to live around this one: that iOS linked every npm
+     * plugin, that it linked none of the first-party three, that both
+     * platforms linked the *same set*, that the Xcode project and its Swift
+     * package existed, and that `Info.plist` carried a location usage string.
+     *
+     * iOS was descoped on 29 August 2026 and its workflow deleted, so nothing
+     * builds those files. Two reasons to remove the checks rather than leave
+     * them passing:
+     *
+     * **The cross-platform one was a trap.** It compared Android's linked
+     * plugins to iOS's and asserted they matched — so the next plugin added
+     * for Android would have failed CI, on behalf of a platform nobody
+     * builds, with a message about iOS being out of sync.
+     *
+     * **The rest were theatre.** A green check on `Info.plist` says the app
+     * will not be terminated by an iOS it is never installed on.
+     *
+     * What is asserted instead is the state itself: the files are kept and
+     * unbuilt. If somebody revives iOS they need the workflow back and these
+     * checks with it, and `docs/PHASE_STATUS.md` row 24 says so.
+     */
+    const swift = await readFile(join(ROOT, 'ios/App/CapApp-SPM/Package.swift'), 'utf8')
+      .catch(() => null);
+    assert.ok(swift, 'ios/ is gone — if that is deliberate, delete this test and the row with it');
 
-  test('and the always-on variant is absent, like ACCESS_BACKGROUND_LOCATION', async () => {
-    // The iOS half of a rule the Android manifest already keeps, enforced
-    // there by its own test: FamilyOS reads a position only while somebody
-    // has the app open and asks it to. Declaring the always key would be
-    // asking for a capability the application does not have.
-    const xml = await plist();
-    assert.equal(/<key>NSLocationAlwaysAndWhenInUseUsageDescription<\/key>/.test(xml), false,
-      'background location is deliberately not built, so it must not be requested');
-    assert.equal(/<key>NSLocationAlwaysUsageDescription<\/key>/.test(xml), false);
+    const workflows = await readdir(join(ROOT, '.github/workflows'));
+    assert.not(workflows.includes('ios.yml'),
+      'ios.yml is back — restore the parity checks this test replaced');
   });
 });
 
