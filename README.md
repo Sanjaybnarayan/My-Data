@@ -42,13 +42,19 @@ own URL, so one file cannot have one.
 ## Install it on a phone
 
 It is a PWA, so a browser will offer to install it from any HTTPS deployment.
-It also runs as a real Android and iOS application through Capacitor, on the
-same files:
+It also runs as a real **Android** application through Capacitor, on the same
+files:
 
 ```
 npm run build:web      # → dist/web, the production web root
-npm run cap:sync       # then copy it into android/ and ios/
+npm run cap:sync       # then copy it into android/
 ```
+
+**iOS is descoped.** The `ios/` project is still in the tree and `cap sync`
+still writes to it, but nothing builds it any more — the workflow that did was
+deleted on 29 August 2026 when the household chose Android only. Expect it to
+have rotted; `docs/PHASE_STATUS.md` row 24 records how far it got and how that
+was verified.
 
 `docs/CAPACITOR_SETUP.md` covers the native build, and is honest about the one
 thing that does not work there: Google sign-in, and therefore sync, needs a

@@ -6,7 +6,7 @@ import {
 import { labelKeys, entityKey, fieldKey, moduleKey } from '../js/core/labels.js';
 import { strings as english } from '../js/locale/en.js';
 import { formatDay, formatInstant, relativeDays } from '../js/core/dates.js';
-import { survey, userFacing, check, readInventory } from '../tools/strings.mjs';
+import { survey, userFacing, check, readInventory, findIn } from '../tools/strings.mjs';
 
 setSuite('locale');
 
@@ -281,6 +281,29 @@ describe('what counts as a user-facing string', () => {
 
   test('a single word does not, because it cannot be told from an identifier', () => {
     assert.not(userFacing('Saved'));
+  });
+
+  test('a class list without a hyphen is still a class list', () => {
+    // `userFacing` excludes class lists by *shape* and requires a hyphen, for
+    // a good reason it states: dropping that would exclude real two-word
+    // sentences. So `small muted` was counted as translatable English — 195
+    // occurrences of 11 distinct lists, 5.6% of the figure Phase 25 is scored
+    // on. `findIn` now excludes them by *position* instead.
+    assert.ok(userFacing('small muted'), 'the shape rule still lets it through, as designed');
+    assert.length(findIn("h('p', { class: 'small muted' }, x)"), 0);
+  });
+
+  test('and prose in any other position is still counted', () => {
+    // The half that matters. Excluding by position must not become excluding
+    // by shape: the same words as a real string are still a real string.
+    assert.length(findIn("h('p', {}, 'small muted')"), 1);
+    assert.length(findIn("toast('Connect a Google account in Settings to sync.')"), 1);
+  });
+
+  test('a class list is skipped however it is quoted', () => {
+    for (const code of ["h('p', { class: 'mono small' })", 'h("p", { class: "mono small" })']) {
+      assert.length(findIn(code), 0, code);
+    }
   });
 });
 

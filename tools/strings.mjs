@@ -113,6 +113,36 @@ export function userFacing(text) {
 
 const LITERAL = /(['"`])((?:[^\\\n]|\\.)*?)\1/g;
 
+/**
+ * How far back to look for the property a literal is the value of.
+ *
+ * `class:` plus whitespace is eight characters at most in practice; twelve is
+ * slack for an odd line break without reaching the previous property.
+ */
+const CONTEXT = 12;
+
+/**
+ * Whether a literal is the value of a `class:` property.
+ *
+ * A stylesheet class list is never prose, whoever writes it. `userFacing`
+ * already tries to exclude them and its rule requires a **hyphen** — the
+ * comment there explains why, and the reasoning is sound: dropping the hyphen
+ * would exclude real two-word sentences like *"assumed this month"*.
+ *
+ * The consequence is that unhyphenated lists were counted. Measured, before
+ * this: **195 occurrences of 11 distinct class lists** — `small muted`,
+ * `mono small`, `textarea mono` — 5.6% of a figure that
+ * `docs/PHASE_STATUS.md` scores Phase 25 on and that reads as
+ * *"strings still written into the source"*. Nobody will ever translate
+ * `small muted`.
+ *
+ * Position decides it rather than shape, so no sentence can be caught by this
+ * however it is spelt, and no class list escapes it for want of a hyphen.
+ */
+function isClassValue(code, index) {
+  return /\bclass:\s*$/.test(code.slice(Math.max(0, index - CONTEXT), index));
+}
+
 /** Every user-facing literal in one file, with the line it sits on. */
 export function findIn(source) {
   const code = withoutComments(source);
@@ -122,6 +152,7 @@ export function findIn(source) {
   while ((m = LITERAL.exec(code))) {
     const text = m[2];
     if (!userFacing(text)) continue;
+    if (isClassValue(code, m.index)) continue;
     const line = code.slice(0, m.index).split('\n').length;
     found.push({ text, line });
   }
