@@ -2157,6 +2157,112 @@ async function main() {
       await page.waitForTimeout(200);
     }
 
+    /* ------------------------------------- larger text, and a phone on its side */
+
+    /*
+     * Two settings a household actually uses, neither of which had ever been
+     * driven: Android's font size, and turning the phone sideways.
+     *
+     * The type scale is in `rem`, so the system setting reaches it — raising
+     * the root size is a faithful simulation of somebody who set text to
+     * large. What does *not* scale is every fixed dimension around it: the
+     * bottom bar is 64px, an icon button is 38px, the tap-target floor is
+     * 44px. Large text inside fixed boxes is where this breaks if it breaks.
+     *
+     * The thing being measured is the page not scrolling sideways and text
+     * not being cut off. Both are what somebody sees; neither is a claim
+     * about a screen reader.
+     */
+    {
+      /*
+       * Labels, not sentences.
+       *
+       * The first version of this also read `.list-item-title`, and failed on
+       * "You added BLINKIT COMMERCIAL…" — a record's own free text, ellipsised
+       * in a preview row, with the whole of it one tap away. That is a design
+       * choice, not a fault, and forbidding it would have made the check
+       * demand something nobody wants.
+       *
+       * What must never be cut is a *fixed label*: a tab, a card heading, the
+       * app's name. Those are short, chosen by the application, and the whole
+       * of what somebody has to read to know where they are.
+       */
+      const measure = () => page.evaluate(() => {
+        const doc = document.documentElement;
+        const clipped = [...document.querySelectorAll(
+          '.bottom-nav a > span, .card-header h2, .app-title',
+        )].filter((el) => el.getClientRects().length > 0
+          && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1))
+          .map((el) => `${el.className || el.tagName}: ${el.textContent?.trim().slice(0, 24)}`);
+        return {
+          sideways: doc.scrollWidth - doc.clientWidth,
+          clipped: clipped.slice(0, 8),
+          clippedCount: clipped.length,
+        };
+      });
+
+      const setRoot = (px) => page.evaluate((size) => {
+        document.documentElement.style.fontSize = size;
+      }, px);
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+
+      const normal = await measure();
+      check('at the default text size the page does not scroll sideways',
+        normal.sideways <= 1, `${normal.sideways}px of overflow`);
+
+      // 20px against a 16px default is Android's "Large"; 24px is the largest
+      // its font-size slider offers before Display size is also changed.
+      for (const size of ['20px', '24px']) {
+        await setRoot(size);
+        await page.waitForTimeout(400);
+        const big = await measure();
+        check(`at ${size} text the page still does not scroll sideways`,
+          big.sideways <= 1, `${big.sideways}px of overflow`);
+        check(`and no fixed label is cut off at ${size}`,
+          big.clippedCount === 0, big.clipped.join(' | '));
+      }
+
+      await setRoot('');
+      await page.waitForTimeout(300);
+
+      /*
+       * Sideways. 844x390 is the same phone rotated, and the height is what
+       * changes the problem: a fixed header and a fixed bottom bar eat a
+       * fixed number of pixels out of a much shorter screen, and what is
+       * left is the whole of the content.
+       */
+      await page.setViewportSize({ width: 844, height: 390 });
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(500);
+
+      const sideways = await page.evaluate(() => {
+        const doc = document.documentElement;
+        const nav = document.querySelector('.bottom-nav');
+        const main = document.querySelector('.app-main');
+        const navBox = nav?.getBoundingClientRect();
+        return {
+          overflow: doc.scrollWidth - doc.clientWidth,
+          navOnScreen: navBox ? navBox.bottom <= globalThis.innerHeight + 1 : false,
+          // What is left for the content once both bars have taken theirs.
+          room: main ? Math.round(main.clientHeight) : 0,
+          scrollable: main ? main.scrollHeight > main.clientHeight : false,
+        };
+      });
+
+      check('landscape does not scroll sideways either',
+        sideways.overflow <= 1, `${sideways.overflow}px`);
+      check('and the bottom bar is still on the screen',
+        sideways.navOnScreen, String(sideways.navOnScreen));
+      check('and the content keeps usable room between the two bars',
+        sideways.room >= 200, `${sideways.room}px`);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(200);
+    }
+
     /* ------------------------------------------- keyboard, without a mouse */
 
     /*

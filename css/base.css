@@ -373,11 +373,25 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
   }
 
   /* The label has to survive being one of five on a 320px phone. */
+  /*
+   * Wrapped, not ellipsised.
+   *
+   * A tab is a fifth of the screen — about 70px on a 390px phone — and at
+   * Android's larger text settings "Notifications" needs more than that on
+   * one line. It used to be cut to "Notificat…", and at the largest setting
+   * three of the five tabs were. Somebody who turned text up did so to read
+   * it; handing them a truncated word is the one outcome that setting exists
+   * to prevent.
+   *
+   * `anywhere` because the long ones are single words: without it the word
+   * simply overflows instead of breaking. The bar grows to fit, and the
+   * padding `.app-main` reserves grows with it because both come from
+   * `--bottom-nav-height`.
+   */
   .bottom-nav a > span {
     max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   /*
