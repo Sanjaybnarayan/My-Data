@@ -21,6 +21,7 @@
 
 import { intents, parsePeriod, exampleQuestions } from './intents.js';
 import { entities } from '../data/schema.js';
+import { t } from '../core/locale.js';
 
 /** @typedef {{text: string, intent?: string, [extra: string]: unknown}} Answer */
 
@@ -49,6 +50,8 @@ export class Assistant {
   #db;
   #clock;
   #cache = new Map();
+  /** Entities a question needed and could not read. Not the same as empty. */
+  #unreadable = new Set();
 
   constructor({ db, clock = Date.now }) {
     this.#db = db;
@@ -66,8 +69,28 @@ export class Assistant {
     let rows = [];
     try {
       rows = await this.#db.repo(entityName).list({ limit: 10_000 });
-    } catch {
-      rows = []; // no permission: the answer is computed without it
+    } catch (err) {
+      /*
+       * A refusal and a failure are not the same empty list.
+       *
+       * This used to swallow both and say "no permission" in a comment. A
+       * role that may not read transactions legitimately contributes nothing,
+       * and the answer is computed without it — that is the design. But a
+       * decryption failure, a corrupt row or IndexedDB refusing is not an
+       * absence of records; it is an inability to read the ones that exist,
+       * and computing an answer from `[]` turns it into a statement about the
+       * household's money.
+       *
+       * Measured: with `list` throwing, "How much did we spend this year?"
+       * answered *"No transactions are recorded between 1 Jan 2026 and
+       * 31 Dec 2026."* — confidently, and false.
+       *
+       * `PermissionError` carries `code: 'permission'` from `core/errors.js`,
+       * so the two are already distinguishable. Anything else is recorded and
+       * `answer` refuses rather than asserts.
+       */
+      rows = [];
+      if (err?.code !== 'permission') this.#unreadable.add(entityName);
     }
     this.#cache.set(entityName, rows);
     return rows;
@@ -80,6 +103,7 @@ export class Assistant {
   /** @returns {Promise<Answer>} */
   async answer(question) {
     this.#cache.clear();
+    this.#unreadable.clear();
 
     const hit = matchIntent(question);
     if (!hit) return this.#unknown(question);
@@ -97,6 +121,24 @@ export class Assistant {
     try {
       const result = await hit.intent.handle(ctx);
       if (!result) return this.#unknown(question);
+
+      /*
+       * An answer computed over records that could not be read is not an
+       * answer. It is the same sentence a household with no records gets,
+       * which is the one thing it must not be mistaken for — so this refuses
+       * rather than caveats. A number nobody can trust is worse than no
+       * number, and this is the file whose whole premise is that confidence
+       * is not verification.
+       */
+      if (this.#unreadable.size) {
+        const names = [...this.#unreadable].sort();
+        return {
+          text: t('assistant.unreadable', { names: names.join(' or ') }),
+          intent: hit.intent.id,
+          unreadable: names,
+        };
+      }
+
       return {
         ...result,
         intent: hit.intent.id,
