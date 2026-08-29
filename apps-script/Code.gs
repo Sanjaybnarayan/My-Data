@@ -1,10 +1,26 @@
 /**
  * FamilyOS — Apps Script backend.
  *
- * One web app, deployed as "execute as the user accessing", so every read and
- * write happens under the signed-in family member's own Google account. There
- * is no service account, no shared secret and nothing here that can act on a
- * family's data when nobody is asking it to.
+ * One web app, deployed as **"execute as me"** — the household member who
+ * pasted this in. `appsscript.json` says `USER_DEPLOYING` and `docs/SETUP.md`
+ * tells you to pick *Execute as: Me*, and it has to be that way: `sheetMap`,
+ * the Drive tree and the one-time-code directory all live in
+ * `PropertiesService.getUserProperties()`, so under the other setting every
+ * member would read their own empty copy and sync would work for nobody.
+ *
+ * This paragraph asserted the opposite for as long as the file existed.
+ * `docs/ARCHITECTURE.md` asserted it too, was corrected, and got a test — and
+ * the test named that one document, so the same claim went on standing here,
+ * one directory away from the check written to stop it. The test now derives
+ * the file list instead of naming one, which is why this comment may not
+ * restate the wrong model even to disown it; that account is in
+ * `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md`.
+ *
+ * The correction is not cosmetic, because the wrong version was load-bearing.
+ * Under "execute as me" **every request runs with the owner's full Sheets and
+ * Drive authority**, whoever sent it. Google separates nobody here. What
+ * separates callers is `verifyToken`, `admit` and `Policy.gs` — not a second
+ * line behind Google's own isolation, but the only line there is.
  *
  * ## The contract
  *
@@ -15,18 +31,48 @@
  * CORS preflight that a JSON content type would trigger. That is the client's
  * constraint too — see `js/sync/transport.js`.
  *
- * ## Why the token is verified even though the script runs as the user
+ * ## Why the token is verified, and why nothing else would do
  *
- * "Execute as user accessing" authenticates the *browser session*, not the
- * request. Verifying the bearer token proves the caller holds a credential
- * this deployment was actually granted, and pins the request to one Google
- * account — without it, any page the user visits could POST here from their
- * browser and the script would happily serve their spreadsheet.
+ * A web app deployed to "anyone" answers whoever posts to the URL, and this
+ * one answers it holding the owner's credentials. Apps Script tells the script
+ * nothing about who called: there is no session, no caller identity, nothing
+ * to key an authorisation decision on. `verifyToken` supplies it, by spending
+ * the bearer token against Google's tokeninfo endpoint and reading back the
+ * address it was issued to.
+ *
+ * So the check is not a supplement to something Google is already doing. It is
+ * the step that turns an anonymous POST into a named caller, and every
+ * decision after it — `admit`, the role, `Policy.gs`, the row filter — is
+ * downstream of the address it returns. Remove it and the deployment serves
+ * the household's spreadsheet to anybody who has the URL.
+ *
+ * The two one-time-code actions run *before* it, which is the one exception
+ * and the reason `Otp.gs` carries its own limits and its own lock.
  *
  * ## Concurrency
  *
- * Sheets has no transactions. A `LockService` script lock serialises writes,
- * so two devices pushing at once cannot interleave into a half-written row.
+ * Sheets has no transactions, so the write path is serialised by a lock. Two
+ * of them, and which is which matters:
+ *
+ *   - `withScriptLock` takes `getScriptLock()`, documented as preventing *any*
+ *     user from running the guarded section concurrently. The pre-auth
+ *     one-time-code path uses it.
+ *   - `withLock` takes `getUserLock()`, documented as "only once per user".
+ *     Every authenticated action goes through it.
+ *
+ * This paragraph used to say "a `LockService` script lock serialises writes",
+ * which is not what `withLock` takes. **Whether `getUserLock` excludes one
+ * caller from another under this deployment is not established here** — it
+ * keys on the active user, and a web app deployed as `USER_DEPLOYING` does not
+ * generally expose the caller as the active user. `Otp.gs` records the
+ * analogous behaviour for `CacheService.getUserCache()` and reaches for
+ * `getScriptCache()` because of it.
+ *
+ * So the promise this paragraph made is written down as an open question
+ * rather than restated. `sheetPush` computes the next empty row, which is
+ * exactly the interleaving a lock is here to prevent. See §8 of
+ * `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md`.
+ *
  * Reads are unlocked; a pull that misses a row in flight gets it next time,
  * because the cursor only advances past what was actually returned.
  */
@@ -69,13 +115,26 @@ function doPost(e) {
   try {
     if (typeof otpIsPublic === 'function' && otpIsPublic(request.action)) {
       var payload = request.payload || {};
-      var result = request.action === 'otp.request' ? otpRequest(payload) : otpVerify(payload);
+      // Serialised: both actions read a counter, change it and write it back.
+      var result = withScriptLock(function () {
+        return request.action === 'otp.request' ? otpRequest(payload) : otpVerify(payload);
+      });
       return reply(true, result);
     }
   } catch (err) {
     var otpStatus = err.status || 500;
     log('error', request.action, err.message, Date.now() - started);
-    return reply(false, null, err.message, otpStatus, otpStatus >= 500);
+    /*
+     * Same rule as the authenticated catch below, which this had drifted from:
+     * `otpStatus >= 500` alone marked every 429 here not worth retrying.
+     *
+     * Three of them mean "later", not "never" — the two hourly caps and the
+     * script lock — and the client is told as much in words while the flag
+     * said the opposite. `TransportError` in `js/core/errors.js` calls 408 and
+     * 429 retryable by default and then defers to whatever the body says, so
+     * the body saying `false` is what decided it.
+     */
+    return reply(false, null, err.message, otpStatus, otpStatus >= 500 || otpStatus === 429);
   }
 
   try {
@@ -713,6 +772,59 @@ function withLock(fn) {
   var lock = LockService.getUserLock();
   if (!lock.tryLock(LOCK_TIMEOUT_MS)) {
     throw fail('another device is writing — try again shortly', 429);
+  }
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Serialise the pre-auth one-time-code path, which `withLock` cannot.
+ *
+ * The pre-auth path took no lock at all — not the wrong one, none. `withLock`
+ * was the obvious candidate and is not reused here, for a reason worth stating
+ * exactly rather than approximately: it takes `getUserLock()`, documented as
+ * "only once per user", which keys on the active user, and an anonymous caller
+ * has none. **Whether that would have excluded one anonymous caller from
+ * another is not established** — not here, and not in Google's documentation.
+ * `Otp.gs` records the analogous behaviour for `getUserCache()`, which is
+ * per-session for such a caller, and that is the shape this reasons from; it
+ * is an inference from a neighbouring service, not a measurement.
+ *
+ * `getScriptLock()` needs no such inference: it is documented as preventing
+ * *any* user from running the guarded section concurrently. It is taken
+ * because its exclusion is unambiguous, so the fix does not wait on the
+ * question above being settled.
+ *
+ * Without it, both actions were a read, a change and a write with nothing in
+ * between:
+ *
+ *   - `otpVerify` reads the stored record, increments `attempts` and writes
+ *     it back. Two wrong guesses in flight together both read `attempts: 0`
+ *     and both write `1`, so the second guess costs nothing.
+ *   - Worse, on the matching path it reads the record, matches the hash and
+ *     only then removes the key. Two executions holding the same correct code
+ *     both match and both are handed the escrow that unwraps the data key —
+ *     a code that is supposed to work once working twice.
+ *   - `otpRequest` has the same shape through `otpEnforceLimits`, which counts
+ *     codes per address and per deployment the same way.
+ *
+ * So both actions are taken inside the lock rather than only the one that
+ * looked dangerous. The ceiling this raises on wrong guesses is small — the
+ * per-address and per-deployment caps bound the total either way — but "only
+ * one verification attempt may consume a code" is a property, not an
+ * approximation, and it was not one.
+ *
+ * A caller who arrives while another holds the lock is refused rather than
+ * queued: `tryLock` bounds the wait, and a 429 the client retries is better
+ * than an execution sitting on Apps Script's concurrent-execution budget.
+ */
+function withScriptLock(fn) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_TIMEOUT_MS)) {
+    throw fail('the service is busy — try again shortly', 429);
   }
   try {
     return fn();

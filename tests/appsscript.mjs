@@ -105,6 +105,40 @@ export function backend({
   const logged = [];
   const mailed = [];
 
+  /*
+   * A lock that excludes, and a record of which kind was taken.
+   *
+   * The script-lock stub was `{ waitLock, releaseLock }` — no `tryLock`,
+   * because until the one-time-code path was serialised nothing had ever
+   * taken a script lock through `doPost`. A stub missing the method the code
+   * calls cannot show that the code calls it, and a stub whose `tryLock`
+   * always returns true cannot show what happens to the caller who loses.
+   *
+   * The two kinds hold separate state on purpose. A user lock and a script
+   * lock exclude different sets of callers, and a stub that conflated them
+   * would let `getUserLock` pass a test written to prove `getScriptLock` was
+   * taken — which is the whole distinction the pre-auth path turns on.
+   */
+  const held = { script: false, user: false };
+  const locks = [];
+  const lock = (kind) => ({
+    tryLock() {
+      locks.push(`${kind}:${held[kind] ? 'refused' : 'taken'}`);
+      if (held[kind]) return false;
+      held[kind] = true;
+      return true;
+    },
+    waitLock(ms) {
+      if (held[kind]) throw new Error(`Lock timeout: another process was holding the lock (${ms}ms)`);
+      held[kind] = true;
+      locks.push(`${kind}:taken`);
+    },
+    releaseLock() {
+      held[kind] = false;
+      locks.push(`${kind}:released`);
+    },
+  });
+
   const globals = {
     PropertiesService: { getUserProperties: () => props, getScriptProperties: () => props },
     CacheService: { getUserCache: () => cache, getScriptCache: () => cache },
@@ -166,12 +200,12 @@ export function backend({
     },
 
     LockService: {
-      getScriptLock: () => ({ waitLock() {}, releaseLock() {} }),
+      getScriptLock: () => lock('script'),
       // `withLock` takes a *user* lock, and this stub only had a script one.
       // Nothing noticed, because no test had ever driven a write through
       // `doPost` — which is the same blind spot that let the dispatch context
       // ship without a role.
-      getUserLock: () => ({ tryLock: () => true, waitLock() {}, releaseLock() {} }),
+      getUserLock: () => lock('user'),
     },
 
     SpreadsheetApp: {
@@ -226,5 +260,15 @@ export function backend({
     }).getContent(),
   );
 
-  return Object.assign(api, { props, cache, fetched, logged, owner, driveFiles, mailed });
+  /*
+   * `locks` is the acquisition log; `held` lets a test put a lock into the
+   * state a second, concurrent execution would find it in. Apps Script runs
+   * each request in its own execution and Node runs one thread, so a test
+   * cannot make two `doPost` calls overlap in time — what it can do is start
+   * one with the lock already held by somebody else, which is what the losing
+   * caller of a real overlap sees.
+   */
+  return Object.assign(api, {
+    props, cache, fetched, logged, owner, driveFiles, mailed, locks, held,
+  });
 }

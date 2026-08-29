@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, describe, assert, setSuite } from './harness.mjs';
@@ -905,6 +905,35 @@ describe('the deployment setting is described the same way everywhere', () => {
     const architecture = read('docs/ARCHITECTURE.md');
     const claim = /deployed as "execute as user accessing"/.test(architecture);
     assert.equal(claim, false, 'ARCHITECTURE.md claims a model the setup page contradicts');
+  });
+
+  test('nor does the backend itself, which is where it survived', () => {
+    /*
+     * This check used to name one document, because that is where the wrong
+     * claim was found. It lived in two places.
+     *
+     * `apps-script/Code.gs` opened by saying the web app is deployed as
+     * "execute as the user accessing", "so every read and write happens under
+     * the signed-in family member's own Google account" — the same sentence
+     * `docs/SECURITY.md` records as the corrected error, still standing in the
+     * file a household pastes into script.google.com, one directory from the
+     * test written to stop it.
+     *
+     * It matters more there than it did in the document. Under "execute as
+     * me" every request runs with the *owner's* Sheets and Drive authority,
+     * whoever sent it; Google separates nobody. The wrong version reads as
+     * though Google were doing the separating, which makes `verifyToken` look
+     * like a second line of defence rather than the only one.
+     *
+     * Every `.gs` file, not just the one that was wrong: the point of a
+     * derived check is that it covers the file nobody has written yet.
+     */
+    const scripts = readdirSync(join(ROOT, 'apps-script')).filter((f) => f.endsWith('.gs'));
+    assert.ok(scripts.length > 0, 'the directory is empty, which cannot be right');
+
+    const wrong = scripts.filter((f) => /user accessing/i.test(read(`apps-script/${f}`)));
+    assert.deep(wrong, [],
+      `describes the deployment as "user accessing": ${wrong.join(', ')}`);
   });
 
   test('sending a one-time code needs the scope that sends mail', () => {
