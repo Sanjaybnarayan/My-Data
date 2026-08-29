@@ -47,7 +47,7 @@ external integration or has an open critical security or data-integrity defect.
 | 12 | Legal / estate / digital life | **MOSTLY_COMPLETE** | 75 | `will`, `beneficiary`, `legalDocument`, `digitalAsset`, `subscription`, `vaultItem`; secrets encrypted, never plaintext | No crypto-wallet metadata model | Low |
 | 13 ↑ | Household staff | **MOSTLY_COMPLETE** | 82 | `staff`, `staffLeave`, wages, contracts, documents; **a `staff` role that sees only the record about them**, consent recorded per person, and a screen to show it to them | Not a login — no per-person credential exists, so it is supervised. Their leave is held and not shown | Medium |
 | 14 ↑ | Family chat / media / E2EE | **MOSTLY_COMPLETE** | 76 | `js/security/e2ee.js` — ECDH P-256 + HKDF-SHA-256, per-device keypairs, safety numbers, forward-only revocation, escrow; **files sealed to the same devices**, filename inside the seal, own store; **a conversation view that can actually send and read** | **No external cryptographic review**, so it may not be called COMPLETE; no thumbnails or previews; attachments do not sync and are never pruned; escrow opens everything and the screen says so | Medium |
-| 15 ↑ | Location / safe zones / SOS | **MOSTLY_COMPLETE** | 70 | `js/domain/geo.js`, `js/core/position.js`, `js/services/safety.js`; native Geolocation preferred over the WebView, accuracy-aware INSIDE/OUTSIDE/**UNCERTAIN**, position history with retention | **Background location is built and unverified** — an Android foreground service records a trail, never run on a phone; still no OS geofencing, so a zone crossing is noticed when the trail is next read rather than at the moment it happens | Low |
+| 15 ↑ | Location / safe zones / SOS | **PARTIALLY_COMPLETE** | 62 | `js/domain/geo.js`, `js/core/position.js`, `js/services/safety.js`; native Geolocation preferred over the WebView, accuracy-aware INSIDE/OUTSIDE/**UNCERTAIN**, position history with retention | **There is no SOS** — the composer, the entity, the strings and the tests all exist and no screen calls `raise`, so a household cannot raise an alarm; **background location is built and unverified** — an Android foreground service records a trail, never run on a phone; still no OS geofencing, so a zone crossing is noticed when the trail is next read rather than at the moment it happens | Medium |
 | 16 | Notifications / tasks / reminders / automation | **MOSTLY_COMPLETE** | 73 | `project`, `task`, `event`, `reminders.js` (schema-driven), automation rules, outbox retries, idempotency | No push (no server); background jobs are client-side. `POST_NOTIFICATIONS` is now declared, but only the location service posts one — reminders still do not | Medium |
 | 17 | Knowledge graph / search / timeline | **MOSTLY_COMPLETE** | 76 | `search` store, `connections.js`, `timeline.js` + screen, "what changed", authorization-aware search | Graph is derived, not stored | Low |
 | 18 | AI family assistant | **PARTIALLY_COMPLETE** | 55 | `ai/assistant.js`, `intents.js`, `mcp.js`, `summary.js`; **read-only, no model, no network** | No language model by design; capability is narrow | Low |
@@ -78,8 +78,8 @@ judgement, and a tool that scored it would be inventing certainty.
 
 ```
 COMPLETE              4   (10, 21, 22, and 0)
-MOSTLY_COMPLETE      16   (0.5, 2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 19, 20)
-PARTIALLY_COMPLETE    4   (8, 18, 23, 25)
+MOSTLY_COMPLETE      15   (0.5, 2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 16, 17, 19, 20)
+PARTIALLY_COMPLETE    5   (8, 15, 18, 23, 25)
 REQUIRES_REWORK       1   (1)
 BLOCKED               2   (11, 24)
 NOT_STARTED           0

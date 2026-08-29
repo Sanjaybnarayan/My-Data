@@ -1,8 +1,14 @@
 /**
  * Safety.
  *
- * Where the household was, the zones those readings are measured against, and
- * a way to raise an alarm.
+ * Where the household was, and the zones those readings are measured against.
+ *
+ * **There is no SOS here, and this comment used to say there was.**
+ * `SafetyService.raise` and `domain/safety.js#sosMessage` compose an alert and
+ * record it, they are tested, and nothing on any screen calls them — measured,
+ * zero callers. A household cannot raise an alarm from this application. The
+ * architecture document carries the row as `unwired:`, so wiring it up will
+ * fail the build until somebody comes back and says so.
  *
  * Every sentence on this screen goes through the catalogue. That is not a
  * flourish: this is the first module written after the locale layer landed,

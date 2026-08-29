@@ -274,6 +274,56 @@ describe('the one forbidden edge that is open', () => {
     ));
   });
 
+  test('an unwired probe fails once the screen does call the thing', () => {
+    // The direction `absent:` cannot express. A row that honestly says "built
+    // and nothing calls it" goes stale when somebody wires it and leaves the
+    // sentence behind — and `absent:grep:raise` could never catch that,
+    // because the engine's own file mentions `raise` and always will.
+    const stillUnwired = checkProbe(
+      { kind: 'unwired', target: 'js/modules/safety.js#raise', state: 'built and unreachable' },
+      { read: () => 'const r = await safety.whereEveryone();' },
+    );
+    assert.equal(stillUnwired, null);
+
+    const nowWired = checkProbe(
+      { kind: 'unwired', target: 'js/modules/safety.js#raise', state: 'built and unreachable' },
+      { read: () => 'const r = await safety.raise(personId);' },
+    );
+    assert.ok(nowWired);
+    assert.includes(nowWired, 'stale in the direction that matters');
+  });
+
+  test('an unwired probe reads code, not the prose beside it', () => {
+    // This is the case that found the bug rather than a hypothetical: the
+    // header of `js/modules/safety.js` said the screen offered "a way to raise
+    // an alarm", and the screen did not. A probe reading comments would have
+    // been satisfied by the very sentence that was wrong.
+    assert.equal(
+      checkProbe(
+        { kind: 'unwired', target: 'js/modules/safety.js#raise', state: 'built and unreachable' },
+        { read: () => '/** A way to raise an alarm. */\nconst x = 1;' },
+      ),
+      null,
+    );
+  });
+
+  test('a wired probe is not satisfied by a comment either', () => {
+    // The same hole, in the direction that was already shipping: a row could
+    // claim a screen calls something on the strength of a comment saying it
+    // should. Stripping comments closes both.
+    assert.ok(checkProbe(
+      { kind: 'wired', target: 'js/modules/finance.js#ExplainService', state: 'exists' },
+      { read: () => '// ExplainService goes here one day\nconst x = 1;' },
+    ));
+  });
+
+  test('and an unwired probe pointing at nothing says so', () => {
+    assert.includes(
+      checkProbe({ kind: 'unwired', target: 'js/modules/gone.js#raise', state: 'unreachable' }),
+      'does not exist',
+    );
+  });
+
   test('a screen with no direct calls is not listed at all', () => {
     const { count, byFile } = uiDatabaseCalls({
       files: ['/x/clean.js'], read: () => 'import { thing } from "./service.js";',

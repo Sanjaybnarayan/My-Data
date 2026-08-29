@@ -45,10 +45,28 @@ knows about. Same comparison, none of the wake-ups. **Crossing a zone while the
 app is closed produces nothing at all** — no alert, no record, and no later
 catch-up.
 
-**Nothing sends an SOS.** There is no server in this application, no SMS
-gateway and no push. An SOS composes a message and records that it was raised;
-a person sends it from their own phone. `sentVia` records what they say they
-did, and its default is `not sent`.
+**Nothing raises an SOS either, and this paragraph used to imply otherwise.**
+The sentence here read *"an SOS composes a message and records that it was
+raised; a person sends it from their own phone"* — present tense, describing
+something a household cannot do. Measured: `SafetyService.raise` has zero
+callers and `sosMessage` is called only from inside `domain/safety.js`. There
+is no SOS button on the safety screen or anywhere else.
+
+What exists is the whole of the composer and none of the way in: `raise`, an
+encrypted `sosAlert` entity, `sosMessage`, five locale strings, and tests. What
+does not exist is any screen that reaches them.
+
+**And if it were wired, nothing would send it.** There is no server in this
+application, no SMS gateway and no push. The design is that a person sends the
+composed message from their own phone and `sentVia` records what they say they
+did, defaulting to `not sent` — which remains the right design, and remains
+unbuilt at the point where a household would touch it.
+
+Whether to build that entry point is a decision about a life-safety
+affordance — a button that says SOS and does not send anything is not
+obviously better than no button — and it is the household's to make, not
+something to tidy in while correcting a sentence.
+`docs/AN_SOS_WITH_NO_BUTTON.md` carries the measurement.
 
 On Android 10+ the background grant cannot be obtained from the same prompt as
 the foreground ones, and on 11+ not from a prompt at all — the person has to
