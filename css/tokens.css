@@ -230,7 +230,13 @@
   --nav-width:        260px;
   --nav-width-compact: 76px;
   --header-height:    60px;
-  --bottom-nav-height: 64px;
+  /*
+   * In `rem`, so it grows with the household's text-size setting. 4rem is
+   * exactly the 64px it was at the default root size, so nothing moves for
+   * anybody who has not changed it — and `.app-main` reserves its room from
+   * this same token, so a taller bar cannot end up over the content.
+   */
+  --bottom-nav-height: 4rem;
   --content-max:      1180px;
 
   color-scheme: light;
