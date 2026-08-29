@@ -452,6 +452,17 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
     text-align: center;
   }
 
+  /*
+   * The count could not be worked out. A different colour would be the easy
+   * answer and is not an answer at all — a household that cannot tell red from
+   * amber gets no information from it. So the shape changes too: a square
+   * rather than a pill, and the accessible name says it in words.
+   */
+  .bottom-nav .nav-badge--unknown {
+    background: var(--muted);
+    border-radius: 4px;
+  }
+
 }
 
 

@@ -349,6 +349,16 @@ export const strings = {
   'position.unsupported': 'This device has no location service available to the app.',
   'position.unknown': 'The location could not be read.',
 
+  // The bottom bar's third badge state. A tab with no badge means nothing is
+  // late; this means the check itself did not finish, which is a different
+  // thing and used to look identical.
+  // Whole sentences including the tab's own name, not fragments joined with a
+  // comma: a language that orders "Notifications, 3 things need attention"
+  // differently cannot do it from pieces.
+  'attention.tabUnknown': '{label}, how many things need attention could not be worked out',
+  'attention.tabOne': '{label}, 1 thing needs attention',
+  'attention.tabMany': '{label}, {n} things need attention',
+
   // What a mailbox scan is able to say about itself. `unreachable` is the one
   // that had no words at all: messages Gmail listed and refused to hand over
   // used to be dropped silently, so a scan that lost a third of the mail read

@@ -207,9 +207,13 @@ async function start(db, limiter, googleSession = null) {
    * say when the truth could not be read.
    */
   const { AttentionService } = await import('./services/attention.js');
+  // A failed check is not an empty one. The badge starts hidden, so swallowing
+  // this used to leave the tab bare — which is exactly what "nothing needs
+  // attention" looks like. `null` puts a mark there instead, and the tab's
+  // accessible name says the count could not be worked out.
   const refreshAttention = () => new AttentionService(db).everything()
     .then(({ pressing }) => shell.setBadge('notifications', pressing))
-    .catch(() => {});
+    .catch(() => shell.setBadge('notifications', null));
   void refreshAttention();
   bus.on(TOPIC.dataChanged, refreshAttention);
 
