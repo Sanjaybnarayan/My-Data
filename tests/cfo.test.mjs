@@ -1,6 +1,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { position, describeLine, lastCompleteMonth } from '../js/domain/cfo.js';
 import { typicalMonthlyOutgoings, typicalDailySpend } from '../js/domain/runway.js';
+import { committed } from '../js/domain/finance.js';
 
 setSuite('cfo');
 
@@ -133,5 +134,47 @@ describe('every figure names where it came from', () => {
     }, { clock: CLOCK });
     assert.includes(at('netWorth', out).caveats.join(' '), 'valued at cost');
     assert.ok(at('risks', out).findings.some((f) => f.kind === 'stale valuation'));
+  });
+});
+
+describe('upcoming obligations counts the three things it names', () => {
+  const RECURRING = [
+    { id: 'r1', name: 'Rent', amount: 3500000, frequency: 'monthly', active: true, kind: 'rent' },
+    { id: 'r2', name: 'Electricity', amount: 280000, frequency: 'monthly', active: true, kind: 'utility' },
+  ];
+  const LOANS = [{ id: 'l1', name: 'Car loan', emiAmount: 1850000, endsOn: '2030-01-01' }];
+  const SUBSCRIPTIONS = [
+    { id: 's1', name: 'Streaming', amount: 49900, cycle: 'monthly', autoRenew: true, renewsOn: '2026-09-10' },
+  ];
+
+  test('rent, EMI and subscription are all in the figure', () => {
+    const out = position({
+      ...DATA, recurring: RECURRING, loans: LOANS, subscriptions: SUBSCRIPTIONS,
+    }, { clock: CLOCK });
+    const row = at('obligations', out);
+    // ₹35,000 rent + ₹2,800 electricity + ₹18,500 EMI + ₹499 subscription.
+    assert.equal(row.value, 5679900);
+  });
+
+  test('it agrees with the module the label points at', () => {
+    // The same three inputs through `finance.committed`, which is where the
+    // household's monthly floor is defined. A figure on the CFO page that
+    // disagrees with it is one of them being wrong, and this page invents no
+    // arithmetic of its own.
+    const args = { recurring: RECURRING, loans: LOANS, subscriptions: SUBSCRIPTIONS };
+    const out = position({ ...DATA, ...args }, { clock: CLOCK });
+    assert.equal(at('obligations', out).value, committed(args).total);
+  });
+
+  test('and subscriptions alone would not be it', () => {
+    // Guards the shape of the fault rather than the number: the bug was a call
+    // that omitted `base`, leaving the largest outgoings loaded, passed in and
+    // silently dropped under a label naming them.
+    const out = position({
+      ...DATA, recurring: RECURRING, loans: LOANS, subscriptions: SUBSCRIPTIONS,
+    }, { clock: CLOCK });
+    const subsOnly = position({ ...DATA, subscriptions: SUBSCRIPTIONS }, { clock: CLOCK });
+    assert.equal(subsOnly.lines.find((r) => r.id === 'obligations').value, 49900);
+    assert.ok(at('obligations', out).value > subsOnly.lines.find((r) => r.id === 'obligations').value);
   });
 });

@@ -2,6 +2,7 @@ import { test, describe, assert, setSuite, fakeClock } from './harness.mjs';
 import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 import { Assistant, matchIntent } from '../js/ai/assistant.js';
 import { parsePeriod, exampleQuestions } from '../js/ai/intents.js';
+import { datedEntities } from '../js/domain/reminders.js';
 import { summarise } from '../js/ai/summary.js';
 import { toMinor } from '../js/core/money.js';
 import { PermissionError } from '../js/core/errors.js';
@@ -139,6 +140,41 @@ describe('answers', () => {
     const { db } = await household();
     const answer = await new Assistant({ db, clock }).answer('Find zzzqqq.');
     assert.includes(answer.text, 'Nothing matching');
+  });
+
+  test('an expiring warranty is reported, and used not to be', async () => {
+    /*
+     * The `expiring` handler named nine entities by hand. The schema declares
+     * nineteen with an expiry field and `expiryReminders` reads every one, so
+     * the ten it did not name were invisible — and the answer was not "some of
+     * these are missing" but a flat "nothing is due to expire in the next
+     * year". A warranty, a tenancy, a vaccination, a medication course and a
+     * service falling due were all in that silence.
+     */
+    const db = await makeDb();
+    await db.repo('warranty').create({
+      cover: 'Refrigerator', expiresOn: '2025-08-01',
+    });
+
+    const answer = await new Assistant({ db, clock }).answer('What is expiring soon?');
+    assert.includes(answer.text, 'Refrigerator');
+    assert.not(/nothing is due to expire/i.test(answer.text), answer.text);
+  });
+
+  test('and the handler reads every entity the schema says can expire', async () => {
+    // Derived rather than counted, so a twentieth dated entity is covered the
+    // day it is added — which is the whole point of not typing the list.
+    const asked = [];
+    const db = await makeDb();
+    const spy = {
+      ...db,
+      repo: (name) => { asked.push(name); return db.repo(name); },
+    };
+    await new Assistant({ db: spy, clock }).answer('What is expiring soon?');
+
+    for (const name of datedEntities()) {
+      assert.includes(asked, name, `${name} can expire and the assistant never read it`);
+    }
   });
 
   test('asking which insurance expires next answers about insurance only', async () => {
