@@ -98,7 +98,22 @@ anybody looks at it would otherwise stand unchallenged.
 script.google.com. Until it is pasted, none of this is running — and nothing in
 this repository can reach a deployment to check.
 
-**7 of 7 mutations caught**, across both halves: dropping the personId again,
-removing the validation, making the validation reject everything, ignoring the
-owner's binding, clearing it on an unrelated save, waving unbound callers
-through, and applying the rule to every entity instead of messages.
+**9 of 9 mutations caught**, across both halves.
+
+`apps-script/Code.gs` — dropping the personId again; removing the validation;
+making the validation reject everything; ignoring the owner's binding; clearing
+that binding on a save that never mentioned it; accepting an unvalidated one.
+
+`apps-script/Sheets.gs` — the rule never firing; waving unbound callers through;
+applying the rule to every entity instead of messages.
+
+**One escaped on the first pass.** Making `admit()` return `''` for the owner
+again broke nothing, because every test that involved the owner's binding set
+it directly rather than through `manageMembers`. The wiring from the screen to
+`admit` — which is the entire point of this commit — was the part nothing
+covered. Fixed, and it is now two tests.
+
+*(An earlier draft of this file said "7 of 7". It listed seven and nine were
+run, which is the safe direction to be wrong in and still wrong. Corrected
+here rather than left, for the same reason as everything else in this
+document.)*
