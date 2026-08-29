@@ -114,3 +114,11 @@ because there is no real second language. The pieces are covered by
 `tests/locale.test.mjs`, including a catalogue that reorders a date and one
 that drops a placeholder; that is not the same as a household using the
 application in Hindi for a week.
+
+## A missing key reaches the screen, not the log
+
+`t()` returns the key itself when the catalogue has no entry, so routing a
+string wrongly used to ship `profile.lockNowHint` to a household silently.
+The browser suite now reads every screen it walks for text shaped like a key
+or an unfilled `{placeholder}`. See `docs/LOCALE_KEY_LEAKS.md`, including the
+four OAuth scope names it flagged that are not faults.
