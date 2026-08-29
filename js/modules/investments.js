@@ -23,6 +23,7 @@ import { PortfolioService } from '../services/portfolio.js';
 import { format, formatCompact } from '../core/money.js';
 import { formatDay, startOfFinancialYear, today } from '../core/dates.js';
 import { describeAccrual } from '../domain/accrual.js';
+import { t } from '../core/locale.js';
 
 const TABS = [
   { id: 'portfolio', label: 'Portfolio' },
@@ -83,6 +84,37 @@ export async function render(route) {
  * source, and a premature withdrawal is penalised, so the estimate sits beside
  * the stored figure and the bank's statement stays the authority.
  */
+/**
+ * Which bank row paid each RD instalment.
+ *
+ * Shown only when there is something to say. A household whose instalments all
+ * match wants no card at all — the connection existing is not news, and the
+ * two states worth a person's attention are *"nothing in the ledger looks like
+ * this payment"* and *"two rows could be, and this application will not pick
+ * one for you."*
+ *
+ * `ambiguous` is deliberately not phrased as a problem to fix. Instalments are
+ * the same amount every month, so two debits a day apart are genuinely
+ * indistinguishable, and the honest sentence names both rather than choosing.
+ */
+function instalmentCard(counts) {
+  if (!counts?.total || (!counts.unmatched && !counts.ambiguous)) return null;
+
+  return card({ class: 'card--quiet' }, [
+    cardHeader(t('instalments.title'), [], {
+      subtitle: t('instalments.subtitle', { matched: counts.matched, total: counts.total }),
+      iconName: 'bank',
+    }),
+    counts.unmatched
+      ? h('p', { class: 'small' }, t('instalments.unmatched', { n: counts.unmatched }))
+      : null,
+    counts.ambiguous
+      ? h('p', { class: 'small muted', style: { marginBottom: 0 } },
+        t('instalments.ambiguous', { n: counts.ambiguous }))
+      : null,
+  ].filter(Boolean));
+}
+
 function accrualCard(report) {
   if (!report?.drifted.length && !report?.unchecked.length) return null;
 
@@ -145,7 +177,7 @@ async function portfolioView() {
     }
 
     const {
-      summary, rows, pooled, dividends, maturing, shareOfAssets, accrual,
+      summary, rows, pooled, dividends, maturing, shareOfAssets, accrual, instalments,
     } = view;
     const fyFrom = startOfFinancialYear(today());
 
@@ -204,6 +236,7 @@ async function portfolioView() {
 
       // Directly under the summary, because it qualifies the gain figure in it.
       accrualCard(accrual),
+      instalmentCard(instalments),
 
       card({}, [
         cardHeader('Asset allocation'),

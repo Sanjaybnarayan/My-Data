@@ -28,6 +28,7 @@ import {
 import { costBasis, gainOn } from '../domain/costbasis.js';
 import { netWorth } from '../domain/networth.js';
 import { accrualReport } from '../domain/accrual.js';
+import { instalmentLinks, instalmentSummary } from '../domain/instalments.js';
 import { startOfFinancialYear, endOfFinancialYear, today } from '../core/dates.js';
 
 export class PortfolioService extends Service {
@@ -181,6 +182,13 @@ export class PortfolioService extends Service {
       // instalment accrues from its own date. Passing them is not optional
       // dressing — without them every RD comes back unchecked.
       accrual: accrualReport(holdings, asOf, { transactions: txns }),
+      // Which bank row paid each RD instalment — the connection Phase 7 said
+      // nothing offered. `data.transactions` is the ledger `NET_WORTH_LOAD`
+      // already loads for the balance; loading it a second time here would be
+      // a second limit to keep in step with `docs/ONE_LIMIT.md`.
+      instalments: instalmentSummary(instalmentLinks({
+        holdings, investmentTransactions: txns, transactions: data.transactions,
+      })),
       netWorth: worth,
       // A percentage, or null when there is nothing to be a percentage of.
       // Dividing by zero assets produced `0%` before, which reads as "your

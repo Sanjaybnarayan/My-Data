@@ -61,6 +61,15 @@ export const COMPOUNDING = Object.freeze({
 });
 
 /**
+ * The `holding.kind` of a recurring deposit.
+ *
+ * Named because this file spelt it out three times and `domain/instalments.js`
+ * needed a fourth. A schema enum repeated in five places is five things to
+ * change when the schema does.
+ */
+export const RECURRING = 'recurring deposit';
+
+/**
  * Kinds a household would recognise as a deposit.
  *
  * The distinction matters only for the report: a fixed deposit missing its
@@ -69,7 +78,7 @@ export const COMPOUNDING = Object.freeze({
  */
 export const DEPOSIT_LIKE = Object.freeze([
   ...Object.keys(COMPOUNDING),
-  'recurring deposit',
+  RECURRING,
 ]);
 
 /**
@@ -81,6 +90,7 @@ export const DEPOSIT_LIKE = Object.freeze([
  * treat every instalment as though it had been in since the first one.
  */
 export const RECURRING_COMPOUNDING = 4;
+
 
 /** Investment transaction kinds that are money going *into* a deposit. */
 const INSTALMENT_KINDS = new Set(['contribution', 'buy']);
@@ -213,7 +223,7 @@ export function instalmentsFor(holding, transactions) {
  */
 export function canAccrueRecurring(holding, transactions) {
   if (!holding) return { ok: false, why: 'nothing to value' };
-  if (holding.kind !== 'recurring deposit') {
+  if (holding.kind !== RECURRING) {
     return { ok: false, why: 'not a recurring deposit' };
   }
   if (!(holding.interestRate > 0)) return { ok: false, why: 'no interest rate is recorded' };
