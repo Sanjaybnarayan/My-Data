@@ -20,6 +20,7 @@ import { bus, TOPIC } from '../core/bus.js';
 import { storedTheme, applyTheme, nextTheme, effectiveTheme } from './theme.js';
 import { avatar, iconButton } from './components/basics.js';
 import { moduleLabel } from '../core/labels.js';
+import { t } from '../core/locale.js';
 
 /**
  * The five that fit on a phone's bottom bar.
@@ -36,6 +37,47 @@ import { moduleLabel } from '../core/labels.js';
  * navigations at once.
  */
 export const PRIMARY = Object.freeze(['dashboard', 'notifications', 'chat', 'finance', 'profile']);
+
+/**
+ * What a tab's badge should say, given a count.
+ *
+ * Pure and exported so the decision can be tested without building a shell —
+ * and, more to the point, so it can be *mutated*: the fault this replaced was
+ * that a failed check and an empty one produced the same DOM, and a check that
+ * cannot tell them apart would not have caught it.
+ *
+ * Three states, not two:
+ *
+ *   a number   things are late, and how many
+ *   nothing    nothing is late
+ *   `null`     the count could not be worked out
+ *
+ * The third had no representation. `app.js` called `setBadge` from a promise
+ * ending `.catch(() => {})`, and the badge is created hidden, so a thrown
+ * `AttentionService.everything()` left the tab bare — which is exactly what
+ * "nothing needs attention" looks like, on the bar a household reads first.
+ *
+ * @param {number|null} count things needing attention, or null when unknown
+ * @param {string} label the tab's own name
+ * @returns {{hidden: boolean, text: string, unknown: boolean, ariaLabel: string}}
+ */
+export function attentionBadge(count, label) {
+  if (count === null) {
+    // A mark rather than a number, and the shape changes too — a different
+    // colour alone would tell a household who cannot see the difference
+    // nothing at all.
+    return { hidden: false, text: '!', unknown: true, ariaLabel: t('attention.tabUnknown', { label }) };
+  }
+
+  const n = Number(count) || 0;
+  return {
+    hidden: n === 0,
+    text: n > 99 ? '99+' : String(n),
+    unknown: false,
+    ariaLabel: n === 0 ? label
+      : (n === 1 ? t('attention.tabOne', { label }) : t('attention.tabMany', { label, n })),
+  };
+}
 
 export function buildShell({ actor, onSearch, onLock, router }) {
   const allowed = visibleModules(actor, modules);
@@ -290,20 +332,31 @@ export function buildShell({ actor, onSearch, onLock, router }) {
      * reminder, so a badge claiming otherwise would be inventing a fact. The
      * accessible name says the whole thing, because "3" beside an icon tells a
      * screen reader nothing.
+     *
+     * ## Why there is a third state
+     *
+     * A badge has two obvious states — a number, and nothing. **Nothing was
+     * doing the work of two different facts.** The badge is created hidden and
+     * `app.js` called this from a promise ending `.catch(() => {})`, so when
+     * `AttentionService.everything()` threw, this was simply never called and
+     * the tab stayed bare. A household then read "nothing needs attention" off
+     * a check that had failed — on the bar they look at first.
+     *
+     * Passing `null` says the count could not be worked out. It shows a mark
+     * rather than a number, and the accessible name says so in words: the
+     * shape carries it as well as the character, because a household that
+     * cannot tell a `!` from a `1` at a glance is not a rare one.
      */
     setBadge(moduleId, count) {
       const badge = badges.get(moduleId);
       if (!badge) return;
-      const n = Number(count) || 0;
-      badge.hidden = n === 0;
-      badge.textContent = n > 99 ? '99+' : String(n);
-
-      const link = badge.closest('a');
-      if (!link) return;
       const label = moduleLabel(modules.find((m) => m.id === moduleId));
-      link.setAttribute('aria-label', n === 0
-        ? label
-        : `${label}, ${n} ${n === 1 ? 'thing needs' : 'things need'} attention`);
+      const state = attentionBadge(count, label);
+
+      badge.hidden = state.hidden;
+      badge.textContent = state.text;
+      badge.classList.toggle('nav-badge--unknown', state.unknown);
+      badge.closest('a')?.setAttribute('aria-label', state.ariaLabel);
     },
   };
 }

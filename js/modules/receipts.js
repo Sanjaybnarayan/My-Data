@@ -46,6 +46,7 @@ import {
 import { toast } from '../ui/components/toast.js';
 import { confirm } from '../ui/components/modal.js';
 import { app } from '../context.js';
+import { t } from '../core/locale.js';
 import { MERCHANTS, searchQuery, customMerchant } from '../domain/merchants.js';
 import { CONNECTOR_STATUS, describe as describeConnector } from '../domain/connector.js';
 import { health as loadHealth, attempted } from '../data/connectors.js';
@@ -215,9 +216,7 @@ export async function render() {
       let failure = null;
 
       try {
-        const run = {
-          mailbox, searched: 0, recognised: 0, added: 0, passes: 0, truncated: false,
-        };
+        const run = { mailbox, searched: 0, recognised: 0, added: 0, passes: 0, truncated: false, unreachable: 0 };
         let from = since;
 
         // A first backfill over years of mail is more than one call's worth,
@@ -249,6 +248,9 @@ export async function render() {
             });
           }
 
+          // Listed and not handed over. `searched` counts what arrived, so a
+          // refused message would otherwise read as a mailbox with nothing in it.
+          run.unreachable += result.unreachable ?? 0;
           run.searched += scan.searched;
           run.recognised += scan.read.length;
           run.added += scan.fresh.length;
@@ -828,6 +830,7 @@ export async function render() {
     const good = lastScan.runs.filter((run) => !run.error);
     const searched = good.reduce((total, run) => total + run.searched, 0);
     const recognised = good.reduce((total, run) => total + run.recognised, 0);
+    const unreachable = good.reduce((total, run) => total + (run.unreachable ?? 0), 0);
 
     return card({ class: 'card--quiet' }, [
       cardHeader('Last scan', null, {
@@ -849,28 +852,25 @@ export async function render() {
             ? run.error
             : `${run.searched} read · ${run.recognised} receipts · ${run.added} new`
               + (run.passes > 1 ? ` · ${run.passes} passes` : '')
+              + (run.unreachable ? ` · ${t('receipts.scan.unreachableShort', { n: run.unreachable })}` : '')
               + (run.truncated ? ' · more to come' : ''),
           leading: badge(run.error ? 'failed' : 'read', run.error ? 'warn' : 'success'),
         }))
         : []),
 
+      // First, not last: every figure above is about what arrived.
+      unreachable
+        ? h('p', { class: 'small money--negative' }, t('receipts.scan.unreachable', { n: unreachable }))
+        : null,
       good.some((run) => run.truncated)
         ? h('p', { class: 'muted small' },
-          'A mailbox still has more than this scan could reach — either a single day '
-          + `holds more than ${SCAN_LIMIT} receipts, or there were more than ${MAX_PASSES} `
-          + 'calls’ worth. Press Scan again and it carries on from where it stopped.')
+          t('receipts.scan.truncated', { limit: SCAN_LIMIT, passes: MAX_PASSES }))
         : null,
       searched && !recognised
-        ? h('p', { class: 'muted small' },
-          'Mail came back but none of it looked like a receipt — usually a shop that '
-          + 'sends from a different address than expected. The From line of one of '
-          + 'those emails, added as a shop below, will fix it.')
+        ? h('p', { class: 'muted small' }, t('receipts.scan.nothingRecognised'))
         : null,
       lastScan.runs.some((run) => run.error)
-        ? h('p', { class: 'muted small' },
-          'A mailbox that could not be read is usually one whose Google account is '
-          + 'signed out, or whose backend has not been redeployed since Gmail.gs was '
-          + 'added. The others were still read.')
+        ? h('p', { class: 'muted small' }, t('receipts.scan.mailboxFailed'))
         : null,
     ].filter(Boolean));
   }

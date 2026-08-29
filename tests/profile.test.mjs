@@ -3,7 +3,7 @@ import {
   SECTIONS, APPLIES, completion, familyCompletion, describeCompletion, unknownReferences,
 } from '../js/domain/profile.js';
 import { grouped } from '../js/modules/profile.js';
-import { PRIMARY } from '../js/ui/shell.js';
+import { PRIMARY, attentionBadge } from '../js/ui/shell.js';
 import { modules } from '../js/data/schema.js';
 
 setSuite('profile');
@@ -184,5 +184,49 @@ describe('every module is reachable', () => {
     // The brief is explicit on both halves.
     assert.equal(PRIMARY.length, 5);
     assert.equal(PRIMARY.includes('settings'), false);
+  });
+});
+
+describe('the badge on a tab', () => {
+  test('a count that could not be worked out does not look like nothing', () => {
+    // The fault this replaced. The badge is created hidden and `app.js` called
+    // `setBadge` from a promise ending `.catch(() => {})`, so a thrown
+    // `AttentionService.everything()` left the tab bare — which is exactly what
+    // "nothing needs attention" looks like.
+    const empty = attentionBadge(0, 'Notifications');
+    const failed = attentionBadge(null, 'Notifications');
+
+    assert.equal(empty.hidden, true);
+    assert.equal(failed.hidden, false, 'a failed check was invisible');
+    assert.not(failed.ariaLabel === empty.ariaLabel);
+    assert.includes(failed.ariaLabel, 'could not be worked out');
+  });
+
+  test('and it does not look like a count either', () => {
+    // The other way to get this wrong: showing something, but something a
+    // household reads as a number of late things.
+    const failed = attentionBadge(null, 'Notifications');
+    assert.equal(failed.unknown, true);
+    assert.equal(/[0-9]/.test(failed.text), false, `it rendered "${failed.text}"`);
+  });
+
+  test('the difference is not carried by colour alone', () => {
+    // v8.0 is explicit: never rely only on colour. `unknown` drives a shape
+    // change and the accessible name says it in words, so the two states are
+    // distinguishable without seeing either.
+    const one = attentionBadge(1, 'Notifications');
+    const failed = attentionBadge(null, 'Notifications');
+    assert.not(one.text === failed.text);
+    assert.not(one.ariaLabel === failed.ariaLabel);
+  });
+
+  test('a real count still reads as one, singular and plural', () => {
+    // Without this, a guard that returned the unknown state for everything
+    // would pass every test above and break the feature.
+    assert.includes(attentionBadge(1, 'Notifications').ariaLabel, '1 thing needs');
+    assert.includes(attentionBadge(4, 'Notifications').ariaLabel, '4 things need');
+    assert.equal(attentionBadge(4, 'Notifications').text, '4');
+    assert.equal(attentionBadge(0, 'Notifications').ariaLabel, 'Notifications');
+    assert.equal(attentionBadge(120, 'Notifications').text, '99+');
   });
 });

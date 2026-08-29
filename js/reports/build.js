@@ -16,6 +16,7 @@ import { PdfDocument } from './pdf.js';
 import { format, formatCompact, sum } from '../core/money.js';
 import { formatDay, today, range, startOfFinancialYear, endOfFinancialYear } from '../core/dates.js';
 import { entity } from '../data/schema.js';
+import { t } from '../core/locale.js';
 import * as fin from '../domain/finance.js';
 import { netWorth } from '../domain/networth.js';
 import { portfolioSummary, allocation, holdingGain, xirr, cashFlows } from '../domain/portfolio.js';
@@ -418,17 +419,56 @@ export function reportById(id) {
 
 /* ------------------------------------------------------------- rendering */
 
-/** Load every entity a report needs, through the repository's permissions. */
+/**
+ * Load every entity a report needs, through the repository's permissions.
+ *
+ * ## Why this reports what it could not read
+ *
+ * A failed read used to become `[]`, and the report was then built over it.
+ * That is worse here than anywhere else in the application: a screen is looked
+ * at once and can be reloaded, but a report is a **file a household keeps** —
+ * dated, downloaded, sent to an accountant, read again a year later with no
+ * memory of the moment it was made.
+ *
+ * `renderCsv` made the claim out loud: *"No records fall in this period."* A
+ * report whose every store failed to read printed exactly that sentence.
+ *
+ * A permission refusal is different and stays silent. A role that may not read
+ * loans contributes no loans, and that is the design rather than a fault —
+ * `core/errors.js` gives `PermissionError` the code `'permission'`, which is
+ * what tells the two apart. Anything else is recorded and travels with the
+ * report.
+ *
+ * @returns {Promise<{data: Record<string, any[]>, unreadable: string[]}>}
+ */
 export async function gather(db, report) {
+  /** @type {Record<string, any[]>} */
   const data = {};
+  const unreadable = [];
   for (const name of report.entities) {
     try {
       data[name] = await db.repo(name).list({ limit: 20_000 });
-    } catch {
+    } catch (err) {
       data[name] = [];
+      if (err?.code !== 'permission') unreadable.push(name);
     }
   }
-  return data;
+  return { data, unreadable };
+}
+
+/**
+ * The line a report carries when part of it could not be read.
+ *
+ * Put in `summary`, which leads all three formats, rather than in `note`,
+ * which only the PDF renders. A household that exports a CSV is exactly as
+ * entitled to know the file is short.
+ */
+export function unreadableSummary(unreadable) {
+  if (!unreadable?.length) return null;
+  return [
+    t('report.incomplete.label'),
+    t('report.incomplete.text', { n: unreadable.length, names: unreadable.join(', ') }),
+  ];
 }
 
 export function renderCsv(built) {
@@ -451,7 +491,12 @@ export function renderCsv(built) {
     blocks.push(`${section.title}\r\n` + toCsv(section.columns, section.rows, { bom: false }));
   }
 
-  if (!built.sections.length) blocks.push('No records fall in this period.\r\n');
+  // Only when nothing could have been missed. Saying this over a failed read is
+  // the exact sentence this file exists not to print.
+  const incomplete = t('report.incomplete.label');
+  if (!built.sections.length && !built.summary?.some(([label]) => label === incomplete)) {
+    blocks.push(`${t('report.emptyPeriod')}\r\n`);
+  }
   return blocks.join('\r\n');
 }
 
@@ -516,8 +561,12 @@ function formatForPdf(value, column) {
  */
 export async function produce(db, reportId, formatName, options = {}) {
   const report = reportById(reportId);
-  const data = await gather(db, report);
+  const { data, unreadable } = await gather(db, report);
   const built = report.build(data, options);
+
+  // Prepended, not appended. A person reads the top of a summary and stops.
+  const warning = unreadableSummary(unreadable);
+  if (warning) built.summary = [warning, ...(built.summary ?? [])];
 
   const subtitle = `Generated ${formatDay(today())}`
     + (options.periodLabel ? ` · ${options.periodLabel}` : '');

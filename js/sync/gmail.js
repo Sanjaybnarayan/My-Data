@@ -91,12 +91,19 @@ export class GmailClient {
     }
 
     const ids = await this.#listIds(query, limit);
-    const messages = await this.#pool(ids, (id) => this.#message(id));
+    const { out, unreachable } = await this.#pool(ids, (id) => this.#message(id));
 
     return {
-      messages: messages.filter(Boolean),
+      messages: out.filter(Boolean),
       query,
       truncated: ids.length >= limit,
+      // How many of the listed messages could not be fetched. `truncated` says
+      // the *list* was capped, which is a different fact and was the only one
+      // reported. The other route — `AppsScriptTransport.mail` — has no
+      // per-message catch at all, so a failure there throws and is impossible
+      // to miss; it reports zero because zero is true of it, not because it
+      // does not know.
+      unreachable,
     };
   }
 
@@ -171,9 +178,19 @@ export class GmailClient {
    * A scan of two hundred messages is two hundred requests. All at once trips
    * Gmail's rate limit; one at a time takes a minute. A failure on one message
    * yields null rather than losing the other hundred and ninety-nine.
+   *
+   * **The failures are counted, and they did not used to be.** Continuing past
+   * one message is the right call; forgetting it happened is not. A `null` here
+   * used to be dropped by `filter(Boolean)` in the caller, so Gmail refusing
+   * thirty of a hundred messages produced ninety-nine — sorry, seventy —
+   * messages and a screen that said the mailbox had been searched. A receipt
+   * that could not be fetched then reads exactly like a receipt that does not
+   * exist, which is the shape of fault this repository has now found three
+   * times: an absence asserted from a read error.
    */
   async #pool(items, work) {
     const out = new Array(items.length);
+    let unreachable = 0;
     let next = 0;
 
     const worker = async () => {
@@ -183,6 +200,7 @@ export class GmailClient {
           out[index] = await work(items[index]);
         } catch {
           out[index] = null;
+          unreachable += 1;
         }
       }
     };
@@ -190,7 +208,7 @@ export class GmailClient {
     await Promise.all(
       Array.from({ length: Math.min(this.#concurrency, items.length) }, worker),
     );
-    return out;
+    return { out, unreachable };
   }
 }
 

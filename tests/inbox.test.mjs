@@ -322,16 +322,38 @@ describe('reading Gmail from the browser', () => {
     },
   };
 
-  function client({ onCall = () => {}, token = 'tok' } = {}) {
+  /**
+   * One construction site for the client, because a second one is a second
+   * `fetchImpl` the type checker has to be told about. `ids` and `refuse` let a
+   * test change what the mailbox lists and which fetches Gmail turns down,
+   * without building another.
+   *
+   * Typed, because the defaults are not: `refuse = () => false` infers as a
+   * function returning the *literal* false, and `onCall = () => {}` as one
+   * taking no arguments, so a caller passing either a real predicate or a
+   * listener is rejected by the checker rather than by anything real.
+   *
+   * @param {{onCall?: (url: string, options?: object) => void, token?: string|null,
+   *          ids?: string[], refuse?: (id: string) => boolean}} [options]
+   */
+  function client({
+    onCall = () => {}, token = 'tok', ids = Object.keys(inbox), refuse = () => false,
+  } = {}) {
     return new GmailClient({
       getToken: async () => token,
       fetchImpl: async (url, options) => {
         onCall(url, options);
         const list = /\/messages\?/.test(url);
-        const body = list
-          ? { messages: Object.keys(inbox).map((id) => ({ id })) }
-          : inbox[decodeURIComponent(url.split('/messages/')[1].split('?')[0])];
-        return { ok: true, status: 200, json: async () => body, text: async () => '' };
+        if (list) {
+          return {
+            ok: true, status: 200, text: async () => '',
+            json: async () => ({ messages: ids.map((id) => ({ id })) }),
+          };
+        }
+        const id = decodeURIComponent(url.split('/messages/')[1].split('?')[0]);
+        // The rate limit Gmail actually returns, rather than a generic 500.
+        if (refuse(id)) return { ok: false, status: 429, text: async () => 'rateLimitExceeded' };
+        return { ok: true, status: 200, json: async () => inbox[id], text: async () => '' };
       },
     });
   }
@@ -350,6 +372,35 @@ describe('reading Gmail from the browser', () => {
 
     assert.equal(seen[0].options.headers.Authorization, 'Bearer tok');
     assert.includes(decodeURIComponent(seen[0].url.replace(/\+/g, ' ')), 'q=from:zomato.com -in:trash');
+  });
+
+  test('a message Gmail will not hand over is counted, not just dropped', async () => {
+    // The fault this replaced: `#pool` turned any per-message failure into
+    // null and the caller dropped it with `filter(Boolean)`. Gmail refusing a
+    // message then read exactly like a mailbox that did not have it.
+    let fetched = 0;
+    const flaky = client({
+      ids: ['msg_1', 'msg_2', 'msg_3'],
+      refuse: (id) => id !== 'msg_1',
+      onCall: (url) => { if (!/\/messages\?/.test(url)) fetched += 1; },
+    });
+
+    const result = await flaky.mail('from:zomato.com', 5);
+    assert.equal(fetched, 3, 'it stopped fetching after the first refusal');
+    assert.equal(result.messages.length, 1);
+    assert.equal(result.unreachable, 2);
+
+    // And the two facts stay apart. The list was not capped, so `truncated` is
+    // false — reporting the loss through it would have said "there is more
+    // mail", which is a different and wrong sentence.
+    assert.equal(result.truncated, false);
+  });
+
+  test('and a scan that loses nothing says so, rather than saying nothing', async () => {
+    // The other direction. Without this, a counter stuck at any value above
+    // zero would pass the test above, and every clean scan would warn.
+    const result = await client().mail('from:zomato.com', 5);
+    assert.equal(result.unreachable, 0);
   });
 
   test('a message comes back in the shape a receipt is read from', async () => {

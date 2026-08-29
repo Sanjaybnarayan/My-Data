@@ -349,6 +349,42 @@ export const strings = {
   'position.unsupported': 'This device has no location service available to the app.',
   'position.unknown': 'The location could not be read.',
 
+  // What a report says when part of it could not be read. On the document
+  // itself, in `summary`, which leads every format — a report is kept, and the
+  // moment it was made is forgotten long before it is read again.
+  'report.incomplete.label': 'Incomplete',
+  'report.incomplete.text': '{n} record type(s) could not be read on this device ({names}). '
+    + 'This report is missing them — it is not a statement that there are none.',
+  'report.emptyPeriod': 'No records fall in this period.',
+
+  // The bottom bar's third badge state. A tab with no badge means nothing is
+  // late; this means the check itself did not finish, which is a different
+  // thing and used to look identical.
+  // Whole sentences including the tab's own name, not fragments joined with a
+  // comma: a language that orders "Notifications, 3 things need attention"
+  // differently cannot do it from pieces.
+  'attention.tabUnknown': '{label}, how many things need attention could not be worked out',
+  'attention.tabOne': '{label}, 1 thing needs attention',
+  'attention.tabMany': '{label}, {n} things need attention',
+
+  // What a mailbox scan is able to say about itself. `unreachable` is the one
+  // that had no words at all: messages Gmail listed and refused to hand over
+  // used to be dropped silently, so a scan that lost a third of the mail read
+  // exactly like a mailbox with less in it.
+  'receipts.scan.unreachable': 'Gmail listed {n} message(s) it would not hand over, so they '
+    + 'were not read. The counts above are what came back, not what the mailbox holds. '
+    + 'Scanning again usually reaches them — a refusal is normally a rate limit.',
+  'receipts.scan.unreachableShort': '{n} not handed over',
+  'receipts.scan.truncated': 'A mailbox still has more than this scan could reach — either a '
+    + 'single day holds more than {limit} receipts, or there were more than {passes} calls\u2019 '
+    + 'worth. Press Scan again and it carries on from where it stopped.',
+  'receipts.scan.nothingRecognised': 'Mail came back but none of it looked like a receipt — '
+    + 'usually a shop that sends from a different address than expected. The From line of one '
+    + 'of those emails, added as a shop below, will fix it.',
+  'receipts.scan.mailboxFailed': 'A mailbox that could not be read is usually one whose Google '
+    + 'account is signed out, or whose backend has not been redeployed since Gmail.gs was '
+    + 'added. The others were still read.',
+
   // The SOS message itself, which somebody sends from their own phone.
   'sos.needsHelp': '{name} needs help.',
   'sos.near': 'Near {zone}.',

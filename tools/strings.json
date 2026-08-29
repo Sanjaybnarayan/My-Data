@@ -1,6 +1,6 @@
 {
   "note": "Unrouted English strings — see tools/strings.mjs. This number may only fall.",
-  "unrouted": 3490,
+  "unrouted": 3480,
   "files": 159,
   "byFile": {
     "js/ai/assistant.js": 4,
@@ -111,7 +111,7 @@
     "js/modules/ledgers.js": 58,
     "js/modules/notifications.js": 5,
     "js/modules/profile.js": 3,
-    "js/modules/receipts.js": 153,
+    "js/modules/receipts.js": 145,
     "js/modules/reports.js": 44,
     "js/modules/safety.js": 5,
     "js/modules/settings.js": 1,
@@ -128,7 +128,7 @@
     "js/modules/travel.js": 5,
     "js/modules/vault.js": 27,
     "js/modules/vehicles.js": 10,
-    "js/reports/build.js": 49,
+    "js/reports/build.js": 48,
     "js/reports/docx.js": 3,
     "js/reports/pdf.js": 23,
     "js/reports/xlsx.js": 18,
@@ -160,7 +160,7 @@
     "js/ui/dom.js": 3,
     "js/ui/icons.js": 5,
     "js/ui/router.js": 3,
-    "js/ui/shell.js": 11,
+    "js/ui/shell.js": 10,
     "js/ui/theme.js": 2
   }
 }
