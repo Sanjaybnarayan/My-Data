@@ -1,14 +1,37 @@
 /**
  * Identifiers.
  *
- * Record ids are lexicographically sortable by creation time, which is what
- * lets IndexedDB range-scan "newest first" off the primary key with no
- * secondary index, and lets the sync engine order two writes that share a
- * millisecond. The encoding is ULID: 48 bits of timestamp then 80 bits of
- * randomness, both in Crockford base32.
+ * ULID: 48 bits of timestamp then 80 bits of randomness, both in Crockford
+ * base32. Within a single millisecond the random half is incremented rather
+ * than redrawn, so ids minted in a tight loop still sort in creation order.
  *
- * Within a single millisecond the random half is incremented rather than
- * redrawn, so ids minted in a tight loop still sort in creation order.
+ * ## What is relied on, and what merely happens to be true
+ *
+ * Relied on: an id is unique, stable, and generated without asking anything.
+ *
+ * **Not** relied on, despite this comment having said so: the sortability.
+ * The claim was that it "lets IndexedDB range-scan newest first off the
+ * primary key with no secondary index, and lets the sync engine order two
+ * writes that share a millisecond". Neither happens. The only two directional
+ * queries in the application both go through an index — `byAt` in
+ * `data/audit.js`, `bySeq` in `data/database.js` — and `sync/drive.js` orders
+ * by `createdAt`. `idTime`, which reads the timestamp back out, has no caller
+ * outside its own test.
+ *
+ * The properties are real and available; nothing uses them. That is stated
+ * this way round on purpose. If somebody later depends on the ordering, this
+ * comment understates what the scheme is doing, which is the harmless
+ * direction for it to be wrong in — unlike the version it replaces, which
+ * offered a justification for a cost nothing was paying for.
+ *
+ * ## The cost it was justifying
+ *
+ * A timestamp prefix means an id discloses when its record was created. With
+ * 80 bits from a CSPRNG the id is still unguessable, so this is minor, and
+ * `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md` records it as ID-01 and accepts it:
+ * ids already minted cannot be changed, and churning identity plumbing to
+ * stop leaking a creation date is not a trade worth making. Accepted for that
+ * reason — not, as first drafted, because the ordering is load-bearing.
  */
 
 const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // Crockford: no I, L, O, U
