@@ -503,7 +503,43 @@ describe('repository', () => {
     // Remove the account behind the transaction's back, as a bad sync would.
     await db.adapter.remove('account', acc.id);
     const broken = await db.danglingReferences();
-    assert.ok(broken.some((b) => b.id === txn.id && b.field === 'account'));
+    assert.ok(broken.some((b) => b.id === txn.id && b.key === 'account'));
+  });
+
+  test('and so is one whose target was deleted rather than removed', async () => {
+    // The case this used to miss, and the one sync actually produces. A
+    // deletion here is a marker that replicates — Settings says so on the same
+    // screen as this button — so a person deleted on another device arrives as
+    // a soft-deleted row.
+    //
+    // The write path treats that as gone (`Boolean(row) && !row.deletedAt`)
+    // and refuses the reference. This audit had its own walk that treated it
+    // as present, so the household was told "Every reference points at a
+    // record that exists" about a document whose owner had been deleted.
+    const db = await makeDb();
+    const person = await db.repo('person').create({ name: 'Asha' });
+    const doc = await db.repo('document').create({
+      title: 'Passport', fileName: 'p.jpg', mimeType: 'image/jpeg',
+      category: 'identity', person: person.id,
+    });
+
+    await db.repo('person').remove(person.id);
+
+    const broken = await db.danglingReferences();
+    assert.ok(broken.some((b) => b.id === doc.id && b.key === 'person'),
+      'a reference the write path would refuse was reported as sound');
+  });
+
+  test('and a reference the write path accepts is not reported', async () => {
+    // The other direction. Reporting everything as broken would satisfy both
+    // tests above and make the button useless — and worse, would tell a
+    // household their records are damaged when they are not.
+    const db = await makeDb();
+    const acc = await makeAccount(db);
+    await db.repo('transaction').create({
+      date: '2025-06-01', kind: 'expense', amount: '500', account: acc.id,
+    });
+    assert.deep(await db.danglingReferences(), []);
   });
 
   test('search finds a record by a prefix of any indexed field', async () => {
