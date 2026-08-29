@@ -4,6 +4,7 @@ import {
 } from '../js/domain/ledger.js';
 import {
   peopleLedger, lendingLedger, insights, summarise, CATEGORIES, categoryKind,
+  classify, RULES,
 } from '../js/domain/categorise.js';
 import { entity } from '../js/data/schema.js';
 
@@ -412,5 +413,79 @@ describe('what the form is not allowed to overrule', () => {
 
     assert.equal(rows[0].category, 'other-spend');
     assert.equal(rows[0].rule, 'entered');
+  });
+});
+
+/*
+ * The rules that can take money out of spending.
+ *
+ * `internal` is not a category like the others. `summarise` keeps it out of
+ * both spending and income, because moving your own money between your own
+ * pockets is not an economic event — which is right, and which means a false
+ * positive here does not mis-file a payment, it *deletes* it from what the
+ * household believes it spent. Nothing tells them; the total is simply
+ * smaller.
+ *
+ * So these rules are held to a higher bar than the rest: an ordinary word must
+ * not be enough on its own. Both directions are checked, because deleting the
+ * rules would satisfy the first half and lose every real investment.
+ */
+describe('a rule that removes money from spending', () => {
+  const kindOf = (description) => categoryKind(
+    classify({ description, direction: 'out', amount: 2500, date: '2026-08-01' }).category,
+  );
+
+  /*
+   * Real Indian merchant names, each of which the patterns used to swallow.
+   * `KITE CAFE` and `KITEX GARMENTS` matched a bare `kite`; `NIPPON PAINT`
+   * and a rent transfer through `BANDHAN BANK` matched a bare fund-house
+   * name; `AMC FOR AIR CONDITIONER` matched `\bamc\b`, which in an Indian
+   * statement is more often an annual maintenance contract than an asset
+   * management company.
+   */
+  const SPENDING = [
+    'UPI/KITE CAFE BENGALURU/Payment',
+    'POS/KITEX GARMENTS LTD',
+    'UPI/NIPPON PAINT INDIA/paint',
+    'UPI/AMC FOR AIR CONDITIONER/service',
+    'NEFT/BANDHAN BANK LTD/rent to landlord',
+    'POS/DIGITAL XEROX CENTRE',
+    'UPI/QUANT SURVEYORS PVT LTD',
+    'UPI/AXIS TOOLS AND HARDWARE',
+  ];
+
+  for (const description of SPENDING) {
+    test(`${description.slice(0, 44)} is spending, not an internal transfer`, () => {
+      assert.not(kindOf(description) === 'internal',
+        `classified internal, so it vanishes from the household's spending`);
+    });
+  }
+
+  /*
+   * And the other direction. Without these the whole guard is satisfied by
+   * deleting the broker and mutual-fund rules, which would put every real
+   * investment back into spending — the same error pointing the other way.
+   */
+  const INVESTMENT = [
+    'UPI/ZERODHA BROKING LTD',
+    'NEFT/NIPPON INDIA MF SIP INSTALMENT',
+    'NEFT/HDFC MF PURCHASE',
+    'ACH/GROWW INVEST TECH',
+    'NEFT/INDIAN CLEARING CORP',
+  ];
+
+  for (const description of INVESTMENT) {
+    test(`${description.slice(0, 44)} is still internal`, () => {
+      assert.equal(kindOf(description), 'internal',
+        'a real investment counted as spending overstates what was consumed');
+    });
+  }
+
+  test('only three rules can produce an internal category at all', () => {
+    // The premise. A fourth would need the same scrutiny, and this is where
+    // somebody adding one finds that out.
+    const internalRules = RULES.filter((rule) => categoryKind(rule.out) === 'internal'
+      || categoryKind(rule.in) === 'internal').map((rule) => rule.key);
+    assert.deep(internalRules.sort(), ['broker', 'mutual-fund', 'sweep']);
   });
 });
