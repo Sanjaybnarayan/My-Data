@@ -122,7 +122,7 @@ notes, vault, digital, emergency, reports, settings.
 | Household staff (distinct from family) | **exists — the role, not a second identity** | `wired:js/modules/family.js#documentsForStaff` |
 | Chat | **exists — real per-device E2EE, with escrow** | `wired:js/modules/chat.js#send` |
 | Safety | **exists — foreground only, no background capture** | `wired:js/modules/safety.js#whereEveryone` |
-| An SOS a household can raise | **built and unreachable — no screen calls it** | `unwired:js/modules/safety.js#raise` |
+| An SOS a household can raise | **exists — composes and records; nothing sends** | `wired:js/modules/safety.js#raise` |
 
 Privacy is reachable through Settings rather than as a top-level entry, and the
 assistant is routed at `#/assistant`. Staff was
@@ -146,14 +146,18 @@ compared against it in arithmetic rather than registered with the operating
 system. Crossing a zone with the app closed still produces nothing, and
 `docs/LOCATION.md` opens with that rather than burying it.
 
-**The SOS is not one of the things it built.** This paragraph used to end with
-*"and an SOS that composes a message for a person to send"*, in the present
-tense, and the composer does exist — `SafetyService.raise`, `sosMessage`, an
-encrypted `sosAlert` entity, five locale strings. **No screen calls any of
-it.** A household reading this document would have believed they could raise
-an alarm from a phone that offers no way to. The row above now carries it as
-`unwired:`, which fails the moment somebody wires it and leaves the sentence
-behind.
+**The SOS is wired, and for one tranche it was not.** This paragraph once
+ended *"and an SOS that composes a message for a person to send"* while no
+screen called `raise` — the composer, the entity and the strings all existed
+and nothing reached them. The row above carried it as `unwired:` until the
+button was built, and that probe is what failed the build the moment it was:
+the document could not be left behind.
+
+What the button does is **compose and record**, never send. There is no
+server, no gateway and no push, so the message goes to the phone's own share
+sheet and `sentVia` stays `not sent` — the card, the confirmation dialog and
+the message screen each say so, because a household finding that out after
+pressing it is the failure the card exists to avoid.
 
 **The architectural debt here is the missing domain-service layer.** Screens
 call the repository directly, so every module added before the layer exists is
