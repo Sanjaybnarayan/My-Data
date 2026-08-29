@@ -14,7 +14,7 @@
  * that calls an action the deployed backend does not serve gets a 400 with
  * "unknown action", once, in a household's face.
  *
- * They agree today. Both sides name the same fifteen actions, which is the
+ * They agree today. Both sides name the same sixteen actions, which is the
  * reason to check it rather than a reason not to: it holds by care, and care is
  * what runs out. `tools/policy.mjs` makes the same argument about the access
  * rules and generates them for the same reason.

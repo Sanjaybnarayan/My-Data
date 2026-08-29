@@ -87,16 +87,21 @@ implementation and testing.** This document is what checking looks like.
 ## What was measured
 
 ```
-js/security/keyring.js   one data key, wrapped once per unlock method
-                         (pin | webauthn | recovery), stored in `meta`
-js/security/escrow.js    a fourth wrapping, in the household's Google Drive
+js/security/keyring.js    one data key, wrapped once per unlock method
+                          (pin | webauthn | recovery), stored in `meta`
+js/security/escrow.js     a fourth wrapping, in the household's Google Drive
+js/security/codeescrow.js a fifth, in the household's Apps Script deployment
 grep publicKey|privateKey|keyPair  js/security/*.js js/sync/*.js  → nothing
 ```
 
 There is **one data key per household**. It is wrapped several times — by a
-PIN, by a fingerprint, by a recovery phrase, optionally by Google — and every
-wrapping unwraps *the same key*. No per-person keypair exists anywhere in the
-application.
+PIN, by a fingerprint, by a recovery phrase, optionally by Google, optionally
+by the household's own backend — and every wrapping unwraps *the same key*. No
+per-person keypair exists anywhere in the application.
+
+The two optional wrappings make the conclusion below stronger rather than
+weaker: each puts the key somewhere outside the device, so a household that
+turns either on has fewer grounds for the word "end-to-end", not more.
 
 ## Why that settles it
 
@@ -115,9 +120,11 @@ end-to-end would be false in the one direction people assume it is true.
 It is worth naming that this is not merely an unimplemented feature.
 
 `escrow.js` already states its own cost plainly: *"whoever can sign in as that
-Google account can read everything."* The recovery phrase exists so a
-household is not locked out of its own records. Both are deliberate, and both
-mean **the household is the unit of trust**.
+Google account can read everything."* `codeescrow.js` states a sharper one:
+whoever can open the household's Apps Script project can read everything, and
+so can whoever receives a code at the enrolled address. The recovery phrase
+exists so a household is not locked out of its own records. All three are
+deliberate, and all three mean **the household is the unit of trust**.
 
 A family operating system where a parent can recover a child's records and a
 chat that is end-to-end encrypted between that parent and that child are

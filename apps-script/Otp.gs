@@ -8,15 +8,26 @@
  * change. This sends a code to an address that person already owns, so the
  * choice is confirmed by something outside the device.
  *
- * **It is not what protects the household's records.** The PIN protects them,
- * and the encryption keys protect them. A one-time code verified here tells a
- * client that an address answered; the client is a browser, and a browser is
- * not a place where an authorisation decision can be enforced. Anybody who can
- * open the developer console can set the same flag this sets.
+ * **By default it is not what protects the household's records.** The PIN
+ * protects them, and the encryption keys protect them. A one-time code
+ * verified here tells a client that an address answered; the client is a
+ * browser, and a browser is not a place where an authorisation decision can be
+ * enforced. Anybody who can open the developer console can set the same flag
+ * this sets.
  *
  * So the screen says so, and this file says so, because a household that
  * believed a code was guarding their bank statements would be wrong in a way
  * that costs them.
+ *
+ * ## Except when the household turns sign-in by code on
+ *
+ * An owner can escrow the data key here, per person, so that a verified code
+ * opens the records on a device that has never seen this household — in place
+ * of the recovery phrase. Then a code really does unlock, and the cost is that
+ * **this deployment can decrypt everything.** That half of the file starts at
+ * `otpEscrowKey` and explains itself there; the paragraphs above describe what
+ * happens for a person the owner has not turned it on for, which is still the
+ * default and still every person until somebody chooses otherwise.
  *
  * ## Why this is the first unauthenticated endpoint here
  *
@@ -143,12 +154,7 @@ function otpEnforceLimits(address) {
  * @returns {{personId: string, name: string}|null}
  */
 function otpPersonFor(address, channel) {
-  var raw = PropertiesService.getUserProperties().getProperty('otpDirectory');
-  if (!raw) return null;
-
-  var directory;
-  try { directory = JSON.parse(raw); } catch (err) { return null; }
-
+  var directory = otpDirectory();
   var wanted = otpNormalise(address);
   for (var i = 0; i < directory.length; i += 1) {
     var entry = directory[i] || {};
@@ -162,16 +168,30 @@ function otpPersonFor(address, channel) {
 
 /* ------------------------------------------------------------- sending */
 
-function otpSendEmail(address, code, name) {
+/**
+ * `unlocks` decides which of two true sentences this message carries.
+ *
+ * The old text said a code unlocks nothing on its own, and that stopped being
+ * true for a person with an escrow. A message that understates what its own
+ * code can do is the one a household would most want to have been warned by:
+ * somebody receiving an unexpected code needs to know whether ignoring it is
+ * enough, and with an escrow in place it is not.
+ */
+function otpSendEmail(address, code, name, unlocks) {
   MailApp.sendEmail({
     to: address,
     subject: 'Your FamilyOS code: ' + code,
     body: (name ? name + ',\n\n' : '')
       + 'Your code is ' + code + '. It is good for ten minutes and can be used once.\n\n'
-      + 'This code confirms which household member is using a device. It does not '
-      + 'unlock anything on its own: the device PIN and the recovery phrase are what '
-      + 'protect your records.\n\n'
-      + 'If you did not ask for this, nobody has gained access — ignore it.\n',
+      + (unlocks
+        ? 'This code opens your FamilyOS records on a new device. Anyone who has it, '
+          + 'and this message, can read them. Do not pass it on.\n\n'
+          + 'If you did not ask for this, somebody is trying to get in. Ignore the code, '
+          + 'and turn off signing in by code in Settings \u2192 Security.\n'
+        : 'This code confirms which household member is using a device. It does not '
+          + 'unlock anything on its own: the device PIN and the recovery phrase are what '
+          + 'protect your records.\n\n'
+          + 'If you did not ask for this, nobody has gained access \u2014 ignore it.\n'),
   });
 }
 
@@ -188,7 +208,7 @@ function otpSendEmail(address, code, name) {
  * the refusal below says so rather than failing with a gateway error nobody
  * can act on.
  */
-function otpSendSms(address, code) {
+function otpSendSms(address, code, unlocks) {
   var props = PropertiesService.getUserProperties();
   var endpoint = props.getProperty('otpSmsEndpoint');
   var token = props.getProperty('otpSmsToken');
@@ -205,9 +225,11 @@ function otpSendSms(address, code) {
     headers: { Authorization: 'Bearer ' + token },
     payload: JSON.stringify({
       to: address,
-      // The code and nothing else. A message body assembled from anything the
-      // caller supplied would let somebody send text of their choosing.
-      text: 'Your FamilyOS code is ' + code + '. Good for ten minutes.',
+      // The code and one of two fixed sentences. A message body assembled from
+      // anything the caller supplied would let somebody send text of their
+      // choosing; which sentence is chosen by the escrow, not by the caller.
+      text: 'Your FamilyOS code is ' + code + '. Good for ten minutes.'
+        + (unlocks ? ' It opens your records on a new device \u2014 do not pass it on.' : ''),
     }),
     muteHttpExceptions: true,
   });
@@ -240,8 +262,8 @@ function otpRequest(payload) {
       attempts: 0,
     }), OTP_TTL_SECONDS);
 
-    if (channel === 'sms') otpSendSms(address, code);
-    else otpSendEmail(address, code, person.name);
+    if (channel === 'sms') otpSendSms(address, code, Boolean(otpEscrowFor(person.personId)));
+    else otpSendEmail(address, code, person.name, Boolean(otpEscrowFor(person.personId)));
   }
 
   /*
@@ -285,11 +307,225 @@ function otpVerify(payload) {
   // replay from a message that stayed in an inbox.
   cache.remove(key);
 
+  var unlock = otpEscrowFor(stored.personId);
+
   return {
     verified: true,
     personId: stored.personId,
-    // Said in the response as well as on the screen, so a second client built
-    // against this cannot quietly treat it as an authorisation.
-    grants: 'identity-only',
+    /*
+     * Which of the two things this code just did, said in the response as well
+     * as on the screen.
+     *
+     * `identity-only` is the original meaning and still the default: the
+     * address answered, and a second client built against this must not treat
+     * that as an authorisation, because a browser cannot enforce one.
+     *
+     * `identity-and-unlock` means an escrow was released in `unlock` below and
+     * the caller can now decrypt this household's records. Named differently
+     * so nothing has to infer it from the presence of a field.
+     */
+    grants: unlock ? 'identity-and-unlock' : 'identity-only',
+    // The 32 bytes that unwrap the data key, and the wrapping they open.
+    // Released only here, only after the hash matched, and only for a person
+    // the owner turned this on for. See the note above `otpEscrowKey`.
+    unlock: unlock,
   };
+}
+
+/* ------------------------------------------------- sign-in by code: the key */
+
+/**
+ * ## The part that turns a code into access, and what it gives up
+ *
+ * Everything above this line is identity: a code proves an address answered,
+ * and the file says at length that a browser cannot enforce more than that.
+ * What follows makes a code open the data on a device that has never seen this
+ * household — which is a different thing, and a weaker arrangement, and the
+ * household asked for it knowing that.
+ *
+ * **This deployment can decrypt the household's records once this is on.**
+ *
+ * Not a flaw in the implementation. It is arithmetic. A new device starts with
+ * nothing; for a six-digit code to yield the data key, something the code
+ * reaches has to hold both the wrapped key *and* the secret that unwraps it.
+ * That something is these script properties. Anyone who can open this Apps
+ * Script project — the Google account that deployed it, anyone that account
+ * shares the project with, anyone who phishes it — can read the escrow below
+ * and decrypt every record the household has.
+ *
+ * The recovery phrase does not have this property: it is printed once, held on
+ * paper, and never stored anywhere. Turning this on is choosing convenience
+ * over that. `docs/SIGN_IN_BY_CODE.md` puts the same sentence in front of the
+ * household before they choose, and the Settings row repeats it.
+ *
+ * ## Why the escrow is not readable without a code
+ *
+ * `otpEscrowFor` is reached only from `otpVerify`, after the hash matched and
+ * the code was destroyed. There is no public action that reads an escrow, and
+ * `signin` — the action that writes one — runs behind `verifyToken` like every
+ * other authenticated action. So the exposure is exactly the one named above:
+ * whoever holds the script, not whoever can reach its URL.
+ *
+ * ## Owner only
+ *
+ * A member escrowing the household's data key to the shared backend is a
+ * decision about everybody's records, not their own. `manageMembers` draws the
+ * same line for the same reason.
+ */
+
+/** Where one person's escrow lives. Per person, so dropping one leaves the rest. */
+function otpEscrowKey(personId) {
+  return 'otpEscrow_' + String(personId || '');
+}
+
+/**
+ * The escrow for a person, or null.
+ *
+ * @returns {{key: string, wrapped: {iv: string, key: string}}|null}
+ */
+function otpEscrowFor(personId) {
+  if (!personId) return null;
+  var raw = PropertiesService.getUserProperties().getProperty(otpEscrowKey(personId));
+  if (!raw) return null;
+
+  var record;
+  try { record = JSON.parse(raw); } catch (err) { return null; }
+
+  // A half-written escrow releases nothing. The two halves are useless apart,
+  // and handing back one of them would look like success to a client that then
+  // adopts a wrapping it can never open.
+  if (!record || !record.key || !record.wrapped || !record.wrapped.iv || !record.wrapped.key) {
+    return null;
+  }
+  return { key: record.key, wrapped: record.wrapped };
+}
+
+/**
+ * The household directory, as an array. Empty when there is none.
+ *
+ * Read here as well as in `otpPersonFor` because `signin` writes it: until
+ * this existed the directory had no writer anywhere in the repository, so
+ * `otpPersonFor` always returned null and no code was ever sent to anybody.
+ * A feature configurable only by hand-editing script properties is a feature
+ * nobody has.
+ */
+function otpDirectory() {
+  var raw = PropertiesService.getUserProperties().getProperty('otpDirectory');
+  if (!raw) return [];
+  try {
+    var parsed = JSON.parse(raw);
+    return Object.prototype.toString.call(parsed) === '[object Array]' ? parsed : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+/** Replace this person's directory entry, keeping everybody else's. */
+function otpDirectoryWrite(entry) {
+  var kept = [];
+  var directory = otpDirectory();
+  for (var i = 0; i < directory.length; i += 1) {
+    if (String((directory[i] || {}).personId) !== String(entry.personId)) kept.push(directory[i]);
+  }
+  kept.push(entry);
+  PropertiesService.getUserProperties().setProperty('otpDirectory', JSON.stringify(kept));
+}
+
+function otpDirectoryDrop(personId) {
+  var kept = [];
+  var directory = otpDirectory();
+  for (var i = 0; i < directory.length; i += 1) {
+    if (String((directory[i] || {}).personId) !== String(personId)) kept.push(directory[i]);
+  }
+  PropertiesService.getUserProperties().setProperty('otpDirectory', JSON.stringify(kept));
+}
+
+/**
+ * Turn sign-in by code on, off, or say who has it.
+ *
+ * `status` never returns key material — an owner asking which people can sign
+ * in this way does not need the escrow, and a reply that carried it would put
+ * the data key in a response nobody asked to receive.
+ */
+function otpEscrowManage(payload, context) {
+  var op = String((payload && payload.op) || 'status');
+
+  if (op === 'status') {
+    if (!context.isOwner) {
+      throw fail('only the account that deployed this backend can see who may sign in by code', 403);
+    }
+    var directory = otpDirectory();
+    var out = [];
+    for (var i = 0; i < directory.length; i += 1) {
+      var entry = directory[i] || {};
+      out.push({
+        personId: String(entry.personId || ''),
+        name: String(entry.name || ''),
+        // Masked. An owner needs to recognise the address, not read it out of
+        // a response that travels further than the screen showing it.
+        email: otpMask(entry.email),
+        phone: otpMask(entry.phone),
+        unlocks: Boolean(otpEscrowFor(entry.personId)),
+      });
+    }
+    return { people: out };
+  }
+
+  if (!context.isOwner) {
+    throw fail('only the account that deployed this backend can change sign-in by code', 403);
+  }
+
+  var personId = String((payload && payload.personId) || '');
+  if (!personId) throw fail('no person was named', 400);
+
+  if (op === 'drop') {
+    PropertiesService.getUserProperties().deleteProperty(otpEscrowKey(personId));
+    otpDirectoryDrop(personId);
+    return { dropped: true, personId: personId };
+  }
+
+  if (op !== 'put') throw fail('unknown sign-in operation: ' + op, 400);
+
+  var email = otpNormalise(payload && payload.email);
+  var phone = otpNormalise(payload && payload.phone);
+  if (!email && !phone) throw fail('a code needs somewhere to be sent', 400);
+
+  var key = String((payload && payload.key) || '');
+  var wrapped = (payload && payload.wrapped) || null;
+  if (!key || !wrapped || !wrapped.iv || !wrapped.key) {
+    throw fail('sign-in by code needs both the unlock key and the wrapping it opens', 400);
+  }
+
+  /*
+   * The directory first, the escrow second, and it matters which way round.
+   *
+   * Two properties cannot be written atomically here. If the second write
+   * fails, this order leaves an address that can be sent a code and no escrow
+   * to release — which is identity-only, the behaviour every person has by
+   * default. The other order would leave an escrow nothing can ever reach.
+   * `drop` is ordered by the same argument and comes out the other way: the
+   * key goes first, so a half-failure has removed the dangerous half.
+   */
+  otpDirectoryWrite({
+    personId: personId,
+    name: String((payload && payload.name) || ''),
+    email: email,
+    phone: phone,
+  });
+  PropertiesService.getUserProperties().setProperty(otpEscrowKey(personId), JSON.stringify({
+    key: key,
+    wrapped: { iv: String(wrapped.iv), key: String(wrapped.key) },
+    updatedAt: new Date().toISOString(),
+  }));
+
+  return { stored: true, personId: personId };
+}
+
+/** Enough of an address to recognise, not enough to use. */
+function otpMask(value) {
+  var text = otpNormalise(value);
+  if (!text) return '';
+  var at = text.indexOf('@');
+  if (at > 0) return text.charAt(0) + '···@' + text.slice(at + 1);
+  return text.length > 4 ? '···' + text.slice(-4) : '···';
 }

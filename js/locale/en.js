@@ -20,7 +20,11 @@
  * every noun and a language without letter case has nothing to convert.
  */
 
+import { signinStrings } from './en-signin.js';
+
 export const strings = {
+  ...signinStrings,
+
   // Dates. Abbreviated month names, because a table column has no room for
   // the full ones and a household reading its own records knows which is which.
   'month.1': 'Jan',
@@ -613,25 +617,6 @@ export const strings = {
   'chatSettings.notify.instead': 'The Notifications tab is about what is due \u2014 renewals, payments, expiring documents. It has never carried messages.',
   'chatSettings.notify.open': 'Open notifications',
   'transport.notPublic': '{action} needs a signed-in caller \u2014 only a one-time code can be asked for without one.',
-  'otp.title': 'Confirm who you are',
-  'otp.body': 'FamilyOS asks which of the people in this household is using this device. Sending a code to an address already on your record makes that answer harder to get wrong.',
-  'otp.channel': 'Where the code goes',
-  'otp.channel.email': 'Email',
-  'otp.channel.sms': 'Text message',
-  'otp.emailLabel': 'Your email address',
-  'otp.numberLabel': 'Your mobile number',
-  'otp.send': 'Send a code',
-  'otp.sentTo': 'If {address} is on somebody\u2019s record, a code is on its way. It is good for ten minutes and can be used once.',
-  'otp.codeLabel': 'The six digits',
-  'otp.verify': 'Confirm',
-  'otp.startAgain': 'Start again',
-  'otp.confirmed': 'Confirmed \u2014 this device knows who you are',
-  'otp.done': 'Confirmed. This device now knows which household member you are.',
-  'otp.unavailable': 'not available',
-  'otp.noBackend': 'This copy has no Google backend configured, and a code has to be sent and checked by one \u2014 a browser cannot check its own. Choose who you are on this screen instead.',
-  'otp.limit.notALock': 'A code confirms which household member you are. It is not what protects these records \u2014 the device PIN is, and it does not unlock anything on its own.',
-  'otp.limit.notAKey': 'It is not a key either. Signing in this way decrypts nothing that was not already readable on this device.',
-  'otp.limit.enrolStill': 'A new phone still sees no messages until it is enrolled, and only the recovery phrase reaches conversations from before then.',
   'scope.sendMail.title': 'Send mail as the account that deployed it',
   'scope.sendMail.why': 'Only if you kept Otp.gs. It sends one-time codes, and only to addresses already recorded against a person in your household. Delete that file and this scope to opt out.',
   'scope.sendMail.without': 'Household members choose who they are without confirming an address first.',

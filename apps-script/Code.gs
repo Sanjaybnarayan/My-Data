@@ -160,6 +160,14 @@ function dispatch(action, payload, context) {
         throw fail('this deployment does not read mail — Gmail.gs is not installed', 501);
       }
       return gmailSearch(payload, context);
+    // Sign-in by code, which is off until an owner turns it on. Guarded the
+    // same way as `mail`: a household that removed Otp.gs from the project gets
+    // a refusal that names the reason rather than a reference error.
+    case 'signin':
+      if (typeof otpEscrowManage !== 'function') {
+        throw fail('this deployment does not offer sign-in by code — Otp.gs is not installed', 501);
+      }
+      return otpEscrowManage(payload, context);
     case 'members':   return manageMembers(payload, context);
     case 'devices':   return manageDevices(payload, context);
     case 'verify':    return { counts: sheetCounts(workbook()) };

@@ -36,7 +36,7 @@
  */
 
 import { googleAuth } from './googleauth.js';
-import { DriveEscrow } from '../security/escrow.js';
+import { DriveEscrow, mintRawKey } from '../security/escrow.js';
 import { UNLOCK_SCOPES, APPDATA_SCOPE } from '../core/scopes.js';
 import {
   importKeyEncryptionKey, unwrapDataKey, exportKeyBytes, toBase64, timingSafeEqual,
@@ -88,16 +88,23 @@ export async function connectGoogleUnlock({ prompt = 'select_account consent' } 
 /**
  * Unlock a device that has no data key of its own — first run, or a new phone.
  *
+ * `method` names the keyring entry to write. It exists because sign-in by code
+ * reaches this device in exactly the same state — nothing enrolled, an escrow
+ * holding the key and the wrapping — and the part that matters here is the
+ * rollback below, which is worth having in one place rather than copied into a
+ * second file that will drift from it. Where the escrow lives is the escrow's
+ * business; this function has never known.
+ *
  * @returns {Promise<{outcome: 'adopted'|'found'}>} `adopted` means this
  *   household already existed and this device has joined it.
  */
-export async function unlockFreshDevice(keyring, escrow, label = '') {
+export async function unlockFreshDevice(keyring, escrow, label = '', method = GOOGLE_METHOD) {
   const record = await escrow.read();
 
   if (record?.wrapped) {
-    await keyring.adoptWrapped(GOOGLE_METHOD, record.wrapped, label);
+    await keyring.adoptWrapped(method, record.wrapped, label);
     try {
-      await keyring.unlockWithRawKey(record.rawKey, GOOGLE_METHOD);
+      await keyring.unlockWithRawKey(record.rawKey, method);
     } catch (err) {
       // Adopted, and it does not open. Left in place the device would be
       // permanently unopenable *and* claim to be enrolled, so the adoption is
@@ -126,9 +133,9 @@ export async function unlockFreshDevice(keyring, escrow, label = '') {
   // Nothing there: the household's first device. Publish only after the local
   // enrolment succeeded — a file naming a data key that was never stored is
   // worse than no file.
-  const rawKey = DriveEscrow.mintRawKey();
-  await keyring.enrolRawKey(rawKey, GOOGLE_METHOD, label);
-  await escrow.put(rawKey, await keyring.wrappedFor(GOOGLE_METHOD));
+  const rawKey = mintRawKey();
+  await keyring.enrolRawKey(rawKey, method, label);
+  await escrow.put(rawKey, await keyring.wrappedFor(method));
   return { outcome: 'found' };
 }
 
@@ -161,7 +168,7 @@ export async function linkExistingDevice(keyring, escrow, label = '') {
   // publish over from *here*: this device is unlocked, so what it writes is
   // known to open its own records — which is precisely what the legacy file
   // was missing.
-  const rawKey = DriveEscrow.mintRawKey();
+  const rawKey = mintRawKey();
   await keyring.addMethod(GOOGLE_METHOD, { rawKey, label });
   await escrow.put(rawKey, await keyring.wrappedFor(GOOGLE_METHOD));
   return { outcome: 'published' };

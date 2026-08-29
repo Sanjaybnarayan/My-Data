@@ -15,7 +15,7 @@ Every request is one POST to the deployment's `/exec`:
 { action, token, deviceId, clientVersion, payload }
 ```
 
-## The 15 actions, and who asks for them
+## The 16 actions, and who asks for them
 
 | Action | Called from |
 |---|---|
@@ -30,6 +30,7 @@ Every request is one POST to the deployment's `/exec`:
 | `pull` | `js/sync/transport.js` |
 | `push` | `js/sync/transport.js` |
 | `schema` | `js/sync/transport.js` |
+| `signin` | `js/security/codeescrow.js` |
 | `trash` | `js/sync/transport.js` |
 | `upload` | `js/sync/transport.js` |
 | `verify` | `js/sync/transport.js` |

@@ -57,10 +57,23 @@ const INVENTORY = join(ROOT, 'tools', 'strings.json');
  * then the count is an upper bound and this comment is the reason it moves
  * when a phase lands.
  */
-const NOT_COUNTED = new Set([
-  'js/locale/en.js',
-  'js/core/locale.js',
-]);
+/**
+ * The files whose English is the catalogue rather than a string escaping it.
+ *
+ * A rule, not a list. It was a list of two paths, and splitting the catalogue
+ * into a second file was enough to make it wrong — every string of the new
+ * catalogue counted as unrouted English, which is the opposite of true. That
+ * is the eighth time in this repository a hand-maintained list has drifted
+ * from a derivable one, and the fix is the same one every time.
+ *
+ * Everything under `js/locale/` is a catalogue by virtue of living there.
+ * `js/core/locale.js` is the machinery that reads them and is named because it
+ * is the one file that carries catalogue-shaped English without being a
+ * catalogue.
+ */
+export function notCounted(rel) {
+  return rel.startsWith('js/locale/') || rel === 'js/core/locale.js';
+}
 
 /** A literal that is plainly machinery rather than something a person reads. */
 function machinery(text) {
@@ -176,7 +189,7 @@ export function survey({ root = ROOT } = {}) {
 
   for (const full of files) {
     const rel = relative(root, full).split('\\').join('/');
-    if (NOT_COUNTED.has(rel)) continue;
+    if (notCounted(rel)) continue;
     const found = findIn(readFileSync(full, 'utf8'));
     if (!found.length) continue;
     byFile[rel] = found;

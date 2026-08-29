@@ -75,6 +75,10 @@ export function measure() {
     unroutedFiles: Object.keys(strings.byFile).length,
     localeKeys: Object.keys(english).length,
     labelKeys: labelKeys().length,
+    // The scorecard's own row about documentation said "85 docs" while there
+    // were 142. A number a document states about itself, with nothing deriving
+    // it, is the fault this tool exists for — and it had one of its own.
+    docs: readdirSync(join(ROOT, 'docs')).filter((f) => f.endsWith('.md')).length,
   };
 }
 

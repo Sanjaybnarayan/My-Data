@@ -1,5 +1,14 @@
 /**
- * Settings: the PIN, the biometric, and unlocking with a Google account.
+ * Settings: the PIN, the biometric, unlocking with a Google account, and
+ * signing in with a one-time code.
+ *
+ * The last two are the same bargain wearing different clothes, and the card
+ * says so in both places: an escrow somewhere off this device is what lets a
+ * new phone in without the recovery phrase, and it is also what lets whoever
+ * holds that somewhere read the household's records. Google's version keeps it
+ * in the household's own Drive; the code version keeps it in the household's
+ * own Apps Script deployment. Neither is the recovery phrase, which is kept
+ * nowhere.
  */
 
 import { card, cardHeader, button, badge } from '../../ui/components/basics.js';
@@ -10,6 +19,11 @@ import { modal, confirm, prompt } from '../../ui/components/modal.js';
 import { platformAuthenticatorAvailable, enrolBiometric, biometricExplanation } from '../../auth/biometric.js';
 import { toast } from '../../ui/components/toast.js';
 import { userMessage } from '../../core/errors.js';
+import { CodeEscrow, CODE_METHOD } from '../../security/codeescrow.js';
+import { mintRawKey } from '../../security/escrow.js';
+import { addressLooksSendable } from '../../domain/otp.js';
+import { app } from '../../context.js';
+import { t } from '../../core/locale.js';
 
 /* -------------------------------------------------------------- security */
 
@@ -19,6 +33,20 @@ const METHOD_NAMES = {
   recovery: 'Recovery phrase',
   google: 'Google account',
 };
+
+/**
+ * The name of an unlock method, at render time.
+ *
+ * A function rather than a fifth entry above, because the entry would be a
+ * `t()` call evaluated once when this module is imported — correct today, and
+ * a trap the moment a second language can be chosen after boot. The four
+ * English literals above cannot follow a language change at all; this one can,
+ * and pinning it to import time would quietly give that up.
+ */
+function methodName(method) {
+  if (method === CODE_METHOD) return t('security.code.method');
+  return METHOD_NAMES[method] ?? method;
+}
 
 /**
  * Turning Continue with Google on and off after first run.
@@ -112,6 +140,110 @@ async function turnOff(db, repaint) {
   }
 }
 
+/**
+ * Signing in with a one-time code, on and off.
+ *
+ * Turning it on takes 32 fresh bytes, wraps this household’s data key under
+ * them, and sends both to the household’s own backend. Both, together, in one
+ * place — which is what makes a code sufficient on a device that has nothing,
+ * and equally what makes the backend able to decrypt. The paragraph below is
+ * the only warning a household gets before choosing, so it says the whole of
+ * it rather than the comfortable half.
+ */
+function codeUnlockRow(db, methods, repaint) {
+  const entry = methods.find((m) => m.method === CODE_METHOD);
+
+  return h('div', { class: 'stack stack--tight' }, [
+    h('p', { class: 'small muted' },
+      t(entry ? 'security.code.onBody' : 'security.code.offBody')),
+
+    h('div', { class: 'row' }, [
+      entry
+        ? button(t('security.code.turnOff'), {
+          variant: 'subtle',
+          onClick: () => codeOff(db, repaint),
+        })
+        : button(t('security.code.turnOn'), {
+          variant: 'subtle',
+          iconName: 'phone',
+          onClick: () => codeOn(db, repaint),
+        }),
+    ]),
+  ]);
+}
+
+async function codeOn(db, repaint) {
+  const actor = db.actor;
+  if (!actor?.personId) {
+    toast(t('security.code.noPerson'), { kind: 'error' });
+    return;
+  }
+
+  const address = await prompt({
+    title: t('security.code.whereTitle'),
+    label: t('security.code.whereLabel'),
+    confirmLabel: t('security.code.whereConfirm'),
+  });
+  if (!address) return;
+
+  const value = address.trim();
+  const channel = value.includes('@') ? 'email' : 'sms';
+  if (!addressLooksSendable(value, channel)) {
+    toast(t('signin.code.badAddress'), { kind: 'error' });
+    return;
+  }
+
+  const go = await confirm({
+    title: t('security.code.warnTitle'),
+    message: t('security.code.warnBody'),
+    confirmLabel: t('security.code.warnConfirm'),
+    danger: true,
+  });
+  if (!go) return;
+
+  try {
+    const escrow = new CodeEscrow({ transport: app().transport });
+    const rawKey = mintRawKey();
+    // Wrapped locally first. Publishing a key the keyring never accepted would
+    // leave the backend holding an escrow no device agrees with.
+    await db.keyring.addMethod(CODE_METHOD, { rawKey, label: value });
+    await escrow.put(rawKey, await db.keyring.wrappedFor(CODE_METHOD), {
+      personId: actor.personId,
+      name: actor.name ?? '',
+      email: channel === 'email' ? value : '',
+      phone: channel === 'sms' ? value : '',
+    });
+    toast(t('security.code.onToast'), { kind: 'success' });
+    await repaint();
+  } catch (err) {
+    // Rolled back, so a failed publish does not leave a wrapping this device
+    // lists as a way in that nothing on the other end will ever answer.
+    await db.keyring.removeMethod(CODE_METHOD).catch(() => {});
+    toast(userMessage(err), { kind: 'error' });
+  }
+}
+
+async function codeOff(db, repaint) {
+  const go = await confirm({
+    title: t('security.code.offTitle'),
+    message: t('security.code.offMessage'),
+    confirmLabel: t('security.code.offConfirm'),
+  });
+  if (!go) return;
+
+  try {
+    // The backend first. Removing it locally and failing here would leave the
+    // key sitting in the deployment, which is the exact thing being undone.
+    await new CodeEscrow({ transport: app().transport }).drop(db.actor?.personId ?? '');
+    await db.keyring.removeMethod(CODE_METHOD);
+  } catch (err) {
+    toast(userMessage(err), { kind: 'error' });
+    return;
+  }
+  toast(t('security.code.offToast'), { kind: 'success' });
+  await repaint();
+}
+
 export function securityCard(db, methods = [], repaint = () => {}) {
   return card({}, [
     cardHeader('Security', null, { iconName: 'lock' }),
@@ -129,7 +261,7 @@ export function securityCard(db, methods = [], repaint = () => {}) {
         h('p', { class: 'small' }, 'This device unlocks with:'),
         h('div', { class: 'row' }, methods.length
           ? methods.map((m) => badge(
-            METHOD_NAMES[m.method] ?? m.method, m.method === 'recovery' ? 'positive' : 'accent',
+            methodName(m.method), m.method === 'recovery' ? 'positive' : 'accent',
           ))
           : badge('nothing yet', 'danger')),
         methods.some((m) => m.method === 'recovery')
@@ -140,6 +272,10 @@ export function securityCard(db, methods = [], repaint = () => {}) {
       ]),
 
       googleUnlockAvailable() ? googleUnlockRow(db, methods, repaint) : null,
+
+      // Only where there is a backend to hold the key. Without one the button
+      // could do nothing but fail.
+      app().transport?.configured ? codeUnlockRow(db, methods, repaint) : null,
 
       h('div', { class: 'row' }, [
         button('Change PIN', {

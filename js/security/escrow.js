@@ -65,6 +65,28 @@ const HIDDEN_NAME = 'familyos.keywrap.json';
 const VISIBLE_NAME = 'FamilyOS unlock key.json';
 
 /**
+ * 32 fresh bytes for an escrow to hold. Not stored — `put` does that, with the
+ * wrapping they open.
+ *
+ * Generated rather than derived from anything about the account: an account
+ * identifier is not a secret, and a key derived from one would be reproducible
+ * by anybody who knew the email address.
+ *
+ * Minting and storing used to be one call, which is how a second device came
+ * to destroy the first one's key: a device with no keyring takes the enrolment
+ * path, enrolment minted, and minting wrote straight over the file every other
+ * device depended on. Splitting them makes the read that has to come first
+ * impossible to skip — see `unlockFreshDevice`.
+ *
+ * A free function rather than a static on `DriveEscrow`, because Drive is one
+ * of two places an escrow can now live and neither owns the random number
+ * generator.
+ */
+export function mintRawKey() {
+  return randomBytes(32);
+}
+
+/**
  * A key-encryption key kept in the household's own Drive.
  *
  * The 32 bytes here are not the data key. They are a key that *unwraps* the
@@ -112,23 +134,6 @@ export class DriveEscrow {
 
   get configured() {
     return Boolean(this.#fetch && this.#getToken);
-  }
-
-  /**
-   * 32 fresh bytes. Not stored — `put` does that, with the wrapping they open.
-   *
-   * Generated rather than derived from anything about the account: an account
-   * identifier is not a secret, and a key derived from one would be
-   * reproducible by anybody who knew the email address.
-   *
-   * Minting and storing used to be one call, which is how a second device
-   * came to destroy the first one's key: a device with no keyring takes the
-   * enrolment path, enrolment minted, and minting wrote straight over the file
-   * every other device depended on. Splitting them makes the read that has to
-   * come first impossible to skip — see `unlockFreshDevice`.
-   */
-  static mintRawKey() {
-    return randomBytes(32);
   }
 
   /**
