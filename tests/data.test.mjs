@@ -325,6 +325,115 @@ describe('migrations', () => {
   });
 });
 
+describe('search answers to whoever is asking', () => {
+  /*
+   * `searchIndex` reads the `search` store through the adapter — the one read
+   * path that does not go through `Repository`, and therefore the one that
+   * never met `rowFilter`. Measured before the fix, on a single device with
+   * one actor swapped:
+   *
+   *     child repo('healthRecord').list()  →  0 rows
+   *     child db.search('psychiatry')      →  1 hit, with the title
+   *
+   * The index denormalises `title` and `subtitle`, so a hit leaks what the
+   * field says and not merely that a record exists. `js/security/rbac.js`
+   * names the case in its own header: "a shared family device does not expose
+   * one sibling's records to another."
+   */
+  async function household() {
+    const db = await makeDb({ role: 'owner', personId: 'p-owner' });
+    await makePerson(db, { id: 'p-owner', name: 'Owner' });
+    await makePerson(db, { id: 'p-kid', name: 'Kid' });
+    const theirs = await db.repo('healthRecord').create({
+      title: 'Psychiatry referral letter', kind: 'therapy', person: 'p-owner', date: '2026-01-01',
+    });
+    const mine = await db.repo('healthRecord').create({
+      title: 'Psychiatry follow-up for the child', kind: 'therapy', person: 'p-kid', date: '2026-02-01',
+    });
+    return { db, theirs, mine };
+  }
+
+  test('a child is not handed the title of somebody else\'s health record', async () => {
+    const { db, theirs } = await household();
+    db.setActor({ personId: 'p-kid', role: 'child' });
+
+    assert.length(await db.repo('healthRecord').list(), 1, 'the read path is the control');
+    const hits = await db.search('psychiatry');
+    assert.not(hits.some((h) => h.recordId === theirs.id),
+      'search returned a record the same actor is refused when they ask for it');
+  });
+
+  test('and still finds their own', async () => {
+    // The other direction. A filter that returned nothing would pass the test
+    // above and make the box useless to the person it protects.
+    const { db, mine } = await household();
+    db.setActor({ personId: 'p-kid', role: 'child' });
+    const hits = await db.search('psychiatry');
+    assert.length(hits, 1);
+    assert.equal(hits[0].recordId, mine.id);
+  });
+
+  test('an owner sees both, because an owner may read both', async () => {
+    const { db } = await household();
+    assert.length(await db.search('psychiatry'), 2);
+  });
+
+  test('a guest sees neither', async () => {
+    const { db } = await household();
+    db.setActor({ personId: '', role: 'guest' });
+    assert.length(await db.search('psychiatry'), 0);
+  });
+
+  test('somebody else\'s records cannot crowd theirs out of the results', async () => {
+    /*
+     * The reason the index is over-fetched and trimmed rather than filtered
+     * after the caller's limit. `searchIndex` ranks over every record on the
+     * device, and on a shared one most of them belong to somebody else — so a
+     * limit applied before the filter lets twelve of theirs fill every slot
+     * and leaves the person searching for their own with nothing.
+     *
+     * The child's title has "psychiatry" in the middle rather than at the
+     * start, which `score` rates 30 against 60 — so it ranks below all twelve
+     * and a limit of three applied before the filter drops it.
+     *
+     * The first version of this made the child's record *first* and called it
+     * the oldest. Every record here is created within the same millisecond, so
+     * the recency term was identical for all thirteen and the mutation
+     * survived: a fixture that did not exercise the thing it named.
+     */
+    const db = await makeDb({ role: 'owner', personId: 'p-owner' });
+    await makePerson(db, { id: 'p-owner', name: 'Owner' });
+    await makePerson(db, { id: 'p-kid', name: 'Kid' });
+
+    const mine = await db.repo('healthRecord').create({
+      title: 'Follow-up psychiatry for the child', kind: 'therapy', person: 'p-kid', date: '2026-01-01',
+    });
+    for (let i = 0; i < 12; i += 1) {
+      await db.repo('healthRecord').create({
+        title: `Psychiatry note ${i}`, kind: 'therapy', person: 'p-owner', date: '2026-02-01',
+      });
+    }
+
+    db.setActor({ personId: 'p-kid', role: 'child' });
+    const hits = await db.search('psychiatry', { limit: 3 });
+    assert.length(hits, 1, 'the child lost their own record to twelve of somebody else\'s');
+    assert.equal(hits[0].recordId, mine.id);
+  });
+
+  test('the filter is the repository\'s, not a second copy of it', async () => {
+    /*
+     * An unbound account — no personId — is refused by `rowFilter` since the
+     * own-record guard landed. Search has to agree with that without knowing
+     * about it, which is the whole reason it calls `rowFilter` rather than
+     * restating the rule.
+     */
+    const { db } = await household();
+    db.setActor({ personId: '', role: 'child' });
+    assert.length(await db.repo('healthRecord').list(), 0);
+    assert.length(await db.search('psychiatry'), 0);
+  });
+});
+
 describe('search index', () => {
   test('tokenizing keeps digits attached to letters', () => {
     assert.deep(tokenize('KA01AB1234 renewal'), ['ka01ab1234', 'renewal']);
