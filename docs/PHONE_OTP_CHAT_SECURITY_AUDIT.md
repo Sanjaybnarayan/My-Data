@@ -275,13 +275,41 @@ correctly — ciphertext is non-empty, and an absent number is never sealed. Tha
 holds by arithmetic rather than by design, and is recorded here because the next
 person to touch `reachability` should know it is standing on that.
 
-### ID-01 · LOW · ids leak creation time
+### ID-01 · LOW · ids leak creation time · **accepted**
 
 ULIDs are timestamp-prefixed. A `person` id discloses when the record was
 created. The randomness is 80 CSPRNG bits, so ids are not guessable, and the
 brief's actual prohibitions (phone, email, sequential) are all met. Recorded
 because §4 says "no timestamp-based predictable IDs" and half of that sentence
 applies.
+
+**Accepted**, for a reason that had to be corrected before it could be written
+down.
+
+The first draft of this disposition was going to say the timestamp is the price
+of sortability, and that the sortability is load-bearing — `js/core/ids.js`
+opened by saying exactly that:
+
+> *"Record ids are lexicographically sortable by creation time, which is what
+> lets IndexedDB range-scan 'newest first' off the primary key with no
+> secondary index, and lets the sync engine order two writes that share a
+> millisecond."*
+
+Checking it rather than repeating it: **neither half is true of this
+codebase.** The application has exactly two directional queries and both go
+through an index — `byAt` in `data/audit.js`, `bySeq` in `data/database.js`.
+`sync/drive.js` orders by `createdAt`. `idTime`, the function that reads the
+timestamp back out, has no caller outside its own test.
+
+So the cost is real and the benefit it was justified by is not being taken.
+That still does not make changing it right: ids already minted cannot be
+changed, so a new scheme would leak the old dates anyway while churning every
+part of the application that mints or stores an identifier — for a LOW finding
+about a creation date. **Accepted on that basis**, and `js/core/ids.js` now
+says which of its properties are relied on and which merely happen to be true.
+
+Tenth instance of a claim with nothing checking it, and the one that came
+closest to being repeated in this document rather than caught by it.
 
 ### PLAY-01 · INFORMATIONAL · account deletion needs a human decision
 
@@ -371,6 +399,7 @@ Following the brief's phase structure, restricted to what exists here:
 | 8 | Chat authorisation | CHAT-01 **done**, CHAT-02 **done** — and the blocker was a defect: nobody had a server-side `personId` at all |
 | 9 | Privacy / minimisation | **PRIV-01** — needs a rule for phone numbers, not a patch to one field |
 | 10 | Play compliance | **PLAY-01** — needs a human decision |
+| — | ID-01 | **Accepted**, with the reason corrected — see above |
 
 **CHAT-01 and CHAT-02 are both done**, and they do different halves of one job.
 CHAT-01 makes a forged attribution **visible** on any device that opens the
