@@ -14,6 +14,7 @@ import { entities, entity, referenceFields, referencedIds,
 import { searchIndex, indexEntry } from './search.js';
 import { Chain, verify as verifyChain } from './chain.js';
 import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
+import { danglingIn } from './integrity.js';
 import { Keyring } from '../security/keyring.js';
 import { deviceId as resolveDeviceId } from '../core/ids.js';
 import { memoryStorage } from '../security/session.js';
@@ -284,25 +285,42 @@ export class Database {
   /**
    * References that point at nothing. Surfaced in Settings → Data health
    * rather than fixed silently, because the right repair is a judgement call.
+   *
+   * ## Why this delegates rather than walks
+   *
+   * It used to be its own walk, and it **disagreed with the write path about
+   * what "exists" means.**
+   *
+   *     the write path   Boolean(row) && !row.deletedAt   a deleted row is gone
+   *     this walk        Boolean(row)                     a deleted row is here
+   *
+   * A deletion in this application is a *marker that replicates* — Settings
+   * says so on the same screen as this button. So the case is not exotic: a
+   * person deleted on another device arrives here as a soft-deleted row, and
+   * every document filed under them now points at something the write path
+   * would refuse. Measured, exactly that:
+   *
+   *     the button on Settings reports : 0 broken references
+   *     the write path would refuse it : true
+   *
+   * The household was told *"Every reference points at a record that exists"*
+   * about a document whose owner had been deleted — a false reassurance on
+   * precisely the scenario this audit exists for, since local writes are
+   * checked and sync is not.
+   *
+   * `integrity.js#danglingIn` is the audit half of the same module the write
+   * path uses, and it was written for this and had **no caller**. Delegating
+   * to it with the write path's own predicate leaves one definition of a
+   * broken reference instead of two.
    */
   async danglingReferences() {
-    const broken = [];
-    for (const def of Object.values(entities)) {
-      const refFields = referenceFields(def.name);
-      if (!refFields.length) continue;
-      const rows = await this.adapter.query(def.name, { filter: (r) => !r.deletedAt });
-      for (const row of rows) {
-        for (const f of refFields) {
-          for (const target of referencedIds(row, f)) {
-            const exists = await this.adapter.read(f.ref, target);
-            if (!exists) {
-              broken.push({ entity: def.name, id: row.id, field: f.key, missing: target });
-            }
-          }
-        }
-      }
-    }
-    return broken;
+    return danglingIn(
+      (entityName) => this.adapter.query(entityName, {}),
+      async (entityName, id) => {
+        const row = await this.adapter.read(entityName, id);
+        return Boolean(row) && !row.deletedAt;
+      },
+    );
   }
 
   /* ----------------------------------------------------------------- audit */

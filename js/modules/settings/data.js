@@ -52,9 +52,13 @@ export function dataCard(db, stats, usage) {
           modal({
             title: broken.length ? `${broken.length} broken references` : 'No broken references',
             body: broken.length
+              // `label` is the field's own name — "Filed under" rather than
+              // `person` — and `points` names what it cannot find. Both come
+              // from the same audit the write path refuses a record by, so a
+              // row listed here is a row a write would reject.
               ? h('div', { class: 'list' }, broken.slice(0, 100).map((row) => listItem({
-                title: `${entity(row.entity).labels.one} · ${row.field}`,
-                subtitle: `points at ${row.missing}, which no longer exists`,
+                title: `${entity(row.entity).labels.one} · ${row.label}`,
+                subtitle: `points at ${row.points.id}, which is deleted or missing`,
               })))
               : h('p', {}, 'Every reference points at a record that exists.'),
           });
