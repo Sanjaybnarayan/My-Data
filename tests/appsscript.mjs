@@ -19,6 +19,7 @@
  * convenient than the real thing tests something that was never deployed.
  */
 
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -123,7 +124,24 @@ export function backend({
 
     Utilities: {
       base64EncodeWebSafe: (bytes) => Buffer.from(bytes).toString('base64url'),
-      computeDigest: (_algorithm, value) => Buffer.from(String(value)),
+
+      /*
+       * A real SHA-256, because the stub it replaced returned the input
+       * verbatim — an identity function wearing a hash's name.
+       *
+       * That mattered. `otpKey` hashes an address to build a cache key, so
+       * the address cannot be read back out of one; under the old stub the
+       * key was base64 of the address and reversed in a line. A test of that
+       * property would have failed against correct code, and the tempting fix
+       * would have been to weaken the test to match the stub — which is the
+       * shape of mistake the note at the top of this file exists to prevent.
+       *
+       * Apps Script hands back signed bytes and Node unsigned ones. Nothing
+       * here does arithmetic on the digest — it goes straight to base64, and
+       * `Buffer.from` wraps either the same way — so the difference is stated
+       * rather than simulated.
+       */
+      computeDigest: (_algorithm, value) => createHash('sha256').update(String(value)).digest(),
       DigestAlgorithm: { SHA_256: 'SHA_256' },
       formatDate: (date) => date.toISOString().slice(0, 10),
 
