@@ -634,7 +634,7 @@ function truncates(flatShort, longWords) {
 
 /* -------------------------------------------------------------- summaries */
 
-const total = (list) => list.reduce((sum, t) => sum + t.amount, 0);
+const total = (list) => list.reduce((sum, t) => sum + (Number.isFinite(t.amount) ? t.amount : 0), 0);
 
 /**
  * Everything a report needs, computed once.
