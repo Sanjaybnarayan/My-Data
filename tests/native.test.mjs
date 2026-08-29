@@ -540,6 +540,51 @@ describe('every plugin the app calls is wired into both platforms', () => {
     }
   });
 
+  test('the name Java answers to is the name the JavaScript asks for', async () => {
+    // The gap the checks around this one leave. Registration is asserted by
+    // *class* — `registerPlugin(SmsInboxPlugin.class)` — and Capacitor
+    // resolves a plugin by its `@CapacitorPlugin(name = ...)` **annotation**,
+    // which is a different string in a different file.
+    //
+    // So renaming the annotation to `SMSInbox` passes every other test here:
+    // the class is still registered, the JavaScript still asks for
+    // `SmsInbox`, and nothing compares the two. At run time
+    // `isPluginAvailable` returns false, `core/native.js` hands back null, and
+    // `core/smsinbox.js` reports the platform as unsupported — a rename
+    // reading as a platform limit, on the three plugins Phases 6 and 23 rest
+    // on.
+    const dir = join(ROOT, 'android/app/src/main/java/com/familyos/app');
+    const declared = new Set();
+    for (const entry of await readdir(dir)) {
+      if (!entry.endsWith('.java')) continue;
+      const java = await readFile(join(dir, entry), 'utf8');
+      for (const [, name] of java.matchAll(/@CapacitorPlugin\s*\(\s*name\s*=\s*"([^"]+)"/g)) {
+        declared.add(name);
+      }
+    }
+
+    for (const name of FIRST_PARTY) {
+      assert.ok(declared.has(name),
+        `the app calls plugin('${name}') and no Java class answers to that name; `
+        + `Android declares ${[...declared].sort().join(', ') || 'nothing'}`);
+    }
+  });
+
+  test('and Java answers to nothing the application never asks for', async () => {
+    // The other direction. A plugin declared and never called is dead native
+    // code carrying a permission — the shape this repository has found more
+    // often than any other, and worth catching in Java too.
+    const dir = join(ROOT, 'android/app/src/main/java/com/familyos/app');
+    const called = await pluginsCalled();
+    for (const entry of await readdir(dir)) {
+      if (!entry.endsWith('.java')) continue;
+      const java = await readFile(join(dir, entry), 'utf8');
+      for (const [, name] of java.matchAll(/@CapacitorPlugin\s*\(\s*name\s*=\s*"([^"]+)"/g)) {
+        assert.ok(called.has(name), `${entry} declares ${name}, which nothing in js/ calls`);
+      }
+    }
+  });
+
   test('and iOS is expected to have none of them', async () => {
     // Stated rather than skipped. A reader who finds SmsInbox missing from
     // the iOS project should find out here that it is a platform limit, not
