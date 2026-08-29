@@ -11,43 +11,59 @@
 
 `node tools/compliance.mjs` reads `js/domain/compliance.js` and reports:
 
+<!--counts:begin-->
+
 ```
 19 regimes · 68 controls
-41 TESTED · 8 NOT_APPLICABLE · 7 IMPLEMENTED · 7 NOT_STARTED
- 4 DESIGNED · 1 LEGAL_REVIEW_REQUIRED · 0 VERIFIED
+TESTED 45 · IMPLEMENTED 9 · DESIGNED 5 · NOT_APPLICABLE 8 · LEGAL_REVIEW_REQUIRED 1
+0 NOT_STARTED · 0 VERIFIED
 ```
 
-Two properties make the table worth reading:
+## Per regime
+
+| Regime | Controls | Status breakdown |
+| --- | --- | --- |
+| Digital Personal Data Protection Act, 2023 | 6 | TESTED 2 · IMPLEMENTED 2 · DESIGNED 2 |
+| Information Technology Act, 2000 and the SPDI Rules, 2011 | 4 | TESTED 3 · NOT_APPLICABLE 1 |
+| CERT-In Directions, 2022 | 3 | NOT_APPLICABLE 3 |
+| Aadhaar Act and UIDAI regulations | 5 | TESTED 5 |
+| CKYCRR and the CKYC 2.0 framework | 3 | TESTED 3 |
+| RBI directions on customer data and Account Aggregators | 3 | TESTED 3 |
+| Prevention of Money Laundering Act and Rules | 2 | NOT_APPLICABLE 2 |
+| Ayushman Bharat Digital Mission | 3 | TESTED 3 |
+| SEBI regulations on investment records and advice | 3 | TESTED 3 |
+| Income Tax Act and GST, as they touch record keeping | 4 | TESTED 2 · IMPLEMENTED 1 · DESIGNED 1 |
+| Motor Vehicles Act, as it touches vehicle records | 3 | TESTED 3 |
+| Property and tenancy law, as it touches records | 5 | TESTED 4 · IMPLEMENTED 1 |
+| Household staff: wages, hours and record keeping | 4 | TESTED 2 · IMPLEMENTED 2 |
+| Electronic records: retention, integrity and admissibility | 4 | TESTED 4 |
+| Electronic signatures | 2 | TESTED 2 |
+| ISO/IEC 27001 information security management | 5 | TESTED 3 · DESIGNED 1 · NOT_APPLICABLE 1 |
+| ISO/IEC 27701 privacy information management | 3 | TESTED 1 · IMPLEMENTED 1 · DESIGNED 1 |
+| SOC 2 trust services criteria | 3 | TESTED 2 · NOT_APPLICABLE 1 |
+| GDPR, UK GDPR and US state privacy law | 3 | IMPLEMENTED 2 · LEGAL_REVIEW_REQUIRED 1 |
+
+<!--counts:end-->
+
+**The block above is generated, and it did not used to be.** These numbers were
+hand-typed, and an audit found seven of the nineteen rows stale — every one
+understating what had been built, including seven controls this document called
+NOT_STARTED that were finished. A hand-maintained count beside a derivable one
+is the fault this repository has found more often than any other, and it had
+reached the document that summarises the checks against it.
+`node tools/compliance.mjs` now fails when the two disagree, and `--update`
+rewrites the block. See `docs/A_COUNT_THAT_STOPPED_COUNTING.md`.
+
+Three properties make the table worth reading:
 
 1. **Nothing claims VERIFIED**, and the number 0 is a ratchet.
 2. **A control may cite only a test the runner actually executes.** Citing a
    real file that `tests/run.mjs` never runs is refused — `tests/fixture.mjs`
    was used to demonstrate that the check can fail. The existence check is also
    real: renaming `tests/security.test.mjs` fails three controls immediately.
-
-## Per regime
-
-| Regime | Controls | Status breakdown |
-| --- | --- | --- |
-| DPDP | 6 | TESTED 2 · IMPLEMENTED 1 · DESIGNED 1 · NOT_STARTED 2 |
-| IT Act | 4 | TESTED 3 · NOT_APPLICABLE 1 |
-| CERT-In | 3 | NOT_APPLICABLE 3 |
-| UIDAI | 5 | TESTED 4 · IMPLEMENTED 1 |
-| CKYC 2.0 | 3 | TESTED 3 |
-| RBI | 3 | TESTED 3 |
-| PMLA | 2 | NOT_APPLICABLE 2 |
-| ABDM | 3 | TESTED 3 |
-| SEBI | 3 | TESTED 3 |
-| Income Tax / GST | 4 | TESTED 2 · IMPLEMENTED 1 · DESIGNED 1 |
-| Motor Vehicles | 3 | TESTED 3 |
-| Property | 5 | TESTED 3 · IMPLEMENTED 1 · NOT_STARTED 1 |
-| Staff | 4 | TESTED 2 · NOT_STARTED 2 |
-| Electronic Records | 4 | TESTED 3 · NOT_STARTED 1 |
-| Electronic Signatures | 2 | TESTED 2 |
-| ISO 27001 | 5 | TESTED 3 · DESIGNED 1 · NOT_APPLICABLE 1 |
-| ISO 27701 | 3 | TESTED 1 · IMPLEMENTED 1 · DESIGNED 1 |
-| SOC 2 | 3 | TESTED 1 · NOT_STARTED 1 · NOT_APPLICABLE 1 |
-| International privacy (GDPR / UK GDPR / US) | 3 | IMPLEMENTED 2 · LEGAL_REVIEW_REQUIRED 1 |
+3. **The numbers are the register's own.** They are read from
+   `js/domain/compliance.js` at check time, so a control that moves shows up
+   here or the build fails.
 
 Each regime has a document under `docs/COMPLIANCE/`, and
 `js/domain/compliance.js` records **why the regime is or is not applicable**

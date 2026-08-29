@@ -3,7 +3,9 @@ import {
   REGIMES, STATUS, APPLIES, EVIDENCED, unevidenced, claimingVerified, summary, citingUnrunTests,
   unexplained, MEANINGFUL_GAP,
 } from '../js/domain/compliance.js';
-import { check } from '../tools/compliance.mjs';
+import {
+  check, readinessBlock, withBlock, readinessProblems,
+} from '../tools/compliance.mjs';
 
 setSuite('compliance');
 
@@ -245,6 +247,67 @@ describe('a control held below TESTED has to say why', () => {
       id: 'MADE_UP',
       controls: [{ id: 'done', status: STATUS.TESTED, gap: null }],
     }]), []);
+  });
+
+  test('the readiness document carries the register\'s own numbers', () => {
+    // The check that would have caught the drift: seven of nineteen rows in
+    // `docs/COMPLIANCE_READINESS.md` had gone stale, every one understating
+    // what was built, and nothing read them. `check()` now compares.
+    const { problems } = check();
+    assert.deep(problems.filter((p) => p.includes('COMPLIANCE_READINESS')), []);
+  });
+
+  test('and a number that has drifted is caught', () => {
+    // Both halves of the block, because they drift independently: the summary
+    // moved when seven NOT_STARTED controls were finished, and the per-regime
+    // rows moved with them.
+    // Only a name and statuses: that is what `readinessBlock` reads, and its
+    // type says so. A fixture carrying a requirement and an evidence object it
+    // never looks at would be pretending the contract is wider than it is.
+    const block = readinessBlock([{
+      name: 'A regime',
+      controls: [{ status: STATUS.TESTED }, { status: STATUS.NOT_STARTED }],
+    }]);
+    assert.includes(block, 'TESTED 1');
+    assert.includes(block, '1 NOT_STARTED · 0 VERIFIED');
+    assert.includes(block, '| A regime | 2 |');
+  });
+
+  test('a zero for VERIFIED and NOT_STARTED is printed, not omitted', () => {
+    // The two zeroes are the claims worth making. Every other status is left
+    // out when empty rather than padding the line with noughts — but these two
+    // disappearing would read as the statuses no longer being tracked.
+    const block = readinessBlock([{
+      name: 'A regime', controls: [{ status: STATUS.TESTED }],
+    }]);
+    assert.includes(block, '0 NOT_STARTED · 0 VERIFIED');
+    assert.not(block.includes('DESIGNED'));
+  });
+
+  test('and the comparison itself is shown to fail on a drifted document', () => {
+    // The test the first version did not have. Asserting that `check()` finds
+    // no problem proves nothing about whether it could: disabling the
+    // comparison outright left every test green, because the real document was
+    // in sync. So the comparison is handed a document that is not.
+    const block = '<!--counts:begin-->\nTESTED 45\n<!--counts:end-->';
+    const drifted = `# Readiness\n\n<!--counts:begin-->\nTESTED 41\n<!--counts:end-->\n`;
+
+    assert.deep(readinessProblems(drifted.replace('TESTED 41', 'TESTED 45'), block), []);
+
+    const [only] = readinessProblems(drifted, block);
+    assert.ok(only, 'a document four controls out of date raised nothing');
+    assert.includes(only, 'disagrees with the register');
+  });
+
+  test('and a missing document is a problem, not a pass', () => {
+    // The other way a comparison quietly stops happening: nothing to compare.
+    assert.includes(readinessProblems(null, 'x')[0], 'is missing');
+  });
+
+  test('a document with no markers is a document that cannot be checked', () => {
+    // Not silently skipped. A generated block somebody deleted leaves the
+    // numbers hand-typed again, which is the state this check exists to end.
+    assert.equal(withBlock('# A document with no markers\n', 'x'), null);
   });
 
   test('the two refusals are TESTED now, and by a suite that reads what ships',
