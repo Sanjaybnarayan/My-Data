@@ -33,6 +33,24 @@ import { startOfFinancialYear, endOfFinancialYear, today } from '../core/dates.j
 
 export class PortfolioService extends Service {
   /**
+   * What an import needs to plan against: the holdings a symbol could match,
+   * and the trades already recorded.
+   *
+   * Here rather than in the screen because `docs/FAMILY_OS_MASTER_ARCHITECTURE.md`
+   * holds the UI→repository edge to a budget that may only narrow, and the
+   * import screen would otherwise have added two more crossings of it.
+   *
+   * `decrypt: false` on both: `planTrades` compares symbols, dates and
+   * amounts, and none of those is a sealed field.
+   */
+  async forImport() {
+    return this.load({
+      holdings: ['holding', { decrypt: false, limit: 2000 }],
+      existing: ['investmentTransaction', { decrypt: false, limit: 20_000 }],
+    });
+  }
+
+  /**
    * Everything the portfolio screen shows, as plain data.
    *
    * @param {{asOf?: string}} [options]

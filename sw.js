@@ -50,6 +50,7 @@ const SHELL = [
   './js/core/ids.js',
   './js/core/money.js',
   './js/locale/en-signin.js',
+  './js/locale/en-tradebook.js',
   './js/locale/en.js',
   './js/core/native.js',
   './js/core/backgroundlocation.js',
@@ -161,6 +162,7 @@ const SHELL = [
   './js/domain/staffpay.js',
   './js/domain/statement.js',
   './js/domain/tabular.js',
+  './js/domain/tradebook.js',
   './js/domain/timeline.js',
   './js/domain/geo.js',
   './js/domain/safety.js',
@@ -252,6 +254,7 @@ const SHELL = [
   './js/services/vehicles.js',
   './js/modules/statements.js',
   './js/modules/timeline.js',
+  './js/modules/tradeimport.js',
   './js/modules/transactions.js',
 
   './js/ai/assistant.js',

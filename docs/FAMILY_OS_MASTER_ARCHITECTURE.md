@@ -82,6 +82,7 @@ The service layer exists and is adopted in part:
 | The Google refresh token is sealed, not merely said to be | **exists** | `wired:js/auth/googlenative.js#REFRESH_AAD` |
 | A message may only be sent as the person the account belongs to | **exists** | `wired:apps-script/Sheets.gs#impersonation` |
 | Which person each account is, kept rather than dropped | **exists** | `wired:apps-script/Code.gs#ownerPersonId` |
+| A tradebook can be imported as a file | **exists** | `wired:js/modules/investments.js#tradeimport` |
 | MFA | missing | `absent:grep:multi-factor` |
 | Session security | **exists** | `export:js/security/session.js#Session` |
 | Session revocation, device management | **exists** | `export:apps-script/Code.gs#manageDevices` |
