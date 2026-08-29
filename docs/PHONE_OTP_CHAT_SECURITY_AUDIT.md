@@ -124,7 +124,7 @@ level, and were before this audit.
 | **Attack scenario** | Any household member — or anyone with a member's Google session — pushes a `message` row naming somebody else as sender. The recipient's screen attributes it to that person. |
 | **Why it is fixable now** | `deviceKey` already maps `publicKey → person` (`js/data/schema.js`, `indexes: [['byPerson','person'],['byDevice','deviceId']]`). The comparison needs no new data. |
 | **Backend required** | No — client-side at open time. CHAT-02 is the server half. |
-| **Status** | **Not fixed.** Reported here first, per the brief's instruction to inspect before changing. |
+| **Status** | **Fixed.** `js/domain/attribution.js` compares them; `ChatService.read` asks on every message that opens; the bubble says so when they disagree. 8 of 8 mutations caught. |
 
 This is the repository's own recurring shape: a value present, a second value
 that could check it, and nothing joining them.
@@ -136,12 +136,35 @@ that could check it, and nothing joining them.
 | **File** | `apps-script/Policy.gs`, `apps-script/Sheets.gs:132` |
 | **Vulnerability** | `admit()` resolves an authoritative `personId` from the owner-controlled member list and `dispatch` passes it in `context`. The push path checks only `policyAllows(role, 'write', 'message')`, which is true for every role. `message` is not in `OWN_RECORD`, and `ownRecordAllows` is only ever a *widening* — never a refusal. So `payload.sender` is never compared to `context.personId`. |
 | **Impact** | The brief's §26 — "server determines sender_user_id" — is not met. |
-| **Backend required** | **Yes.** `apps-script/` is source somebody pastes into script.google.com; a fix here does nothing until redeployed. |
-| **Status** | **Not fixed.** |
+| **Backend required** | **Yes**, and more than a comparison — see below. |
+| **Status** | **Not fixed, and blocked.** |
 
 Honest severity note: every household member already shares one data key and
 can read every message. This is an **integrity** defect, not a confidentiality
 escalation. Calling it CRITICAL would overstate it.
+
+#### The correction: this is not the two-line fix this entry first implied
+
+The first version of this audit said the server "has the sender's identity and
+does not use it", and implied a comparison of `payload.sender` against
+`context.personId`. Measuring it before writing it showed that is wrong.
+
+`admit()` returns **`personId: ''` for the owner** (`apps-script/Code.gs:492`),
+and the legacy string-only member format returns `''` too (line 413). The
+server does not know which *person* the owner is — only that they are the
+owner. So the obvious rule would reject every message the household's owner
+ever sends, and every message from a member added before the list carried
+person ids.
+
+It also runs against the grain of the push path, whose own comment reads
+*"Only ever a widening: nothing here can refuse what the policy allowed."*
+A narrowing rule there is a new kind of rule, not a new instance of an
+existing one.
+
+**Prerequisite:** the owner needs a server-side `personId`, which means
+deciding how the owner is bound to a person record and what happens to a
+deployment where that binding does not exist yet. That is an identity-model
+change, so it is named here and not attempted.
 
 ### TOK-01 · HIGH (currently unreachable) · refresh token stored in plaintext
 
@@ -218,7 +241,7 @@ Measured, not assumed.
 | --- | --- | --- | --- | --- |
 | SIM swap | Low | **High, and new** | Only where sign-in by code is on; owner-only, off by default | **Accepted, deliberately** — see `docs/SIGN_IN_BY_CODE.md` |
 | Apps Script project compromise | Low | **Total, where the escrow is on** | Owner's Google account security | **Accepted, deliberately** |
-| Chat impersonation | Medium | Medium | None today | **CHAT-01 / CHAT-02** |
+| Chat impersonation | Medium | Medium | Detected and shown on the message (CHAT-01) | Detection, not prevention — the row can still be written. **CHAT-02** |
 | Refresh-token theft from device | Low | High | Dormant code path | **TOK-01** |
 | Reverse-engineered APK | Certain | Low | No secrets in the APK | Accepted — the client is presentation |
 | OTP brute force | Low | Low | 5 attempts, then destroyed | Mitigated |
@@ -259,13 +282,17 @@ Following the brief's phase structure, restricted to what exists here:
 | 5 | Android secure storage | **TOK-01** |
 | 6 | Network security | Already met |
 | 7 | Chat identity separation | Already met — chat uses person ids, not phone numbers |
-| 8 | Chat authorisation | **CHAT-01, CHAT-02** |
+| 8 | Chat authorisation | CHAT-01 **done**; **CHAT-02 blocked** on the owner having a server-side `personId` |
 | 9 | Privacy / minimisation | **PRIV-01** |
 | 10 | Play compliance | **PLAY-01** — needs a human decision |
 
-**Recommended first: CHAT-01.** It is the highest severity that can be fixed
-entirely in this repository, needs no redeployment, needs no new data, and is a
-defect of exactly the kind this codebase already has a name for.
+**CHAT-01 is done.** It was the highest severity fixable entirely in this
+repository — no redeployment, no new data — and it is a defect of exactly the
+kind this codebase already has a name for.
+
+What it is worth being exact about: CHAT-01 makes impersonation **visible**, not
+impossible. A rewritten row still reaches every device; each device now says so
+on the message. Prevention is CHAT-02, and CHAT-02 is blocked above.
 
 ---
 

@@ -108,6 +108,7 @@ const SHELL = [
 
   './js/domain/automation.js',
   './js/domain/wallet.js',
+  './js/domain/attribution.js',
   './js/domain/chatstate.js',
   './js/domain/otp.js',
   './js/domain/extract.js',

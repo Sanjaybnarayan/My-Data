@@ -29,6 +29,7 @@ import {
 import { AppError } from '../core/errors.js';
 import { newId } from '../core/ids.js';
 import { readFlags, setFlag } from '../domain/chatstate.js';
+import { attributionOf } from '../domain/attribution.js';
 
 const DEVICE_KEY = 'chat.deviceIdentity';
 const ESCROW_KEY = 'chat.escrowIdentity';
@@ -308,6 +309,10 @@ export class ChatService extends Service {
     const identity = await this.identity();
     const deviceId = this.db.deviceId;
     const rows = await this.repo('message').list({ limit: 1000 });
+    // Loaded once for the whole conversation rather than per message. Every
+    // row, including revoked and deleted ones — `attributionOf` explains why a
+    // retired phone must still be able to account for what it sent.
+    const devices = await this.repo('deviceKey').list({ limit: 500 });
 
     const mine = rows
       .filter((r) => r.conversation === conversationId && !r.deletedAt)
@@ -315,36 +320,57 @@ export class ChatService extends Service {
 
     const out = [];
     for (const row of mine) {
-      out.push(await this.#openRow(row, identity, deviceId, escrow));
+      out.push(await this.#openRow(row, identity, deviceId, escrow, devices));
     }
     return out;
   }
 
-  async #openRow(row, identity, deviceId, escrow) {
+  /**
+   * `devices` is passed in rather than read here so one conversation costs one
+   * query. An empty list is not an error and is not a warning: it makes every
+   * message `unknown`, which is what "this device knows of no keys" honestly
+   * means.
+   */
+  async #openRow(row, identity, deviceId, escrow, devices = []) {
     if (row.deletedForEveryone) {
-      return { row, text: null, why: 'withdrawn' };
+      return { row, text: null, why: 'withdrawn', attribution: null };
     }
 
     let sealed;
     try {
       sealed = JSON.parse(row.body);
     } catch {
-      return { row, text: null, why: 'unreadable' };
+      return { row, text: null, why: 'unreadable', attribution: null };
     }
 
     const to = sealedTo(sealed);
-    if (!identity) return { row, text: null, why: 'notEnrolled', to };
+    // Not opened, so nothing is proven. Stated rather than left undefined: a
+    // screen reading `undefined` as "fine" is the failure this is here to stop.
+    const unproven = attributionOf({
+      sender: row.sender, from: sealed.from, devices, opened: false,
+    });
+    if (!identity) return { row, text: null, why: 'notEnrolled', to, attribution: unproven };
 
     try {
       const text = await open(sealed, { id: deviceId, ...identity }, { escrow });
+
+      /*
+       * The envelope opened, so the key that sealed it is proven. Ask whether
+       * it belongs to the person the row names — the check that was missing.
+       * Only reachable here: before `open` succeeds there is nothing to check
+       * against, and after it fails there still is not.
+       */
+      const attribution = attributionOf({
+        sender: row.sender, from: sealed.from, devices, opened: true,
+      });
 
       // A file arrives as a sealed envelope holding its own description. The
       // caller gets the name and size, never the raw JSON — a screen printing
       // `{"kind":"file",...}` is how somebody learns not to trust the screen.
       const file = readFileMeta(text);
-      if (file) return { row, text: null, file, why: null, to };
+      if (file) return { row, text: null, file, why: null, to, attribution };
 
-      return { row, text, file: null, why: null, to };
+      return { row, text, file: null, why: null, to, attribution };
     } catch (error) {
       // The common one, and worth its own word: a device enrolled after the
       // message was sent was never a recipient and never will be. That is not
@@ -353,7 +379,7 @@ export class ChatService extends Service {
       const why = error?.code === 'notARecipient' ? 'sentBefore'
         : error?.code === 'keyChanged' ? 'keyChanged'
           : 'unreadable';
-      return { row, text: null, why, to };
+      return { row, text: null, why, to, attribution: unproven };
     }
   }
 
@@ -398,6 +424,17 @@ export class ChatService extends Service {
       const row = latest.get(conversation.id);
       out.push({
         conversation,
+        /*
+         * No devices, so every preview here is `unknown`, and that is correct
+         * rather than a shortcut. This list draws a conversation title and the
+         * last line of text; it names no sender, so there is no attribution to
+         * confirm or dispute, and a warning would be noise where no claim was
+         * made.
+         *
+         * If a sender name is ever added to this row, pass `devices` — see
+         * `read` — or the name will be drawn from the untrusted field with the
+         * check silently answering `unknown`.
+         */
         last: row ? await this.#openRow(row, identity, deviceId, escrow) : null,
         at: row?.sentAt ?? null,
       });

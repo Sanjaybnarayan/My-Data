@@ -709,6 +709,7 @@ export const strings = {
   'chat.file.open': 'Open',
   'chat.file.chosen': 'Ready to send: {name}',
   'chat.file.gone': 'That file is no longer on this device.',
+  'chat.attribution.disputed': 'This says it is from somebody else. The key that sealed it belongs to {name}.',
   'chat.why.withdrawn': 'This message was withdrawn.',
   'chat.why.sentBefore': 'Sent before this device joined, so it was never sealed to it.',
   'chat.why.keyChanged': 'Sealed to a key this device no longer has.',

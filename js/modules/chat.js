@@ -25,6 +25,7 @@ import { userMessage } from '../core/errors.js';
 import { t } from '../core/locale.js';
 import { icon } from '../ui/icons.js';
 import { formatDay } from '../core/dates.js';
+import { worthWarning } from '../domain/attribution.js';
 import { FILTERS, filterCounts, visibleThreads } from '../domain/chatstate.js';
 import { storedEnterSends as enterSends } from './chat-settings.js';
 
@@ -560,12 +561,31 @@ function messageItem(message, nameOf, saveFile, me = null, withdraw = null, mark
    */
   const starable = star && !message.why && message.row?.id;
 
+  /*
+   * The row names one sender; the envelope proves another.
+   *
+   * Drawn only for `disputed`, and that restraint is the point. `unknown` —
+   * a device key this household no longer holds — proves nothing, and a
+   * warning on every message from a retired phone would train somebody to
+   * scroll past the one that matters. `domain/attribution.js` has the whole
+   * argument.
+   *
+   * Not a colour. A household member who cannot distinguish red from grey
+   * still has to be able to read this, so it is a sentence.
+   */
+  const disputed = worthWarning(message.attribution?.verdict);
+  const disputeNote = () => (disputed
+    ? h('p', { class: ['small', 'money--negative'] },
+      t('chat.attribution.disputed', { name: nameOf(message.attribution.proven) }))
+    : null);
+
   /** The shell every bubble shares: side, who said it, and when. */
   const bubble = (body, { tone = '' } = {}) => h('div', {
     class: ['bubble-row', mine ? 'bubble-row--mine' : 'bubble-row--theirs'],
   }, h('div', { class: ['bubble', tone && `bubble--${tone}`] }, [
     // Their name, not mine — on my own messages it is noise.
     mine ? null : h('p', { class: 'bubble-who' }, who),
+    disputeNote(),
     body,
     h('p', { class: 'bubble-meta' }, at || formatDay(stamp.slice(0, 10))),
     starable
