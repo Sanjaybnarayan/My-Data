@@ -226,7 +226,7 @@ const kycRecord = {
     text('heldName', { label: 'Name', search: true, group: 'As they hold it' }),
     { key: 'heldAddress', type: 'textarea', label: 'Address', group: 'As they hold it' },
     day('heldBirthday', { label: 'Date of birth', group: 'As they hold it' }),
-    { key: 'heldMobile', type: 'phone', label: 'Mobile', group: 'As they hold it' },
+    { key: 'heldMobile', type: 'phone', label: 'Mobile', group: 'As they hold it', encrypted: true },
     { key: 'heldEmail', type: 'email', label: 'Email', group: 'As they hold it' },
 
     pick('status', ['active', 'update pending', 'rejected', 'not known'],
@@ -1228,7 +1228,7 @@ const warranty = {
       { default: 'manufacturer', list: true }),
     day('startsOn'),
     day('expiresOn', { label: 'Expires on', required: true, list: true, expiry: true, expiryLead: 60 }),
-    { key: 'claimPhone', type: 'phone', label: 'Claim on' },
+    { key: 'claimPhone', type: 'phone', label: 'Claim on', encrypted: true },
     { key: 'claimUrl', type: 'url', label: 'Claim online' },
     { key: 'documents', type: 'files', label: 'Warranty card' },
     note(),
@@ -1311,7 +1311,7 @@ const tenant = {
     // tenant renews or moves between properties, and an unnecessary one for a
     // single short let.
     ref('person', 'person', { label: 'Also recorded as' }),
-    { key: 'phone', type: 'phone', list: true },
+    { key: 'phone', type: 'phone', encrypted: true }, // sealed ⇒ not a list column
     { key: 'email', type: 'email' },
     day('agreementStartsOn', { label: 'Agreement from', list: true }),
     day('agreementEndsOn', { label: 'Agreement until', list: true, expiry: true, expiryLead: 90 }),
@@ -1547,8 +1547,8 @@ const emergencyContact = {
   subtitle: (r) => r.relationship,
   fields: [
     text('name', { required: true, list: true, search: true }),
-    { key: 'phone', type: 'phone', required: true, list: true },
-    { key: 'altPhone', type: 'phone' },
+    { key: 'phone', type: 'phone', required: true, encrypted: true }, // sealed ⇒ no list
+    { key: 'altPhone', type: 'phone', encrypted: true },
     text('relationship', { list: true }),
     pick('kind', ['family', 'doctor', 'hospital', 'police', 'lawyer', 'insurance',
       'neighbour', 'employer', 'other'], { default: 'family', list: true }),

@@ -65,6 +65,35 @@ describe('the encryption claim is countable', () => {
     }
   });
 
+  test('every phone number is sealed except the one that is searchable', () => {
+    /*
+     * The rule, written down and checked, because there was not one.
+     *
+     * Nine `type: 'phone'` fields had accreted nine independent decisions —
+     * three sealed, six not — and the split resolved into no policy anybody
+     * could state. The sharpest pair: an emergency contact's number was sealed
+     * on `person` and in the clear on `emergencyContact`, the entity built for
+     * exactly that purpose.
+     *
+     * The rule now is one sentence: **a household member's own number is
+     * searchable, everybody else's is sealed.** `person.phone` is the only
+     * exception and it is named here, so adding a tenth phone field in the
+     * clear breaks the build rather than quietly widening the split again.
+     */
+    const SEARCHABLE = ['person.phone'];
+    for (const def of Object.values(entities)) {
+      for (const field of def.fields) {
+        if (field.type !== 'phone') continue;
+        const name = `${def.name}.${field.key}`;
+        if (SEARCHABLE.includes(name)) {
+          assert.not(field.encrypted, `${name} is the searchable one and must not be sealed`);
+          continue;
+        }
+        assert.ok(field.encrypted, `${name} is a phone number left in the clear`);
+      }
+    }
+  });
+
   test('nothing sealed is also a list column, which would print ciphertext', () => {
     for (const def of Object.values(entities)) {
       for (const field of def.fields) {

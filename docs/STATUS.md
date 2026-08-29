@@ -129,7 +129,7 @@ rather than forgetting it locally. Escrowed or not, what Drive holds is a
 wrapping key and never the data key.
 
 **Most fields are not encrypted, and the application now says so where a
-household will see it.** Forty<!--live:encryptedFields--> fields carry
+household will see it.** Forty-five<!--live:encryptedFields--> fields carry
 `encrypted: true` — identity and account numbers, passwords, diagnoses,
 nominees, policy and registration identifiers. The other four hundred and
 forty-four are stored as written, on this device and

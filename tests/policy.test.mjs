@@ -402,3 +402,87 @@ describe('pulling', () => {
     assert.deep(book.touched, [], 'no sheet was opened for a caller with no role');
   });
 });
+
+/* ------------------------------------------- who a message may be sent as */
+
+describe('a message may only be sent as the person the account belongs to', () => {
+  const MSG = ['_id', '_rev', '_updatedAt', '_deletedAt', 'conversation', 'sender'];
+  const withMessages = () => fakeBook(['ChatMessages'], { headers: MSG, rows: [] });
+  const map = { message: 'ChatMessages' };
+
+  const push = (payload, context) => sheets(map).sheetPush(
+    [{ store: 'message', op: 'put', recordId: 'm1', rev: 1, payload }],
+    withMessages(),
+    context,
+  );
+
+  test('my own message is stored', () => {
+    const result = push({ conversation: 'c1', sender: 'p-me' }, { role: 'child', personId: 'p-me' });
+    assert.length(result.rejected, 0, result.rejected[0]?.reason ?? '');
+    assert.length(result.applied, 1);
+  });
+
+  test('and one claiming to be somebody else is refused', () => {
+    /*
+     * The whole point. Every role may write messages, so the blanket policy
+     * allowed this; `ownRecordAllows` cannot refuse anything. This is the
+     * first rule in `sheetPush` that narrows rather than widens.
+     */
+    const result = push({ conversation: 'c1', sender: 'p-sibling' },
+      { role: 'child', personId: 'p-me' });
+
+    assert.length(result.applied, 0);
+    assert.length(result.rejected, 1);
+    assert.ok(/only be sent as/.test(result.rejected[0].reason), result.rejected[0].reason);
+  });
+
+  test('an account matched to nobody is refused, not waved through', () => {
+    /*
+     * The tempting shape is "check it only when we can" — which stops applying
+     * to exactly the accounts nobody has bound yet, the owner included. So an
+     * unbound caller is refused, with a reason naming where the fix is made.
+     */
+    const result = push({ conversation: 'c1', sender: 'p-me' },
+      { role: 'owner', personId: '' });
+
+    assert.length(result.applied, 0);
+    assert.length(result.rejected, 1);
+    assert.ok(/not been matched to a person/.test(result.rejected[0].reason),
+      result.rejected[0].reason);
+  });
+
+  test('the owner is not exempt', () => {
+    // The account that can do the most is the one a rule must not skip.
+    const result = push({ conversation: 'c1', sender: 'p-someone-else' },
+      { role: 'owner', personId: 'p-owner' });
+
+    assert.length(result.applied, 0);
+    assert.length(result.rejected, 1);
+  });
+
+  test('a row carrying no sender is left to the ordinary rules', () => {
+    // A withdrawal marks a row and names nobody. Refusing it would break
+    // withdrawing a message, which is a different operation entirely.
+    const result = push({ conversation: 'c1', deletedForEveryone: true },
+      { role: 'child', personId: 'p-me' });
+
+    assert.length(result.rejected, 0, result.rejected[0]?.reason ?? '');
+    assert.length(result.applied, 1);
+  });
+
+  test('and other entities are untouched by this rule', () => {
+    // A narrowing rule that reached beyond `message` would refuse writes the
+    // household has always been able to make.
+    const api = sheets({ note: 'Notes' });
+    const result = api.sheetPush(
+      [{ store: 'note', op: 'put', recordId: 'n1', rev: 1, payload: { sender: 'p-anybody' } }],
+      fakeBook(['Notes'], { headers: ['_id', '_rev', '_updatedAt', '_deletedAt', 'sender'], rows: [] }),
+      // `adult`, because a child may not write notes at all — that refusal
+      // would come from the blanket policy and prove nothing about this rule.
+      { role: 'adult', personId: 'p-me' },
+    );
+
+    assert.length(result.rejected, 0, result.rejected[0]?.reason ?? '');
+    assert.length(result.applied, 1);
+  });
+});

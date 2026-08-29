@@ -254,8 +254,14 @@ export class AppsScriptTransport {
    * it, which only the deploying account may do. The owner is admitted by
    * identity and is never in the list.
    */
-  members(emails) {
-    return this.call('members', emails ? { emails } : {});
+  members(emails, ownerPersonId) {
+    if (!emails) return this.call('members', {});
+    // `ownerPersonId` is omitted rather than sent empty when nobody asked to
+    // change it: the backend reads an absent field as "leave it alone" and an
+    // empty one as "unbind", and those are different requests.
+    return this.call('members', ownerPersonId === undefined
+      ? { emails }
+      : { emails, ownerPersonId });
   }
 
   /**

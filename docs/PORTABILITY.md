@@ -37,7 +37,7 @@ entity — so a complete one is forty-three files and eighty-six button presses.
 
 Of those fields:
 
-- **40<!--live:encryptedFields-->** are encrypted, and are left out unless you
+- **45<!--live:encryptedFields-->** are encrypted, and are left out unless you
   tick *Include encrypted fields in the clear*. Ticking it writes your document
   numbers, passwords and medical notes to a file in plain text, which is the
   right thing to offer and the wrong thing to do casually.
