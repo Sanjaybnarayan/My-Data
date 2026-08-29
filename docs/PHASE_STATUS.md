@@ -56,7 +56,7 @@ external integration or has an open critical security or data-integrity defect.
 | 21 | Backup / restore / portability | **COMPLETE** | 88 | `domain/archive.js` + `services/archive.js`; encrypted archive, verified read-back, restore refuses to merge, keyring travels, deleted rows preserved | No scheduling; on-disk bytes unverifiable from a page | Low |
 | 22 | PWA optimisation | **COMPLETE** | 84 | Manifest, 167-entry precache, offline shell, IndexedDB, sync queue, update mechanism, `tools/webroot.mjs` two-way check | No push, no background sync | Low |
 | 23 ↑ | Android companion | **PARTIALLY_COMPLETE** | 78 | Capacitor 8.5.0; **debug APK builds in CI**; back button, Filesystem, Share; `allowBackup` off; coarse and fine location; a first-party SMS plugin; **a background location trail** — foreground service, undismissable notification, off until switched on, `START_NOT_STICKY`, writes nothing itself; **screen time gated by consent**, the first purpose where a refusal stops the read rather than being noted, and now **drawn on a screen** at `#/wellbeing` reached from Profile, which never says "unavailable" — it names which of six states it is and offers only the control that state can act on (`docs/SCREEN_TIME.md`); camera capture works through the file input, and `CAMERA` is deliberately **not** declared because declaring it forces a prompt for something that already works | **Never run on a real device** — everything above compiles in CI and nothing here has installed it; no OS geofencing, so a crossing is noticed when the trail is next read rather than as it happens; **Play Protect refused to install the build** — `READ_SMS` is a Play *restricted permission* and Android blocks a sideloaded app that asks for one, with no way past the dialog. Split into two flavours: `standard` installs, `sms` needs Play Protect switched off. `docs/INSTALLABLE_BUILD.md` |
-| 24 ↑ | iOS companion | **BLOCKED** | 38 | Project generated and synced; RGB icons; **all five plugins linked** after the package sat two behind Android; `NSLocationWhenInUseUsageDescription` added, and the always-on variant deliberately absent; a `macos-latest` workflow that compiles for the simulator | **Still never compiled at the time of writing** — the workflow exists and its first run is what will say whether it builds. No signed build either: device signing needs an Apple developer identity this repository does not hold and should not | Medium |
+| 24 ↑ | iOS companion | **PARTIALLY_COMPLETE** | 58 | Project generated and synced; RGB icons; **all five plugins linked** after the package sat two behind Android; `NSLocationWhenInUseUsageDescription` added, and the always-on variant deliberately absent; a `macos-latest` workflow that compiles for the simulator | **It compiles, and the row used to say it never had.** `.github/workflows/ios.yml` has run **90 times**; the 30 most recent runs are all successes bar the one still in flight, each doing a real `xcodebuild` against `ios/App/App.xcodeproj` on `macos-latest` after `npx cap sync ios`, with a step that fails if any of the five plugins is missing. What is left is narrower than the old sentence: **no signed build and never run on a device.** Device signing needs an Apple developer identity this repository does not hold and should not | Medium |
 | 25 ↑ | Internationalisation | **PARTIALLY_COMPLETE** | 45 | `js/core/locale.js` merged in `e5b45df`; schema labels and dates route through it; a translation that drops a placeholder is **refused**; `tools/strings.mjs` measures the rest | **One language.** 3,474<!--live:unroutedStrings--> strings are still written into the source, and nothing has been translated | Low |
 
 ## What checks this table
@@ -79,9 +79,9 @@ judgement, and a tool that scored it would be inventing certainty.
 ```
 COMPLETE              4   (10, 21, 22, and 0)
 MOSTLY_COMPLETE      16   (0.5, 2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 19, 20)
-PARTIALLY_COMPLETE    4   (8, 18, 23, 25)
+PARTIALLY_COMPLETE    5   (8, 18, 23, 24, 25)
 REQUIRES_REWORK       1   (1)
-BLOCKED               2   (11, 24)
+BLOCKED               1   (11)
 NOT_STARTED           0
 ```
 
@@ -109,5 +109,12 @@ Three phases are held below where their code alone would put them:
   Both are still held below COMPLETE, for reasons that are current: there has
   been **no external cryptographic review**, and no compliance control has
   been verified by anybody.
-- **Phase 11 and 24** — BLOCKED rather than incomplete. Neither is waiting on
-  code: one waits on ABDM participant status, the other on a macOS machine.
+- **Phase 11** — BLOCKED rather than incomplete. It is not waiting on code; it
+  waits on ABDM participant status.
+- **Phase 24 is no longer BLOCKED, and the reason it was is worth keeping.**
+  This note read *"the other on a macOS machine"*. CI has provided one 90
+  times: `macos-latest` runs `xcodebuild` on every pull request and the build
+  succeeds. A blocker stated once and never re-read is how a phase stays at 38
+  after the thing blocking it has gone. What still blocks a *device* build is
+  an Apple developer identity, which is a narrower claim than the one that
+  stood here.
