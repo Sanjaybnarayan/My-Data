@@ -121,7 +121,7 @@ vulnerable, because there are no production dependencies.**
                        ┌──────────────▼───────────────┐
                        │  js/sync/engine.js           │  outbox, shadow, 3-way merge
                        └──────────────┬───────────────┘
-                                      │  15 actions, one POST endpoint
+                                      │  16 actions, one POST endpoint
                        ┌──────────────▼───────────────┐
                        │  apps-script/Code.gs doPost  │  token verify, rate limit
                        │  → Sheets.gs / Drive.gs      │  ⚠ role dropped here (§8.1)
@@ -544,7 +544,7 @@ conflict records and a verified encrypted archive round-trip; and the choice is
 
 ## 20. API audit
 
-One endpoint (`doPost`), 15 actions, verified against the client by
+One endpoint (`doPost`), 16 actions, verified against the client by
 `tools/api-contract.mjs` in both directions.
 
 | Action | Auth | Authz | Validation | Audit | Errors | Rate limit | Status |
@@ -712,7 +712,7 @@ Keep the offline-first, encrypted, device-primary design — it is the product's
 premise and it works. **Do not replace IndexedDB with PostgreSQL on the
 device.** If the spec's relational requirement must be met, meet it *at the
 sync target*: replace Google Sheets with a real relational backend behind the
-same 15-action contract that `tools/api-contract.mjs` already checks. The client
+same 16-action contract that `tools/api-contract.mjs` already checks. The client
 would not have to change, because the contract is already the seam.
 
 ---

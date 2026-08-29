@@ -1,5 +1,5 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
-import { DriveEscrow, APPDATA_SCOPE } from '../js/security/escrow.js';
+import { DriveEscrow, mintRawKey, APPDATA_SCOPE } from '../js/security/escrow.js';
 import { Keyring } from '../js/security/keyring.js';
 import { toBase64, exportKeyBytes } from '../js/security/crypto.js';
 import { missingScopes, completeOAuthRedirect } from '../js/auth/google.js';
@@ -77,7 +77,7 @@ function fakeDrive({ files = new Map(), status = 200 } = {}) {
      */
     seed: async (token = 'tok', hidden = false, wrapped = { iv: 'aXY=', key: 'a2V5' }) => {
       const escrow = new DriveEscrow({ getToken: async () => token, fetchImpl, hidden });
-      const bytes = DriveEscrow.mintRawKey();
+      const bytes = mintRawKey();
       await escrow.put(bytes, wrapped);
       return bytes;
     },
@@ -332,7 +332,7 @@ describe('signing in with Google unlocks the same data', () => {
   test('enrolling twice is refused, because it would orphan every record', async () => {
     fakeDrive();
     const keyring = new Keyring(meta(), 1000);
-    const rawKey = DriveEscrow.mintRawKey();
+    const rawKey = mintRawKey();
     await keyring.enrolRawKey(rawKey, 'google');
     await assert.throws(() => keyring.enrolRawKey(rawKey, 'google'), /already has a data key/);
   });

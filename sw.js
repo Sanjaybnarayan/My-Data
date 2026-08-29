@@ -49,6 +49,7 @@ const SHELL = [
   './js/core/errors.js',
   './js/core/ids.js',
   './js/core/money.js',
+  './js/locale/en-signin.js',
   './js/locale/en.js',
   './js/core/native.js',
   './js/core/backgroundlocation.js',
@@ -80,6 +81,7 @@ const SHELL = [
   './js/data/validate.js',
 
   './js/security/crypto.js',
+  './js/security/codeescrow.js',
   './js/security/escrow.js',
   './js/security/fieldcrypto.js',
   './js/security/e2ee.js',

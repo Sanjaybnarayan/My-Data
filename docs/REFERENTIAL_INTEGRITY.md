@@ -105,7 +105,7 @@ enforces it.
 
 The honest statement of the gap is the one the audit made: **if the relational
 requirement must be met, it should be met at the sync target** — replacing
-Google Sheets with a real relational backend behind the same 15-action contract
+Google Sheets with a real relational backend behind the same 16-action contract
 that `tools/api-contract.mjs` already checks — not by rewriting the local store,
 which is offline-first for reasons that have not changed. That needs a hosting
 decision, and it has not been made.

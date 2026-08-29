@@ -27,6 +27,7 @@ import { lockScreen, recoveryKitScreen, lockNow } from './auth/lock.js';
 import { Session, AttemptLimiter } from './security/session.js';
 import { googleAuth } from './auth/googleauth.js';
 import { AppsScriptTransport } from './sync/transport.js';
+import { CodeEscrow } from './security/codeescrow.js';
 import { SyncEngine } from './sync/engine.js';
 import { DocumentStore } from './sync/drive.js';
 import { Assistant } from './ai/assistant.js';
@@ -98,6 +99,24 @@ export async function boot() {
   // one that syncs, rather than the app asking them to sign in twice.
   let googleSession = null;
 
+  /*
+   * A transport for the lock screen, which has no Google session yet.
+   *
+   * `callPublic` passes `token: null`, so `getToken` is never reached — the
+   * two one-time-code actions are the only ones this can send, and the backend
+   * enforces that list as well. It is built here rather than reusing the one
+   * in `start` because that one does not exist until after the unlock this is
+   * for.
+   */
+  const codeEscrow = new CodeEscrow({
+    transport: new AppsScriptTransport({
+      url: config().apiUrl,
+      getToken: async () => '',
+      deviceId: db.deviceId,
+      deviceLabel: deviceLabel(),
+    }),
+  });
+
   await new Promise((resolve) => {
     replace(root(), lockScreen({
       keyring: db.keyring,
@@ -105,8 +124,13 @@ export async function boot() {
       biometricCredentialId: credentialId,
       googleEnrolled: methods.some((m) => m.method === 'google'),
       mode: enrolled ? 'unlock' : 'enrol',
-      onUnlocked: async ({ firstRun, googleSession: session }) => {
+      codeEscrow,
+      onUnlocked: async ({ firstRun, googleSession: session, personId }) => {
         if (session) googleSession = session;
+        // A code names the person it was sent to, so the device does not have
+        // to ask a question it already has the answer to. Only ever the id the
+        // server returned — never one the screen decided for itself.
+        if (personId) await db.setMeta('auth.currentPerson', personId);
         if (firstRun) {
           await new Promise((done) => {
             replace(root(), recoveryKitScreen({

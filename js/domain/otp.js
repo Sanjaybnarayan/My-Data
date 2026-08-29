@@ -9,7 +9,8 @@
  * makes the answer harder to get wrong — a member picks themselves, not
  * whoever was at the top of a list.
  *
- * **It is not a lock, and this file will not let a screen imply it is.**
+ * **Unless the household turned signing in by code on, it is not a lock, and
+ * this file will not let a screen imply it is.**
  *
  *   - The device PIN is what keeps somebody out.
  *   - The encryption keys are what keep the records unreadable.
@@ -17,10 +18,23 @@
  *     not a place an authorisation decision can be enforced; anybody who can
  *     open a developer console can set the same flag.
  *
- * Signing in this way decrypts nothing. A new phone still sees no messages
- * until it is enrolled, and only the recovery phrase reaches conversations
- * from before then. `WHAT_IT_DOES_NOT_DO` is exported so the screen renders
- * those sentences rather than inventing kinder ones.
+ * By default, signing in this way decrypts nothing. A new phone still sees no
+ * messages until it is enrolled, and only the recovery phrase reaches
+ * conversations from before then.
+ *
+ * ## And when they did turn it on, the same rule runs the other way
+ *
+ * A household can escrow the data key with their own backend so that a code
+ * opens a new device in place of the recovery phrase — see
+ * `security/codeescrow.js`. Every sentence in the paragraph above then becomes
+ * false, and a screen still reciting it would be reassuring somebody about a
+ * protection they no longer have. That is worse than the overclaiming this
+ * file was written to stop, because it is the same mistake pointing at the
+ * safer-sounding answer.
+ *
+ * So the sentences are chosen by `limitsFor`, from the three sets below — one
+ * for each situation, including the one where a screen could not find out
+ * which situation it is in. None of the three is a default.
  */
 
 /**
@@ -53,6 +67,49 @@ export const WHAT_IT_DOES_NOT_DO = Object.freeze([
   'otp.limit.notAKey',
   'otp.limit.enrolStill',
 ]);
+
+/**
+ * And the sentences for a household that turned signing in by code on, where
+ * the three above have stopped being true.
+ *
+ * Same job, opposite content: name the thing a person would otherwise have to
+ * discover. There it was "this is weaker than you might assume"; here it is
+ * "this is stronger than you might assume, and that is the problem".
+ */
+export const WHAT_A_CODE_NOW_DOES = Object.freeze([
+  'otp.unlock.opensDevices',
+  'otp.unlock.backendHolds',
+  'otp.unlock.insteadOfPhrase',
+]);
+
+/**
+ * And the sentence for a screen that has not been able to find out which of
+ * the two it is.
+ *
+ * There is no safe guess here, and picking one was the first thing tried.
+ * Defaulting to `WHAT_IT_DOES_NOT_DO` tells somebody a code cannot unlock
+ * their records when it can — a false reassurance, which is the direction that
+ * costs them. Defaulting the other way tells a household they turned on a
+ * feature they did not, which is an alarm about nothing.
+ *
+ * Both are the same fault this repository keeps finding: an unread value
+ * reported as an answer. So the third case is a third answer.
+ */
+export const WHAT_IS_NOT_KNOWN = Object.freeze([
+  'otp.limit.unknown',
+]);
+
+/**
+ * Which set of sentences this screen must show.
+ *
+ * @param {boolean|null} unlocksNewDevices whether this household escrowed the
+ *   data key so a code opens a device that has nothing — `null` when the
+ *   screen could not find out.
+ */
+export function limitsFor(unlocksNewDevices) {
+  if (unlocksNewDevices === null || unlocksNewDevices === undefined) return WHAT_IS_NOT_KNOWN;
+  return unlocksNewDevices ? WHAT_A_CODE_NOW_DOES : WHAT_IT_DOES_NOT_DO;
+}
 
 /**
  * Is this something a code could be sent to?

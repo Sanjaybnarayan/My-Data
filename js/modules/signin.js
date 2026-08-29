@@ -8,10 +8,16 @@
  * change. Sending a code to an address already on that person's record makes
  * the answer harder to get wrong.
  *
- * It does **not** make it a lock, and the three sentences under the form say
- * so. They come from `WHAT_IT_DOES_NOT_DO` in the domain rather than being
- * written here, because the temptation on a sign-in card is to write something
- * shorter and warmer that quietly implies the code is protecting something.
+ * Whether it also makes it a *lock* depends on something this card does not
+ * decide: a household can turn signing in by code on, and then a code opens a
+ * new device in place of the recovery phrase. So the sentences under the form
+ * come from `limitsFor` in the domain rather than being written here — because
+ * the temptation on a sign-in card is to write something shorter and warmer
+ * that quietly implies the code is protecting something, and the temptation
+ * once that changes is to leave the old sentence there, which is worse.
+ *
+ * There is a third set for the case this card cannot find out, and it is used
+ * rather than guessed at. See `WHAT_IS_NOT_KNOWN`.
  *
  * ## Nothing is offered that cannot work
  *
@@ -28,8 +34,9 @@ import { app } from '../context.js';
 import { userMessage } from '../core/errors.js';
 import { t } from '../core/locale.js';
 import {
-  STEP, WHAT_IT_DOES_NOT_DO, advance, start, canSubmit,
+  STEP, limitsFor, advance, start, canSubmit,
 } from '../domain/otp.js';
+import { CODE_METHOD } from '../security/codeescrow.js';
 
 const CHANNELS = Object.freeze(['email', 'sms']);
 
@@ -44,6 +51,21 @@ export function signInCard(onVerified) {
   let state = start();
   let code = '';
   let busy = false;
+
+  /*
+   * Whether a code, in this household, opens a device that has nothing.
+   *
+   * Read from this device's own keyring rather than asked of the backend: the
+   * `otp` wrapping is here precisely because somebody turned signing in by
+   * code on, and a screen that asked the server would be showing the wrong
+   * sentences until the answer arrived — or forever, on a device with no
+   * network.
+   *
+   * `null` until the keyring answers, and it stays `null` if it never does.
+   * Neither guess is safe — see `WHAT_IS_NOT_KNOWN` — and an unread value
+   * printed as an answer is the fault this codebase has now found five times.
+   */
+  let unlocksNewDevices = null;
 
   const addressBox = h('input', {
     class: 'input', type: 'text', id: 'otp-address',
@@ -94,7 +116,7 @@ export function signInCard(onVerified) {
 
   function limits() {
     return h('div', { class: 'stack stack--tight' },
-      WHAT_IT_DOES_NOT_DO.map((key) => h('p', { class: ['small', 'muted'] }, t(key))));
+      limitsFor(unlocksNewDevices).map((key) => h('p', { class: ['small', 'muted'] }, t(key))));
   }
 
   function paint() {
@@ -160,5 +182,15 @@ export function signInCard(onVerified) {
   }
 
   paint();
+
+  db.keyring.methods()
+    .then((methods) => {
+      unlocksNewDevices = methods.some((m) => m.method === CODE_METHOD);
+      paint();
+    })
+    // A keyring that will not answer leaves `null` in place, and the card says
+    // it does not know rather than choosing whichever claim reads better.
+    .catch(() => {});
+
   return host;
 }
