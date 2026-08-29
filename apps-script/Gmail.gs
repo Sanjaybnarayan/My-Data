@@ -74,6 +74,13 @@ function gmailSearch(payload, context) {
     messages: messages,
     query: query,
     truncated: messages.length >= limit,
+    // Stated rather than left absent. This loop has no per-message catch: a
+    // Gmail failure throws out of the whole call and the client sees an error,
+    // so nothing can be lost quietly here and zero is the truth about it. The
+    // native route (`js/sync/gmail.js`) does continue past a failed message
+    // and counts them, and a client reading one field for both routes should
+    // not have to guess which it is talking to.
+    unreachable: 0,
   };
 }
 

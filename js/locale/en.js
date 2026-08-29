@@ -349,6 +349,24 @@ export const strings = {
   'position.unsupported': 'This device has no location service available to the app.',
   'position.unknown': 'The location could not be read.',
 
+  // What a mailbox scan is able to say about itself. `unreachable` is the one
+  // that had no words at all: messages Gmail listed and refused to hand over
+  // used to be dropped silently, so a scan that lost a third of the mail read
+  // exactly like a mailbox with less in it.
+  'receipts.scan.unreachable': 'Gmail listed {n} message(s) it would not hand over, so they '
+    + 'were not read. The counts above are what came back, not what the mailbox holds. '
+    + 'Scanning again usually reaches them — a refusal is normally a rate limit.',
+  'receipts.scan.unreachableShort': '{n} not handed over',
+  'receipts.scan.truncated': 'A mailbox still has more than this scan could reach — either a '
+    + 'single day holds more than {limit} receipts, or there were more than {passes} calls\u2019 '
+    + 'worth. Press Scan again and it carries on from where it stopped.',
+  'receipts.scan.nothingRecognised': 'Mail came back but none of it looked like a receipt — '
+    + 'usually a shop that sends from a different address than expected. The From line of one '
+    + 'of those emails, added as a shop below, will fix it.',
+  'receipts.scan.mailboxFailed': 'A mailbox that could not be read is usually one whose Google '
+    + 'account is signed out, or whose backend has not been redeployed since Gmail.gs was '
+    + 'added. The others were still read.',
+
   // The SOS message itself, which somebody sends from their own phone.
   'sos.needsHelp': '{name} needs help.',
   'sos.near': 'Near {zone}.',
