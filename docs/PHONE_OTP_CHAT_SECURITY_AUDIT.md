@@ -275,6 +275,84 @@ correctly — ciphertext is non-empty, and an absent number is never sealed. Tha
 holds by arithmetic rather than by design, and is recorded here because the next
 person to touch `reachability` should know it is standing on that.
 
+### OTP-01 · MEDIUM · the pre-auth path ran with no lock, and the wrong lock would not have helped
+
+§10 of the brief asks that *only one verification attempt may successfully
+consume an OTP*, and §66 asks that operations claimed to be atomic be atomic on
+the server. Neither held.
+
+`doPost` answers `otp.request` and `otp.verify` before `verifyToken`, because a
+code has to be requestable by somebody who has not signed in — that is the
+whole point of it. Every other action then runs through `withLock`. These two
+ran through nothing.
+
+`withLock` was the obvious candidate and is not reused, and the reason is
+worth stating exactly rather than approximately — my first write-up of this
+finding did the latter, and that needs correcting here.
+
+`withLock` takes `LockService.getUserLock()`, documented as "only once per
+user". It keys on the **active** user, and an anonymous caller has none.
+Whether that means one anonymous caller would have excluded another is **not
+established** — not by any measurement here, and not by Google's documentation,
+which does not say what the per-user key is when there is no user. `Otp.gs`
+records the analogous behaviour for `CacheService.getUserCache()` — per-session
+for such a caller — and reaches for `getScriptCache()` because of it, and that
+neighbouring case is what this reasons from. It is an inference, not a
+measurement, and the first version of this entry asserted it as one: *"a user
+lock excludes a caller from themselves; pre-auth there is no user, so it would
+have excluded nobody."* That sentence claims to know something this repository
+cannot check.
+
+What needs no inference is the part that made it a finding: **the pre-auth path
+took no lock at all.** Not the wrong one — none. And `getScriptLock()` is
+documented as preventing *any* user from running the guarded section
+concurrently, so taking it settles the question rather than depending on it.
+
+Both actions are read-modify-write with nothing in between:
+
+- `otpVerify` reads the record, increments `attempts`, writes it back. Two
+  wrong guesses in flight together both read `attempts: 0` and both write `1`,
+  so the second guess costs nothing.
+- On the **matching** path it reads the record, compares the hash, and only
+  then removes the key. Two executions holding the same correct code both match
+  and both are handed the escrow that unwraps the data key. This is the
+  expensive one, and it is the one the brief names: a code that works once
+  working twice.
+- `otpRequest` has the same shape through `otpEnforceLimits`, which counts per
+  address and per deployment the same way — so both actions are taken inside
+  the lock, not only the one that looked dangerous.
+
+**Fixed** by `withScriptLock` in `apps-script/Code.gs`, which takes
+`getScriptLock()` — shared across every caller, authenticated or not — and
+releases it in a `finally`, so a failing verification (which is most of them)
+does not hold the next caller out for the timeout. A caller who arrives while
+another holds it is refused with a 429 rather than queued, since an execution
+sitting on Apps Script's concurrency budget helps nobody.
+
+Two things this does not claim. The ceiling it raises on wrong guesses is
+small — the per-address and per-deployment caps bound the total either way; the
+point is that a stated property was not a property. And **it is inert until the
+Apps Script is redeployed**, like CHAT-02 and for the same reason (§8).
+
+A related inconsistency, found while testing it: the pre-auth `catch` marked
+every failure retryable only at `>= 500`, so all three of its 429s — the two
+hourly caps and now the lock — told the client "try again shortly" in words and
+"do not try again" in the flag, which is what `js/sync/transport.js` actually
+reads. The authenticated `catch` two blocks below had always used
+`>= 500 || === 429`. The pre-auth one now does too.
+
+**Tested** in `tests/otp.test.mjs` — that both actions take the script lock and
+release it, that it is the script lock and not the user lock, that it is
+released when the action throws, that a caller arriving mid-flight is refused
+without spending one of the five guesses or sending a message, and that the
+refusal says nothing about who else is using the deployment. Node is
+single-threaded and Apps Script gives each request its own execution, so no
+test here can make two calls overlap in time; what these do is drive the call
+the *losing* side of a real overlap makes — one that arrives to find the lock
+held. The harness's own script-lock stub had no `tryLock` at all and its
+`getUserLock` always granted, so it could not have shown any of this; both are
+now a mutex that records which kind was taken.
+
 ### SEARCH-01 · HIGH · the one read path that never met the authorisation rule
 
 *Found while continuing this audit, and it belongs to it: the brief's privacy
@@ -407,7 +485,22 @@ in this repository can reach a deployment, and no change here takes effect
 until it is redeployed.
 
 1. **CHAT-02** — compare `payload.sender` to `context.personId` on push.
-2. Consider adding `message` to `OWN_RECORD`, which today is a widening
+2. **OTP-01** — take the script lock around the pre-auth one-time-code path.
+   Written and tested here; inert everywhere until the same redeploy.
+3. **Open, and not changed on my own judgement: `withLock` guards the write
+   path with `getUserLock()`.** The file header promised "a `LockService`
+   script lock serialises writes" and that is not what it takes; the header now
+   states the discrepancy instead. The same question as OTP-01 applies, and
+   here it applies to *authenticated* callers too, because a `USER_DEPLOYING`
+   web app does not generally expose the caller as the active user — so two
+   devices pushing at once may not be excluded from each other at all, and
+   `sheetPush` computes the next empty row, which is precisely the interleaving
+   the lock exists to prevent. Changing `withLock` to `getScriptLock()` would
+   settle it, per deployment and so per household, and is a one-word change.
+   It is left here rather than made because it alters the concurrency
+   behaviour of every write, which is a decision for the household's owner and
+   not a side effect of an unrelated fix.
+3. Consider adding `message` to `OWN_RECORD`, which today is a widening
    mechanism only and would need a narrowing counterpart.
 
 ---
@@ -420,7 +513,7 @@ Following the brief's phase structure, restricted to what exists here:
 | --- | --- | --- |
 | 1 | This audit | **Done** |
 | 2 | Threat model | **Done** (§7) |
-| 3 | OTP security | Already met (§6); the escrow is documented in `docs/SIGN_IN_BY_CODE.md` |
+| 3 | OTP security | **OTP-01 done** — this row read *already met* until §10's concurrency requirement was tested rather than read; the escrow is documented in `docs/SIGN_IN_BY_CODE.md` |
 | 4 | Session / token | TOK-01 **done** |
 | 5 | Android secure storage | TOK-01 **done** in-repo. A Keystore-backed bridge would be stronger still and is not built |
 | 6 | Network security | Already met |
@@ -428,7 +521,45 @@ Following the brief's phase structure, restricted to what exists here:
 | 8 | Chat authorisation | CHAT-01 **done**, CHAT-02 **done** — and the blocker was a defect: nobody had a server-side `personId` at all |
 | 9 | Privacy / minimisation | PRIV-01 **done** — the rule is held by a test against the schema |
 | 10 | Play compliance | **PLAY-01** — needs a human decision |
+| 11 | Play Integrity / anti-abuse | **Not started.** Not partially, not planned — nothing in this repository mentions it |
+| 12 | Security testing | **Partial** — see below for exactly which half |
+| 13 | Final report (§80) | **Not written.** This document is phase 1, the audit; §80 asks for a statement of the state *after* remediation, and nothing produces one |
+| — | SEARCH-01 | **Done** — the read path that never met the authorisation rule |
 | — | ID-01 | **Accepted**, with the reason corrected — see above |
+
+The table stopped at 10 for as long as this document existed, and the brief has
+thirteen phases. Three rows absent is not the same as three rows passing, and a
+table that ends early reads like the latter.
+
+**Phase 11 has not been begun.** A case-insensitive grep for `play integrity`,
+`safetynet` and `attestation` across `js/`, `apps-script/`, `tools/` and the
+Android sources returns two lines, both in `js/auth/biometric.js`, and both
+WebAuthn's `attestation: 'none'` — a request *not* to be told the
+authenticator's model, which is a different thing that happens to share a
+word. Integrity attestation would need a Play-distributed build and a server
+that verifies the token it returns, and neither exists. It is listed here
+because leaving it off the table was the misleading part; putting a date on it
+would be the next mistake.
+
+**Phase 12 is partial, and the split is worth naming.** What exists is
+static: the backend's own `.gs` files are loaded and driven through `doPost` by
+`tests/appsscript.mjs`, so the code exercised is character-for-character the
+code that deploys, and the one-time-code path now has coverage for two requests
+arriving at once (§10 of the brief: *only one verification attempt may
+successfully consume an OTP*). That last was **OTP-01**, a real defect and not
+a formality —
+the pre-auth path ran with no lock at all, and `withLock` takes a user lock,
+whose exclusion between two anonymous callers is not something this repository
+can establish. Both actions are read-modify-write, and on the matching path
+`otpVerify` compares the hash and only then removes the key, so two executions
+holding the same correct code would both have matched and both been handed the
+escrow that unwraps the data key.
+
+What does **not** exist is everything dynamic: no penetration testing, no
+fuzzing, no scanning, and nothing at all run against a deployed instance. A
+test that loads a file is not a test of a running service, and the distinction
+is the whole of what phase 12 asks for.
+
 
 **CHAT-01 and CHAT-02 are both done**, and they do different halves of one job.
 CHAT-01 makes a forged attribution **visible** on any device that opens the

@@ -573,3 +573,127 @@ describe('what a cache key and a stored code give away', () => {
     assert.equal(otpMask('12345678901234').replace('···', '').length, 4);
   });
 });
+
+describe('two of them arriving at the same moment', () => {
+  /*
+   * The one-time-code path is the only part of `doPost` that runs before
+   * `verifyToken`, and until now it was also the only part that ran with no
+   * lock at all. `withLock` could not help it: that takes a **user** lock, and
+   * a user lock means nothing to a caller who has not authenticated — the same
+   * reason the rate limits in `Otp.gs` count on `getScriptCache()`.
+   *
+   * Both actions are a read, a change and a write with nothing in between, so
+   * two executions overlapping could each read the state the other was about
+   * to replace. The expensive one is not the attempt counter: on the matching
+   * path `otpVerify` reads the record, compares the hash, and only then
+   * removes the key — so two executions holding the same correct code would
+   * both match, and both be handed the escrow that unwraps the data key.
+   *
+   * Node runs one thread and Apps Script gives each request its own execution,
+   * so no test here can make two `doPost` calls overlap in time. What it can
+   * do is drive the call the *losing* side of a real overlap makes: one that
+   * arrives to find the lock already held. `api.held` is that.
+   */
+
+  test('both pre-auth actions take the script lock and give it back', () => {
+    const api = withOtp();
+
+    api.post('otp.request', '', { channel: 'email', address: 'asha@example.com' });
+    assert.deep(api.locks, ['script:taken', 'script:released']);
+
+    api.locks.length = 0;
+    api.post('otp.verify', '', { address: 'asha@example.com', code: codeFor(123456) });
+    assert.deep(api.locks, ['script:taken', 'script:released']);
+  });
+
+  test('the script lock, not the user lock', () => {
+    /*
+     * Stated separately because swapping one for the other leaves every other
+     * check in this file passing. A user lock excludes a caller from itself,
+     * which is exactly nobody when the caller has not signed in.
+     */
+    const api = withOtp();
+    api.post('otp.request', '', { channel: 'email', address: 'asha@example.com' });
+    assert.equal(api.locks.some((entry) => entry.startsWith('user:')), false,
+      `took a user lock: ${api.locks.join(', ')}`);
+  });
+
+  test('and give it back even when the action throws', () => {
+    // A lock left held by a failing request holds every later one out for the
+    // full timeout. `otpVerify` throws on most of its paths, so this is the
+    // common case rather than the edge one.
+    const api = withOtp();
+    const out = api.post('otp.verify', '', { address: 'asha@example.com', code: '000000' });
+
+    assert.equal(out.ok, false);
+    assert.equal(api.held.script, false, 'the lock was still held after a failure');
+  });
+
+  test('a second execution arriving mid-flight is refused, not let in', () => {
+    const api = withOtp();
+    api.post('otp.request', '', { channel: 'email', address: 'asha@example.com' });
+
+    // What the loser of an overlap finds.
+    api.held.script = true;
+    const busy = api.post('otp.verify', '', { address: 'asha@example.com', code: codeFor(123456) });
+
+    assert.equal(busy.ok, false);
+    assert.equal(busy.status, 429, busy.error);
+    // "Try again shortly" and "do not try again" cannot both be the answer.
+    // The authenticated catch has always called 429 retryable; the pre-auth
+    // one said `>= 500` and so called it permanent.
+    assert.equal(busy.retryable, true);
+
+    /*
+     * And it consumed nothing on its way out. Before the lock existed this
+     * second caller ran the whole of `otpVerify` against the same cache entry
+     * the first one was working on; here it never reaches it, so the code is
+     * still there for whoever holds the lock to use once.
+     */
+    api.held.script = false;
+    const after = api.post('otp.verify', '', { address: 'asha@example.com', code: codeFor(123456) });
+    assert.equal(after.ok, true, after.error);
+    assert.equal(after.data.verified, true);
+  });
+
+  test('a refused caller does not spend one of the five wrong guesses', () => {
+    const api = withOtp();
+    api.post('otp.request', '', { channel: 'email', address: 'asha@example.com' });
+
+    api.held.script = true;
+    for (let i = 0; i < 10; i += 1) {
+      const busy = api.post('otp.verify', '', { address: 'asha@example.com', code: '000000' });
+      assert.equal(busy.status, 429, `attempt ${i + 1}: ${busy.error}`);
+    }
+    api.held.script = false;
+
+    // Ten refusals, and the code is untouched: not destroyed, not weakened.
+    const real = api.post('otp.verify', '', { address: 'asha@example.com', code: codeFor(123456) });
+    assert.equal(real.ok, true, real.error);
+  });
+
+  test('a refused request sends nothing', () => {
+    // The rate limits are counted inside the lock too, so a request that is
+    // turned away must not have mailed on its way past them.
+    const api = withOtp();
+    api.held.script = true;
+    const busy = api.post('otp.request', '', { channel: 'email', address: 'asha@example.com' });
+
+    assert.equal(busy.status, 429, busy.error);
+    assert.deep(api.mailed, []);
+  });
+
+  test('the message a busy caller gets says nothing about the address', () => {
+    /*
+     * A pre-auth endpoint answers strangers. "Another device is writing" would
+     * tell one that somebody else is using this deployment right now; the
+     * refusal here has to be about the service, not about who else is on it.
+     */
+    const api = withOtp();
+    api.held.script = true;
+    const busy = api.post('otp.verify', '', { address: 'asha@example.com', code: codeFor(123456) });
+
+    assert.equal(/asha|example\.com|device/i.test(busy.error), false, busy.error);
+    assert.equal(/busy/i.test(busy.error), true, busy.error);
+  });
+});

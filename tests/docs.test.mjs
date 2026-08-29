@@ -149,3 +149,67 @@ describe('the phase scorecard says what the rows say', () => {
     assert.not(/\| UI-\d/.test(status), 'the UI table has been copied into the build scorecard');
   });
 });
+
+describe('the security audit covers every phase its brief has', () => {
+  /*
+   * The failure this catches is a table that ends early.
+   *
+   * §9 of `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md` follows a thirteen-phase
+   * brief and listed ten. Three rows absent reads exactly like three rows
+   * passing — the reader has no way to tell "we did not get there" from "there
+   * was nothing to say", and the missing three were the weakest of the set.
+   *
+   * The count is a constant here because the brief is not in the repository;
+   * it is the one number in this file taken from outside it, so it is stated
+   * once, next to the reason, rather than assumed by whoever next extends the
+   * table.
+   */
+  const PHASES = 13;
+  const audit = readFileSync(join(ROOT, 'docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md'), 'utf8');
+
+  /** The rows of the §9 table that carry a phase number, in the order given. */
+  const numbered = audit
+    .slice(audit.indexOf('## 9.'))
+    .split('\n')
+    .map((line) => /^\|\s*(\d+)\s*\|/.exec(line))
+    .filter(Boolean)
+    .map((match) => Number(match[1]));
+
+  test('every phase of the brief has a row', () => {
+    const missing = [];
+    for (let n = 1; n <= PHASES; n += 1) if (!numbered.includes(n)) missing.push(n);
+    assert.deep(missing, [], `phases with no row: ${missing.join(', ')}`);
+  });
+
+  test('and they are in order, with none repeated', () => {
+    assert.deep(numbered, [...numbered].sort((a, b) => a - b));
+    assert.equal(new Set(numbered).size, numbered.length);
+  });
+
+  test('every finding in the body is accounted for in the table', () => {
+    /*
+     * The other half of the same fault. SEARCH-01 was written up in §5 and
+     * never added to §9, so the ordered view of the work did not contain a
+     * finding the document itself called HIGH.
+     */
+    const findings = new Set(
+      [...audit.matchAll(/^### ([A-Z]+-\d+)\b/gm)].map((m) => m[1]),
+    );
+    /*
+     * The rows, not the section. Searching the whole of §9 was a check that
+     * could not fail: the prose under the table names the findings too, so
+     * deleting one *from the table* left it on the page and the test stayed
+     * green — the same shape as the SETUP.md list two blocks up, caught the
+     * same way, by mutating it.
+     */
+    const rows = audit
+      .slice(audit.indexOf('## 9.'), audit.indexOf('## 10.'))
+      .split('\n')
+      .filter((line) => line.trimStart().startsWith('|'))
+      .join('\n');
+    const absent = [...findings].filter((id) => !rows.includes(id));
+
+    assert.ok(findings.size > 0, 'no findings parsed, so this proves nothing');
+    assert.deep(absent, [], `findings with no row in §9: ${absent.join(', ')}`);
+  });
+});
