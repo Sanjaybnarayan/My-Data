@@ -44,7 +44,6 @@
 import * as fin from './finance.js';
 import { netWorth } from './networth.js';
 import { typicalDailySpend, typicalMonthlyOutgoings } from './runway.js';
-import { commitmentSummary } from './commitments.js';
 import { unusualSpending } from './unusual.js';
 import { reviewGoals, STATUS as GOAL_STATUS } from './goals.js';
 import { today, startOfMonth, endOfMonth, addMonths, formatDay } from '../core/dates.js';
@@ -93,7 +92,12 @@ export function position(data, { clock = Date.now } = {}) {
   // as an unknown property and was silently dropped, so this counted bills
   // against the real today rather than the one the caller asked for.
   const bills = fin.upcomingBills(recurring, loans, { from: today(clock) });
-  const commitments = commitmentSummary({ recurring, loans, subscriptions, digitalAssets });
+  // `commitmentSummary` carries the recurring bills and EMIs in `base`, and
+  // adds only subscriptions itself. Calling it directly without `base` left
+  // this line reporting subscriptions alone under a label naming all three:
+  // rent, utilities and every EMI were loaded, passed in, and dropped.
+  // `fin.committed` is the one caller that fills `base` in.
+  const commitments = fin.committed({ recurring, loans, subscriptions, digitalAssets });
   const goalRows = reviewGoals(goals, {
     balanceOf: (id) => balanceMap(accounts, transactions).get(id) ?? 0,
     holdingValueOf: (id) => holdings.find((h) => h.id === id)?.currentValue ?? 0,
