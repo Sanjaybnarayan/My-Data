@@ -38,6 +38,9 @@
  * that has not looked at it has not verified it.
  */
 
+import { wasCheckable } from '../domain/statement.js';
+import { t } from '../core/locale.js';
+
 /** How a value got here. */
 export const SOURCES = Object.freeze({
   STATEMENT: 'statement',
@@ -86,10 +89,19 @@ const READERS = {
         evidence: record.importKey || null,
         // `reconciled` on a transaction means its statement's arithmetic
         // closed. That is a property of the *import*, not a person's sign-off.
+        //
+        // It was written as the literal `true` on every imported row, so this
+        // was `'high'` for everything and the branch below could never fire —
+        // including for rows out of a statement whose arithmetic did not
+        // close. `toRecord` now carries the statement's real answer.
         confidence: record.reconciled ? 'high' : 'medium',
+        // The row knows only that its statement did not reconcile, never
+        // which of the two reasons: the arithmetic failed, or there was no
+        // arithmetic to do. Naming one of them would be right half the time,
+        // so this names the record that holds the answer instead.
         note: record.reconciled
           ? null
-          : 'the statement it came from did not add up',
+          : 'the statement it came from was not reconciled — open it to see why',
       };
     }
     return {
@@ -159,6 +171,27 @@ const READERS = {
   },
 
   bankStatement(record) {
+    // Three states, not two. `reconciled` is a boolean and `reconcile` returns
+    // `balanced: true` for a file with no balances to compare against — the
+    // sum of the rows equals the sum of the same rows, however wrong they are.
+    // A credit-card export is exactly that case, and stored on its own the
+    // `true` read as a pass: this line said "the arithmetic closed against the
+    // printed closing balance" about a record whose own `closingBalance` is
+    // null. `wasCheckable` asks the record, deriving the answer from the two
+    // balances it already carries rather than from a third field free to
+    // disagree with them.
+    if (!wasCheckable(record)) {
+      return {
+        source: SOURCES.DOCUMENT,
+        sourceId: record.fileName || null,
+        method: METHODS.PARSED_COLUMNS,
+        // Not `low`: nothing here contradicts the rows. Not `high`: nothing
+        // confirms them either. `medium` already means read correctly and
+        // checked by nothing, which is exactly what this is.
+        confidence: 'medium',
+        note: t('provenance.statement.uncheckable'),
+      };
+    }
     return {
       source: SOURCES.DOCUMENT,
       sourceId: record.fileName || null,

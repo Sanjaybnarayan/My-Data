@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb, makePerson } from './fixture.mjs';
 import {
   fingerprint, scoreAccount, matchAccount, accountFromStatement,
   categoryFor, methodFor, kindFor, toRecord, planStatement, toStatementRecord, reviewBatch,
 } from '../js/domain/import.js';
+import { provenanceOf } from '../js/data/provenance.js';
 import { entities } from '../js/data/schema.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
@@ -13,6 +17,8 @@ import {
 } from '../js/core/config.js';
 
 setSuite('import');
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /* ---------------------------------------------------------------- fixtures */
 
@@ -224,6 +230,53 @@ describe('records', () => {
     assert.equal(record.method, 'UPI');
     assert.equal(record.statement, 'stm_1');
     assert.ok(record.importKey.includes('acc_1'));
+  });
+
+  test('a row does not claim its statement reconciled unless it did', () => {
+    /*
+     * `reconciled` was the literal `true` on every imported row, whatever the
+     * statement's arithmetic did. `provenance.js` reads it as confidence, so
+     * every imported transaction was reported high confidence — including rows
+     * out of a statement that demonstrably did not add up — and the branch
+     * saying otherwise could never fire.
+     */
+    const row = {
+      date: '2025-04-01', amount: 50_000, direction: 'out', category: 'food-delivery',
+      channel: 'upi', counterparty: 'ZOMATO LIMITED',
+    };
+    const from = (extra) => toRecord(row, { accountId: 'acc_1', statementId: 'stm_1', ...extra });
+
+    assert.equal(from({ reconciled: true }).reconciled, true);
+    assert.equal(from({ reconciled: false }).reconciled, false);
+    // A caller that does not say cannot be claiming it closed.
+    assert.equal(from({}).reconciled, false);
+  });
+
+  test('and the screen that writes rows actually passes it', () => {
+    /*
+     * The join. `toRecord` takes the value and `provenance.js` reads it, and
+     * both are covered above — but the only caller that produces it for a real
+     * import is the statements screen, and a mutation dropping `checkable`
+     * from that expression passed every other test in this file.
+     *
+     * A source check rather than a behavioural one, and said plainly: the
+     * screen is a browser module. It fails if somebody goes back to passing
+     * `balanced` alone, which is the mistake this whole change is about.
+     */
+    const src = readFileSync(join(ROOT, 'js/modules/statements.js'), 'utf8');
+    const call = src.slice(src.indexOf('toRecord(row'));
+    const args = call.slice(0, call.indexOf('}'));
+    assert.includes(args, 'reconciled:', 'the screen no longer passes reconciled at all');
+    assert.includes(args, 'checkable', 'the screen passes balanced without checkable');
+  });
+
+  test('and the reading of that row follows it', () => {
+    // The half that makes the field worth carrying: both ends, and the join.
+    const row = { date: '2025-04-01', amount: 1, direction: 'out', category: 'other-spend' };
+    const closed = toRecord(row, { accountId: 'a', statementId: 's', reconciled: true });
+    const not = toRecord(row, { accountId: 'a', statementId: 's', reconciled: false });
+    assert.equal(provenanceOf('transaction', closed).confidence, 'high');
+    assert.equal(provenanceOf('transaction', not).confidence, 'medium');
   });
 });
 

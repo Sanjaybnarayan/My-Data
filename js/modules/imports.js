@@ -34,6 +34,7 @@ import { format } from '../core/money.js';
 import { formatDay } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
+import { t } from '../core/locale.js';
 
 export async function render() {
   const { db } = app();
@@ -207,7 +208,14 @@ export async function render() {
       ]),
 
       h('div', { class: 'chip-row' }, [
-        entry.reconciled ? badge('arithmetic closes', 'success') : badge('did not reconcile', 'warn'),
+        // Three states. A card export has no balances to check against, so
+        // `reconciled` is a vacuous true on it — a green "arithmetic closes"
+        // on the one kind of file where nothing was checked at all.
+        !entry.checkable
+          ? badge(t('imports.badge.uncheckable'), 'info')
+          : entry.reconciled
+            ? badge('arithmetic closes', 'success')
+            : badge('did not reconcile', 'warn'),
         missing ? badge(`${entry.claimed - entry.count} rows already deleted`, 'info') : null,
         entry.statement.problems ? badge('had unreadable rows', 'warn') : null,
       ].filter(Boolean)),

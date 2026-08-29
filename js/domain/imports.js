@@ -28,6 +28,8 @@
  * remove was not the one they clicked.
  */
 
+import { wasCheckable } from './statement.js';
+
 /**
  * Every import, newest first, with what it brought in.
  *
@@ -66,6 +68,10 @@ function summarise(statement, rows) {
     periodFrom: statement.periodFrom,
     periodTo: statement.periodTo,
     reconciled: Boolean(statement.reconciled),
+    // Whether that answer meant anything. Derived from the two balances the
+    // record already carries, so it cannot disagree with them — and so an
+    // import written before this existed is described correctly too.
+    checkable: wasCheckable(statement),
     // What the record *claimed* it wrote, against what is actually still
     // there. They differ when somebody has since deleted rows by hand, and a
     // household about to undo an import should see that before they do.
