@@ -33,10 +33,23 @@ anybody. The trade is that you do the setup once.
 
 1. Go to <https://script.google.com> and create a new project. Call it
    `FamilyOS`.
-2. Copy in the five files from `apps-script/`:
-   - `Code.gs`, `Sheets.gs`, `Drive.gs`, `Gmail.gs`
+2. Copy in **every** file from `apps-script/` — all six scripts and the
+   manifest:
+   - `Code.gs`, `Policy.gs`, `Sheets.gs`, `Drive.gs`, `Gmail.gs`, `Otp.gs`
    - `appsscript.json` — click the gear icon → **Show "appsscript.json"
      manifest file in editor**, then replace its contents.
+
+   `Policy.gs` is not optional and is easy to miss because it is generated
+   rather than hand-written: `Sheets.gs` calls `policyAllows` and
+   `ownRecordAllows` from it with no guard, so a deployment without it throws
+   `policyAllows is not defined` on every push and pull and nothing syncs at
+   all. `Otp.gs` degrades quietly instead — `Code.gs` checks for it before
+   calling it — so leaving it out just means sign-in by code does not exist.
+
+   This list is checked against the directory by
+   `tests/docs.test.mjs`, because it was wrong: it named four scripts and
+   called them five, and the two it omitted were the authorisation rules and
+   the one-time codes.
 3. **Deploy → New deployment → Web app**:
    - Execute as: **Me**
    - Who has access: **Anyone**
@@ -147,6 +160,33 @@ anything can open. That is deliberate.
 
 Finish with **Settings → Sync → Verify backup**, which compares row counts on
 this device with row counts in the sheet and tells you if they disagree.
+
+---
+
+## Updating the backend later
+
+`apps-script/` is source somebody pastes into script.google.com. Nothing in
+this repository can reach your deployment, so a change to any `.gs` file does
+nothing at all until you paste it in again — however green the tests are.
+
+**Do not use "New deployment" for an update.** That mints a *second* web app
+with a *different* `/exec` URL, leaves the old one running the old code, and
+the app keeps talking to the old one. The symptom is a change that visibly
+does not take effect, with no error anywhere.
+
+To update an existing deployment:
+
+1. Open the project at <https://script.google.com>.
+2. Replace the contents of each changed file. If a **new** file has appeared
+   in `apps-script/` since you set up, add it — see the list in Step 1.
+3. **Deploy → Manage deployments** → the pencil (Edit) on your existing
+   deployment → **Version: New version** → **Deploy**.
+4. The `/exec` URL does not change, so nothing in Settings needs touching.
+
+If Google asks you to approve scopes again, a file has asked for a permission
+the old version did not have. That is worth reading rather than clicking
+through: `docs/SETUP.md` lists every scope and what buys it, under *Google
+permissions, in full*.
 
 ---
 
