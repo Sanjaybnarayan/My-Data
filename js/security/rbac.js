@@ -121,6 +121,17 @@ export function can(actor, action, entityName, record = null) {
 function isAbout(actor, entityName, record) {
   const field = SUBJECT_FIELD[entityName];
   if (!field) return false;
+  // An account the owner has not yet matched to a person carries
+  // `personId: ''`, and `validate.js` normalises every optional `ref` left
+  // empty to `''` as well. Without this guard those two met as `'' === ''`,
+  // so an unassigned task, a note with no author and a health record naming
+  // nobody were each "about" every unbound account — read *and* write, on
+  // entities whose ACL denies the role outright. Binding an account made it
+  // more restricted, which is the wrong way round for a control that exists
+  // so a shared family device does not expose one sibling's records to
+  // another. `ownRecordAllows` in the generated backend policy has always
+  // refused an empty `personId`; this is the client agreeing with it.
+  if (!actor.personId) return false;
   return record[field] === actor.personId;
 }
 

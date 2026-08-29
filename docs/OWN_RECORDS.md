@@ -139,6 +139,16 @@ No finding; I was looking in the wrong place.
   `personId`, so nothing changes until an owner sets one on the Settings screen.
   That is the safe direction, and it does mean the feature is inert on upgrade
   until somebody opts in.
+
+  *Corrected.* On the server that sentence was true, because `ownRecordAllows`
+  opens with `if (!personId) return false;`. On the client it was not: `isAbout`
+  compared `record[field] === actor.personId` with no such guard, and
+  `validate.js` stores a blank optional ref as `''`, so an unbound account
+  matched every row that named nobody — read and write, through the repository,
+  on entities whose access list denies the role. Not "nothing changes" but
+  "more is reachable", and the account with no identity had the most. The
+  client now carries the same guard. See
+  `docs/THE_ACCOUNT_THAT_WAS_NOBODY.md`.
 - **The browser does not know about the server's `person` exclusion.** It will
   still offer a child their own person record, and that push will still park.
   One divergence remains, now with a reason attached.
