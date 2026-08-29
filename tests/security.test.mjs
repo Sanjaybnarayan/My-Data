@@ -10,7 +10,10 @@ import {
   passwordEntropy, passwordStrength, timingSafeEqual, toBase64, fromBase64,
 } from '../js/security/crypto.js';
 import { Keyring } from '../js/security/keyring.js';
-import { can, assertCan, rowFilter, visibleEntities, visibleModules, atLeast } from '../js/security/rbac.js';
+import {
+  can, assertCan, rowFilter, visibleEntities, visibleModules, atLeast, SUBJECT_FIELD,
+} from '../js/security/rbac.js';
+import { validate } from '../js/data/validate.js';
 import { Session, AttemptLimiter, memoryStorage } from '../js/security/session.js';
 import {
   escapeForSheet, unescapeFromSheet, escapeCsv, stripTags, safeUrl, safeFileName,
@@ -236,6 +239,76 @@ describe('roles', () => {
     assert.ok(keep({ assignee: 'p3' }));
     assert.not(keep({ assignee: 'p1' }));
     assert.not(rowFilter(guest, 'transaction')({}));
+  });
+
+  test('an account not yet matched to a person is about nothing', () => {
+    // Records built through the real validator, because the fault was two
+    // empty strings meeting: `validate.js` normalises an optional `ref` left
+    // blank to `''`, and an account the owner has not matched to a person
+    // carries `personId: ''`. Inventing the record here would have tested a
+    // shape nobody stores.
+    const unbound = { personId: '', role: 'child' };
+    const task = validate('task', { title: 'Buy milk', status: 'todo' }).record;
+    assert.equal(task.assignee, '', 'the validator no longer blanks an unset ref');
+
+    assert.not(can(unbound, 'read', 'task', task));
+    assert.not(can(unbound, 'write', 'task', task),
+      'an unassigned task was writable by an account with no identity');
+
+    const health = validate('healthRecord', { title: 'Scan', kind: 'report' }).record;
+    assert.equal(health.person, '');
+    assert.not(can(unbound, 'write', 'healthRecord', health),
+      'a health record naming nobody was writable by an account naming nobody');
+  });
+
+  test('and no own-record entity lets an unbound account in', () => {
+    // Derived from the one table rather than a list of entities to keep in
+    // step with it. Every entry is a (role, entity) pair the backend's
+    // `ownRecordAllows` has always refused for an empty personId.
+    const unbound = { personId: '', role: 'child' };
+    for (const [name, field] of Object.entries(SUBJECT_FIELD)) {
+      const blank = { [field]: '' };
+      assert.not(can(unbound, 'read', name, blank), `${name} was readable`);
+      assert.not(can(unbound, 'write', name, blank), `${name} was writable`);
+      assert.not(rowFilter(unbound, name)(blank), `${name} survived the list filter`);
+    }
+  });
+
+  test('matching the account to a person is what grants their own rows', () => {
+    // The other direction: the guard must not have shut the door on the
+    // access it exists to allow. Before the fix this pair ran backwards —
+    // the unbound account saw more than the bound one.
+    const bound = { personId: 'p3', role: 'child' };
+    const mine = validate('task', { title: 'Homework', status: 'todo', assignee: 'p3' }).record;
+    const theirs = validate('task', { title: 'Homework', status: 'todo', assignee: 'p9' }).record;
+    assert.ok(can(bound, 'read', 'task', mine));
+    assert.not(can(bound, 'read', 'task', theirs));
+    assert.ok(rowFilter(bound, 'task')(mine));
+    assert.not(rowFilter(bound, 'task')(theirs));
+  });
+
+  test('and the repository is where that is enforced, not the predicate', async () => {
+    /*
+     * `can()` returning false proves the function works and says nothing
+     * about the application. Measured through the real door, before the
+     * guard existed:
+     *
+     *     unbound child list()   → 1 row
+     *     unbound child update() → ALLOWED
+     *
+     * A task the household made, listed and rewritten by an account the
+     * owner had never matched to anybody.
+     */
+    const db = await makeDb({ role: 'owner', personId: 'per_owner' });
+    const made = await db.repo('task').create({ title: 'Buy milk', status: 'todo' });
+    assert.equal(made.assignee, '', 'the fixture no longer stores a blank ref');
+
+    db.setActor({ personId: '', role: 'child' });
+    assert.length(await db.repo('task').list(), 0, 'an unbound account listed the row');
+    await assert.throws(
+      () => db.repo('task').update(made.id, { title: 'Buy biscuits' }),
+      'permission',
+    );
   });
 
   test('an unknown role is refused everything', () => {
