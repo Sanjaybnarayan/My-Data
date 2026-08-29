@@ -79,6 +79,7 @@ The service layer exists and is adopted in part:
 | Sign-in by code opens a new device | **exists, off by default, owner-only** | `wired:js/auth/lock.js#CODE_METHOD` |
 | A screen never guesses what a code unlocks | **exists** | `export:js/domain/otp.js#WHAT_IS_NOT_KNOWN` |
 | Message sender checked against the key that sealed it | **exists** | `wired:js/services/chat.js#attributionOf` |
+| The Google refresh token is sealed, not merely said to be | **exists** | `wired:js/auth/googlenative.js#REFRESH_AAD` |
 | MFA | missing | `absent:grep:multi-factor` |
 | Session security | **exists** | `export:js/security/session.js#Session` |
 | Session revocation, device management | **exists** | `export:apps-script/Code.gs#manageDevices` |

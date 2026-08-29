@@ -709,6 +709,8 @@ export const strings = {
   'chat.file.open': 'Open',
   'chat.file.chosen': 'Ready to send: {name}',
   'chat.file.gone': 'That file is no longer on this device.',
+  'auth.google.locked': 'This device is locked, so the saved Google sign-in cannot be read. Unlock FamilyOS and try again.',
+  'auth.google.unreadable': 'The saved Google sign-in cannot be read on this device. Sign in with Google again.',
   'chat.attribution.disputed': 'This says it is from somebody else. The key that sealed it belongs to {name}.',
   'chat.why.withdrawn': 'This message was withdrawn.',
   'chat.why.sentBefore': 'Sent before this device joined, so it was never sealed to it.',

@@ -166,17 +166,18 @@ deciding how the owner is bound to a person record and what happens to a
 deployment where that binding does not exist yet. That is an identity-model
 change, so it is named here and not attempted.
 
-### TOK-01 · HIGH (currently unreachable) · refresh token stored in plaintext
+### TOK-01 · HIGH (currently unreachable) · refresh token stored in plaintext, behind a comment saying otherwise
 
 | | |
 | --- | --- |
-| **File** | `js/auth/googlenative.js:54,218` — `REFRESH_KEY = 'auth.googleRefreshToken'` |
-| **Vulnerability** | The Google **refresh token** is written with `db.setMeta`, which writes straight to the adapter with no encryption (`js/data/database.js:113`). On Android that is IndexedDB inside the WebView, plaintext at rest. |
+| **File** | `js/auth/googlenative.js` — `REFRESH_KEY = 'auth.googleRefreshToken'` |
+| **Vulnerability** | The Google **refresh token** was written with `db.setMeta`, which writes straight to the adapter with no encryption (`js/data/database.js:113`). On Android that is IndexedDB inside the WebView, plaintext at rest. |
+| **What makes it worse than first recorded** | The line declaring the key read: *"Where the refresh token lives. **Encrypted; see `data/schema.js` meta rules**."* There are no such rules. `meta` is declared `{ keyPath: 'key', indexes: [] }` and nothing encrypts it. A security claim with nothing checking it — the fault this repository has found most often — and this was its most expensive instance, because anybody auditing the file would have read that line and moved on. |
 | **Impact** | A refresh token grants long-lived Drive / Sheets / Gmail access to the household's Google account. The brief's §17 forbids plaintext token storage. |
 | **Mitigations that are real** | `android:allowBackup="false"`, sandboxed app data. |
-| **Why not CRITICAL** | `tools/native-scheme.mjs` reports *"no googleNativeClientId configured"* — this path is dormant in the shipping build. The code exists and would activate the moment a native client id is set. |
-| **Backend required** | No. Needs a Keystore-backed native storage bridge, or the existing keyring. |
-| **Status** | **Not fixed.** |
+| **Why not CRITICAL** | `tools/native-scheme.mjs` reports *"no googleNativeClientId configured"* — the path is dormant in the shipping build, and would activate the moment a native client id is set. |
+| **Backend required** | No. |
+| **Status** | **Fixed.** Sealed with `encryptText` under the household data key, bound by AAD to its own meta key. A device that cannot seal it **refuses to store it** rather than falling back to plaintext; a token written before this is used once and re-sealed rather than discarded, so an upgrade does not sign the household out. 4 of 4 mutations caught. |
 
 ### PRIV-01 · MEDIUM · the phone number is the one contact field left in the clear
 
@@ -242,7 +243,7 @@ Measured, not assumed.
 | SIM swap | Low | **High, and new** | Only where sign-in by code is on; owner-only, off by default | **Accepted, deliberately** — see `docs/SIGN_IN_BY_CODE.md` |
 | Apps Script project compromise | Low | **Total, where the escrow is on** | Owner's Google account security | **Accepted, deliberately** |
 | Chat impersonation | Medium | Medium | Detected and shown on the message (CHAT-01) | Detection, not prevention — the row can still be written. **CHAT-02** |
-| Refresh-token theft from device | Low | High | Dormant code path | **TOK-01** |
+| Refresh-token theft from device | Low | High | Sealed under the household data key; dormant path besides | Reading it now requires the data key, so it is as strong as the PIN — and no stronger. A Keystore-backed store is the remaining improvement |
 | Reverse-engineered APK | Certain | Low | No secrets in the APK | Accepted — the client is presentation |
 | OTP brute force | Low | Low | 5 attempts, then destroyed | Mitigated |
 | OTP flooding / SMS cost abuse | Medium | Medium | Per-address and per-deployment ceilings | Mitigated |
@@ -278,8 +279,8 @@ Following the brief's phase structure, restricted to what exists here:
 | 1 | This audit | **Done** |
 | 2 | Threat model | **Done** (§7) |
 | 3 | OTP security | Already met (§6); the escrow is documented in `docs/SIGN_IN_BY_CODE.md` |
-| 4 | Session / token | **TOK-01** |
-| 5 | Android secure storage | **TOK-01** |
+| 4 | Session / token | TOK-01 **done** |
+| 5 | Android secure storage | TOK-01 **done** in-repo. A Keystore-backed bridge would be stronger still and is not built |
 | 6 | Network security | Already met |
 | 7 | Chat identity separation | Already met — chat uses person ids, not phone numbers |
 | 8 | Chat authorisation | CHAT-01 **done**; **CHAT-02 blocked** on the owner having a server-side `personId` |
