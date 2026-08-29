@@ -61,7 +61,16 @@ export const MATCH_DAYS = 1;
 const plain = (value) => String(value ?? '').trim();
 const live = (rows) => (rows ?? []).filter((row) => row && !row.deletedAt);
 
-function daysApart(a, b) {
+/**
+ * How many days apart two `YYYY-MM-DD` dates are, or null when either is
+ * unparseable.
+ *
+ * Exported for the same reason `MATCH_DAYS` is: `domain/instalments.js` asks
+ * the same question of the same kind of rows, and a private copy there would
+ * be a second definition of "the same day" beside the constant this file
+ * already warns about duplicating.
+ */
+export function daysApart(a, b) {
   const left = Date.parse(`${plain(a)}T00:00:00Z`);
   const right = Date.parse(`${plain(b)}T00:00:00Z`);
   if (Number.isNaN(left) || Number.isNaN(right)) return null;
