@@ -464,6 +464,7 @@ export const strings = {
   'profile.wellbeingHint': 'How long applications were open on this phone, when the person it belongs to has agreed to it being read.',
   'profile.settings': 'Settings',
   'profile.settingsHint': 'Security, privacy, connections, display, data',
+  'assistant.unreadable': 'I could not read your {names} records, so I cannot answer that. This is not the same as having none — something went wrong reading them.',
   'search.keepTyping': 'Keep typing — {n} letters or more to search',
   'profile.lockNow': 'Lock now',
   'profile.lockNowHint': 'Drop the key from this device. Your PIN opens it again',

@@ -4,6 +4,7 @@ import { Assistant, matchIntent } from '../js/ai/assistant.js';
 import { parsePeriod, exampleQuestions } from '../js/ai/intents.js';
 import { summarise } from '../js/ai/summary.js';
 import { toMinor } from '../js/core/money.js';
+import { PermissionError } from '../js/core/errors.js';
 
 setSuite('assistant');
 
@@ -217,5 +218,70 @@ describe('written summary', () => {
       compare: { current: { expense: rs(50000) }, previous: { expense: rs(20000) }, expenseChange: 150 },
     });
     assert.ok(text.split('. ').length <= 3, 'a dashboard paragraph nobody reads is not a summary');
+  });
+});
+
+/*
+ * A refusal and a failure are not the same empty list.
+ *
+ * `load` used to swallow both. A role that may not read transactions
+ * legitimately contributes nothing and the answer is computed without it —
+ * that is the design. A decryption failure, a corrupt row or IndexedDB
+ * refusing is not an absence of records; it is an inability to read the ones
+ * that exist. Computing over `[]` then turns a read error into a statement
+ * about the household's money:
+ *
+ *   "No transactions are recorded between 1 Jan 2026 and 31 Dec 2026."
+ *
+ * — which is false, confident, and indistinguishable from the truth.
+ */
+describe('when the records cannot be read', () => {
+  const db = (list) => ({
+    repo: () => ({ list }),
+    search: async () => [],
+    actor: { role: 'owner' },
+  });
+
+  const ask = (fake) => new Assistant({ db: fake, clock })
+    .answer('How much did we spend this year?');
+
+  test('a read failure is refused, not answered', async () => {
+    const answer = await ask(db(async () => {
+      throw new Error('decryption failed for transaction txn_9');
+    }));
+    assert.not(/No transactions are recorded/.test(answer.text),
+      'a read error was reported as an absence of records');
+    assert.ok(/could not read/i.test(answer.text), answer.text);
+  });
+
+  test('and says which records it could not read', async () => {
+    const answer = await ask(db(async () => { throw new Error('boom'); }));
+    assert.deep(answer.unreadable, ['transaction']);
+  });
+
+  test('and says so is not the same as having none', async () => {
+    // The distinction is the whole point: a household reading "none" acts on
+    // it. One reading "I could not read them" does not.
+    const answer = await ask(db(async () => { throw new Error('boom'); }));
+    assert.ok(/not the same as having none/i.test(answer.text), answer.text);
+  });
+
+  /*
+   * The other direction, twice. Without these the guard is satisfied by
+   * refusing every question — which would break the design this file exists
+   * to protect, where a restricted role still gets an answer from what it
+   * may see.
+   */
+  test('a permission refusal still answers, because that empty is real', async () => {
+    const answer = await ask(db(async () => {
+      throw new PermissionError('read', 'transaction', 'child');
+    }));
+    assert.ok(/No transactions are recorded/.test(answer.text), answer.text);
+    assert.equal(answer.unreadable, undefined);
+  });
+
+  test('and a household with genuinely no records is told so', async () => {
+    const answer = await ask(db(async () => []));
+    assert.ok(/No transactions are recorded/.test(answer.text), answer.text);
   });
 });
