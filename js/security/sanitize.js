@@ -23,6 +23,12 @@
  *     what ships, which `tests/modules.test.mjs` proves fires. That structural
  *     rule is the real defence and it is stronger than sanitising. These stay
  *     for the day something does render markup — unwired, and now labelled.
+ *
+ *     They are also not interchangeable, which is how the no-DOM branch of
+ *     `sanitizeHtml` came to return live markup: `stripTags` **decodes**
+ *     entities on the way out, so `&lt;script&gt;` became `<script>`. That is
+ *     right for extraction and wrong for a sanitiser, and it is the reason
+ *     `escapeHtml` exists below.
  *   - `escapeForSheet` and `unescapeFromSheet` have **no caller either**. The
  *     formula-injection defence that actually runs is `defuse()` in
  *     `apps-script/Sheets.gs`, on the server, whose own comment used to call
@@ -64,7 +70,15 @@ export function safeUrl(value) {
  * evasion; an allow-list only has to know what notes are permitted to contain.
  */
 export function sanitizeHtml(html, doc = globalThis.document) {
-  if (!doc) return stripTags(html);
+  // Without a DOM there is no parser, so there is no way to do the job this
+  // function's name promises. It used to fall back to `stripTags`, which is a
+  // *text extractor*: it removes tags and then decodes entities, so
+  // `&lt;script&gt;` came back out as `<script>` — live markup, returned by a
+  // sanitiser, in the one context where nothing had parsed it. `stripTags` is
+  // right for what it is for; this was the wrong caller for it. Escaped
+  // instead, because every return of this function has to be safe to treat as
+  // HTML or the name is a lie.
+  if (!doc) return escapeHtml(html);
 
   const parsed = new DOMParser().parseFromString(String(html ?? ''), 'text/html');
   const out = doc.createDocumentFragment();
@@ -113,7 +127,24 @@ function cleanNode(node, doc) {
   return el;
 }
 
-/** Fallback when there is no DOM (report generation, tests). */
+/** The five characters that turn text into markup. */
+export function escapeHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Readable text out of markup, for reports — **not** a sanitiser.
+ *
+ * It decodes entities on the way out, which is right when the result is
+ * destined for a PDF or a spreadsheet cell and wrong every other way: the
+ * output can contain `<` and `>` and is not safe to treat as HTML. Named and
+ * documented as extraction so nothing reaches for it as a defence again.
+ */
 export function stripTags(html) {
   return String(html ?? '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')

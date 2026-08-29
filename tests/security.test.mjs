@@ -17,6 +17,7 @@ import { validate } from '../js/data/validate.js';
 import { Session, AttemptLimiter, memoryStorage } from '../js/security/session.js';
 import {
   escapeForSheet, unescapeFromSheet, escapeCsv, stripTags, safeUrl, safeFileName,
+  sanitizeHtml, escapeHtml,
 } from '../js/security/sanitize.js';
 import { modules, entitiesOfModule, entityNames, ROLES } from '../js/data/schema.js';
 
@@ -469,6 +470,33 @@ describe('output safety', () => {
     assert.equal(escapeCsv('say "hi"'), '"say ""hi"""');
     assert.equal(escapeCsv('plain'), 'plain');
     assert.equal(escapeCsv('=cmd'), "'=cmd", 'the formula guard applies to CSV too');
+  });
+
+  test('stripTags is an extractor, and its output is not safe as markup', () => {
+    /*
+     * It strips tags and *then* decodes entities, so encoded markup comes back
+     * out live. That is correct for what it is for — readable text in a PDF or
+     * a spreadsheet cell — and it is why it must never be reached for as a
+     * defence. Pinned so the property is a decision rather than a surprise.
+     */
+    assert.equal(stripTags('&lt;script&gt;alert(1)&lt;/script&gt;'), '<script>alert(1)</script>');
+  });
+
+  test('and sanitizeHtml with no DOM does not hand that back', () => {
+    // It used to: the no-DOM branch fell through to `stripTags`, so a
+    // sanitiser returned live markup in the one context where nothing had
+    // parsed it. Every return of that function has to be safe to treat as
+    // HTML or the name is a lie.
+    const out = sanitizeHtml('&lt;script&gt;alert(1)&lt;/script&gt;', null);
+    assert.not(/<script>/.test(out), `a sanitiser returned live markup: ${out}`);
+    assert.not(/<[a-z]/i.test(out), out);
+  });
+
+  test('escapeHtml covers the five characters that make markup', () => {
+    assert.equal(escapeHtml('<a href="x">&\'</a>'),
+      '&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;');
+    assert.equal(escapeHtml(''), '');
+    assert.equal(escapeHtml(null), '');
   });
 
   test('a script tag does not survive stripping', () => {

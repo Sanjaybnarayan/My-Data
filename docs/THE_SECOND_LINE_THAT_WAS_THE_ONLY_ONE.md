@@ -97,10 +97,43 @@ row.push(defuse(value.join(', ')));
 ```
 
 Everything else is comments telling the truth. `escapeForSheet` and
-`sanitizeHtml` are **kept and labelled unwired** rather than deleted — they
-are correct code for a day that may come — and rather than wired, because
-prefixing on the client would change what goes over the wire and what
-`restore()` has to strip. That is a change to stored data, not to a defence.
+`sanitizeHtml` are **kept and labelled unwired** rather than deleted, and
+rather than wired — prefixing on the client would change what goes over the
+wire and what `restore()` has to strip, which is a change to stored data, not
+to a defence.
+
+## A claim in this document that did not survive checking
+
+An earlier draft of the paragraph above said those functions are "correct code
+for a day that may come". That was asserted, not verified, in a document whose
+whole subject is asserting defences that do not run — so it was checked, and
+half of it was wrong.
+
+`sanitizeHtml` fell through to `stripTags` when there is no DOM. `stripTags`
+strips tags and **then decodes entities**:
+
+```js
+.replace(/<[^>]*>/g, '')
+.replace(/&lt;/g, '<')
+.replace(/&gt;/g, '>')
+```
+
+so encoded markup comes back out live:
+
+```
+stripTags('&lt;script&gt;alert(1)&lt;/script&gt;')  →  "<script>alert(1)</script>"
+```
+
+That is correct for what `stripTags` is *for* — readable text in a PDF or a
+spreadsheet cell, where decoding is what you want — and wrong for a function
+named `sanitizeHtml`, which returned it in the one context where nothing had
+parsed anything. The no-DOM branch now escapes instead, because every return
+of that function has to be safe to treat as HTML or the name is a lie, and
+`stripTags` is documented as extraction so nothing reaches for it as a defence
+again.
+
+Neither had a single test. They have three now, including one pinning
+`stripTags`' decoding as a decision rather than a surprise.
 
 ## Round-trip
 
