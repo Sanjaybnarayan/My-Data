@@ -29,6 +29,24 @@ describe('what was imported', () => {
     assert.equal(entry.moneyIn, 5_000_000);
   });
 
+  test('a card export is not listed as having balanced', () => {
+    // `reconciled` is a vacuous true on a file with no balances to compare
+    // against, and the screen turned it into a green "arithmetic closes"
+    // badge. The entry now carries whether the answer meant anything.
+    const [card] = importList(
+      [statement({ reconciled: true, openingBalance: null, closingBalance: null })],
+      [transaction()],
+    );
+    assert.equal(card.reconciled, true, 'the stored value is unchanged');
+    assert.not(card.checkable, 'a file with no balances was reported as checked');
+
+    const [bank] = importList(
+      [statement({ reconciled: true, openingBalance: 100, closingBalance: 250 })],
+      [transaction()],
+    );
+    assert.ok(bank.checkable);
+  });
+
   test('rows belonging to another file are not counted against this one', () => {
     const [entry] = importList([statement()], [transaction(), transaction({ statement: 's2' })]);
     assert.equal(entry.count, 1);

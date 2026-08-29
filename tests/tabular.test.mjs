@@ -2,8 +2,8 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   parseDelimited, detectHeader, readAmount, readDate, parseTable, looksLikeCard,
 } from '../js/domain/tabular.js';
-import { planStatement } from '../js/domain/import.js';
-import { reconcile } from '../js/domain/statement.js';
+import { planStatement, toStatementRecord } from '../js/domain/import.js';
+import { reconcile, wasCheckable } from '../js/domain/statement.js';
 
 setSuite('tabular');
 
@@ -238,6 +238,35 @@ describe('a credit card statement', () => {
     const check = reconcile(parseTable(csv, { card: true }));
     assert.not(check.checkable);
     assert.ok(check.balanced, 'nothing to compare against still reads as no discrepancy');
+  });
+
+  test('and the record written from it says so too', () => {
+    /*
+     * The half that was missing. `checkable` was computed here, asserted
+     * above, and read by no application code at all — `toStatementRecord`
+     * stored `balanced` alone, under a field labelled "Arithmetic closes".
+     *
+     * `wasCheckable` asks the stored record the same question, derived from
+     * the two balances it already carries, so no third field can disagree
+     * with them and an import written before any of this is described
+     * correctly without being migrated.
+     */
+    const parsed = parseTable(csv, { card: true });
+    const plan = planStatement([], { file: 'card-may.csv', parsed, accounts: [] });
+    const record = toStatementRecord(plan,
+      { accountId: 'acc1', importedCount: 3, today: '2026-08-29' });
+
+    assert.equal(record.closingBalance, null, 'a card export has no closing balance');
+    assert.not(wasCheckable(record), 'a record with no balances read as checked');
+  });
+
+  test('a bank statement, which has both balances, still is', () => {
+    // The other direction: the derivation must not have made everything
+    // uncheckable.
+    assert.ok(wasCheckable({ openingBalance: 10000, closingBalance: 25000 }));
+    // Zero is a balance. `!balance` would have made a genuinely empty month
+    // uncheckable, which is a different claim from having no figure at all.
+    assert.ok(wasCheckable({ openingBalance: 0, closingBalance: 0 }));
   });
 
   test('a purchase is money leaving the household even though it credits nothing', () => {

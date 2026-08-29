@@ -663,3 +663,23 @@ export function reconcile({ transactions, openingBalance, closingBalance }) {
     checkable: openingBalance !== null && closingBalance !== null,
   };
 }
+
+/**
+ * Whether a *stored* statement had anything to check its arithmetic against.
+ *
+ * The same question `reconcile` answers as `checkable`, asked of the record
+ * rather than the parse — and derived from the two balances the record
+ * already carries rather than stored a third time. A boolean beside them
+ * would be free to disagree with them; this cannot.
+ *
+ * It exists because `reconciled` is a boolean and the truth has three states:
+ * the arithmetic closed, the arithmetic did not close, and there was no
+ * arithmetic to do. A credit-card export is the third — no running balance,
+ * no printed closing figure — and `reconcile` returns `balanced: true` for it,
+ * because the sum of the rows always equals the sum of the same rows. Stored
+ * on its own that reads as a pass.
+ */
+export function wasCheckable(record) {
+  return record?.openingBalance !== null && record?.openingBalance !== undefined
+    && record?.closingBalance !== null && record?.closingBalance !== undefined;
+}

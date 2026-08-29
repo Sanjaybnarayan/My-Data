@@ -468,10 +468,10 @@ export async function render() {
             );
 
             for (const row of rows) {
-              await unit.create(
-                'transaction',
-                toRecord(row, { accountId, statementId: statement.id, personId: plan.personId }),
-              );
+              await unit.create('transaction', toRecord(row, {
+                accountId, statementId: statement.id, personId: plan.personId,
+                reconciled: plan.check.balanced && plan.check.checkable, // see `toRecord`
+              }));
             }
           });
 

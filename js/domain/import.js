@@ -228,8 +228,19 @@ export function kindFor(category, direction) {
   return direction === 'in' ? 'income' : 'expense';
 }
 
-/** One categorised statement line as a `transaction` record. */
-export function toRecord(row, { accountId, statementId = '', personId = '' }) {
+/**
+ * One categorised statement line as a `transaction` record.
+ *
+ * `reconciled` is the statement's own answer, passed in. It used to be the
+ * literal `true` on every row, which made `provenance.js` report every
+ * imported transaction as high confidence — including rows out of a statement
+ * whose arithmetic demonstrably did not close, and made the branch that says
+ * so unreachable. It defaults to `false` rather than `true` because a caller
+ * that does not know cannot be claiming that it closed.
+ */
+export function toRecord(row, {
+  accountId, statementId = '', personId = '', reconciled = false,
+}) {
   return {
     date: row.date,
     kind: kindFor(row.category, row.direction),
@@ -245,7 +256,7 @@ export function toRecord(row, { accountId, statementId = '', personId = '' }) {
     balance: row.balance ?? null,
     statement: statementId,
     importKey: fingerprint(accountId, row),
-    reconciled: true,
+    reconciled,
     tags: [],
   };
 }

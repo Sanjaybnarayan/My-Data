@@ -774,4 +774,7 @@ export const strings = {
   'locale.complete': '{name} — complete',
   'locale.refused': '{n} lines in {name} were left in English because a number or name was missing from the translation',
   'locale.only': 'FamilyOS is available in English only. docs/LOCALISATION.md says what a second language needs.',
+
+  'provenance.statement.uncheckable': 'this file carries no opening or closing balance, so the arithmetic could not be checked at all — a credit-card export is the usual reason',
+  'imports.badge.uncheckable': 'nothing to check the arithmetic against',
 };

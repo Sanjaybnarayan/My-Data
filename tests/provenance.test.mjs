@@ -61,7 +61,10 @@ describe('confidence is not verification', () => {
   test('a reconciled statement is high confidence and still unverified', () => {
     // The whole point. Arithmetic agreeing with arithmetic is strong evidence
     // and is not a person having looked.
-    const p = provenanceOf('bankStatement', { fileName: 'april.pdf', reconciled: true });
+    // Both balances, because a bank statement has both and the reading now
+    // asks the record whether there was anything to check against.
+    const p = provenanceOf('bankStatement',
+      { fileName: 'april.pdf', reconciled: true, openingBalance: 10000, closingBalance: 25000 });
     assert.equal(p.confidence, 'high');
     assert.equal(p.verification, VERIFICATION.UNVERIFIED);
   });
@@ -72,15 +75,46 @@ describe('confidence is not verification', () => {
       ['transaction', { payee: 'typed' }],
       ['receipt', { messageId: 'm' }],
       ['document', { driveFileId: 'd' }],
-      ['bankStatement', { reconciled: true }],
+      ['bankStatement', { reconciled: true, openingBalance: 1, closingBalance: 2 }],
     ]) {
       assert.equal(provenanceOf(name, record).verification, VERIFICATION.UNVERIFIED,
         `${name} claimed a verification nobody performed`);
     }
   });
 
+  test('a card statement is not told its arithmetic closed', () => {
+    /*
+     * `reconcile` returns `balanced: true` for a file with no balances to
+     * compare against — the sum of the rows equals the sum of the same rows,
+     * however wrong they are. `tests/tabular.test.mjs` has always asserted
+     * exactly that. Stored as `reconciled` and read here, it produced:
+     *
+     *     "the arithmetic closed against the printed closing balance"
+     *
+     * on a record whose own `closingBalance` is null.
+     */
+    const card = {
+      fileName: 'card-may.csv', reconciled: true,
+      openingBalance: null, closingBalance: null,
+    };
+    const p = provenanceOf('bankStatement', card);
+    assert.equal(p.confidence, 'medium', 'a vacuous reconcile read as high confidence');
+    assert.includes(p.note, 'could not be checked');
+    assert.not(/closed against/.test(p.note), p.note);
+    assert.not(/did not close/.test(p.note), 'nothing failed — there was nothing to do');
+  });
+
+  test('and neither is one whose balances were never recorded', () => {
+    // The same derivation, reached the other way: an older import that stored
+    // no balances cannot have checked anything either, and is now described
+    // correctly without a migration touching it.
+    const p = provenanceOf('bankStatement', { fileName: 'old.pdf', reconciled: true });
+    assert.equal(p.confidence, 'medium');
+  });
+
   test('a statement that did not close is low confidence', () => {
-    const p = provenanceOf('bankStatement', { fileName: 'x.pdf', reconciled: false });
+    const p = provenanceOf('bankStatement',
+      { fileName: 'x.pdf', reconciled: false, openingBalance: 10000, closingBalance: 25000 });
     assert.equal(p.confidence, 'low');
     assert.includes(p.note, 'did not close');
   });
@@ -93,7 +127,7 @@ describe('explaining it to a person', () => {
     // row. The reason now comes from whichever reader produced it, because a
     // wrong explanation attached to a real figure is worse than none.
     const said = explain('transaction', { statement: 's', reconciled: false });
-    assert.includes(said, 'did not add up');
+    assert.includes(said, 'was not reconciled');
     assert.not(/wording/.test(said), said);
   });
 
