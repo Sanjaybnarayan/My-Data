@@ -140,9 +140,9 @@ describe('managing the list', () => {
     const result = api.manageMembers({ emails: [SPOUSE] },
       { email: OWNER, owner: OWNER, isOwner: true });
 
-    assert.deep(result.members, [{ email: SPOUSE, role: 'guest' }]);
+    assert.deep(result.members, [{ email: SPOUSE, role: 'guest', personId: '' }]);
     assert.deep(JSON.parse(api.props.getProperty('members')),
-      [{ email: SPOUSE, role: 'guest' }]);
+      [{ email: SPOUSE, role: 'guest', personId: '' }]);
   });
 
   test('an unnamed role is guest, never the most privileged one', () => {
@@ -162,7 +162,95 @@ describe('managing the list', () => {
       { email: OWNER, owner: OWNER, isOwner: true },
     );
     assert.deep(result.members,
-      [{ email: SPOUSE, role: 'spouse' }, { email: STRANGER, role: 'child' }]);
+      [{ email: SPOUSE, role: 'spouse', personId: '' },
+        { email: STRANGER, role: 'child', personId: '' }]);
+  });
+
+  test('the person the owner picked is the person that is stored', () => {
+    /*
+     * Settings → Household has had a person picker since `ownRecordAllows`
+     * existed. The choice travelled to the backend and this function dropped
+     * it: the loop built `{ email, role }` and nothing else, so `members()`
+     * — which reads `entry.personId` and explains that it is what lets a child
+     * reach their own health record — found it absent on every entry ever
+     * written. `tests/policy.test.mjs` could not see it, because it builds a
+     * context with a personId already in it.
+     */
+    const api = start();
+    api.manageMembers(
+      { emails: [{ email: SPOUSE, role: 'spouse', personId: 'per_01ABC' }] },
+      { email: OWNER, owner: OWNER, isOwner: true },
+    );
+
+    assert.equal(JSON.parse(api.props.getProperty('members'))[0].personId, 'per_01ABC');
+    // And it survives the read, which is the half that already worked.
+    assert.equal(api.members()[0].personId, 'per_01ABC');
+  });
+
+  test('and it reaches the caller context, which is where it is used', () => {
+    // The wiring, end to end: picker → stored list → `admit` → `context`.
+    // `Sheets.gs` reads `context.personId` and nothing else supplies it.
+    const api = start();
+    api.manageMembers(
+      { emails: [{ email: SPOUSE, role: 'child', personId: 'per_kid' }] },
+      { email: OWNER, owner: OWNER, isOwner: true },
+    );
+
+    const caller = api.admit(SPOUSE);
+    assert.equal(caller.personId, 'per_kid');
+    assert.equal(caller.role, 'child');
+  });
+
+  test('a personId that is not one is dropped rather than stored', () => {
+    // The owner picks from a list, so anything else came from a client that
+    // built its own request — and a personId is what *widens* access.
+    const api = start();
+    api.manageMembers(
+      { emails: [{ email: SPOUSE, role: 'spouse', personId: 'not an id; drop table' }] },
+      { email: OWNER, owner: OWNER, isOwner: true },
+    );
+
+    assert.equal(JSON.parse(api.props.getProperty('members'))[0].personId, '');
+  });
+
+  test('the owner can say which person they are, and admit carries it', () => {
+    /*
+     * The owner is never in the member list — `manageMembers` refuses to store
+     * them, so nobody can remove the owner or downgrade their role by editing
+     * it. That protection is exactly why their personId needs somewhere else
+     * to live, and why `admit` returned '' for them until now.
+     */
+    const api = start();
+    api.manageMembers({ emails: [], ownerPersonId: 'per_owner' },
+      { email: OWNER, owner: OWNER, isOwner: true });
+
+    assert.equal(api.admit(OWNER).personId, 'per_owner');
+    assert.equal(api.admit(OWNER).isOwner, true);
+  });
+
+  test('and a call that does not mention it leaves it alone', () => {
+    // A client sending only `emails` must not silently unbind the owner —
+    // which, since `sheetPush` began checking, would stop them sending chat.
+    const api = start();
+    api.manageMembers({ emails: [], ownerPersonId: 'per_owner' },
+      { email: OWNER, owner: OWNER, isOwner: true });
+    api.manageMembers({ emails: [{ email: SPOUSE, role: 'spouse' }] },
+      { email: OWNER, owner: OWNER, isOwner: true });
+
+    assert.equal(api.admit(OWNER).personId, 'per_owner');
+  });
+
+  test('and a member cannot set it', () => {
+    // It decides whose records the most privileged account may reach.
+    const api = start({ members: JSON.stringify([{ email: SPOUSE, role: 'spouse' }]) });
+    let error;
+    try {
+      api.manageMembers({ emails: [], ownerPersonId: 'per_theirs' },
+        { email: SPOUSE, owner: OWNER, isOwner: false });
+    } catch (err) { error = err; }
+
+    assert.ok(error, 'a member set the owner’s person');
+    assert.equal(api.admit(OWNER).personId, '');
   });
 
   test('a member cannot admit anybody, because that would make them an owner', () => {

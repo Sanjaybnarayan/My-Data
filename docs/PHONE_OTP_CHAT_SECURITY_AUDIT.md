@@ -137,7 +137,7 @@ that could check it, and nothing joining them.
 | **Vulnerability** | `admit()` resolves an authoritative `personId` from the owner-controlled member list and `dispatch` passes it in `context`. The push path checks only `policyAllows(role, 'write', 'message')`, which is true for every role. `message` is not in `OWN_RECORD`, and `ownRecordAllows` is only ever a *widening* — never a refusal. So `payload.sender` is never compared to `context.personId`. |
 | **Impact** | The brief's §26 — "server determines sender_user_id" — is not met. |
 | **Backend required** | **Yes**, and more than a comparison — see below. |
-| **Status** | **Not fixed, and blocked.** |
+| **Status** | **Fixed**, after the blocker turned out to be a defect of its own. |
 
 Honest severity note: every household member already shares one data key and
 can read every message. This is an **integrity** defect, not a confidentiality
@@ -163,8 +163,51 @@ existing one.
 
 **Prerequisite:** the owner needs a server-side `personId`, which means
 deciding how the owner is bound to a person record and what happens to a
-deployment where that binding does not exist yet. That is an identity-model
-change, so it is named here and not attempted.
+deployment where that binding does not exist yet.
+
+#### And measuring that prerequisite found something worse
+
+Not "the owner has no `personId`". **Nobody had one, ever.**
+
+Settings → Household has had a **person picker** since `ownRecordAllows`
+existed. The choice travels to the backend in the `members` payload.
+`manageMembers` built `clean.push({ email: email, role: role })` and **dropped
+it**. `members()` then read `entry.personId` behind a comment explaining that it
+is what lets a child reach their own health record, and noting it is *"absent on
+every entry written before this existed"* — which was true of **every** entry,
+because nothing had ever written one.
+
+So `ownRecordAllows` could not fire on the server for anybody, and the
+own-record access this repository believes it has did not exist. The same shape
+as `otpDirectory`, inverted: there a value was read and never written, here a UI
+writes one the server throws away. Second instance in one audit.
+
+`tests/policy.test.mjs` could not see it: it builds its own context with a
+`personId` already in it. Both ends covered, the wiring between them not —
+which is the sentence `doPost` already carries about `role` and `personId`
+going missing on the way in. This was the other half of that same bug.
+
+#### What was built
+
+1. **`manageMembers` keeps `personId`**, validated as a record id, because a
+   personId is what widens access.
+2. **The owner gets `ownerPersonId`**, its own property — they are deliberately
+   never in the member list, which is why theirs needed somewhere else to live —
+   settable from the same screen, and left alone by a call that does not mention
+   it.
+3. **`sheetPush` refuses a message whose `sender` is not the caller**
+   (`impersonation` in `apps-script/Sheets.gs`). This is the **first rule there
+   that narrows**; every other one widens, and `ownRecordAllows` says in its own
+   comment that it is "never a way to refuse something the blanket policy
+   allowed".
+
+**An unbound caller is refused, not waved through.** The tempting shape —
+"check it only where we can" — stops applying to exactly the accounts nobody
+has bound yet, the owner included. The refusal names where the fix is made, and
+Settings → Household says so in red until the owner answers.
+
+**This requires a redeploy.** `apps-script/` is source somebody pastes into
+script.google.com; until it is pasted, none of the above is running.
 
 ### TOK-01 · HIGH (currently unreachable) · refresh token stored in plaintext, behind a comment saying otherwise
 
@@ -179,16 +222,58 @@ change, so it is named here and not attempted.
 | **Backend required** | No. |
 | **Status** | **Fixed.** Sealed with `encryptText` under the household data key, bound by AAD to its own meta key. A device that cannot seal it **refuses to store it** rather than falling back to plaintext; a token written before this is used once and re-sealed rather than discarded, so an upgrade does not sign the household out. 4 of 4 mutations caught. |
 
-### PRIV-01 · MEDIUM · the phone number is the one contact field left in the clear
+### PRIV-01 · MEDIUM · there is no rule about phone numbers, only nine separate decisions
+
+*This entry was first written as "`person.phone` is the odd one out". Measuring
+it properly showed both halves of that were wrong — the scope was larger and
+the cost was smaller.*
 
 | | |
 | --- | --- |
-| **File** | `js/data/schema.js:96` |
-| **Vulnerability** | `{ key: 'phone', type: 'phone', list: true, search: true }` — plaintext, listed, searchable. Two lines below, `emergencyContactPhone` is `encrypted: true`. |
-| **Impact** | The household member's own number is plaintext in IndexedDB **and in the backup Google Sheet**, where the emergency contact's is not. The brief's §6 treats the phone number as sensitive personal information. |
-| **The inconsistency is the finding** | One of the two decisions is wrong, and nothing in the repository says which. |
-| **Caveat** | `list: true` and `search: true` are what make a person findable in this household's own UI. Encrypting it has a real cost, and that is a decision rather than a bug fix. |
-| **Status** | **Not fixed. Needs a decision, not a patch.** |
+| **Files** | `js/data/schema.js`, nine `type: 'phone'` fields |
+| **What is actually there** | **Three of nine phone fields are encrypted**: `person.emergencyContactPhone`, `property.agentPhone`, `tenantPhone`. **Six are not**: `person.phone`, `kycRecord.heldMobile`, `warranty.claimPhone`, `tenant.phone`, `emergencyContact.phone`, `emergencyContact.altPhone`. |
+| **The sharpest pair** | `person.emergencyContactPhone` is `encrypted: true`. `emergencyContact.phone` — the same kind of number, in the entity built for exactly that purpose — is `required: true, list: true` and in the clear. Two representations of one thing, classified oppositely. |
+| **The finding** | Not that one field is wrong. That **no rule exists**: the schema has accreted nine independent decisions and the pattern between them does not resolve into a policy anybody could state. |
+| **Impact** | Six phone numbers are plaintext in IndexedDB **and in the backup Google Sheet**. The brief's §6 treats a phone number as sensitive personal information. |
+| **Status** | **Not fixed. Needs a rule, not a patch.** |
+
+#### What encrypting actually costs, measured
+
+The first draft of this entry said it costs "list and search". Only one of
+those is true.
+
+| | Effect |
+| --- | --- |
+| **List columns** | **Real cost — and this correction is itself a correction.** A draft of this table said "no cost", reasoning that `Repository.list` calls `decryptMany`. It does, *by default* — but `decrypt: false` is used by eleven list views for speed, on the stated basis that they "only show clear fields", and those would print the envelope. `tests/privacy.test.mjs` already held that rule with a named two-item exception list, and it is what caught the mistake. A sealed field therefore cannot be `list: true`. |
+| **Search** | **Real cost.** `searchableValues` filters `!f.encrypted` deliberately — *"indexing it would leak nothing useful and cost a decrypt per keystroke"*. An encrypted number cannot be typed into search to find its owner. |
+| **The household's own spreadsheet** | **Real cost, and the first draft did not mention it at all.** The value syncs to Google Sheets as `enc:v1:…`. Somebody opening their own backup sees ciphertext where a phone number was. |
+| **Existing rows** | **No loss, and no immediate benefit either.** `decryptRecord` skips a value that is not sealed, so plaintext already stored stays readable; `encryptRecord` seals it on the next write. Old records therefore stay in the clear until edited — the honest cost of not running a migration over every row. |
+
+## What was changed, and the one field where the rule bites hardest
+
+Applying "encrypt everything except `person.phone`":
+
+| Field | Change |
+| --- | --- |
+| `kycRecord.heldMobile` | sealed |
+| `warranty.claimPhone` | sealed |
+| `tenant.phone` | sealed; **`list: true` removed** |
+| `emergencyContact.phone` | sealed; **`list: true` removed** |
+| `emergencyContact.altPhone` | sealed |
+| `person.phone` | unchanged — the one searchable number per household member |
+
+**`emergencyContact.phone` is where this costs most, and it is worth saying
+rather than softening quietly.** That entity exists to be used in a hurry, it
+is the one entity a `guest` may read (`js/security/rbac.js:24`), and the number
+no longer appears beside the name in the list. Reversing that single field —
+back to `list: true` and unsealed — is a one-line change, and a defensible one:
+a number you need under stress is a different kind of value from a tenant's.
+
+`js/services/secondary.js` reads emergency contacts with `decrypt: false` and
+`reachability` only tests those numbers for emptiness, so it still answers
+correctly — ciphertext is non-empty, and an absent number is never sealed. That
+holds by arithmetic rather than by design, and is recorded here because the next
+person to touch `reachability` should know it is standing on that.
 
 ### ID-01 · LOW · ids leak creation time
 
@@ -242,7 +327,7 @@ Measured, not assumed.
 | --- | --- | --- | --- | --- |
 | SIM swap | Low | **High, and new** | Only where sign-in by code is on; owner-only, off by default | **Accepted, deliberately** — see `docs/SIGN_IN_BY_CODE.md` |
 | Apps Script project compromise | Low | **Total, where the escrow is on** | Owner's Google account security | **Accepted, deliberately** |
-| Chat impersonation | Medium | Medium | Detected and shown on the message (CHAT-01) | Detection, not prevention — the row can still be written. **CHAT-02** |
+| Chat impersonation | Medium | Medium | Refused by the backend (CHAT-02) and shown on the message if it ever appears (CHAT-01) | A device that never syncs can still show itself a forged row; nothing reaches anybody else's device |
 | Refresh-token theft from device | Low | High | Sealed under the household data key; dormant path besides | Reading it now requires the data key, so it is as strong as the PIN — and no stronger. A Keystore-backed store is the remaining improvement |
 | Reverse-engineered APK | Certain | Low | No secrets in the APK | Accepted — the client is presentation |
 | OTP brute force | Low | Low | 5 attempts, then destroyed | Mitigated |
@@ -283,17 +368,17 @@ Following the brief's phase structure, restricted to what exists here:
 | 5 | Android secure storage | TOK-01 **done** in-repo. A Keystore-backed bridge would be stronger still and is not built |
 | 6 | Network security | Already met |
 | 7 | Chat identity separation | Already met — chat uses person ids, not phone numbers |
-| 8 | Chat authorisation | CHAT-01 **done**; **CHAT-02 blocked** on the owner having a server-side `personId` |
-| 9 | Privacy / minimisation | **PRIV-01** |
+| 8 | Chat authorisation | CHAT-01 **done**, CHAT-02 **done** — and the blocker was a defect: nobody had a server-side `personId` at all |
+| 9 | Privacy / minimisation | **PRIV-01** — needs a rule for phone numbers, not a patch to one field |
 | 10 | Play compliance | **PLAY-01** — needs a human decision |
 
-**CHAT-01 is done.** It was the highest severity fixable entirely in this
-repository — no redeployment, no new data — and it is a defect of exactly the
-kind this codebase already has a name for.
+**CHAT-01 and CHAT-02 are both done**, and they do different halves of one job.
+CHAT-01 makes a forged attribution **visible** on any device that opens the
+message; CHAT-02 stops the row reaching the backup at all. Neither alone is
+enough: a client that never syncs can still lie to itself, and a row that syncs
+before anybody looks at it would otherwise stand unchallenged.
 
-What it is worth being exact about: CHAT-01 makes impersonation **visible**, not
-impossible. A rewritten row still reaches every device; each device now says so
-on the message. Prevention is CHAT-02, and CHAT-02 is blocked above.
+CHAT-02 needs the Apps Script **redeployed** before it is running anywhere.
 
 ---
 

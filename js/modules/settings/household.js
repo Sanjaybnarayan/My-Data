@@ -11,6 +11,7 @@ import { h, replace } from '../../ui/dom.js';
 import { prompt } from '../../ui/components/modal.js';
 import { toast } from '../../ui/components/toast.js';
 import { userMessage } from '../../core/errors.js';
+import { t } from '../../core/locale.js';
 
 /* ------------------------------------------------------------- household */
 
@@ -210,6 +211,7 @@ export function householdCard() {
   const host = h('div', {});
   const body = h('div', {}, h('p', { class: 'muted' }, 'Checking…'));
   let members = [];
+  let ownerPersonId = '';
   let owner = '';
   let isOwner = false;
   let people = [];
@@ -240,6 +242,7 @@ export function householdCard() {
       ]);
       people = household.filter((person) => !person.deletedAt);
       members = result.members ?? [];
+      ownerPersonId = result.ownerPersonId ?? '';
       owner = result.owner ?? '';
       isOwner = Boolean(result.isOwner);
       paint();
@@ -284,7 +287,21 @@ export function householdCard() {
         title: owner || 'the deploying account',
         subtitle: 'Owns the backend — admitted by identity, and cannot be removed',
         leading: badge('owner', 'success'),
+        /*
+         * The owner picks their own person here, like everybody else.
+         *
+         * They are deliberately absent from the member list, so their
+         * `personId` is stored on its own and had nowhere to be set. Since the
+         * backend began refusing a message whose sender is not the caller, an
+         * owner who has not answered this cannot send chat at all — which is
+         * the right refusal and a miserable one to meet with no control to fix
+         * it. This is the control.
+         */
+        trailing: isOwner ? ownerPicker() : null,
       }),
+      isOwner && !ownerPersonId
+        ? h('p', { class: ['small', 'money--negative'] }, t('household.ownerUnlinked'))
+        : null,
       ...members.map(({ email, role, personId }) => listItem({
         title: email,
         subtitle: `${describeRole(role)} · enforced by the backend, not by this screen`,
@@ -320,6 +337,27 @@ export function householdCard() {
     ].filter(Boolean));
   }
 
+  /**
+   * The owner's own person, saved through the same call as everybody else's.
+   *
+   * `save` sends the whole list; this sends the list unchanged plus the owner's
+   * answer, so one screen makes one decision — "which person is each account" —
+   * in one request.
+   */
+  function ownerPicker() {
+    return h('select', {
+      class: 'input input--compact',
+      'aria-label': t('household.whichPersonYouAre'),
+      onChange: (event) => save(members, event.target.value),
+    }, [
+      h('option', { value: '' }, t('household.notLinked')),
+      ...people.map((person) => h('option', {
+        value: person.id,
+        ...(person.id === ownerPersonId ? { selected: 'selected' } : {}),
+      }, person.name)),
+    ]);
+  }
+
   /** Which person in the household an admitted account belongs to. */
   function personPicker(email, current) {
     const select = h('select', {
@@ -338,10 +376,17 @@ export function householdCard() {
     return select;
   }
 
-  async function save(next) {
+  /**
+   * @param {Array} next the member list to store
+   * @param {string} [ownerNext] the owner's own person. Omitted means "leave
+   *   it as it is" — the backend reads an absent field the same way, so a save
+   *   from the member rows cannot silently unbind the owner.
+   */
+  async function save(next, ownerNext) {
     try {
-      const result = await app().transport.members(next);
+      const result = await app().transport.members(next, ownerNext);
       members = result.members ?? next;
+      ownerPersonId = result.ownerPersonId ?? ownerPersonId;
       toast('Household accounts updated', { kind: 'success' });
       paint();
     } catch (err) {

@@ -128,7 +128,10 @@ function sheetPush(changes, book, context) {
     // reachable even where their role is not on the entity's list — which is
     // what lets a child keep their own health record and have it backed up.
     // Only ever a widening: nothing here can refuse what the policy allowed.
-    if (policyAllows(role, 'write', changes[c].store)
+    var sendingAs = impersonation(personId, changes[c]);
+    if (sendingAs) {
+      rejected.push({ recordId: changes[c].recordId, reason: sendingAs });
+    } else if (policyAllows(role, 'write', changes[c].store)
       || ownRecordAllows(personId, changes[c].store, changes[c].payload)) {
       permitted.push(changes[c]);
     } else {
@@ -457,4 +460,53 @@ function isoOf(value) {
   if (/^\d{4}-\d{2}-\d{2}T/.test(text)) return text;
   var parsed = new Date(text);
   return isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+}
+
+
+/**
+ * The first rule here that *refuses* something the policy allowed.
+ *
+ * Everything else in `sheetPush` widens: `policyAllows` decides by role, and
+ * `ownRecordAllows` can only ever add a row on top of it — its own comment
+ * says "never a way to refuse something the blanket policy allowed". This is
+ * the other direction, and it is worth naming as a new kind of rule rather
+ * than slipping it in beside the old one.
+ *
+ * ## What it decides
+ *
+ * Every message carries a `sender`, and every role may write messages, so
+ * until now any admitted account could store a message naming anybody as its
+ * author. The sealed envelope has always proved who really sealed it — see
+ * `js/domain/attribution.js`, which now says so on screen — but proof shown
+ * after the fact is not the same as a row that was never stored.
+ *
+ * The caller's `personId` comes from `admit`, out of a list only the owner can
+ * write, and never from the request. So it is the one claim about identity on
+ * this request that the caller did not make.
+ *
+ * ## Why an unbound caller is refused rather than waved through
+ *
+ * A caller with no `personId` cannot be checked. Allowing them would be a rule
+ * that stops applying to exactly the accounts nobody has got round to binding
+ * — including the owner, who can do the most. So they are refused, with a
+ * reason that names the fix, and Settings → Household is where it is made.
+ *
+ * @returns {string} the refusal, or '' to leave the decision to the rules above
+ */
+function impersonation(personId, change) {
+  if (!change || change.store !== 'message') return '';
+
+  var claimed = String((change.payload && change.payload.sender) || '');
+  // A withdrawal or a read receipt carries no sender to check; the blanket
+  // policy still governs it.
+  if (!claimed) return '';
+
+  if (!personId) {
+    return 'this account has not been matched to a person, so it cannot send '
+      + 'messages — the household owner sets that in Settings, Household';
+  }
+  if (claimed !== personId) {
+    return 'a message may only be sent as the person this account belongs to';
+  }
+  return '';
 }

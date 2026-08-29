@@ -430,6 +430,30 @@ function members() {
   }
 }
 
+/**
+ * Which person in the household the owner is, or '' if they have not said.
+ *
+ * A property rather than a list entry, because the owner is never in the list
+ * — `manageMembers` refuses to store them, so that nobody can remove the owner
+ * or downgrade their role by editing it. That protection is why this needs
+ * somewhere else to live.
+ */
+function ownerPersonId() {
+  return String(PROP.getProperty('ownerPersonId') || '');
+}
+
+/**
+ * A record id and nothing else.
+ *
+ * Shared by both writers, because two copies of a validation rule is two
+ * places for it to drift — and this one decides whose records a caller may
+ * reach, so drifting apart would widen access on one path and not the other.
+ */
+function cleanPersonId(value) {
+  var id = String(value || '').trim();
+  return /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : '';
+}
+
 /** The member entry for an address, or null. */
 function memberFor(email, list) {
   for (var i = 0; i < list.length; i++) {
@@ -489,7 +513,22 @@ function admit(email) {
   var isOwner = Boolean(owner) && email === owner;
 
   if (isOwner) {
-    return { email: email, owner: owner, isOwner: true, role: 'owner', personId: '' };
+    /*
+     * The owner is admitted by identity and is deliberately not in the member
+     * list, so the personId that travels with every other caller has nowhere
+     * to come from. It gets its own property.
+     *
+     * Empty until the owner says which person they are, and empty means the
+     * same thing here as anywhere else: no own-record access, and — since
+     * `sheetPush` began checking it — no sending chat as anybody. That is a
+     * refusal the owner can act on, and it is the safe direction: the
+     * alternative is a rule that does not apply to the one account that can
+     * do the most.
+     */
+    return {
+      email: email, owner: owner, isOwner: true, role: 'owner',
+      personId: ownerPersonId(),
+    };
   }
 
   var entry = memberFor(email, members());
@@ -537,23 +576,60 @@ function manageMembers(payload, context) {
       var role = given && given.role;
       if (roleRank(role) < 0 || role === 'owner') role = 'guest';
 
+      /*
+       * `personId` is kept, and until now it was not.
+       *
+       * `members()` reads it, with a comment explaining that it is what lets a
+       * child reach their own health record, and says it is "absent on every
+       * entry written before this existed". That was true of **every** entry:
+       * this loop built `{ email, role }` and dropped the field, so nothing
+       * ever wrote one. Settings → Household has had a person picker the whole
+       * time; the choice travelled here and was discarded.
+       *
+       * So `ownRecordAllows` could never fire on the server for anybody, and
+       * `tests/policy.test.mjs` could not see it because it builds its own
+       * context with a `personId` already in it — both ends covered, the wiring
+       * between them not. That is the same sentence `doPost` carries about
+       * `role` and `personId` going missing on the way in; this is the other
+       * half of it.
+       */
+      // A record id, not an address or a sentence. The owner picks this from a
+      // list, so anything else arrived from a client that built its own
+      // request — and a personId is what widens access.
+      var personId = cleanPersonId(given && given.personId);
+
       // The owner is admitted by identity, never by list. Storing it would
       // invite somebody to remove it and lock the household out — and it would
       // also be the one entry through which the owner's own role could be
       // downgraded by editing a list.
       if (email && email.indexOf('@') > 0 && email !== context.owner && !seen[email]) {
         seen[email] = true;
-        clean.push({ email: email, role: role });
+        clean.push({ email: email, role: role, personId: personId });
       }
     }
 
     PROP.setProperty('members', JSON.stringify(clean));
+
+    /*
+     * The owner's own binding travels with the same call, because it is the
+     * same screen and the same decision — "which person is each account".
+     * Only ever set from a request the owner made; `isOwner` was checked at
+     * the top of this branch.
+     *
+     * Absent means leave it alone rather than clear it: a client that sends
+     * only `emails` must not silently unbind the owner and lock them out of
+     * sending chat.
+     */
+    if (payload.ownerPersonId !== undefined) {
+      PROP.setProperty('ownerPersonId', cleanPersonId(payload.ownerPersonId));
+    }
+
     log('members', context.email, clean.length + ' accounts', 0);
-    return { owner: context.owner, members: clean };
+    return { owner: context.owner, members: clean, ownerPersonId: ownerPersonId() };
   }
 
   return { owner: context.owner, members: members(), isOwner: context.isOwner,
-    role: context.role };
+    role: context.role, ownerPersonId: ownerPersonId() };
 }
 
 /** A token bucket in the per-user cache. Cheap, and enough to stop a loop. */

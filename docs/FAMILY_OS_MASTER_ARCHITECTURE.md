@@ -80,6 +80,8 @@ The service layer exists and is adopted in part:
 | A screen never guesses what a code unlocks | **exists** | `export:js/domain/otp.js#WHAT_IS_NOT_KNOWN` |
 | Message sender checked against the key that sealed it | **exists** | `wired:js/services/chat.js#attributionOf` |
 | The Google refresh token is sealed, not merely said to be | **exists** | `wired:js/auth/googlenative.js#REFRESH_AAD` |
+| A message may only be sent as the person the account belongs to | **exists** | `wired:apps-script/Sheets.gs#impersonation` |
+| Which person each account is, kept rather than dropped | **exists** | `wired:apps-script/Code.gs#ownerPersonId` |
 | MFA | missing | `absent:grep:multi-factor` |
 | Session security | **exists** | `export:js/security/session.js#Session` |
 | Session revocation, device management | **exists** | `export:apps-script/Code.gs#manageDevices` |
