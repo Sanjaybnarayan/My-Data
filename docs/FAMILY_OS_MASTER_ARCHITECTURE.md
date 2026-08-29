@@ -78,6 +78,7 @@ The service layer exists and is adopted in part:
 | Authentication (one-time code, identity) | **exists** | `export:js/domain/otp.js#limitsFor` |
 | Sign-in by code opens a new device | **exists, off by default, owner-only** | `wired:js/auth/lock.js#CODE_METHOD` |
 | A screen never guesses what a code unlocks | **exists** | `export:js/domain/otp.js#WHAT_IS_NOT_KNOWN` |
+| Message sender checked against the key that sealed it | **exists** | `wired:js/services/chat.js#attributionOf` |
 | MFA | missing | `absent:grep:multi-factor` |
 | Session security | **exists** | `export:js/security/session.js#Session` |
 | Session revocation, device management | **exists** | `export:apps-script/Code.gs#manageDevices` |

@@ -553,3 +553,77 @@ describe('sending a file', () => {
     assert.equal(await chat.openAttachment('att_nothing'), null);
   });
 });
+
+/* ------------------------------------------- who the envelope says sent it */
+
+describe('the sender the row claims, checked against the one it proves', () => {
+  const conversationWith = async (db, participants) => db.repo('conversation').create({
+    title: 'Household', participants, startedAt: new Date().toISOString(),
+  });
+
+  test('an honest message is confirmed, not merely unchecked', async () => {
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+    await chat.send(conversation.id, asha.id, 'bring milk');
+
+    const [read] = await chat.read(conversation.id);
+    assert.equal(read.attribution.verdict, 'confirmed');
+    assert.equal(read.attribution.proven, asha.id);
+  });
+
+  test('a row edited to name somebody else is caught', async () => {
+    /*
+     * The whole finding, end to end. `message.sender` is in the clear and
+     * anything that can write a row can write it — including a member's own
+     * synced client. The envelope has known the truth since it was sealed;
+     * until now nothing asked it.
+     */
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+    await chat.send(conversation.id, asha.id, 'transfer the money');
+
+    // Asha's device sealed it; the row is rewritten to blame Ravi.
+    const [row] = await db.repo('message').list({ limit: 10 });
+    await db.repo('message').update(row.id, { sender: ravi.id });
+
+    const [read] = await chat.read(conversation.id);
+    assert.equal(read.text, 'transfer the money', 'the message still opens');
+    assert.equal(read.attribution.verdict, 'disputed');
+    assert.equal(read.attribution.claimed, ravi.id);
+    assert.equal(read.attribution.proven, asha.id,
+      'the envelope named the device that actually sealed it');
+  });
+
+  test('a message this device cannot open claims nothing about its sender', async () => {
+    /*
+     * The envelope names Asha's real device key and the row names Asha, so the
+     * two strings agree — and nothing has been proven, because the message was
+     * sealed to nobody and will not open here.
+     *
+     * `confirmed` would mean attributing on the strength of the one field that
+     * cannot be trusted, in the exact case where the untrusted field happens
+     * to be right. That is why `attributionOf` takes `opened` rather than
+     * inferring it.
+     */
+    const { db, chat, asha, ravi } = await household();
+    const { device } = await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+
+    await db.repo('message').create({
+      conversation: conversation.id,
+      sender: asha.id,
+      sentAt: new Date().toISOString(),
+      body: JSON.stringify({ from: device.publicKey, keys: [], iv: '', body: '' }),
+    });
+
+    const [read] = await chat.read(conversation.id);
+    // Which refusal it is does not matter here and is not pinned — what
+    // matters is that it did not open, and that nothing was claimed anyway.
+    assert.ok(read.why, 'the envelope opened, so this tests nothing');
+    assert.equal(read.text, null);
+    assert.equal(read.attribution.verdict, 'unknown');
+    assert.equal(read.attribution.proven, null);
+  });
+});
