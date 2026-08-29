@@ -3,12 +3,16 @@
  *
  * Where the household was, and the zones those readings are measured against.
  *
- * **There is no SOS here, and this comment used to say there was.**
- * `SafetyService.raise` and `domain/safety.js#sosMessage` compose an alert and
- * record it, they are tested, and nothing on any screen calls them — measured,
- * zero callers. A household cannot raise an alarm from this application. The
- * architecture document carries the row as `unwired:`, so wiring it up will
- * fail the build until somebody comes back and says so.
+ * **The SOS is wired now, and this comment used to record that it was not.**
+ * `SafetyService.raise` and `domain/safety.js#sosMessage` had zero callers:
+ * the composer, the entity, the strings and the tests all existed and no
+ * screen reached them. `sosCard` below is the way in.
+ *
+ * It composes and records. **It does not send, and says so before the button
+ * is pressed and again after.** There is no server here, no SMS gateway and no
+ * push, so the message goes to the phone's own share sheet for a person to
+ * send — and `sentVia` stays `not sent`, because this application cannot know
+ * whether they did.
  *
  * Every sentence on this screen goes through the catalogue. That is not a
  * flourish: this is the first module written after the locale layer landed,
@@ -25,6 +29,9 @@ import { h, replace } from '../ui/dom.js';
 import { card, cardHeader, badge, pageHeader, listItem, empty } from '../ui/components/basics.js';
 import { button } from '../ui/components/basics.js';
 import { toast } from '../ui/components/toast.js';
+import { confirm, prompt, inform } from '../ui/components/modal.js';
+import { plugin } from '../core/native.js';
+import { describeRefusal } from '../core/position.js';
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
 import { SafetyService } from '../services/safety.js';
@@ -56,6 +63,7 @@ export async function render(route) {
 
     replace(host, [
       pageHeader(t('safety.title'), { subtitle: t('safety.subtitle') }),
+      sosCard(safety),
       limitsCard(),
       trailCard(await trailStatus(), paint),
       whereCard(everyone, safety, paint),
@@ -131,6 +139,97 @@ function trailCard(state, repaint) {
     h('p', { class: 'small faint', style: { marginBottom: 0 } },
       t('safety.trail.untested')),
   ].filter(Boolean));
+}
+
+/**
+ * Raising an alarm.
+ *
+ * ## What this is, stated on the card and not only here
+ *
+ * Nothing in this application sends anything. There is no server, no SMS
+ * gateway and no push. What this does is **compose** a message — who needs
+ * help, why, where they are if a position can be read, and a map link — record
+ * that it was raised, and hand it to the phone's own share sheet.
+ *
+ * A person sends it. `sentVia` stays `not sent` because this application
+ * cannot know whether they did, and a field saying otherwise would be the
+ * worst lie in the repository.
+ *
+ * ## Why the button asks first
+ *
+ * Not to slow anybody down — a confirm on an emergency control is usually
+ * wrong. It is here because the dialog is the only place with room to say
+ * *before* the alarm is raised that this does not summon anyone. Somebody
+ * finding that out afterwards is exactly the failure this card exists to
+ * avoid, and the position read costs a moment anyway.
+ */
+function sosCard(safety) {
+  return card({ class: 'card--quiet' }, [
+    cardHeader(t('sos.card.title'), null, { iconName: 'alert' }),
+    h('p', { class: 'small' }, t('sos.card.what')),
+    button(t('sos.card.raise'), {
+      variant: 'danger',
+      iconName: 'alert',
+      onClick: () => void raiseAlarm(safety),
+    }),
+  ]);
+}
+
+async function raiseAlarm(safety) {
+  const me = app().db.actor?.personId;
+  if (!me) {
+    toast(t('safety.where.noPerson'), { kind: 'error' });
+    return;
+  }
+
+  if (!await confirm({
+    title: t('sos.confirm.title'),
+    message: t('sos.confirm.message'),
+    confirmLabel: t('sos.confirm.yes'),
+    danger: true,
+  })) return;
+
+  const reason = await prompt({
+    title: t('sos.reason.title'),
+    label: t('sos.reason.label'),
+    placeholder: t('sos.reason.placeholder'),
+    confirmLabel: t('sos.reason.save'),
+  });
+
+  const { message, positionWhy } = await safety.raise(me, { reason: reason ?? '' });
+
+  // The composed text is shown whatever happens next, because the share sheet
+  // can be dismissed or absent and the message is the thing that matters. A
+  // person can read it out over a phone call if nothing else works.
+  await shareOrShow(message, positionWhy);
+}
+
+/**
+ * Hand the message to the phone, and show it either way.
+ *
+ * `Share` is the Capacitor plugin; `navigator.share` is the browser's. Both
+ * are absent often enough that neither can be the only path — and a dismissed
+ * share sheet is an answer, not an error.
+ */
+async function shareOrShow(message, positionWhy) {
+  const native = plugin('Share');
+  try {
+    if (native) await native.share({ title: t('sos.card.title'), text: message });
+    else if (globalThis.navigator?.share) await navigator.share({ text: message });
+  } catch {
+    // Dismissed, or refused. The message is still shown below.
+  }
+
+  await inform({
+    title: t('sos.sent.title'),
+    message: [
+      message,
+      '',
+      t('sos.sent.notSent'),
+      positionWhy ? describeRefusal(positionWhy) : null,
+    ].filter((line) => line !== null).join('\n'),
+    dismissLabel: t('sos.sent.close'),
+  });
 }
 
 /**

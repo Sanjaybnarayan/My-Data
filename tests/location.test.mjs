@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { test, describe, assert, setSuite } from './harness.mjs';
+import { withoutComments } from '../tools/field-coverage.mjs';
 import {
   WHERE, distanceMetres, isPoint, placeAgainst, zoneFor, placements, describeAccuracy,
 } from '../js/domain/geo.js';
@@ -428,6 +430,42 @@ describe('the SOS message', () => {
     const message = sosMessage({ reason: 'Help' }, { personName: 'Ravi' });
     assert.ok(/No position could be read/.test(message), message);
     assert.not(/maps\?q=/.test(message));
+  });
+
+  test('a household can actually reach it', () => {
+    // For one tranche this was the whole fault: `SafetyService.raise`,
+    // `sosMessage`, the `sosAlert` entity, five locale strings and these tests
+    // all existed, and no screen called any of it. A test over a composer
+    // nothing can invoke proves the composer works and nothing else.
+    const screen = readFileSync(new URL('../js/modules/safety.js', import.meta.url), 'utf8');
+    const code = withoutComments(screen);
+    assert.ok(/\.raise\(/.test(code), 'no screen calls SafetyService.raise');
+  });
+
+  test('and the way in never says it sends anything', () => {
+    // Three places say it, because a person meets them in this order: the
+    // card before they press, the confirmation before it is written, and the
+    // message screen after. Missing any one leaves somebody believing help is
+    // on its way.
+    const en = readFileSync(new URL('../js/locale/en.js', import.meta.url), 'utf8');
+
+    // Bounded to the one entry. The first version took a fixed 400 characters
+    // after the key, which runs past the end of the value and into the next
+    // ones — so a card that claimed "alerts your emergency contacts" passed on
+    // the strength of the *confirmation dialog's* disclaimer three keys down.
+    // That mutation escaped, and this is what it taught.
+    const valueOf = (key) => {
+      const after = en.split(`'${key}':`)[1] ?? '';
+      const end = after.search(/\n\s*(?:'|\/\/|\})/);
+      return (end === -1 ? after : after.slice(0, end)).toLowerCase();
+    };
+
+    for (const key of ['sos.card.what', 'sos.confirm.message', 'sos.sent.notSent']) {
+      const text = valueOf(key);
+      assert.ok(text.length && text.length < 400, `${key}: window is ${text.length} chars`);
+      assert.ok(/not been sent|nothing here sends|does not send|does not call/.test(text),
+        `${key} does not say that nothing is sent: ${text.slice(0, 120)}`);
+    }
   });
 
   test('nothing in the schema claims it was sent', () => {

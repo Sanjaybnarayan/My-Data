@@ -1,6 +1,8 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 import { SyncEngine } from '../js/sync/engine.js';
+import { diagnosticKind } from '../js/data/repository.js';
+import { StorageError, ValidationError } from '../js/core/errors.js';
 import { FakeTransport } from '../js/sync/transport.js';
 import {
   redact, event, record, recent, summarise, KIND, LIMIT, STORE,
@@ -338,5 +340,44 @@ describe('a real failure, through the real code', () => {
 
     const outbox = await db.adapter.query('outbox', {});
     assert.not(outbox.some((o) => o.store === STORE), 'a diagnostic was queued for sync');
+  });
+});
+
+describe('which kind a failure is', () => {
+  test('a full disk is its own kind, and used not to be', () => {
+    // `KIND.storage` was defined, documented as "the device is running out of
+    // room", and nothing could produce one: every `StorageError` from
+    // `idb.js` reached the repository's catch and was filed as a generic
+    // error. The summary groups by kind, so the category was permanently
+    // empty and a household out of room read as an application that was
+    // broken. Different problems, different people, different fixes.
+    assert.equal(diagnosticKind(new StorageError('quota exceeded')), KIND.storage);
+  });
+
+  test('a rule saying no is still a refusal, not a fault', () => {
+    // The distinction that was already there, held so the new branch cannot
+    // swallow it: a run of refusals means somebody is fighting the
+    // application; a run of errors means the application is broken.
+    assert.equal(
+      diagnosticKind(new ValidationError([{ field: 'kind', message: 'must be one of: transfer' }])),
+      KIND.refusal,
+    );
+    assert.equal(diagnosticKind({ code: 'forbidden' }), KIND.refusal);
+  });
+
+  test('and anything else is an error', () => {
+    // Without this, returning `storage` for everything passes the first test
+    // and destroys the distinction the other two are about.
+    assert.equal(diagnosticKind(new Error('could not parse')), KIND.error);
+    assert.equal(diagnosticKind(undefined), KIND.error);
+  });
+
+  test('the summary can now show a storage row at all', () => {
+    // The point of the fix, at the level a household sees: a kind nothing can
+    // emit is a row that never appears on the diagnostics card.
+    const counts = summarise([
+      event({ kind: diagnosticKind(new StorageError('quota exceeded')), where: 'repository.create' }),
+    ]);
+    assert.ok(JSON.stringify(counts).includes(KIND.storage), JSON.stringify(counts));
   });
 });

@@ -45,28 +45,25 @@ knows about. Same comparison, none of the wake-ups. **Crossing a zone while the
 app is closed produces nothing at all** — no alert, no record, and no later
 catch-up.
 
-**Nothing raises an SOS either, and this paragraph used to imply otherwise.**
-The sentence here read *"an SOS composes a message and records that it was
-raised; a person sends it from their own phone"* — present tense, describing
-something a household cannot do. Measured: `SafetyService.raise` has zero
-callers and `sosMessage` is called only from inside `domain/safety.js`. There
-is no SOS button on the safety screen or anywhere else.
+**Nothing sends an SOS, and the button says so three times.** There is no
+server in this application, no SMS gateway and no push. What the button on the
+safety screen does is **compose and record**: who needs help, the reason if one
+was typed, the position if one can be read, a map link, and the accuracy. It
+then hands that text to the phone's own share sheet. A person sends it.
+`sentVia` records what they say they did and defaults to `not sent`, because
+this application cannot know whether they did.
 
-What exists is the whole of the composer and none of the way in: `raise`, an
-encrypted `sosAlert` entity, `sosMessage`, five locale strings, and tests. What
-does not exist is any screen that reaches them.
+The three places that say it are the card, the confirmation dialog, and the
+screen showing the composed message — in the order a person meets them. A test
+holds all three, and mutating any one of them to claim that contacts are
+alerted fails the build.
 
-**And if it were wired, nothing would send it.** There is no server in this
-application, no SMS gateway and no push. The design is that a person sends the
-composed message from their own phone and `sentVia` records what they say they
-did, defaulting to `not sent` — which remains the right design, and remains
-unbuilt at the point where a household would touch it.
-
-Whether to build that entry point is a decision about a life-safety
-affordance — a button that says SOS and does not send anything is not
-obviously better than no button — and it is the household's to make, not
-something to tidy in while correcting a sentence.
-`docs/AN_SOS_WITH_NO_BUTTON.md` carries the measurement.
+For one tranche this was built and unreachable: `SafetyService.raise`, the
+`sosAlert` entity, `sosMessage`, the locale strings and the tests all existed
+and no screen called any of them, while three documents described the flow in
+the present tense. `docs/AN_SOS_WITH_NO_BUTTON.md` carries that measurement and
+the `unwired:` probe that was added to catch it — the probe then failed the
+build the moment the button was written, which is what it is for.
 
 On Android 10+ the background grant cannot be obtained from the same prompt as
 the foreground ones, and on 11+ not from a prompt at all — the person has to

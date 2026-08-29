@@ -405,6 +405,28 @@ export const strings = {
     + 'account is signed out, or whose backend has not been redeployed since Gmail.gs was '
     + 'added. The others were still read.',
 
+  // The card that raises an alarm. Every one of these says, or is written so
+  // the card around it says, that nothing here sends anything. A household
+  // discovering that after pressing the button is the failure this guards.
+  'sos.card.title': 'Raise an alarm',
+  'sos.card.what': 'This writes a message saying you need help, with your position if it can be '
+    + 'read, and hands it to your phone to send. Nothing here sends it for you — there is no '
+    + 'server behind this application.',
+  'sos.card.raise': 'Raise an alarm',
+  'sos.confirm.title': 'Raise an alarm?',
+  'sos.confirm.message': 'This does not call anybody and does not send a message on its own. It '
+    + 'writes the message and opens your phone’s share sheet so you can send it. If this is an '
+    + 'emergency, call the emergency services first.',
+  'sos.confirm.yes': 'Write the message',
+  'sos.reason.title': 'What is wrong?',
+  'sos.reason.label': 'Anything you want the message to say (optional)',
+  'sos.reason.placeholder': 'Fallen, cannot get up',
+  'sos.reason.save': 'Continue',
+  'sos.sent.title': 'Your message',
+  'sos.sent.notSent': 'This has NOT been sent. It is recorded here and the text is above — send '
+    + 'it from your phone, or read it out.',
+  'sos.sent.close': 'Done',
+
   // The SOS message itself, which somebody sends from their own phone.
   'sos.needsHelp': '{name} needs help.',
   'sos.near': 'Near {zone}.',

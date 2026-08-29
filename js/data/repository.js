@@ -30,6 +30,21 @@ import { newId } from '../core/ids.js';
 import { AppError } from '../core/errors.js';
 import { bus, TOPIC } from '../core/bus.js';
 
+/**
+ * Which diagnostic kind a thrown error belongs to.
+ *
+ * Separate and named so the three-way decision can be tested without a
+ * database — it used to be a ternary inside a catch block, where the only way
+ * to exercise it was to make a real write fail in a real way.
+ *
+ * @param {{name?: string, code?: string}} error
+ */
+export function diagnosticKind(error) {
+  if (error?.code === 'storage') return KIND.storage;
+  if (error?.name === 'ValidationError' || error?.code === 'forbidden') return KIND.refusal;
+  return KIND.error;
+}
+
 /** Fields the application owns and a caller may never set directly. */
 const ENVELOPE_KEYS = ['id', 'rev', 'createdAt', 'updatedAt', 'createdBy',
   'updatedBy', 'deletedAt', 'origin', 'schemaVersion', 'syncState'];
@@ -155,8 +170,15 @@ export class Repository {
         // A rule saying no is not a fault. Telling the two apart matters:
         // a run of refusals means somebody is fighting the application, and a
         // run of errors means the application is broken.
-        kind: error?.name === 'ValidationError' || error?.code === 'forbidden'
-          ? KIND.refusal : KIND.error,
+        //
+        // And a full disk is neither. `KIND.storage` existed, was documented as
+        // "the device is running out of room", and **nothing could ever
+        // produce one** — every `StorageError` from `idb.js` arrived here and
+        // was filed as a generic error. The summary groups by kind, so the
+        // category was always empty and a household out of room read as an
+        // application that was broken. The two are fixed by different people
+        // doing different things.
+        kind: diagnosticKind(error),
         where: `repository.${what}`,
         entity: this.#name,
         code: error?.code ?? error?.name ?? '',
