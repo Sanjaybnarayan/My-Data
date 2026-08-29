@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { test, describe, assert, setSuite } from './harness.mjs';
-import { backend } from './appsscript.mjs';
+import { backend, loadAppsScript } from './appsscript.mjs';
 
 setSuite('otp');
 
@@ -173,10 +174,25 @@ describe('what is kept', () => {
   });
 
   test('nor the address it was sent to', () => {
+    /*
+     * This used to be the substring check alone. It passed while
+     * `computeDigest` in the harness returned its input verbatim, because the
+     * key was then base64 of the address — which contains no such substring
+     * and gives the address back in one line. Unrecognisable is not
+     * unrecoverable, and only the second one is the property.
+     */
     const api = withOtp();
     api.post('otp.request', '', { channel: 'email', address: 'asha@example.com' });
-    const keys = [...api.cache._map.keys()].join(' ');
-    assert.equal(keys.includes('asha@example.com'), false);
+    const keys = [...api.cache._map.keys()];
+    assert.equal(keys.join(' ').includes('asha@example.com'), false);
+
+    for (const key of keys) {
+      const tail = key.slice(key.indexOf('_', key.indexOf('_') + 1) + 1);
+      let decoded = '';
+      try { decoded = Buffer.from(tail, 'base64url').toString('utf8'); } catch { decoded = ''; }
+      assert.not(decoded.includes('asha'), `the address decoded out of ${key}`);
+      assert.not(decoded.includes('example.com'), `the address decoded out of ${key}`);
+    }
   });
 });
 
@@ -488,5 +504,72 @@ describe('asking who can sign in by code', () => {
     const body = api.post('signin', 'member-token', { op: 'status' });
     assert.not(body.ok);
     assert.equal(body.status, 403);
+  });
+});
+
+
+/* ------------------------------------------------- the primitives beneath */
+
+describe('what a cache key and a stored code give away', () => {
+  /*
+   * These four were named nowhere in tests. They are also the reason the
+   * `computeDigest` stub in `appsscript.mjs` had to become a real SHA-256:
+   * it used to return its input verbatim, so `otpKey` produced base64 of the
+   * address and the first of these tests would have failed against correct
+   * code.
+   */
+  const otp = () => loadAppsScript(['Otp.gs'], {
+    Utilities: {
+      base64EncodeWebSafe: (b) => Buffer.from(b).toString('base64url'),
+      computeDigest: (_a, v) => createHash('sha256').update(String(v)).digest(),
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+    },
+  }, ['otpKey', 'otpHash', 'otpNormalise', 'otpMask']);
+
+  test('an address cannot be read back out of the cache key it makes', () => {
+    // The key is what sits in a shared script cache. A reversible one would
+    // put every address a household has used into it in plain sight.
+    const { otpKey } = otp();
+    const key = otpKey('otp_code_', 'asha@example.com');
+    assert.not(key.includes('asha'), key);
+    assert.not(key.includes('example.com'), key);
+    assert.equal(
+      Buffer.from(key.replace('otp_code_', ''), 'base64url').toString('hex').length,
+      64, 'the key is not a SHA-256 digest',
+    );
+  });
+
+  test('and the same address always makes the same key', () => {
+    // It has to: the key is how a verify finds the code a request stored.
+    const { otpKey } = otp();
+    assert.equal(otpKey('p_', 'asha@example.com'), otpKey('p_', '  ASHA@example.com '));
+  });
+
+  test('a stored code is salted, so one hash is not another', () => {
+    // The claim on `otpHash`. Without the address in the digest, two people
+    // sent the same six digits would store the same hash, and either code
+    // would verify against either address.
+    const { otpHash } = otp();
+    assert.not(otpHash('asha@example.com', '123456') === otpHash('bob@example.com', '123456'));
+    assert.equal(otpHash('asha@example.com', '123456'), otpHash('asha@example.com', '123456'));
+    assert.not(otpHash('asha@example.com', '123456').includes('123456'));
+  });
+
+  test('normalising is trim and lower case, and nothing cleverer', () => {
+    // Pinned because `otpPersonFor`, the rate limiter and the cache key all
+    // compare through it: a change here silently changes who matches whom.
+    const { otpNormalise } = otp();
+    assert.equal(otpNormalise('  Asha@Example.COM '), 'asha@example.com');
+    assert.equal(otpNormalise(null), '');
+    assert.equal(otpNormalise('+91 98765 43210'), '+91 98765 43210');
+  });
+
+  test('a masked address shows the domain and one letter, or four digits', () => {
+    const { otpMask } = otp();
+    assert.equal(otpMask('asha@example.com'), 'a···@example.com');
+    assert.equal(otpMask('+919876543210'), '···3210');
+    assert.equal(otpMask(''), '');
+    // Nothing longer than four digits of a phone number, whatever its length.
+    assert.equal(otpMask('12345678901234').replace('···', '').length, 4);
   });
 });

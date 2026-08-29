@@ -983,3 +983,45 @@ describe('a formula cannot reach the workbook', () => {
     assert.not(/^[=+\-@]/.test(cell));
   });
 });
+
+
+describe('the id that decides whose records a caller may reach', () => {
+  /*
+   * `cleanPersonId` was named nowhere in tests. Its own comment says it is
+   * shared by both writers "because two copies of a validation rule is two
+   * places for it to drift — and this one decides whose records a caller may
+   * reach". A rule with that job and no test is a rule nobody would notice
+   * losing.
+   */
+  const clean = () => loadAppsScript(
+    ['Code.gs'],
+    { PropertiesService: { getUserProperties: () => ({ getProperty: () => null }) } },
+    ['cleanPersonId'],
+  ).cleanPersonId;
+
+  test('an ordinary record id survives', () => {
+    assert.equal(clean()('per_owner'), 'per_owner');
+    assert.equal(clean()('p-1'), 'p-1');
+    assert.equal(clean()('  per_1  '), 'per_1');
+  });
+
+  test('and anything that is not one becomes empty, never partly kept', () => {
+    // Empty is the safe value: `ownRecordAllows` refuses an empty personId,
+    // so a rejected id grants nothing rather than granting something smaller.
+    const c = clean();
+    for (const bad of [
+      '../../etc/passwd', 'per 1', 'per;1', "per'1", 'per\n1', '<script>',
+      'per=1', 'per,1', '', null, undefined, 'a'.repeat(65),
+    ]) {
+      assert.equal(c(bad), '', JSON.stringify(bad));
+    }
+  });
+
+  test('sixty-four characters is the edge, and it is inclusive', () => {
+    // Pinned in both directions so the bound is a decision rather than a
+    // number somebody can nudge without noticing.
+    const c = clean();
+    assert.equal(c('a'.repeat(64)).length, 64);
+    assert.equal(c('a'.repeat(65)), '');
+  });
+});
