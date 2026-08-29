@@ -3,8 +3,10 @@
 **Audit base:** `1c8d97d` · 22 August 2026. Companion to
 `docs/PHASE_AUDIT_REPORT.md`, which carries the evidence.
 
-**Rows refreshed to `367f84f`.** Six phases have changed since the audit base
-and are marked ↑ below. The evidence in `PHASE_AUDIT_REPORT.md` still describes
+**Rows refreshed continuously.** Eighteen phases have changed since the audit
+base and are marked ↑ below; one is marked ↓. That count is checked by
+`tests/docs.test.mjs` rather than typed here, because it said "six" for
+fourteen phases longer than it was true. The evidence in `PHASE_AUDIT_REPORT.md` still describes
 `1c8d97d`; where the two disagree, this table is the later reading. Leaving the
 audit's numbers standing would have been the exact fault the audit exists to
 catch — a document asserting that built things are unbuilt, and that a fixed
@@ -37,7 +39,7 @@ external integration or has an open critical security or data-integrity defect.
 | 2 ↑ | Family / people / identity / CKYC | **MOSTLY_COMPLETE** | 88 | `person`, `relationship`, `identityDocument`, `kycRecord`, `employment`; `person_id` is the master key; CKYC conflicts modelled; **a family tree** (`domain/tree.js`, the default tab on Family, browser-checked) and **per-person completion** (`domain/profile.js`, drawn on Identity) | No CKYCRR, correctly refused and now checked · `absent:grep:cersai,ckycindia,ckyc.*fetch,download.*ckyc` | Low |
 | 3 | Document AI / OCR / DOCX | **MOSTLY_COMPLETE** | 78 | `pdf-read.js` (816 lines), `docx.js`, `xlsx`, `extract.js`, `classification`, confidence, versioning, duplicate detection | Image OCR requires the Drive round-trip; no on-device OCR | Low |
 | 4 ↑ | Gmail / Drive / Calendar | **MOSTLY_COMPLETE** | 78 | `apps-script/Gmail.gs`, `Drive.gs`, `js/sync/calsync.js`, real scopes, optional Gmail; **connector health for Gmail, Drive and Calendar** through one recorder — `EXPIRED` told apart from `ERROR`, persisted, in diagnostics, and surfaced in Settings only when something needs a person | Scanning is date-windowed, not `historyId`-based; the sync engine is not in the model; the backend is still one deployment for one account | Medium |
-| 5 ↑ | Financial foundation | **MOSTLY_COMPLETE** | 89 | `categorise.js` (927), `events.js`, `evidence.js`, `settlement.js`, `ledger.js`; statements, CSV/XLS/PDF; **Cases 1–6 pass**; **Case 3 closed** — `domain/conflict.js` joins four findings that lived in three shapes on two screens into one derived record type, and detects a fifth nothing looked for: two sources naming different *days* | Headline not corrected for settlements (deliberate, and stated); Booking and maturity are one category, not the two events they are (Case 6's `ASSET_ALLOCATION` split, deliberately not done) | Medium |
+| 5 ↑ | Financial foundation | **MOSTLY_COMPLETE** | 89 | `categorise.js` (972), `events.js`, `evidence.js`, `settlement.js`, `ledger.js`; statements, CSV/XLS/PDF; **Cases 1–6 pass**; **Case 3 closed** — `domain/conflict.js` joins four findings that lived in three shapes on two screens into one derived record type, and detects a fifth nothing looked for: two sources naming different *days* | Headline not corrected for settlements (deliberate, and stated); Booking and maturity are one category, not the two events they are (Case 6's `ASSET_ALLOCATION` split, deliberately not done) | Medium |
 | 6 ↑ | SMS intelligence | **MOSTLY_COMPLETE** | 76 | `domain/sms.js`, `services/sms.js`, `smsMessage` entity, OTP refusal, `SOURCE_PRIORITY`; **native inbox capture** via `SmsInboxPlugin.java` + `js/core/smsinbox.js`, watermarked sweeps, every count reported; **a statement no longer says its arithmetic closed when there was none to do** — `reconcile` returns `balanced: true` for a file with no balances to compare against, and a credit-card export is exactly that, so the household was told *the arithmetic closed against the printed closing balance* about a record whose closing balance is null; `checkable` was computed, commented and tested, and read by no application code at all (docs/A_SUM_THAT_CHECKED_ITSELF.md) · `wired:js/data/provenance.js#wasCheckable` | **Never run on a device** — compiles in CI, all JS tested against a fake plugin; `READ_SMS` is a Play restricted permission, so this build is for sideloading; no `SMSEvent`/`SMSSource` entities. Rule 53 holds on both halves: the security gate runs before any field is parsed and no AI intent loads `smsMessage`. `SOURCE_PRIORITY` still ranks four sources nothing reads, which is the spec's ordering recorded ahead of features that do not exist | Medium |
 | 7 ↑ | Cards / loans / EMI / FD / RD / ledger | **MOSTLY_COMPLETE** | 88 | `loan`, `card bills`, `amortise.js`, `accrual.js`, `settlement.js`, family ledger, splits; **FD/RD read as deposits on all three axes** and `accrual.js` values both, refusing the months it cannot judge | **The connection is offered, never made** — `domain/instalments.js` reports, per RD instalment, the ledger rows that could be the same payment: one is MATCHED, several are AMBIGUOUS with every candidate kept and none chosen, none is UNMATCHED. Nothing writes a link, because a stored judgement is a second copy of one the rows can make again. **No figure moves**: `categorise.js#DEPOSIT` already files RD debits as `sweep`/internal, so an instalment was never counted as spending. A missed instalment is still not detected — a `holding` records no instalment amount, frequency or start date, so there is no schedule to be missing from | Low |
 | 8 ↑ | Investments / broker | **PARTIALLY_COMPLETE** | 58 | `holding`, `investmentTransaction`, `costbasis.js`, `portfolio.js`, P&L, fees; **a tradebook can now be imported as a file** — `domain/tradebook.js` maps a broker's own CSV export onto trades, generic and column-mapped rather than per-broker, because nobody here has a real tradebook to verify a parser against · `wired:js/modules/investments.js#tradeimport` | **Still no broker connector, and there will not be one.** The engines existed and nothing but typing could feed them; a downloaded file closes that without an integration. It does not fetch prices, and an unmatched symbol is reported rather than turned into a holding · `absent:grep:kite.zerodha,api.zerodha,kiteconnect,groww.*api` | Low |
@@ -50,7 +52,7 @@ external integration or has an open critical security or data-integrity defect.
 | 15 ↑ | Location / safe zones / SOS | **MOSTLY_COMPLETE** | 78 | `js/domain/geo.js`, `js/core/position.js`, `js/services/safety.js`; native Geolocation preferred over the WebView, accuracy-aware INSIDE/OUTSIDE/**UNCERTAIN**, position history with retention; **the third answer now reaches the screen** — `zoneFor` answers only INSIDE, so a fix whose accuracy band straddled a boundary collapsed to the same `null` as *outside everything* and both were told *away from every saved zone*; `placements` was written to report the difference and had no caller, and `lastKnown` is now it (docs/A_THIRD_ANSWER_NOBODY_HEARD.md) · `wired:js/domain/safety.js#placements` | **Nothing sends the SOS** — the button composes, records and opens the phone's share sheet, and `sentVia` stays `not sent` because this application cannot know whether a person sent it; **background location is built and unverified** — an Android foreground service records a trail, never run on a phone; still no OS geofencing, so a zone crossing is noticed when the trail is next read rather than at the moment it happens | Medium |
 | 16 ↑ | Notifications / tasks / reminders / automation | **MOSTLY_COMPLETE** | 78 | `project`, `task`, `event`, `reminders.js` (schema-driven), automation rules, outbox retries, idempotency | No push (no server); background jobs are client-side. **The gap here read "only the location service posts one — reminders still do not", and it was backwards**: `js/domain/automation.js:273` is the only `new Notification(` in the tree and it is the reminders path, while the location service posts an Android foreground-service notification from Java. A reminder notification now says how many and how urgent and never what, because it is read off a lock screen | Medium |
 | 17 | Knowledge graph / search / timeline | **MOSTLY_COMPLETE** | 80 | `search` store, `connections.js`, `timeline.js` + screen, "what changed"; **search now answers to whoever is asking** — `searchIndex` reads the index through the adapter, the one read path that does not go through `Repository`, so it never met `rowFilter`: a child was refused a health record by `list()` and handed its title by the search box, and the index denormalises `title` and `subtitle` so the hit leaked the field rather than its existence (docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md, SEARCH-01) · `wired:js/data/database.js#rowFilter` | Graph is derived, not stored | Low |
-| 18 ↑ | AI family assistant | **PARTIALLY_COMPLETE** | 62 | `ai/assistant.js`, `intents.js`, `mcp.js`, `summary.js`; **read-only, no model, no network**; **"what is expiring?" now reads every dated entity** — the handler named nine and the schema declares nineteen, so a warranty running out, a tenancy ending, a vaccination due, a medication course finishing and a service falling due were all answered with a flat "nothing is due to expire in the next year" (`docs/A_QUESTION_THAT_ANSWERED_TOO_CONFIDENTLY.md`) | No language model **by design** — the assistant is offline so that medical and financial records are never sent anywhere to answer a question, and adding one is a privacy decision for the household, not a gap. `ai/mcp.js` is a tool surface with **no caller**, which the architecture document's AI-governance row now states as an absence that fails the build if anybody wires it, rather than implying a working gate. The assistant reads 19 of 53 entity kinds | Low |
+| 18 ↑ | AI family assistant | **PARTIALLY_COMPLETE** | 62 | `ai/assistant.js`, `intents.js`, `mcp.js`, `summary.js`; **read-only, no model, no network**; **"what is expiring?" now reads every dated entity** — the handler named nine and the schema declares nineteen, so a warranty running out, a tenancy ending, a vaccination due, a medication course finishing and a service falling due were all answered with a flat "nothing is due to expire in the next year" (`docs/A_QUESTION_THAT_ANSWERED_TOO_CONFIDENTLY.md`) | No language model **by design** — the assistant is offline so that medical and financial records are never sent anywhere to answer a question, and adding one is a privacy decision for the household, not a gap. `ai/mcp.js` is a tool surface with **no caller**, which the architecture document's AI-governance row now states as an absence that fails the build if anybody wires it, rather than implying a working gate. The assistant reads 26 of 53 entity kinds | Low |
 | 19 | Advanced analytics | **MOSTLY_COMPLETE** | 70 | `charts.js`, forecasting, anomaly detection, trends, actual/projected labels | No ML | Low |
 | 20 ↑ | Security / privacy / compliance hardening | **MOSTLY_COMPLETE** | 83 | AES-GCM + PBKDF2, 36 encrypted fields, sanitiser, rate limiting, device trust; **audit trail hash-chained per device** with a verifier a person can run; **local diagnostics**, redacted and never transmitted; 68 compliance controls — **45 TESTED, 0 VERIFIED**, none `NOT_STARTED`, and every one held below TESTED now has to state why; breach readiness that refuses to call itself detection; **a list field no longer reaches the workbook as a formula** — `defuse()` in `Sheets.gs` covered scalars and skipped arrays, so a tag or a filename beginning `=` landed in the household's Google Sheet as `=IMPORTXML(...)` while the scalar beside it was escaped; its comment called itself *the second line* of a defence whose first line (`escapeForSheet`) has never had a caller (docs/THE_SECOND_LINE_THAT_WAS_THE_ONLY_ONE.md) | No external cryptographic review; the chain is tamper-*evidence* only and has no anchor outside the device; no control has been verified, and none may be called compliant until one is. `sanitizeHtml`, `stripTags`, `escapeForSheet` and `unescapeFromSheet` are **exported and unwired**, now labelled as such: nothing renders stored HTML — `richtext` is a textarea drawn as a text node and `tools/lint.mjs` refuses `innerHTML` in what ships — so the structural rule is the real defence and is stronger than sanitising | Medium |
 | 21 | Backup / restore / portability | **COMPLETE** | 88 | `domain/archive.js` + `services/archive.js`; encrypted archive, verified read-back, restore refuses to merge, keyring travels, deleted rows preserved | No scheduling; on-disk bytes unverifiable from a page | Low |
@@ -77,7 +79,7 @@ judgement, and a tool that scored it would be inventing certainty.
 ## Distribution
 
 ```
-COMPLETE              4   (10, 21, 22, and 0)
+COMPLETE              4   (0, 10, 21, 22)
 MOSTLY_COMPLETE      17   (0.5, 2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 19, 20, 23)
 PARTIALLY_COMPLETE    3   (8, 18, 25)
 DESCOPED              1   (24)
@@ -86,17 +88,76 @@ BLOCKED               1   (11)
 NOT_STARTED           0
 ```
 
+## Where the work actually is
+
+The scores alone do not say that, and a low one is not an invitation. This
+groups every phase by **what would have to change** for it to move, taken from
+its own gap cell rather than from anybody's memory.
+
+### Nothing in this repository will move these
+
+| Phase | % | What it waits on |
+| --- | --- | --- |
+| 11 Health / ABDM | 42 | **ABDM participant status.** Government registration, not code. The refusal probe on that row exists so nobody closes the gap by pretending. |
+| 25 Internationalisation | 48 | **Translators.** The routing works and the ratchet measures the rest; machine-translating Indian financial and legal vocabulary is what `docs/LOCALISATION.md` argues against. |
+| 8 Investments / broker | 58 | **A broker connector, which there will not be** — stated as a decision. A tradebook file closes the gap that mattered without an integration. |
+| 24 iOS companion | 58 | **Nothing. Descoped by the household**, 29 August 2026. The 58 is a historical reading, not a current claim. |
+| 18 AI family assistant | 62 | **A language model, refused by design** — the assistant is offline so medical and financial records are never sent anywhere to answer a question. |
+| 19 Advanced analytics | 70 | **ML.** Same cap, same reason; the forecasts are rule-based and say so. |
+| 14 Family chat / E2EE | 76 | **External cryptographic review.** Not a defect, and not something this repository can perform on itself. |
+
+Seven phases, and every one of them is capped by something outside the code.
+Raising any of these numbers would mean fabricating the thing the row refuses,
+which is the one failure the master brief names above all others.
+
+### These wait on the household, not on code
+
+| What | Why it matters |
+| --- | --- |
+| **Redeploy the Apps Script** | `apps-script/` is source somebody pastes into script.google.com. CHAT-02 and the spreadsheet formula defence are both inert until it happens. `docs/SETUP.md` now says how, including why *New deployment* is the wrong button. |
+| **Set which person you are** | Settings → *Who has agreed to what* → *Household accounts* → *Which person you are*. Until then the backend refuses this account's own chat messages. |
+| **PLAY-01, account deletion** | A Play Console and legal judgement, recorded in `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md`. |
+
+### These have headroom, and it is ordinary engineering
+
+Everything not listed above. The gaps are real and named on each row — no
+`historyId` scanning, no on-device OCR, no push without a server, no
+crypto-wallet model, the SOS that composes and never sends. None of them is
+blocked; none of them is pretending otherwise.
+
+---
+
+## The UI phases
+
+Tracked in **`docs/UI_PHASE_STATUS.md`**, not repeated here — one table per
+fact. UI-0 to UI-17, against the v8.0 redesign brief rather than the v6.0 build
+brief, which is why they are a separate sequence and carry no percentage: that
+document says plainly that no phase is called complete on the strength of a
+browser passing, and that nothing has run under a screen reader.
+
+`tests/docs.test.mjs` checks that every number in both sequences is present
+exactly once and in order, so a phase cannot go missing from either.
+
+---
+
 ## What the percentages do and do not mean
 
-They measure *implementation against the specification*, not quality. Phase 14
-scores 0 and that is the **correct** outcome: building chat without per-person
-keypairs and calling it end-to-end encrypted would score higher and be worse.
-Phase 8 scores 42 with no broker connector, and fabricating one would score
-higher and be worse.
+They measure *implementation against the specification*, not quality. The
+argument this paragraph exists to make is that a **lower** score is sometimes
+the correct one: building chat without per-person keypairs and calling it
+end-to-end encrypted would score higher and be worse, and fabricating a broker
+connector would score higher and be worse.
 
-Three phases are held below where their code alone would put them:
+*It made that argument with two numbers that had both moved.* It said Phase 14
+scored 0 when the row above said 76, and Phase 8 scored 42 when the row said
+58 — so the paragraph warning against stale claims was making two. The numbers
+are gone rather than corrected: they were illustrations, the argument does not
+need them, and a number repeated in prose beside a table is a second copy free
+to drift from the first.
 
-- **Phase 1 (55)** — raised from 40 by `js/data/integrity.js`, which gives the
+Four phases are held below where their code alone would put them:
+
+- **Phase 1** — raised from 40 by `js/data/integrity.js`, which gives the
   constraint *behaviour* a foreign key would: references are checked on create
   and update, a delete that would break a required one is refused, and a unit
   of work defers the check the way a relational database does. Still capped,
