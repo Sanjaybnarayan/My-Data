@@ -234,9 +234,11 @@ reviewed by a cryptographer.
 
 - **No thumbnails, no preview, no streaming.** A file is opened whole or not
   at all.
-- **No size limit and no pruning.** `pruneUploaded` only ever removes blobs
-  whose upload is confirmed, and an attachment is never uploaded — so
-  attachments accumulate until somebody withdraws the message.
+- **No size limit and no pruning.** Nothing prunes attachments, twice over:
+  `pruneUploaded` has no caller at all (see `docs/DELETING_THE_LAST_COPY.md`),
+  and even wired up it would skip attachments, which are never uploaded and so
+  can never show a recoverable copy. They accumulate until somebody withdraws
+  the message.
 - **They do not sync.** An attachment lives on the devices that received the
   message. A device that joins later gets `sentBefore`, the same as for text.
 

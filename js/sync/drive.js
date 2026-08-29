@@ -431,8 +431,30 @@ export class DocumentStore {
 
   /**
    * Free device storage by dropping the local copy of files already in Drive.
-   * Only ever removes a blob whose upload is confirmed — the point of the
-   * cache is that the original still exists somewhere.
+   *
+   * ## The claim, and what used to establish it
+   *
+   * "The original still exists somewhere" is the whole justification for
+   * deleting a household's passport scan off their phone. It used to be
+   * inferred from `blob.uploaded` — one flag, on the blob, set by `flush`.
+   *
+   * That flag says an upload happened. It does not say the file is still
+   * *reachable*: recovery goes through `fetchFromDrive`, which needs
+   * `document.driveFileId`, and that lives on a different record which sync
+   * can replace wholesale — `applyRemote` writes the server's copy over the
+   * local one without merging field by field.
+   *
+   * So the pointer is checked, not assumed. A blob whose document can no
+   * longer say where the file is stays on the device, however old it is and
+   * however full the phone. Storage is cheaper than a passport.
+   *
+   * ## Nothing calls this
+   *
+   * Measured: every other method on this class has a caller and this one has
+   * none. It is a storage feature that was written and never wired, which is
+   * why the claim above went untested for so long — and why wiring it is a
+   * decision about when to delete a household's documents rather than a
+   * loose end to tidy.
    */
   async pruneUploaded({ keepBytes = 200 * 1024 * 1024 } = {}) {
     const blobs = await this.#db.adapter.query('blobs', {});
@@ -446,12 +468,22 @@ export class DocumentStore {
       .filter((b) => b.uploaded)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
+    let kept = 0;
     for (const blob of candidates) {
       if (total - freed <= keepBytes) break;
+
+      // The pointer recovery actually uses. Without it the local copy is the
+      // only copy, and freeing space would be losing the document.
+      const document = await this.#db.repo('document').get(blob.documentId);
+      if (!document?.driveFileId) {
+        kept += 1;
+        continue;
+      }
+
       freed += blob.data?.length ?? 0;
       await this.#db.adapter.remove('blobs', blob.id);
     }
-    return { freed };
+    return { freed, kept };
   }
 
   /** Pull a file back from Drive when the local copy has been pruned. */
