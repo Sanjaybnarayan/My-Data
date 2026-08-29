@@ -349,7 +349,12 @@ describe('the phase scorecard counts itself', () => {
     const counts = new Map();
     for (const line of doc.split('\n')) {
       // A phase row: `| 15 ↑ | Name | **STATUS** | 70 | …`
-      const row = /^\|\s*([\d.]+)\s*↑?\s*\|[^|]*\|\s*\*\*([A-Z_]+)\*\*\s*\|/.exec(line);
+      //
+      // Both arrows, not just up. The marker was `↑?` while every phase that
+      // had moved had moved upward — so the first row to go the other way
+      // (24, descoped to Android-only) parsed as no row at all, and the
+      // scorecard's count of itself silently lost a phase.
+      const row = /^\|\s*([\d.]+)\s*[↑↓]?\s*\|[^|]*\|\s*\*\*([A-Z_]+)\*\*\s*\|/.exec(line);
       if (!row) continue;
       counts.set(row[2], (counts.get(row[2]) ?? 0) + 1);
     }
@@ -368,7 +373,7 @@ describe('the phase scorecard counts itself', () => {
   };
 
   test('the table has every phase exactly once', () => {
-    const seen = [...doc.matchAll(/^\|\s*([\d.]+)\s*↑?\s*\|/gm)].map((m) => m[1]);
+    const seen = [...doc.matchAll(/^\|\s*([\d.]+)\s*[↑↓]?\s*\|/gm)].map((m) => m[1]);
     const expected = ['0', '0.5', ...Array.from({ length: 25 }, (_, i) => String(i + 1))];
     assert.equal(seen.join(','), expected.join(','));
   });
