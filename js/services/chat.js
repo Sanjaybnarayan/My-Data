@@ -49,24 +49,41 @@ export class ChatService extends Service {
   async enrol(personId, { label = '' } = {}) {
     const deviceId = this.db.deviceId;
     const existing = await this.identity();
-    const rows = await this.repo('deviceKey').list({ limit: 500 });
-    const mine = rows.find((r) => r.deviceId === deviceId && !r.deletedAt && !r.revokedAt);
 
-    if (existing && mine) return { device: mine, created: false };
+    /*
+     * Two tabs opening chat for the first time together each made an identity,
+     * each wrote it over the other's, and each published a row. Measured:
+     *
+     *     deviceKey rows          : 2
+     *     distinct public keys    : 2
+     *     one of them has a private key on this device; the other does not
+     *
+     * Which is what the paragraph above this function predicted, exactly:
+     * "half the household sealing to a key this device no longer has". A
+     * message sealed to the orphaned key is one this device cannot open, and
+     * nothing about the table says which of the two is real.
+     *
+     * The keypair is generated *before* the claim rather than inside it: a
+     * real IndexedDB transaction closes when the microtask queue drains with
+     * nothing pending, so awaiting WebCrypto inside one would end it. So make
+     * a candidate, then let one caller's candidate win, and use the winner's.
+     */
+    const identity = existing
+      ?? (await this.db.claimMetaValue(DEVICE_KEY, await createIdentity())).value;
 
-    const identity = existing ?? await createIdentity();
-    if (!existing) await this.db.setMeta(DEVICE_KEY, identity);
-
-    const device = mine ?? await this.repo('deviceKey').create({
+    const { record: device, created } = await this.repo('deviceKey').createUnlessPresent({
       person: personId,
       deviceId,
       label,
       publicKey: identity.publicKey,
       fingerprint: await safetyNumber(identity.publicKey, identity.publicKey),
       addedAt: new Date().toISOString(),
-    });
+      // A revoked or deleted row is not this device's key any more, so a
+      // re-enrolment after a revocation writes a new one rather than matching
+      // the old and silently doing nothing.
+    }, { index: 'byDevice', only: deviceId, accept: (r) => !r.deletedAt && !r.revokedAt });
 
-    return { device, created: true };
+    return { device, created };
   }
 
   /** This device's keypair, or null before it has been enrolled. */

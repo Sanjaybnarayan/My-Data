@@ -174,12 +174,17 @@ export class Repository {
    * one already existed: the caller is owed a decrypted, permission-filtered
    * record, and the row inside the transaction is neither.
    *
+   * `accept` decides which existing rows count. It defaults to all of them,
+   * and exists because "already here" is not always "any row with this key":
+   * a revoked device re-enrolling needs a new row, and matching its old one
+   * would refuse it silently.
+   *
    * @param {object} input
-   * @param {{index: string, only: unknown}} match the index and the key that
-   *   decides whether this record is already here
+   * @param {{index: string, only: unknown, accept?: (row: object) => boolean}} match
+   *   the index, the key, and which existing rows count as already present
    * @returns {Promise<{record: object|null, created: boolean}>}
    */
-  async createUnlessPresent(input, { index, only }) {
+  async createUnlessPresent(input, { index, only, accept = () => true }) {
     return this.#attempt('create', async () => {
       const planned = await this.stageCreate(input);
       const stores = planned.stores.includes(this.#name)
@@ -189,8 +194,11 @@ export class Repository {
       let outcome;
       try {
         outcome = await this.#ctx.adapter.tx(stores, 'readwrite', async (t) => {
-          const found = await t.getAll(this.#name, { index, range: { only }, limit: 1 });
-          if (found?.length) return { id: found[0].id, created: false };
+          // No `limit`: `accept` has to see them all, and an index key that
+          // matches many rows is not a shape this is for.
+          const found = (await t.getAll(this.#name, { index, range: { only } })) ?? [];
+          const match = found.find(accept);
+          if (match) return { id: match.id, created: false };
           await planned.apply(t);
           return { id: planned.record.id, created: true };
         });

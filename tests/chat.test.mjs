@@ -207,6 +207,51 @@ describe('enrolling a device', () => {
     await chat.enrol(asha.id);
     assert.length(await db.repo('deviceKey').list({ limit: 10 }), 1);
   });
+
+  test('and neither does enrolling twice at once', async () => {
+    /*
+     * The serial case above was guarded; this one was not. `enrol` read the
+     * stored identity, listed the table, and then wrote both — three separate
+     * transactions — so two tabs opening chat for the first time together each
+     * made a keypair, each wrote it over the other's, and each published a
+     * row. Measured:
+     *
+     *     deviceKey rows       : 2
+     *     distinct public keys : 2
+     *     one of the two has a private key on this device; the other does not
+     *
+     * Which is the failure the comment above names: half the household sealing
+     * to a key this device no longer holds, and nothing in the table saying
+     * which of the two is real.
+     */
+    const { db, chat, asha } = await household();
+
+    const [a, b] = await Promise.all([chat.enrol(asha.id), chat.enrol(asha.id)]);
+
+    const rows = await db.repo('deviceKey').list({ limit: 10 });
+    assert.length(rows, 1, 'one device published two keys');
+    assert.length([a, b].filter((one) => one.created), 1, 'both callers believed they enrolled');
+
+    // The published key is the one this device kept the private half of.
+    const kept = await db.meta('chat.deviceIdentity');
+    assert.equal(rows[0].publicKey, kept.publicKey,
+      'the published key is not the one this device can decrypt with');
+  });
+
+  test('and a device whose key was revoked can enrol again', async () => {
+    /*
+     * The other half of the same change. Matching *any* row for this device
+     * would refuse a re-enrolment after a revocation and return the revoked
+     * key, so the match has to say which rows count.
+     */
+    const { db, chat, asha } = await household();
+    const { device } = await chat.enrol(asha.id);
+    await db.repo('deviceKey').update(device.id, { revokedAt: new Date().toISOString() });
+
+    const again = await chat.enrol(asha.id);
+    assert.ok(again.created, 'a revoked device was handed its revoked key back');
+    assert.not(again.device.id === device.id);
+  });
 });
 
 describe('a conversation', () => {
