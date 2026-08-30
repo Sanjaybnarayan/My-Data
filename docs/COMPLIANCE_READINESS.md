@@ -15,7 +15,7 @@
 
 ```
 19 regimes · 68 controls
-TESTED 45 · IMPLEMENTED 9 · DESIGNED 5 · NOT_APPLICABLE 8 · LEGAL_REVIEW_REQUIRED 1
+TESTED 44 · IMPLEMENTED 9 · DESIGNED 6 · NOT_APPLICABLE 8 · LEGAL_REVIEW_REQUIRED 1
 0 NOT_STARTED · 0 VERIFIED
 ```
 
@@ -23,7 +23,7 @@ TESTED 45 · IMPLEMENTED 9 · DESIGNED 5 · NOT_APPLICABLE 8 · LEGAL_REVIEW_REQ
 
 | Regime | Controls | Status breakdown |
 | --- | --- | --- |
-| Digital Personal Data Protection Act, 2023 | 6 | TESTED 2 · IMPLEMENTED 2 · DESIGNED 2 |
+| Digital Personal Data Protection Act, 2023 | 6 | TESTED 1 · IMPLEMENTED 2 · DESIGNED 3 |
 | Information Technology Act, 2000 and the SPDI Rules, 2011 | 4 | TESTED 3 · NOT_APPLICABLE 1 |
 | CERT-In Directions, 2022 | 3 | NOT_APPLICABLE 3 |
 | Aadhaar Act and UIDAI regulations | 5 | TESTED 5 |
@@ -139,11 +139,63 @@ call, any URL addressed to the authority, or a claim of legal effect anywhere
 in `js/` — not only in the report builders, because the same sentence on a
 screen is the same claim.
 
-Both are now `TESTED`: **45**, up from 43. Raised by doing the work, not by
-relabelling, and neither became `VERIFIED` — a passing suite is evidence the
+Both are now `TESTED`, and both were raised by doing the work rather than by
+relabelling. The count they moved is in the block at the top of this document
+and not repeated here: it was quoted as a number in this sentence, the number
+later changed, and the sentence did not — the same drift the phase scorecard
+was reorganised to stop. Neither became `VERIFIED` — a passing suite is evidence the
 code does what it says, and verification is a person qualified to judge
 signing their name. Nothing here is `VERIFIED` and nothing claims the
 application is compliant.
+
+### A status resting on code the application never runs
+
+The check above asks whether a cited *suite* runs. This is the same question
+one step earlier, and it had a worse answer.
+
+`DPDP/retention-limits` — *kept no longer than the purpose needs* — sat at
+**TESTED**, citing `js/data/retention.js` and `tests/retention.test.mjs`. The
+suite runs. The tests pass. The code is correct.
+
+**Nothing in `js/` imports the module.** Not one file. `purge()` is the only
+hard delete of a record anywhere in this codebase, and `repository.remove` is a
+soft delete that stamps `deletedAt` and leaves the row where it is. So a record
+a household deletes is withdrawn from every screen, replicated as deleted to
+every device — and stays on the disk, for as long as the device does. The
+status was true of the code and false of the product.
+
+Two more controls cited the same unreachable module: `DPDP/erasure` and
+`INTERNATIONAL_PRIVACY/erasure-rights`, both **IMPLEMENTED**. `erasure`'s gap
+read *"Local and Drive copies are removed"*, which the local half was not.
+
+#### What changed, and what did not
+
+- `retention-limits` → **DESIGNED**, which is where a written and unwired
+  module belongs, with the reason recorded on the row.
+- The two erasure controls now cite `js/data/repository.js`, where the deletion
+  they describe actually happens, and both say it is a soft delete.
+- **No code was wired up.** Making `purge` reachable means giving a household a
+  button that permanently destroys records, and that is a decision for the
+  household's owner, not a side effect of correcting a status.
+
+**`TESTED` falls by one.** That is the first count in this document to move
+down, and it is the direction honesty points: nothing about the application
+changed, only what the register claims about it.
+
+#### The check that now asks
+
+`citingUncalledCode` sits beside `citingUnrunTests` and refuses a `TESTED` or
+`IMPLEMENTED` control whose evidence is a module under `js/` that nothing
+imports. `DESIGNED` is exempt on purpose — otherwise the honest home for
+`retention-limits` would fail the build too, and the only way out would be
+deleting the row.
+
+Entry points are excused **by name** rather than by luck: `js/app.js` is loaded
+by the page and this register by `tools/compliance.mjs`. Of 220 modules under
+`js/`, exactly four are imported by nothing — those two, `js/ai/mcp.js`, which
+three documents and an architecture probe already declare as having no caller,
+and `js/data/retention.js`, which nothing declared at all. That was the whole
+of the difference between an accepted absence and a false claim.
 
 ### The sweep those two controls rest on could read nothing
 
@@ -171,7 +223,7 @@ call site is covered rather than one test that a later call site could forget.
 The floor is deliberately well under the real count — it is a tripwire for a
 broken walk, not a number to maintain.
 
-**The controls stay `TESTED` and the count stays 45.** The tests were passing
+**The controls stay `TESTED` and no count moves.** The tests were passing
 for the right reason — the sweep really did read 226 files, and the refusals
 really do hold. What was missing is any reason to believe that tomorrow. No
 score moves on this; a scorecard that went up because a test got harder to

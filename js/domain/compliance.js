@@ -95,11 +95,11 @@ export const REGIMES = Object.freeze([
         STATUS.DESIGNED, { doc: 'docs/DATA_CONSENT.md' },
         'Purposes are recorded and shown; nothing enforces them at the point of use.'),
       control('retention-limits', 'Kept no longer than the purpose needs',
-        STATUS.TESTED, { file: 'js/data/retention.js', test: 'tests/retention.test.mjs' }),
+        STATUS.DESIGNED, { file: 'js/data/retention.js', test: 'tests/retention.test.mjs' },
+        'Written and tested, but nothing imports the module, so no record is ever purged.'),
       control('erasure', 'Erasure on request, propagated to copies',
-        STATUS.IMPLEMENTED, { file: 'js/data/retention.js' },
-        'Local and Drive copies are removed; the household Sheet is a backup '
-        + 'this application does not prune on erasure.'),
+        STATUS.IMPLEMENTED, { file: 'js/data/repository.js' },
+        'A deletion propagates to every device but is a soft one: the row stays with `deletedAt`, and the household Sheet is a backup this application does not prune.'),
       control('breach-notice', 'Notify the Board and affected people of a breach',
         STATUS.DESIGNED,
         { file: 'js/domain/breach.js', test: 'tests/breach.test.mjs' },
@@ -547,9 +547,8 @@ export const REGIMES = Object.freeze([
         "On the device, and in the household's own Google account. Region is "
         + "Google's to determine and is not chosen here."),
       control('erasure-rights', 'Erasure, portability and access',
-        STATUS.IMPLEMENTED, { file: 'js/data/retention.js' },
-        'Deletion and export exist as household operations. Neither is framed '
-        + 'as a rights request, and there is no requester other than the owner.'),
+        STATUS.IMPLEMENTED, { file: 'js/data/repository.js' },
+        'Deletion and export exist as household operations, neither framed as a rights request; the deletion is soft, so a record is withdrawn not erased.'),
     ],
   },
 ]);
@@ -608,6 +607,51 @@ export function citingUnrunTests(regimes = REGIMES, runs = () => true) {
       const test = row.evidence?.test;
       if (test && !runs(test)) {
         bad.push(`${regime.id}/${row.id} is TESTED and cites ${test}, which the suite does not run`);
+      }
+    }
+  }
+  return bad;
+}
+
+/**
+ * Controls whose evidence is a module the application never imports.
+ *
+ * `citingUnrunTests` above stops a status resting on a suite that does not
+ * run. This stops one resting on code that does not run — the same failure a
+ * step earlier, and the one that was here.
+ *
+ * `retention-limits` sat at TESTED citing `js/data/retention.js` and
+ * `tests/retention.test.mjs`. The suite runs, the tests pass, the code is
+ * correct. Nothing in `js/` imports the module. `purge()` is the only hard
+ * delete of an entity row in this codebase, `repository.remove` is a soft
+ * delete that stamps `deletedAt` and leaves the row, and so a record a
+ * household deleted stays on the device for as long as the device does. The
+ * status was true of the code and false of the product.
+ *
+ * `TESTED` and `IMPLEMENTED` are the two that assert a thing is *in* the
+ * application; `DESIGNED` does not, which is why it is the honest home for a
+ * module that is written and unwired.
+ *
+ * Entry points are the exception and are passed in rather than guessed at: a
+ * file nothing imports is normally dead, but `js/app.js` is loaded by the page
+ * and this file is loaded by `tools/compliance.mjs`.
+ *
+ * @param {ReadonlyArray<{id: string, controls: ReadonlyArray<{
+ *   id: string, status: string, evidence?: object
+ * }>}>} regimes
+ * @param {(file: string) => boolean} imported does anything import this module
+ * @param {ReadonlyArray<string>} [entryPoints] files legitimately imported by nothing
+ */
+export function citingUncalledCode(regimes = REGIMES, imported = () => true,
+  entryPoints = ['js/app.js', 'js/domain/compliance.js']) {
+  const bad = [];
+  for (const regime of regimes) {
+    for (const row of regime.controls) {
+      if (row.status !== STATUS.TESTED && row.status !== STATUS.IMPLEMENTED) continue;
+      const file = row.evidence?.file;
+      if (!file || !file.startsWith('js/') || entryPoints.includes(file)) continue;
+      if (!imported(file)) {
+        bad.push(`${regime.id}/${row.id} is ${row.status} and cites ${file}, which nothing in the application imports`);
       }
     }
   }
