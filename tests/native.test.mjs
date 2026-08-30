@@ -741,20 +741,42 @@ describe('what the app is allowed to do to a connection', () => {
      *
      * Asserted over the sources rather than assumed from their absence today.
      */
-    const roots = ['android/app/src/main/java', 'android/app/src/sms/java', 'ios/App/App'];
+    /*
+     * `android/app/src/main/java` must exist; the other two are optional
+     * source sets. That distinction is the point.
+     *
+     * The first version of this walk returned quietly from *any* unreadable
+     * directory, on the reasoning that "a source set that does not exist is
+     * not a source set that hides something". True of the optional two, and
+     * false of the one that is always there — under it, renaming the Android
+     * package would have left this test reading nothing and still passing,
+     * which is the same fault as `shipped()` in `tests/refusals.test.mjs` and
+     * was written the same day I fixed that one.
+     *
+     * So the required root is read without a catch, and a floor is asserted:
+     * the check is worth what it read.
+     */
+    const roots = [
+      { dir: 'android/app/src/main/java', required: true },
+      { dir: 'android/app/src/sms/java', required: false },
+      { dir: 'ios/App/App', required: false },
+    ];
     const found = [];
+    let scanned = 0;
 
-    const walk = async (dir) => {
+    const walk = async (dir, required) => {
       let entries;
       try {
         entries = await readdir(join(ROOT, dir), { withFileTypes: true });
-      } catch {
-        return; // A source set that does not exist is not a source set that hides something.
+      } catch (err) {
+        if (required) throw err;
+        return; // An optional source set that is absent hides nothing.
       }
       for (const entry of entries) {
         const path = `${dir}/${entry.name}`;
-        if (entry.isDirectory()) { await walk(path); continue; }
+        if (entry.isDirectory()) { await walk(path, false); continue; }
         if (!/\.(java|kt|swift|m)$/.test(entry.name)) continue;
+        scanned += 1;
         const source = await readFile(join(ROOT, path), 'utf8');
         if (/X509TrustManager|checkServerTrusted|ALLOW_ALL_HOSTNAME_VERIFIER|setHostnameVerifier|onReceivedSslError|serverTrust/.test(source)) {
           found.push(path);
@@ -762,8 +784,10 @@ describe('what the app is allowed to do to a connection', () => {
       }
     };
 
-    for (const root of roots) await walk(root);
+    for (const root of roots) await walk(root.dir, root.required);
 
+    assert.ok(scanned >= 3,
+      `only ${scanned} native sources were read, so this proves nothing`);
     assert.deep(found, [],
       `these touch certificate validation: ${found.join(', ')} — if the reason `
       + 'is good, say it there and narrow this check to it');

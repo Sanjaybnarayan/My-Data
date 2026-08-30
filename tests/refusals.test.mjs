@@ -24,10 +24,37 @@ setSuite('refusals');
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Everything that ships to a browser, plus the backend. */
+/**
+ * Every source file the refusals are asserted over — and a floor under it.
+ *
+ * The refusals in this file are regulatory: *no Aadhaar authentication is
+ * performed*, *no generated document claims legal effect*. Each is a sweep, so
+ * each is only as good as the sweep. Two things made the sweep able to find
+ * nothing and say so quietly.
+ *
+ * The `readdir` swallowed its error — `.catch(() => [])` — so any directory
+ * that could not be read became a directory with nothing in it. A rename, a
+ * permission, a wrong root: the walk returns fewer files, or none, and every
+ * loop over it completes without a hit. That is an absence concluded from a
+ * read failure, which is not an absence.
+ *
+ * And nothing checked the count. Making this return `[]` outright left the
+ * whole suite green at 2991 — five refusal tests certifying their claims
+ * having read no source at all.
+ *
+ * So the error is no longer caught, and the floor is asserted here rather than
+ * in one test that a later call site could forget. `SOURCE_FLOOR` is well
+ * under the real number (226 at the time of writing) because it is a tripwire
+ * for a broken walk, not a count to maintain — a number that has to be edited
+ * whenever a file is added is a number people edit without reading.
+ */
+const SOURCE_FLOOR = 150;
+
 async function shipped() {
   const out = [];
   const walk = async (dir) => {
-    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    // Not caught. A source tree that cannot be read is a failed test.
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) { await walk(full); continue; }
       if (/\.(js|gs)$/.test(entry.name)) out.push([full, await readFile(full, 'utf8')]);
@@ -35,6 +62,12 @@ async function shipped() {
   };
   await walk(join(ROOT, 'js'));
   await walk(join(ROOT, 'apps-script'));
+
+  if (out.length < SOURCE_FLOOR) {
+    throw new Error(
+      `the refusal sweep found ${out.length} source files, under the floor of `
+      + `${SOURCE_FLOOR} — every refusal below would pass by reading nothing`);
+  }
   return out;
 }
 
