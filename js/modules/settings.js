@@ -46,7 +46,7 @@ import {
 import { householdCard, devicesCard } from './settings/household.js';
 import { securityCard } from './settings/security.js';
 import { appearanceCard, languageCard, aboutCard } from './settings/display.js';
-import { dataCard, backupCard, deletedCard, conflictsCard } from './settings/data.js';
+import { dataCard, backupCard, deletedCard, conflictsCard, exampleCard } from './settings/data.js';
 import { activityCard, connectionsCard, diagnosticsCard, breachCard } from './settings/activity.js';
 
 
@@ -129,6 +129,7 @@ async function paint(host) {
     backup: await backupCard(db, repaint),
     deleted: deletedCard(db),
     conflicts: conflictsCard(db),
+    example: await exampleCard(db, repaint),
     connections: connectionsCard(needing),
     activity: activityCard(activity, people, db),
     diagnostics: diagnosticsCard(diagnostics),
@@ -138,7 +139,7 @@ async function paint(host) {
 
   /** @type {[string, string[]][]} */
   const groups = [
-    ['settings.group.data', ['privacy', 'data', 'backup', 'deleted', 'conflicts']],
+    ['settings.group.data', ['privacy', 'data', 'backup', 'deleted', 'conflicts', 'example']],
     ['settings.group.device', ['appearance', 'language', 'security', 'notifications']],
     ['settings.group.agreed', ['consent', 'household', 'devices']],
     ['settings.group.connections', ['google', 'origin', 'sync', 'connections', 'scopes']],
