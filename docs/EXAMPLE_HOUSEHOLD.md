@@ -6,7 +6,7 @@ An empty screen looks the same whether it works or not.
 
 ## What it writes
 
-**216 records across 27 of the 53 kinds.**
+**253 records across 42 of the 53 kinds.**
 
 | | |
 | --- | --- |
@@ -146,10 +146,19 @@ device and chat state, produced by enrolment and hardware rather than typing.
 **A person who is not in this family.** `staff` requires a `person` row, and
 adding one would make the household seven people when it is six.
 
-**Things that could simply be added**: `budget`, `loan`, `holding`,
-`investmentTransaction`, `property`, `tenant`, `trip`, `note`, `vaultItem`,
-`digitalAsset`, `legalDocument`, `certificate`, `event`, `recurringPayment`,
-`kycRecord`. Their screens are still bare.
+That is the whole list. Everything else is filled: a flat and a let shop unit
+with a tenant, a home loan and a car loan, four holdings with the dates they
+were valued on, budgets set below what the household actually spends on two of
+the four, a vault of deliberate nonsense, powers of attorney, certificates, KYC
+records, notes, diary events and a trip.
+
+**A warning found while writing this.** The holdings and properties carry
+`valuedOn`, and a comment here used to claim `domain/networth.js` would report
+those valuations as stale. It does not. `staleValuations` means *no
+`currentValue` at all*; `valuedOn` is never consulted. Measured: a property
+valued three years ago contributes its full figure and is flagged as nothing,
+while the same property with no valuation is flagged. The unknown is surfaced
+and the confidently-stale is silent.
 
 ## A side effect worth recording
 
