@@ -37,7 +37,8 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  REGIMES, STATUS, claimingVerified, unevidenced, citingUnrunTests, summary,
+  REGIMES, STATUS, claimingVerified, unevidenced, citingUnrunTests,
+  citingUncalledCode, summary,
 } from '../js/domain/compliance.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -182,6 +183,38 @@ export function check() {
       .map((name) => `tests/${name}`),
   );
   problems.push(...citingUnrunTests(REGIMES, (path) => runnable.has(path)));
+
+  /*
+   * And the same question one step earlier: does the cited code run?
+   *
+   * A suite that runs against a module nothing imports proves the module
+   * correct and says nothing about the application. `retention-limits` sat at
+   * TESTED that way — correct code, passing tests, no caller — while a record
+   * a household deleted stayed on the device.
+   *
+   * Imports are read off the source rather than resolved, which is enough
+   * here: every module in `js/` is imported by its filename.
+   */
+  const jsFiles = [];
+  const walkJs = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walkJs(full);
+      else if (entry.name.endsWith('.js')) jsFiles.push(full);
+    }
+  };
+  walkJs(join(ROOT, 'js'));
+  const sources = new Map(jsFiles.map((f) => [f, readFileSync(f, 'utf8')]));
+  const importsOf = (file) => {
+    const stem = file.split('/').pop().replace(/\.js$/, '');
+    const pattern = new RegExp(`from ['"\`][^'"\`]*\\b${stem}\\.js|import\\(['"\`][^'"\`]*\\b${stem}\\.js`);
+    for (const [path, text] of sources) {
+      if (path.endsWith(`/${file}`) || path === join(ROOT, file)) continue;
+      if (pattern.test(text)) return true;
+    }
+    return false;
+  };
+  problems.push(...citingUncalledCode(REGIMES, importsOf));
   problems.push(...claimingVerified().map((one) => `${one} claims VERIFIED — nobody has verified anything`));
 
   const present = existsSync(DOCS)

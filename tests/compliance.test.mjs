@@ -1,6 +1,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   REGIMES, STATUS, APPLIES, EVIDENCED, unevidenced, claimingVerified, summary, citingUnrunTests,
+  citingUncalledCode,
   unexplained, MEANINGFUL_GAP,
 } from '../js/domain/compliance.js';
 import {
@@ -168,6 +169,97 @@ describe('a cited suite is one that runs', () => {
     const problems = citingUnrunTests(REGIMES, () => false);
     const tested = REGIMES.flatMap((r) => r.controls.filter((c) => c.status === STATUS.TESTED));
     assert.equal(problems.length, tested.filter((c) => c.evidence?.test).length);
+  });
+});
+
+describe('a status cannot rest on code the application never runs', () => {
+  /*
+   * The step before `citingUnrunTests`. That one asks whether the cited suite
+   * runs; this asks whether the cited *code* does.
+   *
+   * `DPDP/retention-limits` sat at TESTED citing `js/data/retention.js` and a
+   * suite that passes. Nothing in `js/` imports the module. `purge` is the
+   * only hard delete of a record in this codebase and `repository.remove` is a
+   * soft delete that stamps `deletedAt` and leaves the row — so a record a
+   * household deleted stayed on the device, while the register said its
+   * retention limit was tested.
+   */
+  const jsRoot = new URL('../js/', import.meta.url).pathname;
+
+  /** Every module under `js/`, and its text. */
+  async function sources() {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const out = new Map();
+    const walk = async (dir, prefix) => {
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) { await walk(`${dir}${entry.name}/`, `${prefix}${entry.name}/`); continue; }
+        if (entry.name.endsWith('.js')) out.set(`js/${prefix}${entry.name}`, await readFile(`${dir}${entry.name}`, 'utf8'));
+      }
+    };
+    await walk(jsRoot, '');
+    return out;
+  }
+
+  const importerOf = (all) => (file) => {
+    const stem = file.split('/').pop().replace(/\.js$/, '');
+    const pattern = new RegExp(`from ['"\`][^'"\`]*\\b${stem}\\.js|import\\(['"\`][^'"\`]*\\b${stem}\\.js`);
+    for (const [path, text] of all) if (path !== file && pattern.test(text)) return true;
+    return false;
+  };
+
+  test('every module a TESTED or IMPLEMENTED control cites is imported', async () => {
+    const all = await sources();
+    // The sweep is worth what it read.
+    assert.ok(all.size > 150, `only ${all.size} modules were read`);
+
+    const problems = citingUncalledCode(REGIMES, importerOf(all));
+    assert.length(problems, 0, problems.join(' | '));
+  });
+
+  test('and the check notices when one is not', () => {
+    // Produced on purpose: a check that cannot fail is worse than no check.
+    const problems = citingUncalledCode(REGIMES, () => false);
+    assert.ok(problems.length > 5,
+      `only ${problems.length} controls citing a js/ file were flagged`);
+    assert.ok(problems[0].includes('which nothing in the application imports'), problems[0]);
+  });
+
+  test('and covers IMPLEMENTED as well as TESTED', () => {
+    /*
+     * Pinned because narrowing the guard to TESTED alone broke nothing: after
+     * the fix no IMPLEMENTED control cites an unimported module, so the
+     * narrowing had no effect to observe. Both statuses assert the code is in
+     * the application — `erasure` and `erasure-rights` were IMPLEMENTED, and
+     * both cited a module nothing imports.
+     */
+    const problems = citingUncalledCode(REGIMES, () => false);
+    const flagged = new Set(problems.map((line) => line.split(' is ')[1]?.split(' and ')[0]));
+    assert.ok(flagged.has(STATUS.IMPLEMENTED),
+      `only these statuses were flagged: ${[...flagged].join(', ')}`);
+    assert.ok(flagged.has(STATUS.TESTED), [...flagged].join(', '));
+  });
+
+  test('and says nothing about a status that does not claim the code runs', () => {
+    /*
+     * DESIGNED is where a written-but-unwired module belongs, so it must not
+     * be flagged — otherwise the honest home for `retention-limits` would
+     * itself fail the build and the only way out would be deleting the row.
+     */
+    const problems = citingUncalledCode(REGIMES, () => false);
+    const designed = REGIMES.flatMap((r) => r.controls)
+      .filter((c) => c.status === STATUS.DESIGNED && c.evidence?.file?.startsWith('js/'));
+    assert.ok(designed.length > 0, 'no DESIGNED control cites a js/ file, so this proves nothing');
+    for (const row of designed) {
+      assert.equal(problems.some((p) => p.includes(row.id)), false, `${row.id} was flagged`);
+    }
+  });
+
+  test('and entry points are excused by name rather than by accident', () => {
+    // `js/app.js` is loaded by the page and this register by the tool. Both
+    // are imported by nothing, and neither is dead.
+    const problems = citingUncalledCode(REGIMES, () => false, []);
+    const excused = citingUncalledCode(REGIMES, () => false);
+    assert.ok(problems.length >= excused.length);
   });
 });
 
