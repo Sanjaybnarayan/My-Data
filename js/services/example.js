@@ -42,12 +42,14 @@ export class ExampleService extends Service {
    * class's record reader and this is a writer — one letter of convenience
    * against a method that means the opposite of its parent's.
    *
+   * @param {{clock?: () => number}} [options] moves the dates, which are all
+   *   relative to the day it is loaded — see `domain/example.js`.
    * @returns {Promise<{loaded: boolean, count: number,
    *                    people?: number, present?: boolean}>}
    *   `loaded: false` with `people` set means the household was not empty and
    *   nothing was written; with `present` set, the example was already there.
    */
-  async install() {
+  async install({ clock = Date.now } = {}) {
     const already = await loadedExample(this.db);
     if (already) return { loaded: false, count: already.ids.length, present: true };
 
@@ -67,7 +69,7 @@ export class ExampleService extends Service {
     /** @type {Array<{entity: string, id: string}>} */
     const written = [];
 
-    for (const step of plan()) {
+    for (const step of plan(clock)) {
       for (const row of /** @type {Record<string, any>[]} */ (step.rows)) {
         const { key, ...input } = row;
 

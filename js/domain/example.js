@@ -70,6 +70,7 @@
 
 import { exampleStrings } from '../locale/en-example.js';
 import { entity } from '../data/schema.js';
+import { today, addDays, addMonths } from '../core/dates.js';
 
 /**
  * An enum option, quoted from the schema rather than retyped here.
@@ -108,6 +109,41 @@ function text(key) {
   return found;
 }
 
+/**
+ * A date, relative to the day the example is loaded.
+ *
+ * Fixed dates were the first version and they rot in two directions. Forward:
+ * every expiry here sat outside its own `expiryLead`, so the reminders screen —
+ * one of the things a person most wants to look at — was empty, and the
+ * assistant's "what is expiring?" had nothing to answer. Backward: a son born
+ * on a fixed date is fifteen this year and twenty-five in ten years' time,
+ * still filed as a child.
+ *
+ * So every date is derived from the load date, and the household stays
+ * coherent whenever it is loaded: the grandfather is always 78, the son is
+ * always 15, one PUC is always about to lapse and one always just has.
+ *
+ * This is not a figure being invented — it is the *date the example was
+ * created*, which is the one thing about it that is literally true.
+ */
+function on(clock, { years = 0, months = 0, days = 0 }) {
+  let day = today(clock);
+  if (years || months) day = addMonths(day, years * 12 + months);
+  return days ? addDays(day, days) : day;
+}
+
+/**
+ * A birthday that keeps an age: the year that makes somebody `years` old on
+ * the day the example is loaded, with their own month and day kept.
+ *
+ * Built here rather than inline because a template literal holding
+ * `{ years: -78 }` reads to `tools/strings.mjs` as an English sentence, and it
+ * is right to: a literal with words and spaces in it is what that tool is
+ * looking for. The month and day carry no space and are what they look like.
+ */
+const birthdayOn = (clock, years, monthDay) =>
+  on(clock, { years: -years }).slice(0, 4) + monthDay;
+
 const relation = (key) => option('relationship', 'type', key);
 const idKind = (key) => option('identityDocument', 'kind', key);
 
@@ -129,14 +165,14 @@ const note = () => text('example.note');
  * belongs — a person row cannot hold two relationships at once, and writing
  * `grandfather` here would have made the tree disagree with itself.
  */
-export function people() {
+export function people(clock = Date.now) {
   return [
     {
       key: 'ramesh',
       name: text('example.person.ramesh'),
       role: 'adult',
       relationship: 'father',
-      birthday: '1948-06-14',
+      birthday: birthdayOn(clock, 78, '-06-14'),
       gender: 'male',
       bloodGroup: 'B+',
       occupation: text('example.occupation.retired'),
@@ -150,7 +186,7 @@ export function people() {
       name: text('example.person.lakshmi'),
       role: 'adult',
       relationship: 'mother',
-      birthday: '1952-11-02',
+      birthday: birthdayOn(clock, 74, '-11-02'),
       gender: 'female',
       bloodGroup: 'O+',
       occupation: text('example.occupation.homemaker'),
@@ -163,7 +199,7 @@ export function people() {
       name: text('example.person.anand'),
       role: 'owner',
       relationship: 'self',
-      birthday: '1978-03-21',
+      birthday: birthdayOn(clock, 48, '-03-21'),
       gender: 'male',
       bloodGroup: 'O+',
       occupation: text('example.occupation.engineer'),
@@ -177,7 +213,7 @@ export function people() {
       name: text('example.person.priya'),
       role: 'spouse',
       relationship: 'spouse',
-      birthday: '1981-09-08',
+      birthday: birthdayOn(clock, 45, '-09-08'),
       gender: 'female',
       bloodGroup: 'A+',
       occupation: text('example.occupation.teacher'),
@@ -191,7 +227,7 @@ export function people() {
       name: text('example.person.vikram'),
       role: 'child',
       relationship: 'son',
-      birthday: '2011-01-17',
+      birthday: birthdayOn(clock, 15, '-01-17'),
       gender: 'male',
       bloodGroup: 'O+',
       occupation: text('example.occupation.student'),
@@ -204,7 +240,7 @@ export function people() {
       name: text('example.person.ananya'),
       role: 'child',
       relationship: 'daughter',
-      birthday: '2014-07-25',
+      birthday: birthdayOn(clock, 12, '-07-25'),
       gender: 'female',
       bloodGroup: 'A+',
       occupation: text('example.occupation.student'),
@@ -224,7 +260,7 @@ export function people() {
  * from either end and a second row saying the same thing backwards is a copy
  * that can disagree with its original.
  */
-export function relationships() {
+export function relationships(clock = Date.now) {
   return [
     { fromPerson: 'ramesh', type: relation('spouse-of'), toPerson: 'lakshmi' },
     { fromPerson: 'anand', type: relation('spouse-of'), toPerson: 'priya' },
@@ -253,7 +289,7 @@ export function relationships() {
  * screen here will claim a trend, a category or a reconciliation that was
  * never derived from anything.
  */
-export function accounts() {
+export function accounts(clock = Date.now) {
   const rows = [
     ['ramesh', 'sapphire', 'SPHB0000411', '4110029773641', 8_42_500_00],
     ['ramesh', 'kaveri', 'KVRG0000228', '2280071144092', 1_16_400_00],
@@ -285,7 +321,7 @@ export function accounts() {
 }
 
 /** Two cars. */
-export function vehicles() {
+export function vehicles(clock = Date.now) {
   return [
     {
       key: 'estate',
@@ -298,13 +334,14 @@ export function vehicles() {
       owner: 'anand',
       chassisNumber: 'MA0EX00000EX00417',
       engineNumber: 'K15BX0000417',
-      registeredOn: '2019-08-12',
-      rcExpiresOn: '2034-08-11',
+      registeredOn: on(clock, { years: -7, days: 2 }),
+      rcExpiresOn: on(clock, { years: 8 }),
       purchasePrice: 9_84_000_00,
-      purchasedOn: '2019-08-10',
+      purchasedOn: on(clock, { years: -7 }),
       currentValue: 5_60_000_00,
-      insuranceExpiresOn: '2027-08-09',
-      pucExpiresOn: '2026-11-30',
+      insuranceExpiresOn: on(clock, { months: 11 }),
+      pucExpiresOn: on(clock, { days: 18 }),
+      nextServiceOn: on(clock, { days: 12 }),
       odometer: 78_400,
       notes: note(),
     },
@@ -319,13 +356,13 @@ export function vehicles() {
       owner: 'priya',
       chassisNumber: 'MALBX00000BX08802',
       engineNumber: 'G4LAX0008802',
-      registeredOn: '2022-02-26',
-      rcExpiresOn: '2037-02-25',
+      registeredOn: on(clock, { years: -4, months: -6, days: 2 }),
+      rcExpiresOn: on(clock, { years: 11 }),
       purchasePrice: 8_47_000_00,
-      purchasedOn: '2022-02-24',
+      purchasedOn: on(clock, { years: -4, months: -6 }),
       currentValue: 6_20_000_00,
-      insuranceExpiresOn: '2027-02-23',
-      pucExpiresOn: '2026-10-15',
+      insuranceExpiresOn: on(clock, { days: 24 }),
+      pucExpiresOn: on(clock, { days: -5 }),
       odometer: 31_250,
       notes: note(),
     },
@@ -341,7 +378,7 @@ export function vehicles() {
  * floater and a top-up are two records because they are two policies, not one
  * policy with a note about the parents.
  */
-export function policies() {
+export function policies(clock = Date.now) {
   return [
     {
       key: 'floater',
@@ -354,8 +391,8 @@ export function policies() {
       sumAssured: 15_00_000_00,
       premium: 42_600_00,
       premiumFrequency: 'yearly',
-      startedOn: '2021-04-01',
-      renewsOn: '2027-03-31',
+      startedOn: on(clock, { years: -5 }),
+      renewsOn: on(clock, { days: 38 }),
       tpaHelpline: '1800 000 0000',
       notes: note(),
     },
@@ -370,8 +407,8 @@ export function policies() {
       sumAssured: 10_00_000_00,
       premium: 38_900_00,
       premiumFrequency: 'yearly',
-      startedOn: '2023-04-01',
-      renewsOn: '2027-03-31',
+      startedOn: on(clock, { years: -3 }),
+      renewsOn: on(clock, { days: 38 }),
       tpaHelpline: '1800 000 0000',
       notes: note(),
     },
@@ -387,8 +424,8 @@ export function policies() {
       sumAssured: 5_60_000_00,
       premium: 18_450_00,
       premiumFrequency: 'yearly',
-      startedOn: '2019-08-10',
-      renewsOn: '2027-08-09',
+      startedOn: on(clock, { years: -7 }),
+      renewsOn: on(clock, { months: 11 }),
       notes: note(),
     },
     {
@@ -403,8 +440,8 @@ export function policies() {
       sumAssured: 6_20_000_00,
       premium: 15_780_00,
       premiumFrequency: 'yearly',
-      startedOn: '2022-02-24',
-      renewsOn: '2027-02-23',
+      startedOn: on(clock, { years: -4, months: -6 }),
+      renewsOn: on(clock, { days: 24 }),
       notes: note(),
     },
   ];
@@ -419,7 +456,7 @@ export function policies() {
  * uneven, and a demonstration where everybody has everything teaches a screen
  * nothing about the gap it is supposed to show.
  */
-export function identityDocuments() {
+export function identityDocuments(clock = Date.now) {
   // No Aadhaar. The header says why, at length, because it is the one
   // omission here that looks like carelessness and is not.
   const rows = [
@@ -433,14 +470,14 @@ export function identityDocuments() {
     ['anand', idKind('voter-id'), 'ZZZ0000013', '', ''],
     ['priya', idKind('voter-id'), 'ZZZ0000014', '', ''],
 
-    ['ramesh', idKind('passport'), 'Z0000021', '2019-05-14', '2029-05-13'],
-    ['lakshmi', idKind('passport'), 'Z0000022', '2019-05-14', '2029-05-13'],
-    ['anand', idKind('passport'), 'Z0000023', '2021-11-08', '2031-11-07'],
-    ['priya', idKind('passport'), 'Z0000024', '2021-11-08', '2031-11-07'],
+    ['ramesh', idKind('passport'), 'Z0000021', on(clock, { years: -10, days: 52 }), on(clock, { days: 52 })],
+    ['lakshmi', idKind('passport'), 'Z0000022', on(clock, { years: -7 }), on(clock, { years: 3 })],
+    ['anand', idKind('passport'), 'Z0000023', on(clock, { years: -5 }), on(clock, { years: 5 })],
+    ['priya', idKind('passport'), 'Z0000024', on(clock, { years: -5 }), on(clock, { years: 5 })],
 
-    ['ramesh', idKind('driving-licence'), 'KA00 19700000031', '2016-07-19', '2036-07-18'],
-    ['anand', idKind('driving-licence'), 'KA00 19990000032', '2018-03-02', '2038-03-01'],
-    ['priya', idKind('driving-licence'), 'KA00 20030000033', '2020-09-15', '2040-09-14'],
+    ['ramesh', idKind('driving-licence'), 'KA00 19700000031', on(clock, { years: -10 }), on(clock, { years: 10 })],
+    ['anand', idKind('driving-licence'), 'KA00 19990000032', on(clock, { years: -8 }), on(clock, { years: 12 })],
+    ['priya', idKind('driving-licence'), 'KA00 20030000033', on(clock, { years: -6 }), on(clock, { years: 14 })],
   ];
 
   return rows.map(([person, kind, number, issuedOn, expiresOn], i) => ({
@@ -455,13 +492,13 @@ export function identityDocuments() {
 }
 
 /** Everything, in the order it has to be written for the refs to resolve. */
-export function plan() {
+export function plan(clock = Date.now) {
   return [
-    { entity: 'person', rows: people() },
-    { entity: 'relationship', rows: relationships(), refs: ['fromPerson', 'toPerson'] },
-    { entity: 'account', rows: accounts(), refs: ['holder'] },
-    { entity: 'vehicle', rows: vehicles(), refs: ['owner'] },
-    { entity: 'policy', rows: policies(), refs: ['holder', 'vehicle'], multi: ['insured'] },
-    { entity: 'identityDocument', rows: identityDocuments(), refs: ['person'] },
+    { entity: 'person', rows: people(clock) },
+    { entity: 'relationship', rows: relationships(clock), refs: ['fromPerson', 'toPerson'] },
+    { entity: 'account', rows: accounts(clock), refs: ['holder'] },
+    { entity: 'vehicle', rows: vehicles(clock), refs: ['owner'] },
+    { entity: 'policy', rows: policies(clock), refs: ['holder', 'vehicle'], multi: ['insured'] },
+    { entity: 'identityDocument', rows: identityDocuments(clock), refs: ['person'] },
   ];
 }

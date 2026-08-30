@@ -21,6 +21,26 @@ written**, so nothing here produces a trend, a category, a reconciliation or a
 forecast — a demonstration that invented a derived figure would be teaching the
 screens to lie.
 
+## Every date is relative to the day you load it
+
+The first version used fixed dates, and they rotted in both directions.
+
+**Forward.** Every expiry sat outside its own `expiryLead`, so the reminders
+screen was empty and the assistant's *"what is expiring?"* had nothing to
+answer — two of the things a person most wants to look at, demonstrating
+nothing. **Backward.** A son born on a fixed date is fifteen this year and
+twenty-five in ten years, still filed as a child.
+
+So the dates derive from the load date. The grandfather is always 78, the son
+always 15; one PUC is always about to lapse and one always just has; a policy
+renewal, a service and a passport always sit inside their own lead times. Eight
+reminders, one of them overdue, whenever it is loaded.
+
+This invents nothing. The creation date is the one thing about an example
+household that is literally true, and `tests/example.test.mjs` checks both
+properties at two clocks a decade apart — a demonstration that only works this
+year is the same defect in slower motion.
+
 ## Why this is allowed at all
 
 The build brief forbids fake data, and means something specific by it: fake API

@@ -7,11 +7,12 @@
  * records, and it comes out again completely.
  */
 
-import { test, describe, assert, setSuite } from './harness.mjs';
+import { test, describe, assert, setSuite, fakeClock } from './harness.mjs';
 import { makeDb, makePerson } from './fixture.mjs';
 import { ExampleService, loadedExample } from '../js/services/example.js';
 import { plan, META_KEY } from '../js/domain/example.js';
 import { formats } from '../js/data/formats.js';
+import { expiryReminders } from '../js/domain/reminders.js';
 import { exampleStrings } from '../js/locale/en-example.js';
 import { strings as english } from '../js/locale/en.js';
 
@@ -168,4 +169,56 @@ describe('the example text is a catalogue, and stays out of the UI one', () => {
     // this states it so a reader does not have to know that.
     assert.ok(Object.keys(exampleStrings).length > 0);
   });
+});
+
+describe('the example household stays coherent whenever it is loaded', () => {
+  /*
+   * The first version used fixed dates, and they rotted in both directions.
+   * Forward: every expiry sat outside its own `expiryLead`, so the reminders
+   * screen — one of the things a person most wants to look at — was empty, and
+   * the assistant's "what is expiring?" had nothing to answer. Backward: a son
+   * born on a fixed date is fifteen now and twenty-five in ten years, still
+   * filed as a child.
+   *
+   * Both are checked at two clocks a decade apart, because a demonstration
+   * that only works this year is the same defect in slower motion.
+   */
+  /** @type {Array<[string, () => number]>} */
+  const clocks = [
+    ['this year', fakeClock(Date.parse('2026-08-30T09:00:00Z'))],
+    ['a decade on', fakeClock(Date.parse('2036-02-11T09:00:00Z'))],
+  ];
+
+  for (const [when, clock] of clocks) {
+    test(`has something for the reminders screen, ${when}`, async () => {
+      const db = await makeDb();
+      await new ExampleService(db).install({ clock });
+
+      const due = expiryReminders({
+        vehicle: await db.repo('vehicle').list({ limit: 10 }),
+        policy: await db.repo('policy').list({ limit: 10 }),
+        identityDocument: await db.repo('identityDocument').list({ limit: 30 }),
+      }, { clock });
+
+      assert.ok(due.length >= 5, `only ${due.length} reminders — the screen would look broken`);
+      assert.ok(due.some((r) => r.days < 0), 'one thing has lapsed, so the overdue state is shown');
+      assert.ok(due.some((r) => r.days >= 0), 'and something is merely coming up');
+    });
+
+    test(`keeps the same six ages, ${when}`, async () => {
+      const db = await makeDb();
+      await new ExampleService(db).install({ clock });
+
+      const year = Number(new Date(clock()).toISOString().slice(0, 4));
+      const people = await db.repo('person').list({ limit: 10 });
+      const age = (name) => year - Number(
+        people.find((p) => p.name.startsWith(name)).birthday.slice(0, 4));
+
+      // A child who ages out of `role: child` is a demonstration that has
+      // started contradicting itself.
+      assert.equal(age('Vikram'), 15);
+      assert.equal(age('Ananya'), 12);
+      assert.equal(age('Ramesh'), 78);
+    });
+  }
 });
