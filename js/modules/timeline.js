@@ -77,6 +77,8 @@ function filters(present, active, onPick) {
 
   return h('div', {
     class: 'row',
+    role: 'group',
+    'aria-label': 'Filter by entity type',
     style: { gap: 'var(--space-2)', flexWrap: 'wrap', marginBottom: 'var(--space-4)' },
   }, [
     chip('Everything', { pressed: !active, onClick: () => onPick('') }),
