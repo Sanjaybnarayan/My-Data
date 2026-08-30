@@ -92,6 +92,32 @@ describe('what it refuses, and says', () => {
     assert.equal(found.why, WHY.NO_DISTANCE);
   });
 
+  test('all stretches skipped names the skip reason, not "no full tanks"', () => {
+    // Two full tanks exist, but the odometer goes backwards between them.
+    // Before the fix, `stretches()` returned `WHY.NO_FULL_TANKS` because
+    // `measured.length === 0` — which was literally false (there ARE two full
+    // tanks) and told the household the wrong thing to fix. The correct reason
+    // is the backwards odometer; the fix uses the first refusal reason when no
+    // stretch was measured.
+    const out = mileage('v1', [
+      fill('2026-05-01', 10000, 35, true),
+      fill('2026-05-20', 9000, 30, true),   // backwards odometer
+    ]);
+    assert.equal(out.kmPerLitre, null);
+    assert.equal(out.skipped.length, 1);
+    assert.equal(out.why, WHY.BACKWARDS);   // was WHY.NO_FULL_TANKS before fix
+  });
+
+  test('describeMileage names the real reason when all stretches are skipped', () => {
+    const out = mileage('v1', [
+      fill('2026-05-01', 10000, 35, true),
+      fill('2026-05-20', 9000, 30, true),
+    ]);
+    const said = describeMileage(out);
+    assert.includes(said, 'No mileage yet');
+    assert.includes(said, 'backwards');   // odometer-backwards message, not "two full tanks"
+  });
+
   test('a refused stretch does not stop the measurable ones', () => {
     const mixed = [
       ...ORDINARY,
