@@ -350,8 +350,24 @@ describe('signing in', () => {
      * authority over the household's Drive, Sheets and Gmail, in IndexedDB,
      * behind a comment saying otherwise.
      */
+    /*
+     * The token is long and distinctive, and that is load-bearing.
+     *
+     * It was `'rt'`, and the assertion below is a substring check against the
+     * stored envelope. A sealed value is 48 characters of base64, and two
+     * given characters occur in it by chance about **1.15% of the time**
+     * (measured: 23 of 2000 seals of `'rt'` contain `rt`). So this test failed
+     * roughly one run in ninety, for a reason that had nothing to do with what
+     * it was testing.
+     *
+     * The length is not only about the flake. A two-character needle is a weak
+     * guard in the other direction too: it says almost nothing about whether
+     * the value leaked. A token that cannot appear by accident makes the
+     * absence mean what it says.
+     */
+    const REFRESH = 'refresh-zBQ7yv2LmXpKd94Rn6tHsA';
     const s = shell();
-    const g = google([{ ok: true, body: { access_token: 'at', expires_in: 3600, refresh_token: 'rt' } }]);
+    const g = google([{ ok: true, body: { access_token: 'at', expires_in: 3600, refresh_token: REFRESH } }]);
     const store = await unlocked();
 
     try {
@@ -362,11 +378,11 @@ describe('signing in', () => {
       await within(signingIn, 'the sign-in');
 
       const stored = await store.meta(REFRESH_KEY);
-      assert.not(String(stored).includes('rt'), 'the refresh token is in the clear');
+      assert.not(String(stored).includes(REFRESH), 'the refresh token is in the clear');
       assert.ok(isEncrypted(stored), 'the stored value is not a sealed envelope');
       assert.equal(
         await decryptText(store.keyring.key, stored, `familyos:meta:${REFRESH_KEY}`),
-        'rt',
+        REFRESH,
         'the sealed value does not open back to the token',
       );
     } finally { s.restore(); }

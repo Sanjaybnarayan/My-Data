@@ -6,20 +6,40 @@ An empty screen looks the same whether it works or not.
 
 ## What it writes
 
+**216 records across 27 of the 53 kinds.**
+
 | | |
 | --- | --- |
 | People | 6 — two grandparents, two parents, a son and a daughter |
 | Relationships | 13, enough for the family tree to draw |
 | Savings accounts | 12, two for each person |
-| Cars | 2 |
-| Insurance policies | 4 — a family health floater, a senior-citizen top-up, and comprehensive motor cover on each car |
+| Transactions | 112 — eight months of salary, groceries, fuel, utilities, school fees and a monthly sweep into savings |
+| Cars | 2, with 3 services and 6 fill-ups |
+| Insurance policies | 4 — a family health floater, a senior-citizen top-up, comprehensive motor cover on each car |
 | Identity documents | 15 — PAN, Voter ID and Passport for the four adults, driving licences for the three who drive |
-| **Total** | **52 records** |
+| Health | 4 records, 2 courses of medication, 3 vaccinations, 3 appointments |
+| The rest | documents, tasks under a project, goals, purchases and warranties, a will and its beneficiaries, schooling, employment, subscriptions, safe zones, emergency contacts |
 
-Balances are opening balances and nothing else. **No transactions are
-written**, so nothing here produces a trend, a category, a reconciliation or a
-forecast — a demonstration that invented a derived figure would be teaching the
-screens to lie.
+### Transactions, and why there are some
+
+The first version wrote none, reasoning that a demonstration must not invent a
+*derived* figure. That was the right instinct pointed at the wrong thing. A
+transaction is a record, the same as an account is; what would be dishonest is
+claiming one had been **fetched** from a bank, or that a reconciliation had
+closed when nothing was compared.
+
+Writing none left the whole of Finance blank — no spending, no categories, no
+CFO page — which is most of the application. So they are here, generated from a
+recurring pattern rather than typed out one by one, because a household's money
+*is* a pattern with exceptions and ninety literals would be the same thing said
+less honestly.
+
+None is marked `reconciled`; none carries a `statement`, an `importKey` or a
+`movement`. They are what a person typing into the app produces, and nothing
+about them claims otherwise. The monthly sweep into savings is a `transfer`,
+so it counts as neither income nor expense — the single most common way a
+household budget ends up double the truth, and therefore the thing most worth
+having in a demonstration.
 
 ## Every date is relative to the day you load it
 
@@ -112,6 +132,24 @@ translated the interface is* moved because a demonstration family got names.
 source, and a second language adds `hi-example.js` beside it. What it does not
 get is automatic switching with the active locale — an honest limit, and a
 cheaper one than a corrupted measurement, with no second language yet to want it.
+
+## What it still does not fill
+
+Twenty-six kinds stay empty, and they divide cleanly.
+
+**Things that should not be invented.** `bankStatement`, `receipt` and
+`smsMessage` are artefacts of an import or a device capture — writing them
+would be the fake-fetch this file exists to avoid. `economicEvent` is derived.
+`locationPing`, `sosAlert`, `deviceKey`, `conversation` and `message` are
+device and chat state, produced by enrolment and hardware rather than typing.
+
+**A person who is not in this family.** `staff` requires a `person` row, and
+adding one would make the household seven people when it is six.
+
+**Things that could simply be added**: `budget`, `loan`, `holding`,
+`investmentTransaction`, `property`, `tenant`, `trip`, `note`, `vaultItem`,
+`digitalAsset`, `legalDocument`, `certificate`, `event`, `recurringPayment`,
+`kycRecord`. Their screens are still bare.
 
 ## A side effect worth recording
 

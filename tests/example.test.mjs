@@ -11,6 +11,7 @@ import { test, describe, assert, setSuite, fakeClock } from './harness.mjs';
 import { makeDb, makePerson } from './fixture.mjs';
 import { ExampleService, loadedExample } from '../js/services/example.js';
 import { plan, META_KEY } from '../js/domain/example.js';
+import { entity } from '../js/data/schema.js';
 import { formats } from '../js/data/formats.js';
 import { expiryReminders } from '../js/domain/reminders.js';
 import { exampleStrings } from '../js/locale/en-example.js';
@@ -95,7 +96,10 @@ describe('the example household', () => {
 
     const meta = await loadedExample(db);
     const ids = await db.repo('person').list({ limit: 50 });
-    assert.equal(meta.ids.length, 52);
+    // Derived from the plan, not typed: this said 52 for as long as the
+    // example held 52 records, which is exactly as long as such a number is
+    // ever right.
+    assert.equal(meta.ids.length, plan().reduce((n, s) => n + s.rows.length, 0));
     for (const person of ids) {
       assert.ok(meta.ids.some((row) => row.id === person.id),
         'every person written is in the record of what to remove');
@@ -106,8 +110,12 @@ describe('the example household', () => {
     const db = await makeDb();
     await new ExampleService(db).install();
 
+    // Only where there is somewhere to say it: `project` has no `notes`
+    // field, and asserting against a field the schema does not declare would
+    // be a test about this test rather than about the records.
     for (const step of plan()) {
-      for (const row of await db.repo(step.entity).list({ limit: 200 })) {
+      if (!entity(step.entity).fields.some((f) => f.key === 'notes')) continue;
+      for (const row of await db.repo(step.entity).list({ limit: 500 })) {
         assert.equal(row.notes, exampleStrings['example.note'],
           `${step.entity} carries the sentence`);
       }
@@ -190,14 +198,19 @@ describe('the example household stays coherent whenever it is loaded', () => {
   ];
 
   for (const [when, clock] of clocks) {
-    test(`has something for the reminders screen, ${when}`, async () => {
-      const db = await makeDb();
-      await new ExampleService(db).install({ clock });
-
+    test(`has something for the reminders screen, ${when}`, () => {
+      /*
+       * Read from `plan(clock)` rather than by installing it. A transaction
+       * dated more than a year ahead is refused by `validate.js` against the
+       * *real* today — rightly, since a far-future transaction is a typo — so
+       * installing at a clock a decade on cannot work and should not. What is
+       * under test is the dates the plan produces, and those are right here.
+       */
+      const rowsOf = (name) => plan(clock).find((s) => s.entity === name)?.rows ?? [];
       const due = expiryReminders({
-        vehicle: await db.repo('vehicle').list({ limit: 10 }),
-        policy: await db.repo('policy').list({ limit: 10 }),
-        identityDocument: await db.repo('identityDocument').list({ limit: 30 }),
+        vehicle: rowsOf('vehicle'),
+        policy: rowsOf('policy'),
+        identityDocument: rowsOf('identityDocument'),
       }, { clock });
 
       assert.ok(due.length >= 5, `only ${due.length} reminders — the screen would look broken`);
@@ -205,12 +218,10 @@ describe('the example household stays coherent whenever it is loaded', () => {
       assert.ok(due.some((r) => r.days >= 0), 'and something is merely coming up');
     });
 
-    test(`keeps the same six ages, ${when}`, async () => {
-      const db = await makeDb();
-      await new ExampleService(db).install({ clock });
-
+    test(`keeps the same six ages, ${when}`, () => {
       const year = Number(new Date(clock()).toISOString().slice(0, 4));
-      const people = await db.repo('person').list({ limit: 10 });
+      const people = /** @type {Array<{name: string, birthday: string}>} */ (
+        /** @type {unknown} */ (plan(clock).find((s) => s.entity === 'person').rows));
       const age = (name) => year - Number(
         people.find((p) => p.name.startsWith(name)).birthday.slice(0, 4));
 
@@ -221,4 +232,57 @@ describe('the example household stays coherent whenever it is loaded', () => {
       assert.equal(age('Ramesh'), 78);
     });
   }
+});
+
+describe('every reference the example writes points at something', () => {
+  /*
+   * The plan is a topological sort kept by hand — a row naming a person has to
+   * be written after that person exists — and the transactions name their
+   * account by *position* in the twelve, which is a reference nothing checks.
+   * This checks it: a dangling ref here would be the exact thing the write
+   * path refuses and `SyncEngine#noteDangling` reports on a pull.
+   */
+  test('across every entity the plan writes', async () => {
+    const db = await makeDb();
+    await new ExampleService(db).install();
+
+    /** @type {Map<string, Set<string>>} */
+    const known = new Map();
+    for (const step of plan()) {
+      const rows = await db.repo(step.entity).list({ limit: 500 });
+      known.set(step.entity, new Set(rows.map((r) => r.id)));
+    }
+
+    const dangling = [];
+    for (const step of plan()) {
+      const def = entity(step.entity);
+      for (const row of await db.repo(step.entity).list({ limit: 500 })) {
+        for (const field of def.fields) {
+          const value = row[field.key];
+          if (!value) continue;
+          const target = field.ref;
+          if (!target) continue;
+          const pool = known.get(target);
+          if (!pool) continue;
+          for (const one of Array.isArray(value) ? value : [value]) {
+            if (!pool.has(one)) dangling.push(`${step.entity}.${field.key} -> ${one}`);
+          }
+        }
+      }
+    }
+    assert.deep(dangling, [], `dangling: ${dangling.slice(0, 5).join(', ')}`);
+  });
+
+  test('and every transaction is on an account of the person paying', async () => {
+    const db = await makeDb();
+    await new ExampleService(db).install();
+
+    const accounts = new Set((await db.repo('account').list({ limit: 50 })).map((a) => a.id));
+    const rows = await db.repo('transaction').list({ limit: 500 });
+    assert.ok(rows.length > 50, `only ${rows.length} transactions — Finance would look bare`);
+    for (const t of rows) {
+      assert.ok(accounts.has(t.account), 'a transaction names an account that exists');
+      if (t.kind === 'transfer') assert.ok(accounts.has(t.toAccount), 'and a transfer names both ends');
+    }
+  });
 });

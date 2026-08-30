@@ -96,4 +96,63 @@ export const exampleStrings = {
     + 'because mixing invented records into real ones is not something that '
     + 'can be undone by hand.',
   'example.present': 'The example household is loaded. {count} records.',
+
+  // --- the rest of a life: see js/domain/example-life.js ---
+
+  'example.payee.power': 'Bescom Electricity',
+  'example.payee.broadband': 'Nimbus Broadband',
+  'example.payee.grocer': 'Sampige Stores',
+  'example.payee.fuel': 'Indian Oil, Malleswaram',
+  'example.payee.restaurant': 'Ashoka Udupi',
+  'example.payee.transport': 'Namma Metro',
+  'example.payee.school': 'Nandini Vidyalaya',
+
+  'example.doc.rc': 'Registration certificate, the estate',
+  'example.doc.floater': 'Family health policy schedule',
+  'example.doc.school': 'School fee receipt',
+  'example.doc.lab': 'Lipid profile, October',
+
+  'example.health.cardiology': 'Cardiology review',
+  'example.health.bloodwork': 'Lipid profile and HbA1c',
+  'example.health.ortho': 'Knee pain, orthopaedic opinion',
+  'example.health.paediatric': 'Paediatric check-up',
+
+  'example.med.bp': 'Telmisartan',
+  'example.med.calcium': 'Calcium with vitamin D',
+  'example.med.dosage': 'One tablet',
+
+  'example.vax.tdap': 'Tdap booster',
+  'example.vax.hpv': 'HPV, second dose',
+  'example.vax.flu': 'Influenza, annual',
+
+  'example.appt.cardiology': 'Cardiology follow-up',
+  'example.appt.physio': 'Physiotherapy review',
+  'example.appt.dental': 'Dental check-up',
+
+  'example.project.house': 'Running the house',
+  'example.task.puc': 'Get the hatchback PUC done',
+  'example.task.renewal': 'Renew the motor policy',
+  'example.task.service': 'Book the estate for service',
+  'example.task.passport': 'Start the passport renewal',
+  'example.task.paint': 'Repaint the front room',
+
+  'example.goal.emergency': 'Six months of expenses',
+  'example.goal.college': "Ananya's college fund",
+
+  'example.buy.fridge': 'Refrigerator, 340 litre',
+  'example.buy.laptop': 'Laptop, for the study',
+  'example.warranty.fridge': 'Compressor, ten years',
+  'example.warranty.laptop': 'Extended cover, two years',
+
+  'example.will': 'Will of the household head',
+
+  'example.ec.doctor': 'Dr Suresh, family physician',
+  'example.ec.neighbour': 'Neighbour, flat 12',
+  'example.date.anniversary': 'Wedding anniversary',
+
+  'example.sub.broadband': 'Nimbus Broadband',
+  'example.sub.streaming': 'Streaming service',
+
+  'example.zone.home': 'Home',
+  'example.zone.school': 'School',
 };
