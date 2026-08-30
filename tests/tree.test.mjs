@@ -607,6 +607,44 @@ describe('the automation run', () => {
     assert.equal((await db.repo('task').list()).length, 2);
   });
 
+  test('and two tabs opening together do not each do the day\'s work', async () => {
+    /*
+     * `runAutomations` read its marker at the top and wrote it at the bottom,
+     * with the whole run in between — every record of six entities loaded.
+     * Two browser tabs of the same household opening together both read
+     * yesterday, both decided the day was theirs, and both ran.
+     *
+     * Measured before `claimMeta`, with the two runs genuinely interleaved
+     * rather than simulated:
+     *
+     *     run A : repeated 1, skipped false
+     *     run B : repeated 1, skipped false
+     *     tasks : 1 -> 3          (a serial run gives 2)
+     *
+     * A duplicate repeating task, which the test above says in its own words
+     * must not happen — it just could not see this way of causing it.
+     */
+    const clock = fakeClock(Date.parse('2025-06-15T10:00:00'));
+    const db = await makeDb();
+    await db.repo('recurringPayment').create({
+      name: 'Broadband', kind: 'bill', amount: '1499',
+      frequency: 'monthly', nextDueOn: '2025-01-20', active: true,
+    });
+    await db.repo('task').create({
+      title: 'Pay the maid', status: 'done', repeat: 'monthly', completedOn: '2025-06-01',
+    });
+
+    const [first, second] = await Promise.all([
+      runAutomations(db, { clock, notify: false }),
+      runAutomations(db, { clock, notify: false }),
+    ]);
+
+    const won = [first, second].filter((r) => !r.skipped);
+    assert.length(won, 1, 'both runs believed the day was theirs');
+    assert.equal(won[0].repeated, 1);
+    assert.length(await db.repo('task').list(), 2, 'a repeating task was bred twice');
+  });
+
   test('a role that cannot write does not fail the run', async () => {
     const clock = fakeClock(Date.parse('2025-06-15T10:00:00'));
     const db = await makeDb();

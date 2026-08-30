@@ -275,7 +275,56 @@ export class MemoryAdapter {
     return this.tx([store], 'readwrite', (t) => t.delete(store, key));
   }
 
+  /**
+   * Run a transaction — and, for a writing one, run it alone.
+   *
+   * IndexedDB serialises `readwrite` transactions whose scopes overlap: a
+   * second one over the same store does not start until the first has
+   * finished. This did not, so two overlapping writers interleaved at every
+   * `await` and each saw the state the other was about to replace.
+   *
+   * That made the harness *more permissive than the browser*, which is the
+   * worse direction for a stub to be wrong in. It hid a class of bug —
+   * read-decide-write inside one transaction — and, having hidden it, it also
+   * could not demonstrate the fix: `database.js#claimMeta` was written to
+   * close exactly such a window and the race survived it here, not because the
+   * claim was wrong but because nothing was enforcing what the claim relies
+   * on.
+   *
+   * Scope-based, like the real thing, rather than one queue for everything:
+   * a stub stricter than the browser would pass tests the browser fails, which
+   * is the same mistake pointing the other way.
+   *
+   * Readers are not serialised, matching IndexedDB, and nothing here opens a
+   * transaction from inside another — every call site uses the handle — so the
+   * chain cannot wait on itself.
+   */
   async tx(stores, mode, fn) {
+    if (mode !== 'readwrite') return this.#runTx(stores, mode, fn);
+
+    const waitingOn = stores.map((name) => this.#tails.get(name)).filter(Boolean);
+    // Assigned by the executor, which runs synchronously — the default is
+    // unreachable and is here because a type checker cannot know that.
+    /** @type {(value?: unknown) => void} */
+    let release = () => {};
+    const mine = new Promise((resolve) => { release = resolve; });
+    for (const name of stores) this.#tails.set(name, mine);
+
+    // `allSettled`: a transaction that threw still ends, and the next one is
+    // not owed its failure.
+    await Promise.allSettled(waitingOn);
+    try {
+      return await this.#runTx(stores, mode, fn);
+    } finally {
+      release();
+      for (const name of stores) if (this.#tails.get(name) === mine) this.#tails.delete(name);
+    }
+  }
+
+  /** The tail of the queue for each store, so scopes that overlap wait. */
+  #tails = new Map();
+
+  async #runTx(stores, mode, fn) {
     const t = new MemoryTx(this, stores, mode);
     try {
       const result = await fn(t);

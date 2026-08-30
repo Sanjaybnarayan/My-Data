@@ -812,3 +812,67 @@ describe('household staff', () => {
     assert.ok(keys.includes('endedOn'));
   });
 });
+
+describe('a writing transaction runs alone, as it does in a browser', () => {
+  /*
+   * IndexedDB serialises `readwrite` transactions whose scopes overlap. The
+   * memory adapter did not, so two overlapping writers interleaved at every
+   * `await` and each read the state the other was about to replace.
+   *
+   * A stub more permissive than the browser is the worse direction to be wrong
+   * in: it hides a class of bug, and — having hidden it — cannot demonstrate
+   * the fix either. `claimMeta` was written to close exactly such a window and
+   * the race survived it here, not because the claim was wrong but because
+   * nothing enforced what it relies on.
+   */
+  test('two overlapping writers do not interleave', async () => {
+    const db = await makeDb();
+    const order = [];
+
+    const writer = (tag) => db.adapter.tx(['meta'], 'readwrite', async (t) => {
+      order.push(`${tag}:in`);
+      // An await inside the transaction: the point at which the old one let
+      // somebody else through.
+      await Promise.resolve();
+      await t.put('meta', { key: 'k', value: tag });
+      order.push(`${tag}:out`);
+    });
+
+    await Promise.all([writer('a'), writer('b')]);
+
+    assert.equal(order.length, 4);
+    assert.equal(order[1], `${order[0].split(':')[0]}:out`,
+      `the two interleaved: ${order.join(' ')}`);
+  });
+
+  test('a read-then-write inside one transaction sees no other writer', async () => {
+    // The shape `claimMeta` uses, and the property it depends on.
+    const db = await makeDb();
+    const claim = () => db.adapter.tx(['meta'], 'readwrite', async (t) => {
+      const row = await t.get('meta', 'day');
+      if (row?.value === '2025-06-15') return false;
+      await t.put('meta', { key: 'day', value: '2025-06-15' });
+      return true;
+    });
+
+    const results = await Promise.all([claim(), claim(), claim()]);
+    assert.length(results.filter(Boolean), 1, 'more than one caller won the claim');
+  });
+
+  test('but readers are not held up, also as in a browser', async () => {
+    // Serialising everything would be a stub stricter than the browser, which
+    // passes tests the browser fails — the same mistake pointing the other way.
+    const db = await makeDb();
+    await db.adapter.write('meta', { key: 'k', value: 1 });
+    const order = [];
+    const reader = (tag) => db.adapter.tx(['meta'], 'readonly', async (t) => {
+      order.push(`${tag}:in`);
+      await Promise.resolve();
+      await t.get('meta', 'k');
+      order.push(`${tag}:out`);
+    });
+
+    await Promise.all([reader('a'), reader('b')]);
+    assert.deep(order, ['a:in', 'b:in', 'a:out', 'b:out']);
+  });
+});
