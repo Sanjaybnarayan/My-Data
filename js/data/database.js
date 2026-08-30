@@ -365,14 +365,34 @@ export class Database {
    * broken reference instead of two.
    */
   async danglingReferences() {
-    return danglingIn(
-      (entityName) => this.adapter.query(entityName, {}),
-      async (entityName, id) => {
-        const row = await this.adapter.read(entityName, id);
-        return Boolean(row) && !row.deletedAt;
-      },
-    );
+    return danglingIn(this.#everyRow, this.#pointsAtSomething);
   }
+
+  /**
+   * The same audit, over a named set of rows rather than the whole database.
+   *
+   * For the end of a pull. Scanning every row after every sync would make the
+   * cost of the check grow with the household's history while the thing it is
+   * looking for grows with the size of the pull, and a check that gets slower
+   * forever is a check somebody eventually turns off.
+   *
+   * The predicate is the database's, not the pull's: a reference is satisfied
+   * by any row this device holds, whether it arrived in this batch or was
+   * already here. Only the rows *examined* are narrowed.
+   *
+   * @param {Map<string, object[]>} rows what a pull applied, by entity
+   */
+  async danglingAmong(rows) {
+    return danglingIn((entityName) => rows.get(entityName) ?? [], this.#pointsAtSomething);
+  }
+
+  #everyRow = (entityName) => this.adapter.query(entityName, {});
+
+  /** A reference is satisfied by a row that exists and is not deleted. */
+  #pointsAtSomething = async (entityName, id) => {
+    const row = await this.adapter.read(entityName, id);
+    return Boolean(row) && !row.deletedAt;
+  };
 
   /* ----------------------------------------------------------------- audit */
 

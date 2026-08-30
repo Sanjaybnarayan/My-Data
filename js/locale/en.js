@@ -454,6 +454,7 @@ export const strings = {
   'sos.map': 'Map: {url}',
   'sos.accuracy': 'Accurate to about {n} m.',
   'sos.noPosition': 'No position could be read on this device.',
+  'sync.dangling': '{n} record(s) arrived from another device pointing at records this one does not have. Settings \u2192 Data \u2192 Check for broken links.',
   'safety.somebody': 'This person',
 
   // How coarse a fix is, said in the units a person thinks in.

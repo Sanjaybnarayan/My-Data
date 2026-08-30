@@ -28,8 +28,19 @@
  * That is a real weakening and it is stated rather than hidden: **integrity is
  * enforced where records are made, not where they arrive.** A dangling
  * reference can still enter this database through a sync from a device running
- * an older version. `danglingIn()` exists so a household can be shown them
- * rather than discovering one on a screen that says "unknown".
+ * an older version.
+ *
+ * What the weakening costs is the *refusing*, though, and nothing here has to
+ * stay quiet. `danglingIn()` exists so a household can be shown them rather
+ * than discovering one on a screen that says "unknown" — and for a long time
+ * the only way to be shown was Settings → Data → *Check for broken links*,
+ * which is to say the audit ran when somebody already suspected.
+ *
+ * `SyncEngine#noteDangling` now runs the same audit at the end of a pull, over
+ * the rows that pull applied. That is the one moment the ordering argument
+ * above has expired: whatever was coming has come, so a reference still
+ * pointing at nothing is not early, it is broken. It records a diagnostic and
+ * refuses nothing, so the row a household really has is still theirs.
  *
  * ## Delete is RESTRICT, never CASCADE
  *
