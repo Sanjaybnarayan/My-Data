@@ -184,18 +184,26 @@ honest — they are navigation, not tabs over one panel — and the active link
 carries `aria-current="page"` so a screen reader can identify the current
 destination even without the visual indicator.
 
-**Module chip navigation uses `role="group"`, not `role="tablist"`.** Nine
-module screens (identity, family, investments, finance, vault, vehicles,
-health, secondary, crud) use `chip()` to switch between entity tabs.
-`chip()` renders a `<button aria-pressed>` — a toggle button — and `role=
-"tablist"` requires direct child elements with `role="tab"`. Placing buttons
-inside a tablist is an ARIA ownership violation that assistive technology may
-handle in unexpected ways. `role="group"` around toggle buttons is the correct
-pattern; the form chip-row already used it. `tests/browser.mjs` verifies no
-`.chip-row` carries `role="tablist"` on a screen that has chip navigation.
-Every module chip-row also carries an `aria-label` naming the module, so
-assistive technology announces the group's purpose rather than a bare
-"group" with no context.
+**Every interactive chip-row carries `role="group"` and `aria-label`.** This
+applies to three kinds of chip-row the application uses:
+
+- *Module entity navigation* — nine module screens (identity, family,
+  investments, finance, vault, vehicles, health, secondary, crud) use `chip()`
+  to switch between entity tabs. `role="tablist"` would be an ARIA ownership
+  violation; `role="group"` around toggle buttons is correct.
+- *Filter chip-rows* — screens that filter a list by category, person, or
+  direction (notifications, documents, receipts, transactions, timeline) each
+  carry a chip-row of toggle buttons. Each has `role="group"` and an
+  `aria-label` naming what is being filtered (`'Filter by category'`,
+  `'Filter by person'`, `'Direction'`, `'Filter by entity type'`, and so on).
+- *Action chip-rows* — rows of action chips with no toggle state (assistant
+  example questions, follow-up suggestions, settings sections, language
+  picker, theme picker) carry `role="group"` so the group's purpose is
+  announced. Action chips in these groups are `chip()` calls without a
+  `pressed` argument, so no `aria-pressed` is emitted.
+
+`tests/browser.mjs` verifies no `.chip-row` carries `role="tablist"` on any
+screen and that every module chip-row has an `aria-label`.
 
 **`chip()` only sets `aria-pressed` on toggle chips.** When called without
 an explicit `pressed` argument — as in the Settings jump-row, where each
@@ -234,6 +242,12 @@ now — non-interactive `<span>` elements rather than unnamed buttons.
 8. If your screen is not reachable from a module route, add it to the walk in
    `tests/browser.mjs` — the checks above found nothing on three screens they
    never opened.
+9. A chip-row that holds interactive toggle buttons or filter chips is a group,
+   not a list. Give it `role="group"` and an `aria-label` that names its
+   purpose (`'Filter by category'`, `'Direction'`, `'Theme'`, the module
+   name). Without the label a screen reader announces only "group" with no
+   context. A chip-row that holds only `badge()` elements (non-interactive
+   spans) is display-only and needs neither.
 
 ## UI-7: the screen that had never opened, and the sweep that found it
 
