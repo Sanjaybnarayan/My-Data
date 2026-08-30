@@ -213,3 +213,39 @@ describe('the security audit covers every phase its brief has', () => {
     assert.deep(absent, [], `findings with no row in §9: ${absent.join(', ')}`);
   });
 });
+
+describe('the scorecard does not keep its own copy of the redeploy list', () => {
+  /*
+   * `docs/PHASE_STATUS.md` said "CHAT-02 and the spreadsheet formula defence
+   * are both inert until it happens" and went on saying it after OTP-01 and
+   * LOCK-01 joined them — a hand-maintained list beside a derivable one, which
+   * is the fault this repository has now found more times than any other.
+   *
+   * The cell points at §8 of the audit rather than listing them, so there is
+   * one place to add the next one. What it still carries is a *number*, which
+   * is the part a reader needs to know the scale of the pause — and a number
+   * is exactly what drifts, so this holds it against the list it describes.
+   */
+  const audit = readFileSync(join(ROOT, 'docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md'), 'utf8');
+  const scorecard = readFileSync(join(ROOT, 'docs/PHASE_STATUS.md'), 'utf8');
+
+  test('and the count it does carry is the count §8 lists', () => {
+    const section = audit.slice(audit.indexOf('## 8. Backend work required'));
+    const body = section.slice(0, section.indexOf('\n---'));
+    const items = [...body.matchAll(/^\d+\. \*\*/gm)].length;
+    assert.ok(items > 0, 'no numbered items parsed from §8, so this proves nothing');
+
+    const stated = /\*\*(\d+) changes are inert/.exec(scorecard);
+    assert.ok(stated, 'the redeploy row no longer states how many changes are waiting');
+    assert.equal(Number(stated[1]), items,
+      `the scorecard says ${stated[1]} and §8 lists ${items}`);
+  });
+
+  test('and it does not name them, which is what went stale', () => {
+    const row = scorecard.split('\n').find((line) => line.includes('Redeploy the Apps Script')) ?? '';
+    assert.ok(row, 'the redeploy row is gone');
+    for (const name of ['CHAT-02', 'OTP-01', 'LOCK-01']) {
+      assert.not(row.includes(name), `${name} is named in the scorecard as well as in §8`);
+    }
+  });
+});
