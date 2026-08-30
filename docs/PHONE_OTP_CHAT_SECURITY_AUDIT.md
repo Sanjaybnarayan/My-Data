@@ -382,6 +382,46 @@ created in the same millisecond, so the recency term in `score` was identical
 and the child's row did not in fact rank last. The fixture now separates them
 by title position, which `score` rates 30 against 60.
 
+### MANIFEST-01 · LOW · two security attributes held up by a comment
+
+Not a defect in what ships — both attributes are set correctly, and have been.
+A gap in what would notice if they stopped being.
+
+`AndroidManifest.xml` declares `android:allowBackup="false"` and
+`android:usesCleartextTraffic="false"`, each with a comment beside it arguing
+the case. The cleartext one says it is *"stated rather than inherited … writing
+it down means a later targetSdk change cannot silently flip it."* That is true
+about a **default** moving. It says nothing about the line being deleted, and
+nothing was watching for that.
+
+`tests/native.test.mjs` has a block headed *"the allowBackup decision"* which
+checks the PIN floor quoted in two documents and a sentence in
+`docs/CAPACITOR_SETUP.md` — the arguments *around* the decision. Removing
+`android:allowBackup="false"` from the manifest broke nothing in it. The
+manifest's own comment states what that costs: Android's auto-backup copies
+application data to the user's Drive, key material included, and nobody is told.
+
+**Tested** now: both attributes are present and false, and mutating either —
+deleting the line or flipping the value — fails.
+
+Two more checks in the same area, both absences pinned rather than assumed:
+
+- **No `networkSecurityConfig` permits cleartext.** The manifest attribute is
+  the coarse switch; a `<domain-config cleartextTrafficPermitted="true">` is
+  the fine one and it wins, re-opening for the domains it names exactly what
+  the attribute closed, with the manifest still reading `false`. There is no
+  such file; the check notices one arriving.
+- **Nothing in the native sources turns certificate checking off.** A
+  permissive `X509TrustManager`, a hostname verifier that returns true, or
+  `onReceivedSslError` calling `proceed()` each turn TLS into decoration while
+  leaving every `https://` URL unchanged — so no other test here could tell.
+  They are what somebody reaches for when a self-signed certificate blocks a
+  debug build, and they ship. Both mutations were planted and caught.
+
+This is phase 12 work: §79 prohibits cleartext authentication and any bypass of
+certificate validation, and until now the repository complied with both without
+being able to demonstrate it.
+
 ### ID-01 · LOW · ids leak creation time · **accepted**
 
 ULIDs are timestamp-prefixed. A `person` id discloses when the record was
@@ -554,6 +594,7 @@ Following the brief's phase structure, restricted to what exists here:
 | 13 | Final report (§80) | **Not written.** This document is phase 1, the audit; §80 asks for a statement of the state *after* remediation, and nothing produces one |
 | — | SEARCH-01 | **Done** — the read path that never met the authorisation rule |
 | — | LOCK-01 | **Done** — the write path's lock, raised as an open question under OTP-01 and settled by the owner |
+| — | MANIFEST-01 | **Done** — two manifest attributes, and two absences, that nothing checked |
 | — | ID-01 | **Accepted**, with the reason corrected — see above |
 
 The table stopped at 10 for as long as this document existed, and the brief has
@@ -583,6 +624,10 @@ can establish. Both actions are read-modify-write, and on the matching path
 `otpVerify` compares the hash and only then removes the key, so two executions
 holding the same correct code would both have matched and both been handed the
 escrow that unwraps the data key.
+
+MANIFEST-01 added the same kind of coverage on the Android side: two
+transport-security attributes and two absences §79 names, none of which had a
+check.
 
 What does **not** exist is everything dynamic: no penetration testing, no
 fuzzing, no scanning, and nothing at all run against a deployed instance. A
