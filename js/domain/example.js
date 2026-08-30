@@ -71,6 +71,7 @@
 import { exampleStrings } from '../locale/en-example.js';
 import { entity } from '../data/schema.js';
 import { today, addDays, addMonths } from '../core/dates.js';
+import * as life from './example-life.js';
 
 /**
  * An enum option, quoted from the schema rather than retyped here.
@@ -85,7 +86,7 @@ import { today, addDays, addMonths } from '../core/dates.js';
  * the option's English. A schema that renames an option makes this throw by
  * name, which is the loud failure the copy would not have given.
  */
-function option(entityName, field, key) {
+export function option(entityName, field, key) {
   const options = entity(entityName)?.fieldMap?.[field]?.options ?? [];
   const found = options.find((o) => o.replace(/\s+/g, '-').toLowerCase() === key);
   // The identifier, not a sentence: what a developer needs is which option
@@ -491,8 +492,23 @@ export function identityDocuments(clock = Date.now) {
   }));
 }
 
-/** Everything, in the order it has to be written for the refs to resolve. */
+/**
+ * Everything, in the order it has to be written for the refs to resolve.
+ *
+ * The order is the constraint, not a preference: a row naming a person has to
+ * be written after that person exists, or `createUnlessPresent` would be
+ * storing a reference to nothing — which is exactly the dangling reference the
+ * repository refuses on write and `SyncEngine#noteDangling` reports on pull.
+ * So this list is a topological sort kept by hand, and the test that every ref
+ * resolves is what stops it drifting.
+ */
 export function plan(clock = Date.now) {
+  const { project, tasks } = life.projectsAndTasks(clock);
+  const { purchases, warranties } = life.purchasesAndWarranties(clock);
+  const { services, fuel } = life.upkeep(clock);
+  const { will, beneficiaries } = life.estate(clock);
+  const day = life.everydayLife(clock);
+
   return [
     { entity: 'person', rows: people(clock) },
     { entity: 'relationship', rows: relationships(clock), refs: ['fromPerson', 'toPerson'] },
@@ -500,5 +516,32 @@ export function plan(clock = Date.now) {
     { entity: 'vehicle', rows: vehicles(clock), refs: ['owner'] },
     { entity: 'policy', rows: policies(clock), refs: ['holder', 'vehicle'], multi: ['insured'] },
     { entity: 'identityDocument', rows: identityDocuments(clock), refs: ['person'] },
+
+    { entity: 'transaction', rows: life.transactions(clock), refs: ['account', 'toAccount'] },
+    { entity: 'document', rows: life.documents(clock), refs: ['person'] },
+
+    { entity: 'healthRecord', rows: life.healthRecords(clock), refs: ['person'] },
+    { entity: 'medication', rows: life.medications(clock), refs: ['person'] },
+    { entity: 'vaccination', rows: life.vaccinations(clock), refs: ['person'] },
+    { entity: 'appointment', rows: life.appointments(clock), refs: ['person'] },
+
+    { entity: 'project', rows: [project] },
+    { entity: 'task', rows: tasks, refs: ['assignee', 'project'] },
+    { entity: 'goal', rows: life.goals(clock) },
+
+    { entity: 'purchase', rows: purchases },
+    { entity: 'warranty', rows: warranties, refs: ['purchase'] },
+    { entity: 'vehicleService', rows: services, refs: ['vehicle'] },
+    { entity: 'fuelLog', rows: fuel, refs: ['vehicle'] },
+
+    { entity: 'will', rows: [will], refs: ['testator'] },
+    { entity: 'beneficiary', rows: beneficiaries, refs: ['will'] },
+
+    { entity: 'emergencyContact', rows: day.emergencyContacts },
+    { entity: 'importantDate', rows: day.importantDates },
+    { entity: 'education', rows: day.education, refs: ['person'] },
+    { entity: 'employment', rows: day.employment, refs: ['person'] },
+    { entity: 'subscription', rows: day.subscriptions },
+    { entity: 'safeZone', rows: day.safeZones },
   ];
 }
