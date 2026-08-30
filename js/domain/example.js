@@ -72,6 +72,7 @@ import { exampleStrings } from '../locale/en-example.js';
 import { entity } from '../data/schema.js';
 import { today, addDays, addMonths } from '../core/dates.js';
 import * as life from './example-life.js';
+import * as own from './example-assets.js';
 
 /**
  * An enum option, quoted from the schema rather than retyped here.
@@ -508,6 +509,8 @@ export function plan(clock = Date.now) {
   const { services, fuel } = life.upkeep(clock);
   const { will, beneficiaries } = life.estate(clock);
   const day = life.everydayLife(clock);
+  const papers = own.papers(clock);
+  const diary = own.calendarAndTravel(clock);
 
   return [
     { entity: 'person', rows: people(clock) },
@@ -543,5 +546,27 @@ export function plan(clock = Date.now) {
     { entity: 'employment', rows: day.employment, refs: ['person'] },
     { entity: 'subscription', rows: day.subscriptions },
     { entity: 'safeZone', rows: day.safeZones },
+
+    { entity: 'property', rows: [...own.property(clock), ...own.letProperty(clock)], refs: ['owner'] },
+    { entity: 'tenant', rows: own.tenants(clock), refs: ['property'] },
+    { entity: 'loan', rows: own.loans(clock), refs: ['borrower'] },
+    { entity: 'holding', rows: own.holdings(clock), refs: ['owner'] },
+    {
+      entity: 'investmentTransaction',
+      rows: own.investmentTransactions(clock),
+      refs: ['holding'],
+    },
+    { entity: 'budget', rows: own.budgets(clock) },
+    { entity: 'recurringPayment', rows: own.recurringPayments(clock) },
+
+    { entity: 'vaultItem', rows: own.vault(clock), refs: ['person'] },
+    { entity: 'digitalAsset', rows: own.digitalAssets(clock), refs: ['owner'] },
+    { entity: 'legalDocument', rows: papers.legalDocuments },
+    { entity: 'certificate', rows: papers.certificates, refs: ['person'] },
+    { entity: 'kycRecord', rows: papers.kycRecords, refs: ['person'] },
+    { entity: 'note', rows: papers.notes },
+
+    { entity: 'event', rows: diary.events },
+    { entity: 'trip', rows: diary.trips, multi: ['travellers'] },
   ];
 }

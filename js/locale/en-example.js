@@ -155,4 +155,40 @@ export const exampleStrings = {
 
   'example.zone.home': 'Home',
   'example.zone.school': 'School',
+
+  // --- what they own and owe: see js/domain/example-assets.js ---
+
+  'example.property.house': 'The flat in Malleswaram',
+  'example.property.shop': 'Shop unit, Gandhi Bazaar',
+  'example.tenant': 'Sridhar Rao',
+
+  'example.loan.home': 'Home loan',
+  'example.loan.car': 'Car loan, the hatchback',
+
+  'example.hold.index': 'Nifty index fund',
+  'example.hold.elss': 'Tax-saving fund',
+  'example.hold.gold': 'Sovereign gold bonds',
+  'example.hold.fd': 'Five-year fixed deposit',
+
+  'example.rec.emi': 'Home loan EMI',
+  'example.rec.premium': 'Family health premium',
+  'example.rec.sip': 'Monthly SIP',
+
+  'example.vault.wifi': 'Home wifi',
+  'example.vault.email': 'Household email',
+  'example.vault.locker': 'Bank locker combination',
+
+  'example.digital.domain': 'Family domain name',
+  'example.digital.photos': 'Photo backup account',
+
+  'example.legal.poa': 'Power of attorney for the shop',
+  'example.cert.swimming': 'Swimming, level three',
+  'example.cert.degree': 'Bachelor of engineering',
+
+  'example.note.meter': 'Where the water meter is',
+  'example.note.plumber': 'Plumber who did the bathroom',
+
+  'example.event.parentsDay': "Parents' day at school",
+  'example.event.service': 'Car in for service',
+  'example.trip': 'Coorg, for the long weekend',
 };
