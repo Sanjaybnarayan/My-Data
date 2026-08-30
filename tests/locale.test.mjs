@@ -300,6 +300,70 @@ describe('what counts as a user-facing string', () => {
     assert.length(findIn("toast('Connect a Google account in Settings to sync.')"), 1);
   });
 
+  test('a schema label is not English escaping the catalogue', () => {
+    /*
+     * `labelKeys()` emits a key for every module, every entity and every
+     * field, so the English in `js/data/schema.js` sitting as `labels: { one,
+     * many }` or a field's `label:` is a **default a translator replaces**.
+     * Counting it made the ratchet rise when somebody added an entity — it
+     * charged for translatable work at the same rate as untranslatable work,
+     * and the only way to hold the number flat was to add nothing.
+     *
+     * The comment at the top of `tools/strings.mjs` has said the figure
+     * over-counts by "about two hundred" since it was written. Measured when
+     * this landed: 181.
+     */
+    assert.ok(userFacing('Licence key'), 'the shape rule still lets it through');
+    assert.length(findIn("{ label: 'Licence key' }", { labelsRouted: true }), 0);
+    assert.length(findIn("labels: { one: 'Digital asset', many: 'Digital assets' }",
+      { labelsRouted: true }), 0);
+  });
+
+  test('but only in the file whose labels a catalogue can reach', () => {
+    /*
+     * The half that decides whether this is honest. A `label:` in a UI
+     * component is not reachable by `labelKeys()` and must go on being
+     * counted, so the exclusion is scoped to the schema rather than applied to
+     * the property name wherever it appears.
+     */
+    assert.length(findIn("button('x', { label: 'Rebuild the search index' })"), 1);
+    assert.length(findIn("labels: { one: 'Digital asset', many: 'Digital assets' }"), 2);
+  });
+
+  test('and the survey applies that scope to the real tree', () => {
+    /*
+     * The check above tests `findIn` in isolation. This tests that `survey`
+     * hands the flag to one file and not the rest — the mutation that widened
+     * it to every file was caught only by the self-description numbers going
+     * stale, which is a check about documents rather than about this rule.
+     *
+     * `label:` in a settings screen is not reachable by `labelKeys()`, so it
+     * must still be counted. If it ever stops being, the ratchet has quietly
+     * stopped measuring most of the application.
+     */
+    const { byFile } = survey();
+    const uiLabels = (byFile['js/modules/settings/data.js'] ?? [])
+      .map((row) => row.text);
+    assert.ok(uiLabels.includes('Browser storage quota'),
+      'a UI label stopped being counted, so the exclusion is no longer scoped');
+
+    const schema = byFile['js/data/schema.js'] ?? [];
+    assert.ok(schema.length > 0, 'the schema counts nothing at all, which cannot be right');
+    assert.not(schema.some((row) => row.text === 'Digital asset'),
+      'an entity label is still counted, though a catalogue can reach it');
+  });
+
+  test('and an enum option is still counted, because nothing routes one', () => {
+    /*
+     * The gap this narrowing must not paper over. `labelKeys()` covers
+     * modules, entities and fields — not the options inside a field, so a
+     * vocabulary is English a translator cannot be handed. It stays counted
+     * even in the schema, which is why adding one still costs.
+     */
+    const options = "pick('kind', ['recovery codes', 'recovery phrase'])";
+    assert.length(findIn(options, { labelsRouted: true }), 2, 'an option was excused as a label');
+  });
+
   test('a class list is skipped however it is quoted', () => {
     for (const code of ["h('p', { class: 'mono small' })", 'h("p", { class: "mono small" })']) {
       assert.length(findIn(code), 0, code);

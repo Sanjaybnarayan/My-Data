@@ -1095,7 +1095,7 @@ const vaultItem = {
   fields: [
     text('name', { required: true, list: true, search: true }),
     pick('kind', ['login', 'card', 'bank', 'secure note', 'wifi', 'recovery codes',
-      'software licence'], { required: true, default: 'login', list: true }),
+      'recovery phrase', 'software licence'], { required: true, default: 'login', list: true }),
     text('username', { list: true, search: true }),
     { key: 'password', type: 'password', encrypted: true },
     { key: 'url', type: 'url', search: true },

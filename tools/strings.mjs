@@ -156,8 +156,52 @@ function isClassValue(code, index) {
   return /\bclass:\s*$/.test(code.slice(Math.max(0, index - CONTEXT), index));
 }
 
-/** Every user-facing literal in one file, with the line it sits on. */
-export function findIn(source) {
+/**
+ * The one file whose labels a catalogue can already reach.
+ *
+ * `labelKeys()` in `js/core/labels.js` emits a key for every module, every
+ * entity name and **every field** — so the English sitting in `js/data/schema.js`
+ * as `labels: { one, many }` and as a field's `label:` is a default a
+ * translator replaces, not English escaping the catalogue.
+ *
+ * Counting it anyway had a cost beyond the number being wrong: it meant the
+ * ratchet went **up** when somebody added an entity or a field, which is to
+ * say it charged for translatable work at the same rate as untranslatable
+ * work, and the only way to keep it flat was to add nothing. The comment at
+ * the top of this file has said so since it was written — that the figure
+ * over-counts by about two hundred, and that narrowing it "means telling a
+ * label apart from an enum option and a help string inside the schema, which
+ * is a separate piece of work". This is that work.
+ *
+ * Scoped to the file rather than applied to `label:` everywhere, because a
+ * `label:` in a UI component is *not* reachable by a catalogue and must go on
+ * being counted. The whole point is which strings a translator can be handed.
+ *
+ * What stays counted in the schema: enum options, placeholders and help text.
+ * `labelKeys()` reaches none of them, which is why a new vocabulary option
+ * still raises this number — correctly, and that is a real gap rather than an
+ * accounting artefact.
+ */
+const LABELS_ROUTED = 'js/data/schema.js';
+
+/**
+ * Whether a literal is the value of a label property.
+ *
+ * The same rule as `isClassValue` and for the same reason: position decides,
+ * not shape, so no sentence is caught by how it happens to be spelt.
+ */
+function isLabelValue(code, index) {
+  return /\b(?:label|one|many):\s*$/.test(code.slice(Math.max(0, index - CONTEXT), index));
+}
+
+/**
+ * Every user-facing literal in one file, with the line it sits on.
+ *
+ * @param {string} source
+ * @param {{labelsRouted?: boolean}} [options] whether this file's `label:`,
+ *   `one:` and `many:` values are reachable through `labelKeys()`
+ */
+export function findIn(source, { labelsRouted = false } = {}) {
   const code = withoutComments(source);
   const found = [];
   let m;
@@ -166,6 +210,7 @@ export function findIn(source) {
     const text = m[2];
     if (!userFacing(text)) continue;
     if (isClassValue(code, m.index)) continue;
+    if (labelsRouted && isLabelValue(code, m.index)) continue;
     const line = code.slice(0, m.index).split('\n').length;
     found.push({ text, line });
   }
@@ -190,7 +235,8 @@ export function survey({ root = ROOT } = {}) {
   for (const full of files) {
     const rel = relative(root, full).split('\\').join('/');
     if (notCounted(rel)) continue;
-    const found = findIn(readFileSync(full, 'utf8'));
+    const found = findIn(readFileSync(full, 'utf8'),
+      { labelsRouted: rel === LABELS_ROUTED });
     if (!found.length) continue;
     byFile[rel] = found;
     total += found.length;
