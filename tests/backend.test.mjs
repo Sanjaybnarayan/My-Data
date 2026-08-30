@@ -798,6 +798,74 @@ describe('the identity that reaches the action', () => {
     }],
   }, { deviceId: 'device-1' });
 
+  test('a write is serialised by the script lock, not a per-user one', () => {
+    /*
+     * Nothing checked which lock the write path took, so changing it changed
+     * no test — which is how it came to disagree with the comment above it for
+     * as long as it did. The header promised "a `LockService` script lock
+     * serialises writes"; `withLock` took `getUserLock()`.
+     *
+     * The distinction is not academic here. `getUserLock` is documented as
+     * "only once per user" and keys on the **active** user; a web app deployed
+     * as `USER_DEPLOYING` does not generally expose the caller as the active
+     * user, so what it excluded was undefined. `sheetPush` reads
+     * `getLastRow()` and writes at `lastRow + 1`, so two pushes that both read
+     * the same last row write the same range and the second silently replaces
+     * the first — records accepted, acknowledged, and gone.
+     *
+     * A script lock's exclusion is documented rather than inferred, and it is
+     * scoped to the deployment, which is one household.
+     */
+    const { api } = healthHousehold([{ email: SPOUSE, role: 'spouse', personId: 'p-asha' }]);
+    pushAccount(api, 'spouse-token');
+
+    assert.deep(api.locks, ['script:taken', 'script:released']);
+  });
+
+  test('and the write lock is released when the action throws', () => {
+    /*
+     * Added because a mutation escaped: replacing `withLock`'s `finally` with
+     * a plain call-then-release broke nothing. The one-time-code path had this
+     * check and the write path did not — the thing tested was the thing that
+     * had recently been wrong, rather than the whole of the behaviour.
+     *
+     * It matters more here than there. A held lock keeps every other device
+     * out for `LOCK_TIMEOUT_MS`, and a household syncing on a schedule would
+     * see the workbook stop taking writes until it expired.
+     *
+     * The first draft of this test used an unknown store, which `sheetPush`
+     * rejects rather than throws over — so it passed against the mutation too,
+     * proving nothing. `dispatch` evaluates `workbook()` *inside* the lock
+     * callback, so a workbook that cannot be opened throws where it counts.
+     */
+    const api = backend({
+      owner: OWNER,
+      tokens,
+      files: ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs'],
+      workbook: null,
+      properties: { members: JSON.stringify([{ email: SPOUSE, role: 'spouse', personId: 'p-asha' }]), workbookId: 'book-1' },
+    });
+
+    const out = api.post('push', 'spouse-token', {
+      changes: [{ store: 'account', op: 'put', recordId: 'a1', rev: 1, payload: { id: 'a1' } }],
+    }, { deviceId: 'device-1' });
+
+    assert.equal(out.ok, false, 'the workbook opened, so nothing threw and this proves nothing');
+    assert.equal(api.held.script, false, 'the lock was still held after a failed write');
+  });
+
+  test('and a second device arriving mid-write is refused, not admitted', () => {
+    // The loser of a real overlap. Refused with a retryable 429, so the
+    // outbox tries again rather than parking the change for a human.
+    const { api } = healthHousehold([{ email: SPOUSE, role: 'spouse', personId: 'p-asha' }]);
+    api.held.script = true;
+
+    const busy = pushAccount(api, 'spouse-token');
+    assert.equal(busy.ok, false);
+    assert.equal(busy.status, 429, busy.error);
+    assert.equal(busy.retryable, true);
+  });
+
   test('a spouse’s push is applied, because the role travels with the request', () => {
     // The regression in one line: with `role` missing from the context this
     // came back rejected with "a guest may not write account".
