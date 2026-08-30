@@ -531,16 +531,16 @@ const WIDGETS = {
           value: formatCompact(data.compare.current.expense),
           delta: data.compare.expenseChange,
           goodWhen: 'down',
-          hint: 'vs last month',
+          hint: fin.comparedWith(data.compare),
         }),
         metric({
           label: 'Received',
           value: formatCompact(data.compare.current.income),
           delta: data.compare.incomeChange,
-          hint: 'vs last month',
+          hint: fin.comparedWith(data.compare),
         }),
       ]),
-      barChart(series.map((m) => ({ label: m.label, value: m.expense })), {
+      barChart(fin.spendingBars(series), {
         height: 110,
         label: 'Monthly spending over six months',
         tone: () => seriesColour(1),
