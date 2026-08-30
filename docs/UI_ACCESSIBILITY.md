@@ -184,6 +184,16 @@ honest — they are navigation, not tabs over one panel — and the active link
 carries `aria-current="page"` so a screen reader can identify the current
 destination even without the visual indicator.
 
+**Module chip navigation uses `role="group"`, not `role="tablist"`.** Nine
+module screens (identity, family, investments, finance, vault, vehicles,
+health, secondary, crud) use `chip()` to switch between entity tabs.
+`chip()` renders a `<button aria-pressed>` — a toggle button — and `role=
+"tablist"` requires direct child elements with `role="tab"`. Placing buttons
+inside a tablist is an ARIA ownership violation that assistive technology may
+handle in unexpected ways. `role="group"` around toggle buttons is the correct
+pattern; the form chip-row already used it. `tests/browser.mjs` verifies no
+`.chip-row` carries `role="tablist"` on a screen that has chip navigation.
+
 **No reduced-transparency handling** (`prefers-reduced-transparency`).
 
 ## If you are adding a screen

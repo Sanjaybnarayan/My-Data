@@ -95,7 +95,7 @@ export async function render(route) {
   const body = h('div', {});
 
   const tabs = h('div', {
-    class: 'chip-row', role: 'tablist', style: { marginBottom: 'var(--space-4)' },
+    class: 'chip-row', role: 'group', style: { marginBottom: 'var(--space-4)' },
   }, TABS.map((tab) => chip(tab.label, {
     pressed: tab.id === active,
     onClick: () => app().router.navigate(

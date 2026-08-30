@@ -5154,6 +5154,32 @@ async function main() {
       check('the active belongings tab is marked aria-current',
         activeBelongingsTab !== null, `active tab: ${activeBelongingsTab}`);
 
+      /*
+       * Module chip navigation rows must use `role="group"` not `role="tablist"`.
+       *
+       * `role="tablist"` requires direct children with `role="tab"` (ARIA
+       * ownership). Module chip rows use `chip()`, which renders a `<button
+       * aria-pressed>` — a group of toggle buttons, not a tab set. Using
+       * `tablist` here is an ARIA ownership violation; `group` is correct.
+       *
+       * Check: navigate to identity (multi-chip nav), assert no `.chip-row` on
+       * this screen has `role="tablist"`, and the active chip has `aria-pressed=
+       * "true"`.
+       */
+      await go(page, '#/identity');
+      await page.waitForTimeout(400);
+      const chipGroupResult = await page.evaluate(() => {
+        const badRows = [...document.querySelectorAll('.chip-row[role="tablist"]')].length;
+        const activeChip = document.querySelector('.chip-row[role="group"] button.chip[aria-pressed="true"]');
+        return { badRows, hasActiveChip: activeChip !== null };
+      });
+      check('module chip navigation uses role="group", not tablist',
+        chipGroupResult.badRows === 0,
+        `${chipGroupResult.badRows} .chip-row elements still have role="tablist"`);
+      check('the active module chip has aria-pressed="true"',
+        chipGroupResult.hasActiveChip,
+        'no chip has aria-pressed="true" on the identity screen');
+
       await go(page, '#/dashboard');
       await page.waitForTimeout(250);
     }
