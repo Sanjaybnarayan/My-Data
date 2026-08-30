@@ -25,6 +25,11 @@ import { tradebookStrings } from './en-tradebook.js';
 import { periodStrings } from './en-periods.js';
 
 export const strings = {
+  // A valuation that is real but old. `domain/networth.js` says why twelve
+  // months, and carries the age so the threshold can be argued with.
+  'networth.aged.one': 'valued a month ago',
+  'networth.aged.many': 'valued {months} months ago',
+
   ...signinStrings,
   ...tradebookStrings,
   ...periodStrings,

@@ -110,7 +110,13 @@ describe('answers', () => {
       name: 'Gold', kind: 'gold', invested: '100000', active: true,
     });
     const answer = await new Assistant({ db, clock }).answer('net worth');
-    assert.includes(answer.text, 'valued at cost');
+
+    // The caveat, not its wording. This pinned the phrase "valued at cost",
+    // which stopped being the whole story when `networth.js` started reporting
+    // valuations that are *old* as well as missing — the sentence has to cover
+    // both, and a test that names one of them fails for the wrong reason.
+    assert.includes(answer.text, '1 item is');
+    assert.includes(answer.text, 'the real figure may differ');
   });
 
   test('expenses for last month use last month, not this one', async () => {

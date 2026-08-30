@@ -1,7 +1,7 @@
 import { test, describe, assert, setSuite, fakeClock } from './harness.mjs';
 import * as fin from '../js/domain/finance.js';
 import * as pf from '../js/domain/portfolio.js';
-import { netWorth, netWorthByPerson } from '../js/domain/networth.js';
+import { netWorth, netWorthByPerson, STALE_AFTER_MONTHS } from '../js/domain/networth.js';
 import { expiryReminders, upcomingDates, allReminders, describeReminder } from '../js/domain/reminders.js';
 import { toMinor } from '../js/core/money.js';
 
@@ -556,5 +556,72 @@ describe('a month in progress is not compared to a month that finished', () => {
     const bars = fin.spendingBars(series);
     assert.includes(bars.at(-1).label, 'so far');
     assert.not(bars.at(-2).label.includes('so far'));
+  });
+});
+
+describe('a valuation that is old is not a valuation that is current', () => {
+  /*
+   * `staleValuations` meant one thing: no `currentValue` at all. So a property
+   * carrying a three-year-old figure contributed it in full and was flagged as
+   * nothing, while the same property with the figure deleted was flagged. The
+   * unknown was surfaced and the confidently-stale was silent.
+   *
+   * The codebase already ages two of its three as-of dates —
+   * `domain/kyc.js#stale` at 24 months and `domain/safety.js#STALE_MINUTES` at
+   * two hours. `valuedOn` was the one it did not, on the two entities carrying
+   * a household's largest numbers.
+   */
+  const at = (day) => fakeClock(Date.parse(`${day}T09:00:00Z`));
+  const flat = (valuedOn) => ({
+    accounts: [], transactions: [], holdings: [], vehicles: [], loans: [],
+    properties: [{ id: 'pr1', name: 'Flat', purchasePrice: rs(5000000), currentValue: rs(7000000), valuedOn }],
+  });
+
+  test('an old valuation is reported, and says how old', () => {
+    const out = netWorth(flat('2023-08-30'), { clock: at('2026-08-30') });
+    const found = out.staleValuations.find((s) => s.entity === 'property');
+    assert.ok(found, 'a three-year-old valuation should be reported');
+    assert.equal(found.months, 36);
+    assert.includes(found.reason, '36');
+  });
+
+  test('a recent one is not', () => {
+    const out = netWorth(flat('2026-03-30'), { clock: at('2026-08-30') });
+    assert.deep(out.staleValuations, [], 'five months is not stale');
+  });
+
+  test('the threshold is the boundary it says it is', () => {
+    const justUnder = netWorth(flat('2025-09-30'), { clock: at('2026-08-30') });
+    const justOver = netWorth(flat('2025-08-30'), { clock: at('2026-08-30') });
+    assert.length(justUnder.staleValuations, 0, `${STALE_AFTER_MONTHS - 1} months is not stale`);
+    assert.length(justOver.staleValuations, 1, `${STALE_AFTER_MONTHS} months is`);
+  });
+
+  test('and no figure moves — this adds a sentence beside one', () => {
+    const old = netWorth(flat('2023-08-30'), { clock: at('2026-08-30') });
+    const fresh = netWorth(flat('2026-08-01'), { clock: at('2026-08-30') });
+    assert.equal(old.total, fresh.total, 'the age changes what is said, never what is counted');
+    assert.equal(old.assets, fresh.assets);
+  });
+
+  test('a row with no valuation is reported once, for the better reason', () => {
+    const out = netWorth({
+      accounts: [], transactions: [], holdings: [], vehicles: [], loans: [],
+      properties: [{ id: 'pr1', name: 'Flat', purchasePrice: rs(5000000), valuedOn: '2019-01-01' }],
+    }, { clock: at('2026-08-30') });
+
+    assert.length(out.staleValuations, 1, 'not both "at purchase price" and "old"');
+    assert.equal(out.staleValuations[0].reason, 'valued at purchase price');
+  });
+
+  test('a vehicle cannot be aged, because it records no valuation date', () => {
+    // Stated rather than left as an omission a reader has to notice: the
+    // schema gives `vehicle` a `currentValue` and no `valuedOn`, so there is
+    // nothing to measure its age against and none is invented.
+    const out = netWorth({
+      accounts: [], transactions: [], holdings: [], properties: [], loans: [],
+      vehicles: [{ id: 'v1', registration: 'KA01AB1234', currentValue: rs(400000) }],
+    }, { clock: at('2026-08-30') });
+    assert.deep(out.staleValuations, []);
   });
 });

@@ -45,8 +45,8 @@ export const reports = [
           ['Net worth', format(result.total)],
         ],
         note: result.staleValuations.length
-          ? `${result.staleValuations.length} item(s) are valued at cost or excluded for want of a `
-            + 'valuation. Update those valuations for a truer figure.'
+          ? `${result.staleValuations.length} item(s) rest on a valuation that is missing or `
+            + 'out of date. Update those valuations for a truer figure.'
           : '',
         sections: [
           {

@@ -68,7 +68,7 @@ export const intents = [
 
       const caveat = result.staleValuations.length
         ? ` ${result.staleValuations.length} item${result.staleValuations.length === 1 ? ' is' : 's are'} `
-          + 'valued at cost or missing a valuation, so the real figure may differ.'
+          + 'resting on a valuation that is missing or out of date, so the real figure may differ.'
         : '';
 
       return {
