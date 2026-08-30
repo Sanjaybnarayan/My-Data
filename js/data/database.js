@@ -116,6 +116,38 @@ export class Database {
     return value;
   }
 
+  /**
+   * Take a marker, if nobody else holds it for this value. True if we won.
+   *
+   * `meta` and `setMeta` are two transactions, so "read it, decide, write it"
+   * has a window between the read and the write, and everything the caller
+   * does in between widens it. `runAutomations` reads its marker at the top of
+   * the run and writes it at the bottom, with the whole run in between — two
+   * browser tabs of the same household opening together both read yesterday,
+   * both decide the day is theirs, and both do the work. Measured: a repeating
+   * task bred a second copy, which is what the test guarding the serial case
+   * says must not happen.
+   *
+   * A single `readwrite` transaction closes it. IndexedDB serialises
+   * overlapping readwrite transactions scoped to the same store, so the read
+   * and the write are one step as far as any other tab is concerned.
+   *
+   * **The cost, stated rather than discovered:** the marker is taken *before*
+   * the work rather than after, so a run that fails halfway has still spent
+   * the day. That is the better of the two failures. A missed day corrects
+   * itself on the next launch — the payment is still due, the task still needs
+   * repeating — while a duplicate is a record a household has to find and
+   * delete.
+   */
+  async claimMeta(key, value) {
+    return this.adapter.tx(['meta'], 'readwrite', async (t) => {
+      const row = await t.get('meta', key);
+      if (row?.value === value) return false;
+      await t.put('meta', { key, value, updatedAt: new Date().toISOString() });
+      return true;
+    });
+  }
+
   /* ----------------------------------------------------- chat attachments */
 
   /**

@@ -194,8 +194,10 @@ export async function runAutomations(db, { clock = Date.now, notify = true } = {
   const now = today(clock);
   const result = { advanced: 0, repeated: 0, notified: 0, skipped: false };
 
-  const lastRun = await db.meta(LAST_RUN_KEY);
-  if (lastRun === now) {
+  // Claimed, not read. See `claimMeta`: this used to read the marker here and
+  // write it at the end of the run, so two tabs opening together both read
+  // yesterday and both did the work.
+  if (!(await db.claimMeta(LAST_RUN_KEY, now))) {
     result.skipped = true;
     return result;
   }
@@ -223,8 +225,9 @@ export async function runAutomations(db, { clock = Date.now, notify = true } = {
 
   /* reminders */
   if (notify && canNotify()) {
-    const lastNotified = await db.meta(LAST_NOTIFIED_KEY);
-    if (lastNotified !== now) {
+    // The same claim, for the same reason: two tabs would otherwise each
+    // decide the digest was theirs to send.
+    if (await db.claimMeta(LAST_NOTIFIED_KEY, now)) {
       /*
        * Derived, not named.
        *
@@ -282,11 +285,11 @@ export async function runAutomations(db, { clock = Date.now, notify = true } = {
           // registration; failing here is not worth surfacing.
         }
       }
-      await db.setMeta(LAST_NOTIFIED_KEY, now);
+      // Nothing written here: `claimMeta` above already took the marker, and a
+      // second write would be a second writer for one fact.
     }
   }
 
-  await db.setMeta(LAST_RUN_KEY, now);
   return result;
 }
 
