@@ -103,6 +103,15 @@ and each mutation fails.
 
 ## Implemented
 
+**Entity tables become card lists on a phone.** At 390px, `.table--responsive`
+converts each row to a stacked grid block — label on the left, value on the
+right — rather than scrolling the table horizontally. The `<table>` and `<tbody>`
+elements gain `display: block` in the media query to break the CSS table layout
+model; without it, the table layout algorithm computes natural column widths
+regardless of the row display, making the `.table-wrap` container scroll. Checked
+in `tests/browser.mjs`: entity screens that have records must produce no scrolling
+`.table-wrap` at 390px.
+
 **Reduced motion.** `prefers-reduced-motion: reduce` sets every duration token
 to `0.01ms` — none, not less. Vestibular triggers are not a matter of degree.
 The sync-pill spinner is stopped explicitly.
@@ -167,15 +176,13 @@ state the run never enters is a state nothing measures. Non-text contrast — th
 3:1 that WCAG 2.2 asks for borders, focus rings and icons under 1.4.11 — is not
 checked at all; the sweep looks at text.
 
-**Tables scroll horizontally on a narrow screen** rather than becoming a card
-list.
-
 **No keyboard shortcuts and no roving tabindex** in the bottom navigation or
 the tab strips; both are plain link lists, which works but is not the pattern a
 screen-reader user expects from a tab set. The tab strip in
 `js/modules/belongings.js` uses links rather than `role="tablist"`, which is
-honest — they are navigation, not tabs over one panel — but it means the
-`.tab--active` state is carried by `aria-current` alone.
+honest — they are navigation, not tabs over one panel — and the active link
+carries `aria-current="page"` so a screen reader can identify the current
+destination even without the visual indicator.
 
 **No reduced-transparency handling** (`prefers-reduced-transparency`).
 

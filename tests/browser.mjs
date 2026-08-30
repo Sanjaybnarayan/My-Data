@@ -4161,7 +4161,43 @@ async function main() {
     check('no screen scrolls sideways on a phone', seesaw.length === 0,
       seesaw.join('; '));
 
+    /* -------------------------------- entity tables become cards on mobile */
+
+    /*
+     * `.table--responsive` should convert a multi-column table to a stacked
+     * card list at 390px — each row becomes a grid block, each cell a flex row
+     * with its label on the left and the value on the right. The CSS sets
+     * `display: grid` on `tr`, but without also setting `display: block` on
+     * the `<table>` element the CSS table layout algorithm still computes the
+     * natural column widths, which can be wider than the viewport, causing the
+     * `.table-wrap` to scroll internally instead of the rows becoming cards.
+     *
+     * This check walks every entity screen that has records, reads each
+     * `.table-wrap`, and fails if any one is wider than its container — a
+     * state that means the card layout was not applied.
+     */
     await page.setViewportSize({ width: 390, height: 844 });
+    const tableScreens = ['investments', 'family', 'health', 'insurance',
+      'property', 'education', 'tasks', 'documents', 'belongings'];
+
+    const scrollingTables = [];
+    for (const screen of tableScreens) {
+      await go(page, `#/${screen}`);
+      await page.waitForTimeout(350);
+      const wraps = await page.evaluate(() =>
+        [...document.querySelectorAll('.table-wrap')].map((w) => ({
+          screen: window.location.hash,
+          scrollWidth: w.scrollWidth,
+          clientWidth: w.clientWidth,
+          overflow: w.scrollWidth > w.clientWidth + 1,
+        })));
+      for (const w of wraps) {
+        if (w.overflow) scrollingTables.push(`${screen}: table-wrap scrolls (${w.scrollWidth} > ${w.clientWidth})`);
+      }
+    }
+    check('entity tables render as cards on a phone, not scrollable tables',
+      scrollingTables.length === 0, scrollingTables.join('; '));
+
     await go(page, '#/dashboard');
     await page.waitForTimeout(300);
     if (SHOTS) await shot(page, 'phone');
@@ -5100,6 +5136,23 @@ async function main() {
         return active?.dataset.module;
       });
       check('the current tab is marked as current', current === 'notifications', String(current));
+
+      /*
+       * The belongings tab strip carries `aria-current="page"` on the active
+       * link. Without it, a screen reader cannot tell which entity tab is
+       * selected — the CSS class conveys it visually and nothing else does.
+       * `js/modules/belongings.js` is the only module using the `.tab` pattern
+       * directly; the others use `chip()` with `aria-pressed`.
+       */
+      await go(page, '#/belongings/purchase');
+      await page.waitForTimeout(400);
+      const activeBelongingsTab = await page.evaluate(() => {
+        const active = /** @type {any} */ (
+          document.querySelector('.tabs a[aria-current="page"]'));
+        return active?.textContent?.trim() ?? null;
+      });
+      check('the active belongings tab is marked aria-current',
+        activeBelongingsTab !== null, `active tab: ${activeBelongingsTab}`);
 
       await go(page, '#/dashboard');
       await page.waitForTimeout(250);

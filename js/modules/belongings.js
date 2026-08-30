@@ -37,6 +37,9 @@ export async function render(route) {
     h('div', { class: 'tabs' }, entitiesOfModule('belongings').map((def) => h('a', {
       class: ['tab', def.name === active && 'tab--active'],
       href: Router.href({ module: 'belongings', entity: def.name }),
+      // `aria-current="page"` carries the active state for assistive technology.
+      // The CSS class conveys it visually; screen readers cannot see CSS.
+      'aria-current': def.name === active ? 'page' : null,
     }, def.labels.many))),
     section.node,
   ]);
