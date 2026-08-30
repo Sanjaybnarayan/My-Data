@@ -131,7 +131,7 @@ export async function render(route) {
           }),
         ]),
 
-        h('div', { class: 'chip-row', style: { marginBottom: 'var(--space-4)' } },
+        h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Calendar sources', style: { marginBottom: 'var(--space-4)' } },
           SOURCES.map((source) => h('button', {
             class: 'chip',
             type: 'button',

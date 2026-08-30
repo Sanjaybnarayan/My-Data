@@ -288,15 +288,15 @@ async function main() {
      * the fault this repository keeps finding in itself, and here it cost two
      * screens' worth of coverage.
      *
-     * `assistant` and `timeline` are named because they are registered in
-     * `js/app.js` outside the module list; walking them proves they still
-     * resolve. Everything else arrives by adding a module to the schema, which
-     * is the only place a module should have to be declared.
+     * `assistant`, `timeline` and `wellbeing` are named because they are
+     * registered in `js/app.js` outside the module list; walking them proves
+     * they still resolve. Everything else arrives by adding a module to the
+     * schema, which is the only place a module should have to be declared.
      */
-    const OUTSIDE_THE_SCHEMA = ['assistant', 'timeline'];
+    const OUTSIDE_THE_SCHEMA = ['assistant', 'timeline', 'wellbeing'];
     const modules = [...SCHEMA_MODULES.map((one) => one.id), ...OUTSIDE_THE_SCHEMA];
 
-    check('every module in the schema is walked', modules.length >= 25,
+    check('every module in the schema is walked', modules.length >= 28,
       `only ${modules.length} routes would be opened`);
 
     for (const module of modules) {
@@ -4128,7 +4128,7 @@ async function main() {
       'finance/transaction', 'finance/account', 'investments', 'documents',
       'vehicles', 'health', 'insurance', 'property', 'education', 'tasks',
       'calendar', 'notes', 'vault', 'digital', 'emergency', 'safety', 'chat',
-      'reports', 'assistant', 'settings', 'belongings', 'timeline', 'travel'];
+      'reports', 'assistant', 'settings', 'belongings', 'timeline', 'travel', 'wellbeing'];
 
     const widest = () => page.evaluate(() => {
       const limit = window.innerWidth + 1;
@@ -4239,7 +4239,7 @@ async function main() {
        * the day cell was: 44px at 390px, 36px at 320px.
        */
       const SCREENS = ['dashboard', 'finance', 'family', 'documents', 'vault',
-        'calendar', 'safety', 'settings', 'reports', 'belongings', 'investments'];
+        'calendar', 'safety', 'settings', 'reports', 'belongings', 'investments', 'wellbeing'];
 
       for (const viewport of [390, 320]) {
         await page.setViewportSize({ width: viewport, height: 844 });
