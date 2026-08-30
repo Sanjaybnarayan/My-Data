@@ -156,6 +156,26 @@ describe('what a native app bundles', () => {
 setSuite('what the native build says about itself');
 
 describe('the allowBackup decision', () => {
+  const mainManifest = () =>
+    readFile(join(ROOT, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
+
+  test('is actually made in the manifest, not only argued for around it', async () => {
+    /*
+     * Everything else under this heading checks the *documents* that justify
+     * the decision — the PIN floor they quote, the sentence about a native
+     * build having no backup. Nothing checked the attribute.
+     *
+     * So deleting `android:allowBackup="false"` broke no test in a block named
+     * for it, and the manifest's own comment beside the line says what that
+     * would cost: Android's auto-backup copies application data to the user's
+     * Drive, and nobody is told their key material went there.
+     */
+    const xml = await mainManifest();
+    assert.ok(/<application[^>]*android:allowBackup="false"/s.test(xml),
+      'allowBackup is not false on <application> — auto-backup sends this '
+      + "app's data, key material included, to the user's Drive silently");
+  });
+
   test('quotes the PIN floor that the lock screen actually enforces', async () => {
     // `AndroidManifest.xml` and docs/CAPACITOR_SETUP.md both turn off Android's
     // auto-backup, and both justify it with the number of candidates between an
@@ -661,6 +681,92 @@ describe('what the recents switcher is allowed to keep', () => {
     assert.ok(/FLAG_SECURE/.test(onCreate), 'the flag is set outside onCreate');
     assert.ok(onCreate.indexOf('super.onCreate') < onCreate.indexOf('FLAG_SECURE'),
       'set it after super.onCreate, which is where Capacitor builds the window');
+  });
+});
+
+/**
+ * The transport, as the manifest and the native sources leave it.
+ *
+ * The build brief prohibits cleartext authentication and any bypass of
+ * certificate validation. Both were already right here — and both were held up
+ * by nothing but a comment, which is the failure mode this file exists to
+ * catch. The manifest says `usesCleartextTraffic` "is stated rather than
+ * inherited … writing it down means a later targetSdk change cannot silently
+ * flip it". Written down stops a *default* from moving. It does not stop
+ * anyone deleting the line, and nothing did.
+ */
+describe('what the app is allowed to do to a connection', () => {
+  const mainManifest = () =>
+    readFile(join(ROOT, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
+
+  test('cleartext traffic is refused, and said so rather than inherited', async () => {
+    const xml = await mainManifest();
+    assert.ok(/<application[^>]*android:usesCleartextTraffic="false"/s.test(xml),
+      'usesCleartextTraffic is not false — every token this app carries would '
+      + 'be allowed over plain http, which is where they get read');
+  });
+
+  test('and no network-security config quietly allows it back', async () => {
+    /*
+     * The attribute above is the coarse switch; `networkSecurityConfig` is the
+     * fine one, and it wins. A config file with
+     * `<domain-config cleartextTrafficPermitted="true">` re-opens exactly what
+     * the attribute closed, for the domains it names, with the manifest still
+     * reading `false`.
+     *
+     * There is no such file today. This is the check that notices one arriving
+     * without the argument for it.
+     */
+    const xml = await mainManifest();
+    const configured = /android:networkSecurityConfig="@xml\/(\w+)"/.exec(xml);
+    if (!configured) return;
+
+    const config = await readFile(
+      join(ROOT, `android/app/src/main/res/xml/${configured[1]}.xml`), 'utf8');
+    assert.not(/cleartextTrafficPermitted="true"/.test(config),
+      `res/xml/${configured[1]}.xml permits cleartext, which overrides the `
+      + 'manifest attribute for the domains it names');
+  });
+
+  test('nothing in the native sources turns certificate checking off', async () => {
+    /*
+     * An absence, pinned deliberately.
+     *
+     * A `TrustManager` that accepts everything, a hostname verifier that
+     * returns true, or `onReceivedSslError` calling `proceed()` each turn TLS
+     * into decoration while leaving every https:// URL in the app unchanged —
+     * so no other test in this repository could tell. They are what somebody
+     * reaches for when a self-signed certificate blocks a debug build, and
+     * they ship.
+     *
+     * Asserted over the sources rather than assumed from their absence today.
+     */
+    const roots = ['android/app/src/main/java', 'android/app/src/sms/java', 'ios/App/App'];
+    const found = [];
+
+    const walk = async (dir) => {
+      let entries;
+      try {
+        entries = await readdir(join(ROOT, dir), { withFileTypes: true });
+      } catch {
+        return; // A source set that does not exist is not a source set that hides something.
+      }
+      for (const entry of entries) {
+        const path = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) { await walk(path); continue; }
+        if (!/\.(java|kt|swift|m)$/.test(entry.name)) continue;
+        const source = await readFile(join(ROOT, path), 'utf8');
+        if (/X509TrustManager|checkServerTrusted|ALLOW_ALL_HOSTNAME_VERIFIER|setHostnameVerifier|onReceivedSslError|serverTrust/.test(source)) {
+          found.push(path);
+        }
+      }
+    };
+
+    for (const root of roots) await walk(root);
+
+    assert.deep(found, [],
+      `these touch certificate validation: ${found.join(', ')} — if the reason `
+      + 'is good, say it there and narrow this check to it');
   });
 });
 
