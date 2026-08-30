@@ -321,3 +321,72 @@ describe('when the records cannot be read', () => {
     assert.ok(/No transactions are recorded/.test(answer.text), answer.text);
   });
 });
+
+describe('what the assistant may never be handed', () => {
+  /*
+   * Rule 52 of the build brief: an OTP or security message must not be
+   * retained unnecessarily **or sent to AI**. `docs/PHASE_STATUS.md` claims
+   * both halves of it hold — "the security gate runs before any field is
+   * parsed and no AI intent loads `smsMessage`".
+   *
+   * The first half is tested in `tests/sms.test.mjs`: an OTP naming an amount
+   * yields no amount. The second half was true and checked by nothing.
+   *
+   * Three ways an entity reaches the assistant, and only one of them is
+   * something a person would think to look at:
+   *
+   *   1. named literally in `js/ai/*` — visible in a diff;
+   *   2. `BY_NAME` in `domain/reminders.js` — a list, so also visible;
+   *   3. `datedEntities()` — **derived**, and this is the one. It returns
+   *      every entity carrying a field marked `expiry`. Adding a date to
+   *      `smsMessage` that somebody wanted a reminder for would put SMS text
+   *      in front of the assistant, in a schema edit that mentions neither
+   *      the assistant nor rule 52, and nothing would have said so.
+   *
+   * `vaultItem` is held to the same rule. The brief names the SMS case
+   * because that is where the temptation is, but a password vault reaching a
+   * model is the same mistake with a worse ending, and the assistant is
+   * offline precisely so that neither can happen.
+   */
+  const FORBIDDEN = ['smsMessage', 'vaultItem'];
+
+  test('is not named anywhere in the AI layer', async () => {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const dir = new URL('../js/ai/', import.meta.url).pathname;
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.js'));
+
+    // The sweep is worth what it read.
+    assert.ok(files.length >= 3, `only ${files.length} AI modules were read`);
+
+    const named = [];
+    for (const file of files) {
+      const text = await readFile(`${dir}${file}`, 'utf8');
+      for (const entity of FORBIDDEN) {
+        if (new RegExp(`\\b${entity}\\b`).test(text)) named.push(`${file} names ${entity}`);
+      }
+    }
+    assert.deep(named, []);
+  });
+
+  test('and cannot arrive through the derived dated list either', () => {
+    /*
+     * The path a schema edit opens without meaning to. This fails the moment
+     * somebody marks a field on one of these `expiry: true` — which is the
+     * point: the decision then has to be made deliberately, here, rather than
+     * by a field that looked like a reminder.
+     */
+    const dated = datedEntities();
+    assert.ok(dated.length > 10, `only ${dated.length} dated entities, so this proves nothing`);
+
+    for (const entity of FORBIDDEN) {
+      assert.not(dated.includes(entity),
+        `${entity} carries an expiry field, so the assistant now loads it`);
+    }
+  });
+
+  test('nor through the list named beside it', async () => {
+    const { BY_NAME } = await import('../js/domain/reminders.js');
+    assert.ok(BY_NAME.length > 0, 'BY_NAME is empty, so this proves nothing');
+    for (const entity of FORBIDDEN) assert.not(BY_NAME.includes(entity));
+  });
+});
