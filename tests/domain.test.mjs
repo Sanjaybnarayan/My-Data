@@ -278,6 +278,63 @@ describe('portfolio', () => {
   test('CAGR is the compound rate, not the simple one', () => {
     assert.close(pf.cagr(100000, 121000, 2), 10, 0.05);
   });
+
+  test('a current value of zero is not a missing value', () => {
+    // A stock that went bankrupt has currentValue set explicitly to 0. Before
+    // the fix, `if (holding.currentValue)` treated 0 as falsy and fell through
+    // to units × averageCost, reporting a positive value for a worthless holding.
+    assert.equal(pf.holdingValue({ currentValue: 0, units: 100, averageCost: 50000, invested: 50000 }), 0);
+  });
+
+  test('holdingGain names invested, value, gain and percentage', () => {
+    const g = pf.holdingGain({ invested: rs(50000), currentValue: rs(80000) });
+    assert.equal(g.invested, rs(50000));
+    assert.equal(g.value, rs(80000));
+    assert.equal(g.gain, rs(30000));
+    assert.equal(g.gainPercent, 60);
+  });
+
+  test('holdingGain returns null gainPercent when nothing was invested', () => {
+    assert.equal(pf.holdingGain({ invested: 0, currentValue: rs(1000) }).gainPercent, null);
+  });
+
+  test('portfolioSummary counts only live holdings', () => {
+    const holdings = [
+      { id: 'h1', invested: rs(100000), currentValue: rs(120000), active: true, deletedAt: null },
+      { id: 'h2', invested: rs(50000), currentValue: rs(40000), active: true, deletedAt: null },
+      { id: 'h3', invested: rs(80000), currentValue: rs(100000), active: true, deletedAt: '2025-01-01' }, // deleted
+      { id: 'h4', invested: rs(60000), currentValue: rs(70000), active: false, deletedAt: null },         // inactive
+    ];
+    const s = pf.portfolioSummary(holdings);
+    assert.equal(s.count, 2);
+    assert.equal(s.invested, rs(150000));
+    assert.equal(s.value, rs(160000));
+    assert.equal(s.gain, rs(10000));
+    assert.equal(s.gainPercent, Math.round((10000 / 150000) * 10000) / 100);
+  });
+
+  test('dividendIncome sums only income transactions within a range', () => {
+    const txns = [
+      { kind: 'dividend', amount: 5000, date: '2025-03-10', deletedAt: null },
+      { kind: 'interest', amount: 3000, date: '2025-06-01', deletedAt: null },
+      { kind: 'buy', amount: 100000, date: '2025-01-01', deletedAt: null },    // not income
+      { kind: 'dividend', amount: 2000, date: '2024-12-01', deletedAt: null }, // before range
+      { kind: 'dividend', amount: 1000, date: '2025-03-10', deletedAt: 'X' }, // deleted
+    ];
+    assert.equal(pf.dividendIncome(txns, { from: '2025-01-01', to: '2025-12-31' }), 8000);
+  });
+
+  test('assetClass maps kinds to broad classes', () => {
+    assert.equal(pf.assetClass('stock'), 'Equity');
+    assert.equal(pf.assetClass('mutual fund'), 'Equity');
+    assert.equal(pf.assetClass('ETF'), 'Equity');
+    assert.equal(pf.assetClass('fixed deposit'), 'Fixed income');
+    assert.equal(pf.assetClass('PPF'), 'Fixed income');
+    assert.equal(pf.assetClass('EPF'), 'Retirement');
+    assert.equal(pf.assetClass('gold'), 'Commodity');
+    assert.equal(pf.assetClass('crypto'), 'Alternative');
+    assert.equal(pf.assetClass('unknown kind'), 'Other');
+  });
 });
 
 describe('net worth', () => {

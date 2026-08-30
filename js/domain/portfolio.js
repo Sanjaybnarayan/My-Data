@@ -15,7 +15,11 @@ import { today, daysBetween, daysUntil } from '../core/dates.js';
 /* --------------------------------------------------------------- holdings */
 
 export function holdingValue(holding) {
-  if (holding.currentValue) return holding.currentValue;
+  // `!= null` rather than truthiness: a currentValue of zero means the
+  // holding is worth nothing, not that no value has been set. A stock that
+  // went bankrupt records 0 explicitly; falling through to units × cost
+  // would report a positive value for something the household knows is gone.
+  if (holding.currentValue != null) return holding.currentValue;
   if (holding.units && holding.averageCost) return roundMoney(holding.units * holding.averageCost);
   return holding.invested ?? 0;
 }
