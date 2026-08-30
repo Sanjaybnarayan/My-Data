@@ -93,15 +93,17 @@ export class MessagesService extends Service {
     }
 
     const print = fingerprint(reading);
-    const already = (await this.repo('smsMessage')
-      .list({ index: 'byFingerprint', range: { only: print }, limit: 1 })
-      .catch(() => []))[0];
 
-    if (already) {
-      return { reading, result, stored: already, why: 'this message is already recorded' };
-    }
-
-    const stored = await this.repo('smsMessage').create({
+    // Looked up and written in one transaction, not two.
+    //
+    // This was a `list` by fingerprint followed by a `create`, and the gap
+    // between them was a window: two tabs sweeping the inbox together both
+    // found nothing and both wrote, so one alert became two rows — which is
+    // the very thing the paragraph above says must not happen. Measured, with
+    // the two captures genuinely interleaved: `smsMessage rows: 2`.
+    //
+    // `createUnlessPresent` does the lookup inside the writing transaction.
+    const { record: stored, created } = await this.repo('smsMessage').createUnlessPresent({
       sender: reading.sender || 'unknown',
       // A message pasted by hand carries no arrival time, and the browser
       // check found it: every Node fixture here supplied one, so the required
@@ -131,7 +133,11 @@ export class MessagesService extends Service {
       // in two tranches — see `docs/SEALED_VALUES.md`.
       transaction: result.transaction?.id,
       agreement: result.agreement,
-    });
+    }, { index: 'byFingerprint', only: print });
+
+    if (!created) {
+      return { reading, result, stored, why: 'this message is already recorded' };
+    }
 
     return { reading, result, stored, why: null };
   }

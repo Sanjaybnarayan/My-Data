@@ -150,6 +150,72 @@ export class Repository {
   }
 
   /**
+   * Create a record unless one already matches an index query — in one step.
+   *
+   * "Look it up, and write it if it is not there" is two transactions when it
+   * is written as `list()` then `create()`, and everything between them is a
+   * window. Two tabs capturing the same bank alert both looked, both found
+   * nothing, and both wrote:
+   *
+   *     A why: stored
+   *     B why: stored
+   *     smsMessage rows: 2          (one message should give 1)
+   *
+   * `services/sms.js` says in its own words why that matters — "two rows for
+   * one alert would make the evidence look like two events" — so the dedupe
+   * was written for exactly the case it could not handle.
+   *
+   * The lookup happens inside the writing transaction here, so no other tab
+   * can be between the two. IndexedDB serialises overlapping readwrite
+   * transactions on the same store, which is the property this depends on and
+   * which `MemoryAdapter.tx` now honours too.
+   *
+   * The record comes back through `get()` rather than raw from the cursor when
+   * one already existed: the caller is owed a decrypted, permission-filtered
+   * record, and the row inside the transaction is neither.
+   *
+   * @param {object} input
+   * @param {{index: string, only: unknown}} match the index and the key that
+   *   decides whether this record is already here
+   * @returns {Promise<{record: object|null, created: boolean}>}
+   */
+  async createUnlessPresent(input, { index, only }) {
+    return this.#attempt('create', async () => {
+      const planned = await this.stageCreate(input);
+      const stores = planned.stores.includes(this.#name)
+        ? planned.stores
+        : [this.#name, ...planned.stores];
+
+      let outcome;
+      try {
+        outcome = await this.#ctx.adapter.tx(stores, 'readwrite', async (t) => {
+          const found = await t.getAll(this.#name, { index, range: { only }, limit: 1 });
+          if (found?.length) return { id: found[0].id, created: false };
+          await planned.apply(t);
+          return { id: planned.record.id, created: true };
+        });
+      } catch (error) {
+        // Same as `#run`: planning advanced the chain head and nothing was
+        // written, so forget it and re-read the committed one next time.
+        this.#ctx.chain.reset();
+        throw error;
+      }
+
+      if (!outcome.created) {
+        // And the same on the path that writes nothing *deliberately*. The
+        // head advanced when the entry was planned either way, and an audit
+        // chain that counts an entry nobody wrote is a chain that will not
+        // verify.
+        this.#ctx.chain.reset();
+        return { record: await this.get(outcome.id), created: false };
+      }
+
+      planned.emit();
+      return { record: planned.record, created: true };
+    });
+  }
+
+  /**
    * Run a write, and record it if it fails.
    *
    * Wrapping the whole public method rather than only the transaction,
