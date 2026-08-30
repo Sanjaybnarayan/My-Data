@@ -118,13 +118,42 @@ describe('every figure names where it came from', () => {
   });
 
   test('risks is a list of findings, never a score', () => {
-    const out = position(DATA, { clock: CLOCK });
+    /*
+     * `DATA` produces **no** findings, and this used to run against it — so
+     * the loop below never executed, `a finding with no source` was never
+     * asserted about anything, and `risks.value` was compared to
+     * `risks.findings.length` as 0 against 0. A check that cannot fail, on
+     * the one property of this page the build brief states outright: every
+     * figure must be explainable.
+     *
+     * `risks` gathers from four places, each hard-coding its own `source`, so
+     * the way this test earns its keep is a fifth `found.push` written without
+     * one. That is only catchable if at least one finding exists, which is
+     * what the goal below is for: a goal with no target and no funding source
+     * cannot be measured, so `domain/goals.js` reports it and the page passes
+     * it through.
+     */
+    const goals = [{ id: 'g1', name: 'A trip somewhere', kind: 'other' }];
+    const out = position({ ...DATA, goals }, { clock: CLOCK });
     const risks = at('risks', out);
+
     assert.ok(Array.isArray(risks.findings));
+    assert.ok(risks.findings.length > 0,
+      'no findings, so the assertion below runs against nothing');
     for (const finding of risks.findings) {
       assert.ok(finding.source, 'a finding with no source is a score in disguise');
     }
     assert.equal(risks.value, risks.findings.length);
+  });
+
+  test('and says nothing when there is nothing to say', () => {
+    // The other half, and why the fixture above had to be changed rather than
+    // this case deleted: no findings is a real and common state, and the line
+    // still has to name its source and report zero rather than go missing.
+    const risks = at('risks', position(DATA, { clock: CLOCK }));
+    assert.length(risks.findings, 0);
+    assert.equal(risks.value, 0);
+    assert.ok(risks.source, 'the line stopped naming its source when empty');
   });
 
   test('a stale valuation reaches the net worth line rather than being hidden', () => {
