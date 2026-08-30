@@ -110,6 +110,42 @@ custodian's name, whether a deed was registered. Three were not:
 
 Six remain, all genuine reference data, and they are in the inventory.
 
+## A recovery phrase is not a recovery code
+
+`vaultItem.kind` now offers **recovery phrase**, next to the *recovery codes*
+it is not.
+
+Recovery codes are the printed one-time strings an account hands you as a way
+past two-factor. If they are lost, the provider can issue more. A recovery
+phrase — twelve or twenty-four words — **is** the asset: whoever holds it holds
+the wallet, and whoever does not cannot be given it later by the exchange, by
+the provider, or by a court.
+
+`digitalAsset` has offered `crypto wallet` as a kind since the schema was
+written, with a `vaultItem` reference labelled *Credentials* to point at its
+secret. There was nowhere for that secret to say what it was, so a phrase went
+in a secure note or under the codes it is not, and both are encrypted, so
+nothing was ever at risk. What was missing was the ability to say which one it
+is — and for an estate that is the whole question. `legacyInstruction` asks
+what to do on a death, and an instruction naming a wallet nobody can open is a
+sentence rather than a bequest.
+
+The addition is one option in an existing vocabulary. No new entity, no new
+field, no migration: a wallet is still a `digitalAsset`, and its phrase is
+still a `vaultItem` it points at.
+
+### What was deliberately not added with it
+
+**Holdings and valuation.** A crypto balance is worth what somebody will pay
+today, so a figure means a price feed, and a price feed is an external
+integration this application does not have. The alternative — a number typed
+once and shown for years as though it were current — is the failure the build
+brief names above all others. `docs/PHASE_STATUS.md` records the same refusal
+for Phase 8's broker connector, and this is the same one.
+
+That is a decision for the household rather than a gap in the code, and the
+phase row says so in those terms.
+
 ## Deliberately not built
 
 **`Nominee` is not made an entity.** The prompt names it alongside the other
