@@ -139,6 +139,30 @@ export class Database {
    * repeating — while a duplicate is a record a household has to find and
    * delete.
    */
+  /**
+   * Read a marker, or write this one and take it — and say which happened.
+   *
+   * `claimMeta` answers "is the day mine"; this answers "what does everybody
+   * now agree is here", which is what a caller needs when the marker is a
+   * *value* rather than a flag. The loser is handed the winner's value rather
+   * than its own, so two callers end up using one thing.
+   *
+   * The value is computed by the caller *before* this is called, and that is
+   * not a style choice: a real IndexedDB transaction closes when the microtask
+   * queue drains with no request pending, so awaiting WebCrypto inside one
+   * would end the transaction underneath it. Generate first, claim second.
+   *
+   * @returns {Promise<{won: boolean, value: unknown}>}
+   */
+  async claimMetaValue(key, value) {
+    return this.adapter.tx(['meta'], 'readwrite', async (t) => {
+      const row = await t.get('meta', key);
+      if (row) return { won: false, value: row.value };
+      await t.put('meta', { key, value, updatedAt: new Date().toISOString() });
+      return { won: true, value };
+    });
+  }
+
   async claimMeta(key, value) {
     return this.adapter.tx(['meta'], 'readwrite', async (t) => {
       const row = await t.get('meta', key);
