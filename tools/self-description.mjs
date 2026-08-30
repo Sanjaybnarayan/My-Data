@@ -20,7 +20,7 @@
  */
 
 import { readdir, readFile } from 'node:fs/promises';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { entityNames, entity, modules, systemStores } from '../js/data/schema.js';
@@ -31,6 +31,57 @@ import { strings as english } from '../js/locale/en.js';
 import { labelKeys } from '../js/core/labels.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Every `.js` under `js/`, which is what "the application" means below. */
+function sourceFiles(dir = join(ROOT, 'js'), out = []) {
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) sourceFiles(full, out);
+    else if (name.endsWith('.js')) out.push(full);
+  }
+  return out;
+}
+
+/**
+ * How many places catch an error, and how many of those record a diagnostic.
+ *
+ * `docs/OBSERVABILITY_AUDIT.md` measured "3 of 207 catch sites" by hand and
+ * `docs/PHASE_STATUS.md` repeated it as a present-tense fact. Both numbers had
+ * drifted, and the numerator turned out not to mean what it said: "3" was
+ * three *files*, which by then held four recorder calls.
+ *
+ * So the method is written down here instead of in prose, which is the only
+ * way a ratio like this stays honest. A `catch` site is a `catch` block or a
+ * `.catch()` handler, counted with comments stripped so a paragraph about
+ * error handling is not one. A recorder call is found by the *local name* the
+ * file imported `record` under, so renaming the import moves the count with it
+ * rather than silently zeroing it.
+ */
+function observability() {
+  let sites = 0;
+  let recorded = 0;
+
+  for (const file of sourceFiles()) {
+    const src = readFileSync(file, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+
+    // `catch (e)` and `catch {`, but not the `.catch(` of a promise, which is
+    // counted separately so neither form can hide inside the other's regex.
+    sites += (src.match(/(?<![.\w])catch\s*[({]/g) ?? []).length;
+    sites += (src.match(/\.catch\s*\(/g) ?? []).length;
+
+    if (file.endsWith(join('data', 'diagnostics.js'))) continue;
+    const imported = src.match(/import\s*\{([^}]*)\}\s*from\s*'[^']*diagnostics\.js'/);
+    if (!imported) continue;
+    const alias = (imported[1].match(/\brecord\s+as\s+(\w+)/)
+      ?? imported[1].match(/\b(record)\b/) ?? [])[1];
+    if (!alias) continue;
+    recorded += (src.match(new RegExp(`\\b${alias}\\s*\\(`, 'g')) ?? []).length;
+  }
+
+  return { catchSites: sites, recordedFailures: recorded };
+}
 const DOCS = join(ROOT, 'docs');
 
 /** Everything the prose is allowed to state as a live number. */
@@ -79,6 +130,7 @@ export function measure() {
     // were 142. A number a document states about itself, with nothing deriving
     // it, is the fault this tool exists for — and it had one of its own.
     docs: readdirSync(join(ROOT, 'docs')).filter((f) => f.endsWith('.md')).length,
+    ...observability(),
   };
 }
 
