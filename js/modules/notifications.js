@@ -98,7 +98,7 @@ export async function render() {
     class: 'input',
     type: 'search',
     placeholder: t('notifications.search'),
-    'aria-label': 'Filter by category',
+    'aria-label': 'Search what is due',
     onInput: (event) => { filter.term = event.target.value; paint(); },
   });
 

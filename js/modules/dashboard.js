@@ -390,7 +390,7 @@ const WIDGETS = {
     }
 
     return h('section', { class: 'dash-section' }, [
-      h('h3', { class: 'dash-section-title' }, t('dash.wallet.title')),
+      h('h2', { class: 'dash-section-title' }, t('dash.wallet.title')),
       carousel(cards, { label: t('dash.wallet.cards') }),
     ]);
   },
