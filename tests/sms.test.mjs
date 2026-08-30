@@ -14,6 +14,8 @@ import {
   reconcileWithStatement, nativeStatus, AGREEMENT, CONNECTOR_STATUS,
   SOURCE_PRIORITY, CATEGORY,
 } from '../js/domain/sms.js';
+import { MessagesService } from '../js/services/sms.js';
+import { makeDb } from './fixture.mjs';
 
 setSuite('sms');
 
@@ -246,5 +248,63 @@ describe('what a browser can honestly claim', () => {
       'SYNCED', 'EXPIRED', 'ERROR', 'NOT_SUPPORTED', 'LEGAL_REVIEW_REQUIRED']) {
       assert.equal(CONNECTOR_STATUS[status], status);
     }
+  });
+});
+
+describe('the same alert reaching two tabs at once', () => {
+  /*
+   * `ingest` looked the fingerprint up and then created, in two separate
+   * transactions, and everything between them was a window. Two tabs sweeping
+   * the inbox together — which the watermark permits, since both read the same
+   * `since` — both found nothing and both wrote.
+   *
+   * Measured, with the two captures genuinely interleaved rather than
+   * simulated:
+   *
+   *     A why: stored
+   *     B why: stored
+   *     smsMessage rows: 2          (one message should give 1)
+   *
+   * `services/sms.js` says in its own words why that is the wrong answer:
+   * "two rows for one alert would make the evidence look like two events".
+   * The dedupe was written for exactly the case it could not handle.
+   */
+  const alert = () => ({
+    sender: 'HDFCBK',
+    text: 'Rs 2,500.00 debited from a/c XX8963 on 05-06-25 to SWIGGY. UPI Ref 123456789012.',
+    receivedAt: '2025-06-05T10:00:00.000Z',
+  });
+
+  test('is recorded once, not once per tab', async () => {
+    const db = await makeDb();
+    const svc = new MessagesService(db);
+
+    const [a, b] = await Promise.all([svc.ingest(alert()), svc.ingest(alert())]);
+
+    assert.length(await db.repo('smsMessage').list({}), 1, 'one alert became two rows');
+    const already = [a, b].filter((one) => one.why === 'this message is already recorded');
+    assert.length(already, 1, 'both captures believed they were the first');
+    // And the one that lost is handed the record that won, not nothing.
+    assert.ok(already[0].stored?.id, 'the losing capture came back with no record');
+  });
+
+  test('and the audit chain does not count the write that did not happen', async () => {
+    /*
+     * The part of this that is easy to get wrong. `stageCreate` advances the
+     * chain head when it plans an entry, so the path that deliberately writes
+     * nothing has to reset it — exactly as the failure path does. A chain
+     * counting an entry nobody wrote is a chain that will not verify, and the
+     * household would be told their audit log had been tampered with.
+     */
+    const db = await makeDb();
+    const svc = new MessagesService(db);
+
+    await svc.ingest(alert());
+    await svc.ingest(alert());          // the duplicate, refused
+    await svc.ingest({ ...alert(), text: 'Rs 100.00 debited from a/c XX8963 to X. UPI Ref 9.' });
+
+    const result = await db.verifyAudit();
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(result.unchained, 0);
   });
 });
