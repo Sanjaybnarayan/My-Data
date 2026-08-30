@@ -51,6 +51,7 @@ const SHELL = [
   './js/core/money.js',
   './js/locale/en-signin.js',
   './js/locale/en-tradebook.js',
+  './js/locale/en-periods.js',
   './js/locale/en.js',
   './js/core/native.js',
   './js/core/backgroundlocation.js',

@@ -654,13 +654,13 @@ async function financeOverview() {
             value: formatCompact(compare.current.expense),
             delta: compare.expenseChange,
             goodWhen: 'down',
-            hint: 'vs last month',
+            hint: fin.comparedWith(compare),
           }),
           metric({
             label: 'Received',
             value: formatCompact(compare.current.income),
             delta: compare.incomeChange,
-            hint: 'vs last month',
+            hint: fin.comparedWith(compare),
           }),
           metric({
             label: 'Net',
@@ -739,7 +739,7 @@ async function financeOverview() {
 
       card({}, [
         cardHeader('Twelve months'),
-        barChart(series.map((m) => ({ label: m.label, value: m.expense })), {
+        barChart(fin.spendingBars(series), {
           height: 140,
           label: 'Spending by month over a year',
           tone: () => seriesColour(1),

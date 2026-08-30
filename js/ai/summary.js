@@ -12,6 +12,7 @@
 import { formatCompact } from '../core/money.js';
 import { formatDay } from '../core/dates.js';
 import * as fin from '../domain/finance.js';
+import { t } from '../core/locale.js';
 
 export function summarise(data) {
   const parts = [];
@@ -45,13 +46,36 @@ export function summarise(data) {
     else if (gap) parts.push(gap.trim());
   }
 
-  const { current, previous, expenseChange } = data.compare;
-  if (previous.expense > 0 && Math.abs(expenseChange ?? 0) >= 15) {
-    parts.push(expenseChange > 0
-      ? `Spending is ${Math.round(expenseChange)}% above last month, at ${formatCompact(current.expense)}.`
-      : `Spending is ${Math.abs(Math.round(expenseChange))}% below last month, at ${formatCompact(current.expense)}.`);
+  /*
+   * The base is `previousToDate`, not `previous`, and the sentence says which.
+   *
+   * This branch used to read "Spending is 94% below last month" on the 2nd for
+   * a household that had spent exactly its usual amount on both days — while
+   * the branch directly below it, in the same function, already knew to say
+   * "so far this month". The guard was on `previous.expense`, the whole of
+   * last month, so a partial month always cleared it and the sentence was
+   * always about a fall.
+   *
+   * `comparePeriods` now measures the change against the same days of the
+   * previous month, and the wording follows it: an assistant that states a
+   * trend has to state what it compared, because nobody can check a sentence
+   * against a caption it does not carry.
+   */
+  const { current, expenseChange, partial } = data.compare;
+
+  // No guard on the base span's total beside this one. `changePercent` returns
+  // null when the base is zero, `?? 0` fails the threshold, and a second guard
+  // that can never independently fail is a check this repository has learned
+  // to remove rather than keep for reassurance. Mutating it away changed no
+  // output, which is how it was found.
+  if (Math.abs(expenseChange ?? 0) >= 15) {
+    const dir = expenseChange > 0 ? 'above' : 'below';
+    parts.push(t(`summary.spend.${dir}${partial ? '.soFar' : ''}`, {
+      pct: Math.abs(Math.round(expenseChange)),
+      amount: formatCompact(current.expense),
+    }));
   } else if (current.expense > 0) {
-    parts.push(`${formatCompact(current.expense)} spent so far this month.`);
+    parts.push(t('summary.spend.soFar', { amount: formatCompact(current.expense) }));
   }
 
   const over = fin.budgetStatus(data.budget ?? [], data.transaction ?? [])

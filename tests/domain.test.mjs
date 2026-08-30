@@ -487,3 +487,74 @@ describe('reminders', () => {
     );
   });
 });
+
+describe('a month in progress is not compared to a month that finished', () => {
+  /*
+   * A household spending the same ₹258 every day, and nothing else.
+   *
+   * `comparePeriods` put the days elapsed beside the whole of last month and
+   * called the difference a change, so on the 2nd the dashboard read "94%
+   * below last month" — rendered as an improvement, because `metric()` is
+   * given `goodWhen: 'down'` — and the assistant wrote the same claim into a
+   * sentence. Nothing about the household had changed; the month had started.
+   *
+   * `unusual.js` states the rule this broke and keeps it, `runway.js` drops
+   * the partial month rather than divide by it, and the CFO screen shows it
+   * apart and marked. These hold the last surface to it.
+   */
+  const daily = (from, to) => {
+    const rows = [];
+    for (let d = new Date(`${from}T00:00:00Z`); d <= new Date(`${to}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 1)) {
+      rows.push(txn({ date: d.toISOString().slice(0, 10), amount: rs(258) }));
+    }
+    return rows;
+  };
+  const on = (day) => fakeClock(Date.parse(`${day}T10:00:00Z`));
+
+  test('an unchanged household is not told its spending fell', () => {
+    // Every day of July, and the first two of August.
+    const rows = daily('2025-07-01', '2025-08-02');
+
+    for (const day of ['2025-08-02', '2025-08-10', '2025-08-21']) {
+      const spent = daily('2025-07-01', day);
+      const out = fin.comparePeriods(spent, on(day));
+      assert.equal(out.expenseChange, 0, `${day} should read as no change, not a fall`);
+      assert.ok(out.partial, `${day} is inside the month, so the span must say so`);
+    }
+
+    // And the base it used is the same span, not the whole month.
+    const early = fin.comparePeriods(rows, on('2025-08-02'));
+    assert.equal(early.previousToDate.expense, rs(516), 'two days of July, not all of it');
+    assert.equal(early.previous.expense, rs(258 * 31), 'the whole month is still reported');
+    assert.equal(early.upTo, '2025-07-02');
+  });
+
+  test('the last day of the month compares whole against whole', () => {
+    const out = fin.comparePeriods(daily('2025-06-01', '2025-07-31'), on('2025-07-31'));
+    assert.not(out.partial, 'July is over on the 31st');
+    assert.equal(out.upTo, null);
+    assert.equal(out.previousToDate.expense, out.previous.expense);
+  });
+
+  test('a shorter previous month is taken whole rather than invented', () => {
+    // The 30th of March has no counterpart in February, so the base is all of
+    // February — the most that month has. Nothing is projected to fill it.
+    const out = fin.comparePeriods(daily('2025-02-01', '2025-03-30'), on('2025-03-30'));
+    assert.equal(out.upTo, '2025-02-28');
+    assert.equal(out.previousToDate.expense, rs(258 * 28));
+  });
+
+  test('the unfinished month is marked in the series a chart is drawn from', () => {
+    const series = fin.monthlySeries(daily('2025-07-01', '2025-08-02'), 3, on('2025-08-02'));
+    assert.equal(series.at(-1).month, '2025-08');
+    assert.ok(series.at(-1).partial, 'August is not over');
+    assert.not(series.at(-2).partial, 'July is');
+
+    // Named in the label, so the cue is not colour alone — `barChart` builds
+    // its text equivalent from these, which is what a screen reader is given.
+    const bars = fin.spendingBars(series);
+    assert.includes(bars.at(-1).label, 'so far');
+    assert.not(bars.at(-2).label.includes('so far'));
+  });
+});

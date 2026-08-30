@@ -4,6 +4,7 @@ import { Assistant, matchIntent } from '../js/ai/assistant.js';
 import { parsePeriod, exampleQuestions } from '../js/ai/intents.js';
 import { datedEntities } from '../js/domain/reminders.js';
 import { summarise } from '../js/ai/summary.js';
+import { comparePeriods } from '../js/domain/finance.js';
 import { toMinor } from '../js/core/money.js';
 import { PermissionError } from '../js/core/errors.js';
 
@@ -226,7 +227,13 @@ describe('answers', () => {
 describe('written summary', () => {
   const base = {
     reminders: [], bills: [], budget: [], transaction: [],
-    compare: { current: { expense: 0, income: 0 }, previous: { expense: 0 }, expenseChange: null },
+    compare: {
+      current: { expense: 0, income: 0 },
+      previous: { expense: 0 },
+      previousToDate: { expense: 0 },
+      partial: false,
+      expenseChange: null,
+    },
   };
 
   test('says nothing needs attention when nothing does', () => {
@@ -251,7 +258,13 @@ describe('written summary', () => {
         { group: 'date', title: 'C birthday', days: 2, date: '2025-06-17' },
       ],
       bills: [{ amount: rs(5000), dueOn: '2025-06-16', overdue: true }],
-      compare: { current: { expense: rs(50000) }, previous: { expense: rs(20000) }, expenseChange: 150 },
+      compare: {
+        current: { expense: rs(50000) },
+        previous: { expense: rs(20000) },
+        previousToDate: { expense: rs(20000) },
+        partial: false,
+        expenseChange: 150,
+      },
     });
     assert.ok(text.split('. ').length <= 3, 'a dashboard paragraph nobody reads is not a summary');
   });
@@ -388,5 +401,62 @@ describe('what the assistant may never be handed', () => {
     const { BY_NAME } = await import('../js/domain/reminders.js');
     assert.ok(BY_NAME.length > 0, 'BY_NAME is empty, so this proves nothing');
     for (const entity of FORBIDDEN) assert.not(BY_NAME.includes(entity));
+  });
+});
+
+describe('the assistant says which span it compared', () => {
+  /*
+   * The written summary asserted "Spending is 94% below last month" on the 2nd
+   * of the month for a household that had spent its usual amount on both days.
+   * The branch below it in the same function already knew to hedge — "spent so
+   * far this month" — so the partiality was understood when this was written
+   * and the comparison sentence was simply not held to it.
+   *
+   * `comparePeriods` now measures against the same days of the previous month.
+   * The wording has to follow it: a sentence naming a comparison a reader
+   * cannot see is the assistant claiming more than it checked.
+   *
+   * Built from the real `comparePeriods` rather than a literal, so this cannot
+   * pass against a shape the application no longer produces.
+   */
+  const spend = (from, to, each) => {
+    const rows = [];
+    for (let d = new Date(`${from}T00:00:00Z`); d <= new Date(`${to}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 1)) {
+      rows.push({
+        id: `s${rows.length}`, kind: 'expense', amount: each, account: 'a',
+        category: 'food', date: d.toISOString().slice(0, 10), deletedAt: null,
+      });
+    }
+    return rows;
+  };
+  const summaryFor = (rows, day) => summarise({
+    reminders: [], bills: [], budget: [], transaction: rows,
+    compare: comparePeriods(rows, fakeClock(Date.parse(`${day}T10:00:00Z`))),
+  });
+
+  test('a real rise mid-month is named against the days it was measured on', () => {
+    // Half of July at ₹100 a day, then two days of August at ₹1,000 — a real
+    // rise, and one the household should hear about.
+    const rows = [...spend('2025-07-01', '2025-07-31', rs(100)),
+      ...spend('2025-08-01', '2025-08-02', rs(1000))];
+    const text = summaryFor(rows, '2025-08-02');
+    assert.includes(text, 'above the same days of last month');
+    assert.not(text.includes('above last month,'),
+      'an unqualified "last month" is the claim that was wrong');
+  });
+
+  test('and drops the qualifier once the month is complete', () => {
+    const rows = [...spend('2025-06-01', '2025-06-30', rs(100)),
+      ...spend('2025-07-01', '2025-07-31', rs(1000))];
+    const text = summaryFor(rows, '2025-07-31');
+    assert.includes(text, 'above last month,');
+    assert.not(text.includes('same days'), 'July is over; the whole month is the comparison');
+  });
+
+  test('an unchanged household is told nothing about a fall', () => {
+    const rows = spend('2025-07-01', '2025-08-02', rs(258));
+    const text = summaryFor(rows, '2025-08-02');
+    assert.not(text.includes('below'), 'nothing fell — the month started');
   });
 });

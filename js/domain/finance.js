@@ -11,6 +11,7 @@
  */
 
 import { sum, changePercent, divide } from '../core/money.js';
+import { t } from '../core/locale.js';
 import { cardBills, isBillableCard } from './cards.js';
 import { subscriptionBills, commitmentSummary } from './commitments.js';
 import {
@@ -51,9 +52,30 @@ export function byCategory(transactions, { kind = 'expense' } = {}) {
     .sort((a, b) => b.value - a.value);
 }
 
-/** Month-by-month income and expense, oldest first. */
+/**
+ * What the change from `comparePeriods` was measured against, to caption it.
+ *
+ * One decision in one place: both screens showing the delta need the same
+ * words, and a caption kept twice is the drift this repository keeps finding.
+ * It is a caption rather than a footnote because the percentage is unreadable
+ * without it — "vs last month" over eleven days of last month makes a correct
+ * number mean the wrong thing.
+ */
+export const comparedWith = (compare) =>
+  t(compare.partial ? 'compare.vsSameDays' : 'compare.vsLastMonth');
+
+/**
+ * Month-by-month income and expense, oldest first.
+ *
+ * The last bucket is the month in progress, and until it ends it holds part of
+ * a month drawn to the same scale as the whole ones beside it: on the 2nd, a
+ * bar a fifteenth the height of its neighbours, for a household spending the
+ * same every day. It carries `partial` so a chart can say so — see
+ * `spendingBars`, which is where the saying is done.
+ */
 export function monthlySeries(transactions, monthsBack = 6, clock = Date.now) {
-  const start = startOfMonth(addMonths(today(clock), -(monthsBack - 1)));
+  const now = today(clock);
+  const start = startOfMonth(addMonths(now, -(monthsBack - 1)));
   const out = [];
 
   for (let i = 0; i < monthsBack; i++) {
@@ -63,21 +85,83 @@ export function monthlySeries(transactions, monthsBack = 6, clock = Date.now) {
     out.push({
       month: from.slice(0, 7),
       label: formatDay(from, { withYear: false }).replace(/^\d+ /, ''),
+      partial: from.slice(0, 7) === now.slice(0, 7) && now < endOfMonth(now),
       ...totals(rows),
     });
   }
   return out;
 }
 
-/** This period against the one before it, for the dashboard's delta. */
+/**
+ * A monthly series as chart bars, with the unfinished month named unfinished.
+ *
+ * In the label rather than in the colour, because the master brief forbids
+ * carrying meaning by colour alone and a bar chart's text axis is read by
+ * everybody — `barChart` also builds its text equivalent from these labels, so
+ * the qualification survives into the version a screen reader is given.
+ */
+export function spendingBars(series) {
+  return series.map((m) => ({
+    label: m.partial ? t('chart.monthSoFar', { month: m.label }) : m.label,
+    value: m.expense,
+  }));
+}
+
+/**
+ * This period against the one before it, for the dashboard's delta.
+ *
+ * Three days into a month a household has spent three days' money, and last
+ * month's whole total sits next to it. The percentage between those two is
+ * about minus ninety, `metric()` is given `goodWhen: 'down'` so it renders as
+ * an improvement, and `ai/summary.js` writes it into a sentence — for a
+ * household that has changed nothing at all.
+ *
+ * This repository already knew. `unusual.js` states the rule and keeps it —
+ * *"a month in progress is reported but never used to claim a fall, because
+ * three days in, everything has fallen"* — `runway.js` drops the partial month
+ * rather than divide by it, and the CFO screen shows it apart and marked,
+ * with the worked example: on the 21st, three missing weeks read as thrift.
+ * This function is the one the two screens a household actually opens are
+ * built on, and it was the one that did none of it.
+ *
+ * So the comparison is made like for like. While the month is unfinished, the
+ * days elapsed are measured against **the same days of the previous month** —
+ * two spans of records that exist, rather than a projection of either. Once
+ * the month is over the window is the whole of both, which is what this
+ * returned all along and still returns.
+ *
+ * `previous` stays the whole previous month, because that is a true fact about
+ * last month and callers show it as one. What moved is what the *change* is
+ * measured against; `partial` says which of the two it was, so a caller can
+ * name the span instead of writing "vs last month" over a comparison that is
+ * not with last month.
+ */
 export function comparePeriods(transactions, clock = Date.now) {
+  const now = today(clock);
+  const partial = now < endOfMonth(now);
   const thisMonth = totals(inPeriod(transactions, 'month', clock));
   const lastMonth = totals(inPeriod(transactions, 'last-month', clock));
+
+  // `addMonths` clamps the day of the month to the target month's length, so
+  // the 31st of March asks for the 28th of February and gets it. The clamp can
+  // only ever widen the base towards the whole previous month, which is the
+  // most that month has to offer.
+  const upTo = addMonths(now, -1);
+  const soFar = partial
+    ? totals(inPeriod(transactions, { from: startOfMonth(upTo), to: upTo }))
+    : lastMonth;
+
   return {
     current: thisMonth,
     previous: lastMonth,
-    expenseChange: changePercent(lastMonth.expense, thisMonth.expense),
-    incomeChange: changePercent(lastMonth.income, thisMonth.income),
+
+    /** The span the change below is measured against, and how far it runs. */
+    previousToDate: soFar,
+    partial,
+    upTo: partial ? upTo : null,
+
+    expenseChange: changePercent(soFar.expense, thisMonth.expense),
+    incomeChange: changePercent(soFar.income, thisMonth.income),
   };
 }
 
