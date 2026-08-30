@@ -229,6 +229,24 @@ describe('roles', () => {
     assert.not(can(child, 'read', 'healthRecord', theirs));
   });
 
+  test('a child cannot write their own person row, matching the server', () => {
+    // The server's OWN_RECORD table deliberately omits `person`: if somebody
+    // could write their own person row through the own-record rule, they could
+    // change the field the server uses to identify them (the member-to-person
+    // binding), making that binding no longer owner-controlled.
+    //
+    // The browser now agrees: a child writing their own person row is refused
+    // here, so the push never parks with no explanation in the sync diagnostics.
+    //
+    // Reading is still allowed — a child can open their own record — because
+    // seeing it carries no identity risk.
+    const ownPerson = { id: 'p3' };
+    assert.ok(can(child, 'read', 'person', ownPerson),
+      'a child cannot read their own person record');
+    assert.not(can(child, 'write', 'person', ownPerson),
+      'a child wrote their own person row; the server refuses it and the push would park');
+  });
+
   test('a guest sees emergency contacts and nothing else', () => {
     assert.ok(can(guest, 'read', 'emergencyContact'));
     assert.not(can(guest, 'read', 'person'));

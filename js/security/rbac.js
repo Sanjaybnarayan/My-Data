@@ -111,7 +111,16 @@ export function can(actor, action, entityName, record = null) {
   }
 
   // Not on the list, but it might be their own record.
+  // `person` is excluded from writes even though it is in OWN_RECORD_ENTITIES
+  // (and therefore readable). The server maps an email to a person id through
+  // the members list, which only the owner may change. If somebody could write
+  // their own `person` row through this rule they could edit the field the
+  // server uses to identify them, making the binding no longer owner-controlled.
+  // Reads still go through — a child can open and see their record — and this
+  // matches the server's generated OWN_RECORD table, which omits `person` on
+  // the same reasoning. See `docs/OWN_RECORDS.md`.
   if (record && OWN_RECORD_ENTITIES.has(entityName) && isAbout(actor, entityName, record)) {
+    if (action === 'write' && entityName === 'person') return false;
     return true;
   }
 
