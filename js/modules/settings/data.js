@@ -14,6 +14,8 @@ import { modal, confirm, prompt } from '../../ui/components/modal.js';
 import { open as openArchive, describeBody } from '../../domain/archive.js';
 import { toast } from '../../ui/components/toast.js';
 import { userMessage } from '../../core/errors.js';
+import { ExampleService, loadedExample } from '../../services/example.js';
+import { exampleStrings } from '../../locale/en-example.js';
 
 /* ------------------------------------------------------------------ data */
 
@@ -370,4 +372,82 @@ function lastTakenLine(iso) {
   }, iso
     ? `Last backup: ${iso.slice(0, 10)}`
     : 'No backup has ever been taken on this device.');
+}
+
+/* -------------------------------------------------------------- example */
+
+/**
+ * The example household's own text, with `{count}` filled in.
+ *
+ * A three-line stand-in for `t()` because these keys are outside the UI
+ * catalogue on purpose — `js/locale/en-example.js` sets out why. Whole
+ * sentences per key either way, so a language that wants this can translate it
+ * without the code changing.
+ */
+const say = (key, vars = {}) => String(exampleStrings[key] ?? key)
+  .replace(/\{(\w+)\}/g, (whole, name) => (name in vars ? String(vars[name]) : whole));
+
+/**
+ * The example household: load it, or take it out again.
+ *
+ * Placed in the data group rather than anywhere more prominent, because it is
+ * a thing you do once to look around and never again. What it must not be is
+ * hidden: a household that loaded it and forgot is a household that could mistake
+ * invented figures for its own, so the card states plainly when it is present.
+ */
+export async function exampleCard(db, repaint) {
+  const loaded = await loadedExample(db);
+  const service = new ExampleService(db);
+
+  return card({}, [
+    cardHeader(say('example.load.title'), loaded ? badge(String(loaded.ids.length), 'warning') : null,
+      { iconName: 'grid' }),
+    h('p', { class: 'small muted' }, say('example.load.body')),
+
+    // Said on the card, not only on the records: the count is the reassurance
+    // that removal knows exactly what it would take out.
+    loaded
+      ? h('p', { class: 'small' }, say('example.present', { count: loaded.ids.length }))
+      : null,
+
+    h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-3)' } }, [
+      loaded
+        ? button(say('example.remove.action'), {
+          variant: 'subtle', onClick: () => removeExample(service, repaint),
+        })
+        : button(say('example.load.action'), {
+          variant: 'subtle', onClick: () => loadExample(service, repaint),
+        }),
+    ]),
+  ].filter(Boolean));
+}
+
+async function loadExample(service, repaint) {
+  try {
+    const out = await service.install();
+    if (out.loaded) toast(say('example.loaded', { count: out.count }));
+    else if (out.present) toast(say('example.present', { count: out.count }));
+    // A refusal is not a failure and is not phrased as one. It says what is
+    // already there and why that settles it.
+    else toast(say('example.refused', { count: out.people }), { kind: 'warning' });
+    repaint();
+  } catch (error) {
+    toast(userMessage(error), { kind: 'error' });
+  }
+}
+
+async function removeExample(service, repaint) {
+  const ok = await confirm({
+    title: say('example.remove.action'),
+    message: say('example.load.body'),
+  });
+  if (!ok) return;
+
+  try {
+    const out = await service.remove();
+    toast(say('example.removed', { count: out.removed }));
+    repaint();
+  } catch (error) {
+    toast(userMessage(error), { kind: 'error' });
+  }
 }

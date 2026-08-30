@@ -63,7 +63,7 @@ rather than a promise: `tools/architecture-budget.json` holds the count,
 moves a screen onto `js/services/` lowers it permanently.
 
 The service layer exists and is adopted in part:
-**24**<!--live:serviceModules--> service modules against those
+**25**<!--live:serviceModules--> service modules against those
 **58**<!--live:uiDatabaseCalls--> direct calls. Naming the number is what turns
 "we should migrate someday" into something with a direction.
 

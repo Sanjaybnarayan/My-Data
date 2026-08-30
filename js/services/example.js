@@ -1,0 +1,119 @@
+/**
+ * Loading and removing the example household.
+ *
+ * The records themselves are in `domain/example.js`, with the reasoning about
+ * what they are and are not. This is the part that writes them, and the only
+ * decisions here are the three that keep the writing safe.
+ *
+ * **It writes through `repo()`, like everything else.** Not through the
+ * adapter. So the example household is validated, encrypted, permission-checked
+ * and audit-chained by exactly the code a typed-in record goes through — which
+ * is also the only way this is worth having: a demonstration that took a
+ * shortcut past the write path would be showing screens fed by data the real
+ * write path might have refused.
+ *
+ * **It refuses a household that has people.** The brief's first rule is that
+ * existing data stays usable, and invented records mixed into real ones cannot
+ * be told apart again by hand. There is no merge, no "skip duplicates", no
+ * force flag — an occupied household is a refusal with a count, and the person
+ * is told why.
+ *
+ * **It records what it wrote.** The ids go into one meta key, so removal is
+ * derived from what was actually written rather than from a guess about which
+ * rows look invented. A guess would eventually delete something real.
+ */
+
+import { Service } from './service.js';
+import { META_KEY, plan } from '../domain/example.js';
+
+export { META_KEY };
+
+/** What is on file now, or null if the example household is not loaded. */
+export async function loadedExample(db) {
+  const meta = await db.meta(META_KEY);
+  return meta && Array.isArray(meta.ids) ? meta : null;
+}
+
+export class ExampleService extends Service {
+  /**
+   * Write the example household, or refuse.
+   *
+   * Named `install` rather than `load` because `Service.load` is the base
+   * class's record reader and this is a writer — one letter of convenience
+   * against a method that means the opposite of its parent's.
+   *
+   * @returns {Promise<{loaded: boolean, count: number,
+   *                    people?: number, present?: boolean}>}
+   *   `loaded: false` with `people` set means the household was not empty and
+   *   nothing was written; with `present` set, the example was already there.
+   */
+  async install() {
+    const already = await loadedExample(this.db);
+    if (already) return { loaded: false, count: already.ids.length, present: true };
+
+    // The check and the write are not one transaction, and cannot be: this
+    // spans six entities and a meta key. What makes that acceptable here is
+    // that the failure mode is a *refusal*, not a loss — a second loader
+    // arriving mid-write finds people and declines. The window can duplicate
+    // nothing, because the only writer that proceeds is one that found none.
+    const existing = await this.repo('person').list({ limit: 1 });
+    if (existing.length) {
+      const all = await this.repo('person').list({ limit: 500 });
+      return { loaded: false, count: 0, people: all.length };
+    }
+
+    /** @type {Record<string, string>} key from the plan → the id it was given */
+    const ids = {};
+    /** @type {Array<{entity: string, id: string}>} */
+    const written = [];
+
+    for (const step of plan()) {
+      for (const row of /** @type {Record<string, any>[]} */ (step.rows)) {
+        const { key, ...input } = row;
+
+        for (const field of step.refs ?? []) {
+          if (input[field]) input[field] = ids[input[field]] ?? input[field];
+        }
+        for (const field of step.multi ?? []) {
+          if (Array.isArray(input[field])) {
+            input[field] = input[field].map((k) => ids[k] ?? k);
+          }
+        }
+
+        const record = await this.repo(step.entity).create(input);
+        ids[key] = record.id;
+        written.push({ entity: step.entity, id: record.id });
+      }
+    }
+
+    await this.db.setMeta(META_KEY, { ids: written, at: new Date().toISOString() });
+    return { loaded: true, count: written.length };
+  }
+
+  /**
+   * Take it out again.
+   *
+   * A row the household has since deleted itself is not an error — `remove`
+   * on a missing id is counted as already gone rather than failing the whole
+   * removal, because a removal that stops halfway is worse than one that
+   * tolerates a row somebody got to first.
+   */
+  async remove() {
+    const meta = await loadedExample(this.db);
+    if (!meta) return { removed: 0, present: false };
+
+    let removed = 0;
+    for (const { entity, id } of [...meta.ids].reverse()) {
+      try {
+        await this.repo(entity).remove(id);
+        removed += 1;
+      } catch {
+        // Already gone, or refused by a permission this account does not have.
+        // Either way it is not this removal's to force.
+      }
+    }
+
+    await this.db.setMeta(META_KEY, null);
+    return { removed, present: true };
+  }
+}

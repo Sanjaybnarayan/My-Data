@@ -56,9 +56,15 @@ leaving the list is worth a glance at what made it leave.
 
 ## What a finding does *not* mean
 
-**78<!--live:unreadFields--> of 614<!--live:fields--> fields are unread, and that is not 73 bugs.** A vehicle's chassis
+**68<!--live:unreadFields--> of 614<!--live:fields--> fields are unread, and that is not 68 bugs.** A vehicle's chassis
 number and a medication's dosage are reference data: you record them, you read
 them on screen, and nothing should compute with them.
+
+Ten of them stopped being unread when the example household was written, which
+says something about what "unread" was measuring. A chassis number, an
+employer, a TPA helpline and a premium frequency had no code that touched
+them — not because they were dead, but because nothing in this repository had
+ever filled one in. Writing a household that has them was enough.
 
 **This paragraph used to open with "a policy's nominee", and that example was
 wrong.** It stood here as the illustration of a field that is *correctly*
