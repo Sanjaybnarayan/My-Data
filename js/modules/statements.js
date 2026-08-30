@@ -663,12 +663,12 @@ export async function render() {
         : null,
 
       h('div', { class: 'chip-row', style: { marginTop: 'var(--space-3)' } }, [
-        chip(`${plan.transactions.length} rows`),
-        plan.paymentApp ? chip(`${plan.paymentApp.accounts.length} accounts`) : null,
-        chip(plan.duplicates.length ? `${plan.duplicates.length} already here` : 'none duplicated'),
-        chip(plan.check.balanced ? 'arithmetic closes' : `off by ${format(plan.check.difference)}`),
-        plan.problems.length ? chip(`${plan.problems.length} unreadable`) : null,
-        chip(plan.parsed.mode === 'table' ? (plan.card ? 'card export' : 'read from a table')
+        badge(`${plan.transactions.length} rows`),
+        plan.paymentApp ? badge(`${plan.paymentApp.accounts.length} accounts`) : null,
+        badge(plan.duplicates.length ? `${plan.duplicates.length} already here` : 'none duplicated'),
+        badge(plan.check.balanced ? 'arithmetic closes' : `off by ${format(plan.check.difference)}`),
+        plan.problems.length ? badge(`${plan.problems.length} unreadable`) : null,
+        badge(plan.parsed.mode === 'table' ? (plan.card ? 'card export' : 'read from a table')
           : plan.parsed.mode === 'columns' ? 'read by column' : 'read from balances'),
       ].filter(Boolean)),
 

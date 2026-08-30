@@ -5180,6 +5180,39 @@ async function main() {
         chipGroupResult.hasActiveChip,
         'no chip has aria-pressed="true" on the identity screen');
 
+      /*
+       * Module chip-rows must carry an `aria-label` so a screen reader can
+       * announce the group's purpose before reading the buttons inside it.
+       * Without it, assistive technology announces only "group" — context
+       * that the visual heading would otherwise provide.
+       */
+      const chipGroupLabel = await page.evaluate(() => {
+        const group = document.querySelector('.chip-row[role="group"]');
+        return group ? group.getAttribute('aria-label') : null;
+      });
+      check('module chip-rows have an aria-label',
+        chipGroupLabel !== null && chipGroupLabel.length > 0,
+        `chip-row label: ${chipGroupLabel}`);
+
+      /*
+       * Action chips (no toggle state) must not carry `aria-pressed`.
+       *
+       * The settings jump-row uses `chip()` for one-shot scroll actions — not
+       * toggle buttons. Before the fix, `chip()` unconditionally set
+       * `aria-pressed="false"`, which announced them as toggle buttons that
+       * were always off. The fix makes `aria-pressed` conditional on the
+       * caller passing an explicit `pressed` boolean; action chips get none.
+       */
+      await go(page, '#/settings');
+      await page.waitForTimeout(600);
+      const settingsJumpPressed = await page.evaluate(() => {
+        const chips = [...document.querySelectorAll('.settings-jump .chip')];
+        return chips.filter((el) => el.hasAttribute('aria-pressed')).length;
+      });
+      check('settings jump chips have no aria-pressed',
+        settingsJumpPressed === 0,
+        `${settingsJumpPressed} jump chips still carry aria-pressed`);
+
       await go(page, '#/dashboard');
       await page.waitForTimeout(250);
     }

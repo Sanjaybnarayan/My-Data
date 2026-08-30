@@ -54,7 +54,7 @@ export async function render(route) {
           onClick: () => app().router.navigate({ module: 'investments', entity: 'holding', id: 'new' }),
         })],
     }),
-    h('div', { class: 'chip-row', role: 'group', style: { marginBottom: 'var(--space-4)' } },
+    h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Investments', style: { marginBottom: 'var(--space-4)' } },
       TABS.map((tab) => chip(tab.label, {
         pressed: tab.id === active,
         onClick: () => app().router.navigate(tab.id === 'portfolio'

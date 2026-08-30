@@ -193,6 +193,20 @@ inside a tablist is an ARIA ownership violation that assistive technology may
 handle in unexpected ways. `role="group"` around toggle buttons is the correct
 pattern; the form chip-row already used it. `tests/browser.mjs` verifies no
 `.chip-row` carries `role="tablist"` on a screen that has chip navigation.
+Every module chip-row also carries an `aria-label` naming the module, so
+assistive technology announces the group's purpose rather than a bare
+"group" with no context.
+
+**`chip()` only sets `aria-pressed` on toggle chips.** When called without
+an explicit `pressed` argument — as in the Settings jump-row, where each
+chip scrolls to a named section rather than toggling state — no `aria-pressed`
+attribute is emitted. Before the fix, `chip()` unconditionally emitted
+`aria-pressed="false"` on every call, announcing action-only chips as toggle
+buttons that were permanently off. The statement-import review row also used
+`chip()` for status indicators with no click handler; those are `badge()`
+now — non-interactive `<span>` elements rather than unnamed buttons.
+`tests/browser.mjs` verifies no jump chip in the Settings section carries
+`aria-pressed`.
 
 **No reduced-transparency handling** (`prefers-reduced-transparency`).
 

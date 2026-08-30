@@ -69,7 +69,7 @@ async function moduleScreen(moduleDef, entities, entityName, route) {
   const section = await listSection(entityName, { autoOpenNew: route.id === 'new' });
 
   const tabs = entities.length > 1
-    ? h('div', { class: 'chip-row', role: 'group', style: { marginBottom: 'var(--space-4)' } },
+    ? h('div', { class: 'chip-row', role: 'group', 'aria-label': moduleLabel(moduleDef), style: { marginBottom: 'var(--space-4)' } },
       entities.map((e) => chip(entityLabel(e, 'many'), {
         pressed: e.name === entityName,
         onClick: () => app().router.navigate({ module: moduleDef.id, entity: e.name }),
