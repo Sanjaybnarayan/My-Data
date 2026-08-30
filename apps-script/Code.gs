@@ -51,27 +51,31 @@
  *
  * ## Concurrency
  *
- * Sheets has no transactions, so the write path is serialised by a lock. Two
- * of them, and which is which matters:
+ * Sheets has no transactions, so both write paths are serialised by
+ * `LockService.getScriptLock()` — documented as preventing *any* user from
+ * running the guarded section concurrently. `withLock` guards the
+ * authenticated actions, `withScriptLock` the pre-auth one-time-code path;
+ * they differ only in the message a refused caller gets.
  *
- *   - `withScriptLock` takes `getScriptLock()`, documented as preventing *any*
- *     user from running the guarded section concurrently. The pre-auth
- *     one-time-code path uses it.
- *   - `withLock` takes `getUserLock()`, documented as "only once per user".
- *     Every authenticated action goes through it.
+ * `withLock` used to take `getUserLock()`, documented as "only once per user",
+ * while this paragraph claimed a script lock serialised writes. Which of the
+ * two was right mattered: `getUserLock` keys on the **active** user, and a web
+ * app deployed as `USER_DEPLOYING` does not generally expose the caller as the
+ * active user, so whether two devices excluded each other at all was a
+ * question nothing here could answer. `Otp.gs` records the analogous behaviour
+ * for `CacheService.getUserCache()` and reaches for `getScriptCache()` because
+ * of it.
  *
- * This paragraph used to say "a `LockService` script lock serialises writes",
- * which is not what `withLock` takes. **Whether `getUserLock` excludes one
- * caller from another under this deployment is not established here** — it
- * keys on the active user, and a web app deployed as `USER_DEPLOYING` does not
- * generally expose the caller as the active user. `Otp.gs` records the
- * analogous behaviour for `CacheService.getUserCache()` and reaches for
- * `getScriptCache()` because of it.
+ * `sheetPush` reads `getLastRow()` and writes at `lastRow + 1`. Two pushes
+ * that both read the same last row write the same range, and the second
+ * silently replaces the first — records accepted, acknowledged and gone. That
+ * is not a risk worth carrying to keep an exclusion nobody could describe, so
+ * the lock is now the one whose exclusion is documented.
  *
- * So the promise this paragraph made is written down as an open question
- * rather than restated. `sheetPush` computes the next empty row, which is
- * exactly the interleaving a lock is here to prevent. See §8 of
- * `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md`.
+ * What it costs: two members pushing at the same moment serialise instead of
+ * running side by side, and a caller that cannot get the lock inside
+ * `LOCK_TIMEOUT_MS` is refused with a retryable 429 its outbox retries. A
+ * script lock is scoped to the deployment, and a deployment is one household.
  *
  * Reads are unlocked; a pull that misses a row in flight gets it next time,
  * because the cursor only advances past what was actually returned.
@@ -767,9 +771,14 @@ function bootstrap(payload, context) {
  * Serialise writers. Sheets applies each `setValues` atomically but nothing
  * co-ordinates two scripts appending at once, and two devices pushing
  * simultaneously would otherwise both compute the same "next empty row".
+ *
+ * The script lock, not the user lock this took until now. See "Concurrency" at
+ * the top of the file: a user lock keys on the active user, and this
+ * deployment does not reliably have one, so what it excluded was undefined.
+ * The comment above described a script lock the whole time.
  */
 function withLock(fn) {
-  var lock = LockService.getUserLock();
+  var lock = LockService.getScriptLock();
   if (!lock.tryLock(LOCK_TIMEOUT_MS)) {
     throw fail('another device is writing — try again shortly', 429);
   }
@@ -781,22 +790,27 @@ function withLock(fn) {
 }
 
 /**
- * Serialise the pre-auth one-time-code path, which `withLock` cannot.
+ * Serialise the pre-auth one-time-code path.
  *
- * The pre-auth path took no lock at all — not the wrong one, none. `withLock`
- * was the obvious candidate and is not reused here, for a reason worth stating
- * exactly rather than approximately: it takes `getUserLock()`, documented as
- * "only once per user", which keys on the active user, and an anonymous caller
- * has none. **Whether that would have excluded one anonymous caller from
- * another is not established** — not here, and not in Google's documentation.
- * `Otp.gs` records the analogous behaviour for `getUserCache()`, which is
- * per-session for such a caller, and that is the shape this reasons from; it
- * is an inference from a neighbouring service, not a measurement.
+ * This exists apart from `withLock` for the message, not the lock: both now
+ * take `getScriptLock()`, and a caller refused here must not be told "another
+ * device is writing". This endpoint answers strangers, and that sentence would
+ * tell one that somebody else is using the deployment right now.
  *
- * `getScriptLock()` needs no such inference: it is documented as preventing
- * *any* user from running the guarded section concurrently. It is taken
- * because its exclusion is unambiguous, so the fix does not wait on the
- * question above being settled.
+ * The pre-auth path took no lock at all before this — not the wrong one, none.
+ * `withLock` was the obvious candidate and was not reused, because at the time
+ * it took `getUserLock()`, documented as "only once per user", which keys on
+ * the active user, and an anonymous caller has none. **Whether that would have
+ * excluded one anonymous caller from another was never established** — not
+ * here, and not in Google's documentation. `Otp.gs` records the analogous
+ * behaviour for `getUserCache()`, which is per-session for such a caller, and
+ * that is the shape the reasoning rested on: an inference from a neighbouring
+ * service, not a measurement.
+ *
+ * `getScriptLock()` needs no such inference — it is documented as preventing
+ * *any* user from running the guarded section concurrently — so it was taken
+ * here rather than waiting on the question. `withLock` has since been moved to
+ * it for the same reason, which is why the two are now the same lock.
  *
  * Without it, both actions were a read, a change and a write with nothing in
  * between:

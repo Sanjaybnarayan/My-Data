@@ -487,21 +487,49 @@ until it is redeployed.
 1. **CHAT-02** — compare `payload.sender` to `context.personId` on push.
 2. **OTP-01** — take the script lock around the pre-auth one-time-code path.
    Written and tested here; inert everywhere until the same redeploy.
-3. **Open, and not changed on my own judgement: `withLock` guards the write
-   path with `getUserLock()`.** The file header promised "a `LockService`
-   script lock serialises writes" and that is not what it takes; the header now
-   states the discrepancy instead. The same question as OTP-01 applies, and
-   here it applies to *authenticated* callers too, because a `USER_DEPLOYING`
-   web app does not generally expose the caller as the active user — so two
-   devices pushing at once may not be excluded from each other at all, and
-   `sheetPush` computes the next empty row, which is precisely the interleaving
-   the lock exists to prevent. Changing `withLock` to `getScriptLock()` would
-   settle it, per deployment and so per household, and is a one-word change.
-   It is left here rather than made because it alters the concurrency
-   behaviour of every write, which is a decision for the household's owner and
-   not a side effect of an unrelated fix.
-3. Consider adding `message` to `OWN_RECORD`, which today is a widening
-   mechanism only and would need a narrowing counterpart.
+3. **LOCK-01** — `withLock` now takes `getScriptLock()` too. Same redeploy.
+
+---
+
+### LOCK-01 · MEDIUM · the write path's lock excluded nobody it could name
+
+Found while writing OTP-01's tests, raised there as an open question, and
+resolved by the household's owner choosing the stronger lock.
+
+`Code.gs`'s header promised *"a `LockService` script lock serialises writes"*.
+`withLock` took `getUserLock()` — documented as "only once per user", keying on
+the **active** user. A web app deployed as `USER_DEPLOYING` does not generally
+expose the caller as the active user, so what that lock excluded was not
+something this repository could describe, let alone test.
+
+What sat behind it is the part that made it worth resolving rather than noting:
+
+> `sheetPush` reads `getLastRow()` and writes at `lastRow + 1`.
+
+Two pushes that both read the same last row write the same range, and the
+second silently replaces the first. Records accepted, acknowledged to the
+device that sent them, and gone — the failure mode the brief names as never
+silently losing data.
+
+`getScriptLock()` is documented as preventing *any* user from running the
+guarded section concurrently, and a script lock is scoped to the deployment,
+which here is one household. The cost is that two members pushing at the same
+moment serialise instead of running side by side, and a caller that cannot take
+the lock within `LOCK_TIMEOUT_MS` gets a retryable 429 its outbox retries.
+
+**Tested**: a push takes and releases the script lock; a second device arriving
+mid-write is refused with a retryable 429; the lock is released when the action
+throws.
+
+That last test took three attempts and is worth recording. Nothing had ever
+checked which lock the write path took, so changing it broke no test — which is
+how the code and the comment above it disagreed for as long as they did. Then
+the release-on-throw mutation escaped twice: the first version drove a push at
+an unknown store, which `sheetPush` *rejects* rather than throws over, so it
+passed against the mutation and proved nothing. `dispatch` evaluates
+`workbook()` inside the lock callback, so a workbook that cannot be opened
+throws where it counts; the test now asserts the request actually failed before
+asserting the lock was released, so it cannot go vacuous again unnoticed.
 
 ---
 
@@ -525,6 +553,7 @@ Following the brief's phase structure, restricted to what exists here:
 | 12 | Security testing | **Partial** — see below for exactly which half |
 | 13 | Final report (§80) | **Not written.** This document is phase 1, the audit; §80 asks for a statement of the state *after* remediation, and nothing produces one |
 | — | SEARCH-01 | **Done** — the read path that never met the authorisation rule |
+| — | LOCK-01 | **Done** — the write path's lock, raised as an open question under OTP-01 and settled by the owner |
 | — | ID-01 | **Accepted**, with the reason corrected — see above |
 
 The table stopped at 10 for as long as this document existed, and the brief has
