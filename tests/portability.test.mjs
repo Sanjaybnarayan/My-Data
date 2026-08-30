@@ -76,8 +76,19 @@ describe('what the documents say about restoring', () => {
     //
     // So this asks the code the question the document answers, and requires
     // the two to agree in both directions.
-    const service = await readFile(join(ROOT, 'js/services/archive.js'), 'utf8')
-      .catch(() => '');
+    /*
+     * Read without a catch, because of what the catch did.
+     *
+     * It was `.catch(() => '')`, and `canRestore` is derived from this text.
+     * An unreadable `archive.js` made `service` empty, `canRestore` false, and
+     * sent the assertion below down its *other* branch — where it demands
+     * docs/PORTABILITY.md say FamilyOS cannot restore. So a read failure did
+     * not silence this check, it inverted it: the test would pass while
+     * asserting the opposite of the truth, and go on passing.
+     *
+     * The file is not optional. If it cannot be read, that is the finding.
+     */
+    const service = await readFile(join(ROOT, 'js/services/archive.js'), 'utf8');
     // Every settings file, not one path. The first version read
     // `js/modules/settings.js` alone, and splitting that file moved the
     // Restore button into `js/modules/settings/data.js` — at which point the

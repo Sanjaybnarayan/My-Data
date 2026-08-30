@@ -145,6 +145,48 @@ code does what it says, and verification is a person qualified to judge
 signing their name. Nothing here is `VERIFIED` and nothing claims the
 application is compliant.
 
+### The sweep those two controls rest on could read nothing
+
+Written after the fact, because it is a correction to the paragraph above.
+
+*"`tests/refusals.test.mjs` now reads everything that ships"* was the sentence
+that moved `UIDAI/no-authentication` and `PROPERTY/no-legal-effect-claim` to
+**TESTED**. It read everything that ships, and it would also have said the same
+thing having read nothing.
+
+The sweep walked `js/` and `apps-script/` through
+`readdir(dir).catch(() => [])`. A directory that could not be read became a
+directory with nothing in it — a rename, a permission, a wrong root — and the
+walk returned fewer files, or none, with no error anywhere. Nothing checked the
+count. Making the helper return `[]` outright left the whole suite green at
+2991: five refusal tests certifying regulatory absences over zero source files.
+
+The paragraph above names this failure exactly — *"the easiest to let rot,
+because nothing breaks the day it stops being true"* — and the mechanism built
+to stop it had the same shape as the thing it was stopping.
+
+Fixed: the walk no longer catches, so an unreadable source tree fails the test
+rather than emptying it, and a floor is asserted inside the helper so every
+call site is covered rather than one test that a later call site could forget.
+The floor is deliberately well under the real count — it is a tripwire for a
+broken walk, not a number to maintain.
+
+**The controls stay `TESTED` and the count stays 45.** The tests were passing
+for the right reason — the sweep really did read 226 files, and the refusals
+really do hold. What was missing is any reason to believe that tomorrow. No
+score moves on this; a scorecard that went up because a test got harder to
+fool would be measuring the wrong thing.
+
+Two more of the same shape were found alongside it and fixed in the same
+change: the certificate-validation sweep in `tests/native.test.mjs`, written
+the same day, returned quietly from any unreadable source set including the one
+that must exist; and in `tests/portability.test.mjs` a `.catch(() => '')` on
+`js/services/archive.js` did not silence its check but **inverted** it, sending
+the assertion down the branch that demands the documentation say a restore does
+not exist. That one is caught today only because the document happens to sit in
+the disagreeing branch — flip the document and it passes while asserting the
+opposite of the truth.
+
 ### What mutation testing said about the guard itself
 
 Seven mutations. Six caught. Two conditions survive rather than one, because
