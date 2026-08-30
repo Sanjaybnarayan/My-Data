@@ -709,7 +709,7 @@ export async function render() {
         iconName: 'briefcase',
       }),
       businesses.length
-        ? h('div', { class: 'chip-row' }, businesses.map((name) => chip(`${name}  ✕`, {
+        ? h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Named businesses' }, businesses.map((name) => chip(`${name}  ✕`, {
           onClick: () => setBusinesses(businesses.filter((other) => other !== name)),
         })))
         : h('p', { class: 'muted' },

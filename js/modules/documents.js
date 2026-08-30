@@ -251,7 +251,7 @@ export async function render(route) {
 
       // Whose folder, then which category inside it — the order somebody
       // actually looks for a piece of paper in.
-      h('div', { class: 'chip-row', style: { marginBottom: 'var(--space-3)' } }, [
+      h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Filter by person', style: { marginBottom: 'var(--space-3)' } }, [
         chip(`Everyone (${documents.length})`, {
           pressed: !personId,
           onClick: () => { personId = ''; paint(); },
@@ -276,7 +276,7 @@ export async function render(route) {
           : null,
       ].filter(Boolean)),
 
-      h('div', { class: 'chip-row', style: { marginBottom: 'var(--space-4)' } }, [
+      h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Filter by category', style: { marginBottom: 'var(--space-4)' } }, [
         chip(`All (${documents.length})`, {
           pressed: !category,
           onClick: () => { category = ''; paint(); },
