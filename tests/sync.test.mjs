@@ -526,3 +526,150 @@ describe('engine', () => {
     assert.ok(server.rows.get(`person/${person.id}`).deletedAt, 'the tombstone must reach the server');
   });
 });
+
+describe('a reference that arrives pointing at nothing', () => {
+  /*
+   * `applyRemote` does not enforce referential integrity and should not:
+   * rows arrive in whatever order the backend hands them over, so a
+   * transaction can land before the account it names, and refusing it would
+   * drop a row the household really has. `data/integrity.js` sets that out
+   * and calls it a real weakening.
+   *
+   * The weakening is in the refusing. What was missing was anybody finding
+   * out — the audit that exists for this runs when somebody presses "Check
+   * for broken links" in Settings, which is to say when they already suspect.
+   * These check that the same audit now runs at the one moment the ordering
+   * excuse has expired, and that it stays quiet when it has not.
+   */
+  const pullOf = (records) => new FakeTransport({
+    schema: () => ({}),
+    push: () => ({ applied: [], rejected: [], conflicts: [] }),
+    audit: () => ({}),
+    pull: () => ({ records, cursors: {}, more: false }),
+  });
+
+  const txn = (over = {}) => ({
+    id: 't1', rev: 1, origin: 'dev_b', createdAt: '2025-01-01T00:00:00.000Z',
+    createdBy: 'p1', updatedAt: '2025-01-02T00:00:00.000Z', updatedBy: 'p1',
+    deletedAt: null, schemaVersion: 1,
+    date: '2025-01-01', amount: 1000, direction: 'out', account: 'acc_missing',
+    ...over,
+  });
+
+  test('is still applied, because refusing it would lose a real record', async () => {
+    const db = await makeDb();
+    const engine = new SyncEngine({ db, transport: pullOf({ transaction: [txn()] }) });
+
+    const result = await engine.pullOnce();
+
+    assert.equal(result.pulled, 1);
+    const stored = await db.adapter.read('transaction', 't1');
+    assert.ok(stored, 'the row was refused, which is the behaviour this must not change');
+  });
+
+  test('and is reported once the pull has finished', async () => {
+    const db = await makeDb();
+    const engine = new SyncEngine({ db, transport: pullOf({ transaction: [txn()] }) });
+
+    const result = await engine.pullOnce();
+    assert.equal(result.dangling, 1, 'the broken reference was not noticed');
+
+    const noted = await db.adapter.query('diagnostics', {});
+    const one = noted.find((e) => e.kind === 'reference');
+    assert.ok(one, `no reference diagnostic: ${noted.map((e) => e.kind).join(', ')}`);
+    assert.equal(one.entity, 'transaction');
+    assert.equal(one.where, 'sync.pull');
+    // The field, so a run of them groups by which reference keeps breaking.
+    // This was `broken[0].field`, which is not a key of that row shape, so the
+    // code was always empty and the grouping was silently useless — the
+    // typechecker caught it and this is what would have.
+    assert.equal(one.code, 'account');
+  });
+
+  test('but an out-of-order arrival in the same pull is not reported', async () => {
+    /*
+     * The case the exemption exists for, and the one that decides whether
+     * this check is worth having. The transaction names an account that
+     * arrives in the same pull — listed after it, which is the order that
+     * would have made a per-row check complain.
+     *
+     * Checking after the pull rather than during it is the whole difference:
+     * by then the account is here, and there is nothing to report.
+     */
+    const db = await makeDb();
+    const account = {
+      id: 'acc_1', rev: 1, origin: 'dev_b', createdAt: '2025-01-01T00:00:00.000Z',
+      createdBy: 'p1', updatedAt: '2025-01-02T00:00:00.000Z', updatedBy: 'p1',
+      deletedAt: null, schemaVersion: 1,
+      name: 'HDFC Savings', kind: 'savings', institution: 'HDFC Bank',
+    };
+    const engine = new SyncEngine({
+      db,
+      // The transaction first, its account second.
+      transport: pullOf({ transaction: [txn({ account: 'acc_1' })], account: [account] }),
+    });
+
+    const result = await engine.pullOnce();
+
+    assert.equal(result.pulled, 2);
+    assert.equal(result.dangling, 0, 'a legitimate out-of-order arrival was reported as broken');
+    const noted = await db.adapter.query('diagnostics', {});
+    assert.equal(noted.filter((e) => e.kind === 'reference').length, 0);
+  });
+
+  test('and it reports what the pull brought, not what was already broken', async () => {
+    /*
+     * Scoping the audit to the rows the pull applied is not only about cost,
+     * though a scan that grows with the household's whole history while the
+     * thing it looks for grows with the size of one pull is a check somebody
+     * eventually turns off.
+     *
+     * It is also the right answer. Breakage that was already on the device is
+     * not news about this sync, and reporting it on every pull would put a
+     * permanent mark on the activity card — which is how a card stops being
+     * read. Settings → Data → Check for broken links is where the whole
+     * database is examined, on request.
+     *
+     * Added because swapping `danglingAmong` for `danglingReferences` changed
+     * no test: both find the same broken reference, and only this tells them
+     * apart.
+     */
+    const db = await makeDb();
+    // Already here, and nothing to do with the pull that follows.
+    await db.adapter.write('transaction', {
+      id: 'old', rev: 1, origin: 'dev_a', createdAt: '2024-01-01T00:00:00.000Z',
+      createdBy: 'p1', updatedAt: '2024-01-01T00:00:00.000Z', updatedBy: 'p1',
+      deletedAt: null, schemaVersion: 1, syncState: 'synced',
+      date: '2024-01-01', amount: 500, direction: 'out', account: 'acc_long_gone',
+    });
+
+    const account = {
+      id: 'acc_2', rev: 1, origin: 'dev_b', createdAt: '2025-01-01T00:00:00.000Z',
+      createdBy: 'p1', updatedAt: '2025-01-02T00:00:00.000Z', updatedBy: 'p1',
+      deletedAt: null, schemaVersion: 1, name: 'HDFC Savings', kind: 'savings',
+    };
+    const engine = new SyncEngine({ db, transport: pullOf({ account: [account] }) });
+
+    const result = await engine.pullOnce();
+
+    assert.equal(result.dangling, 0,
+      'the pull reported a broken reference it did not bring');
+    assert.length((await db.adapter.query('diagnostics', {}))
+      .filter((e) => e.kind === 'reference'), 0);
+
+    // And the on-request audit still finds it, because it really is broken.
+    assert.ok((await db.danglingReferences()).length > 0,
+      'the pre-existing breakage vanished, so this proves nothing');
+  });
+
+  test('and a pull that brings nothing says nothing', async () => {
+    // No rows, no scan: the check must not cost anything on the common case
+    // of a sync that had nothing to fetch.
+    const db = await makeDb();
+    const engine = new SyncEngine({ db, transport: pullOf({}) });
+
+    const result = await engine.pullOnce();
+    assert.equal(result.dangling, 0);
+    assert.length(await db.adapter.query('diagnostics', {}), 0);
+  });
+});

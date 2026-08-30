@@ -36,6 +36,7 @@ import { unsyncedAudit } from '../data/audit.js';
 import { refused } from '../data/consent.js';
 import { config } from '../core/config.js';
 import { record as recordDiagnostic, KIND } from '../data/diagnostics.js';
+import { t } from '../core/locale.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { TransportError } from '../core/errors.js';
 
@@ -258,6 +259,8 @@ export class SyncEngine {
     const cursors = full ? {} : (await this.#db.meta(CURSOR_KEY)) ?? {};
     let pulled = 0;
     let conflicts = 0;
+    /** What this pull applied, for the integrity check once it has finished. */
+    const applied = new Map();
 
     for (;;) {
       const response = await this.#transport.pull(cursors, this.#batchSize);
@@ -269,6 +272,10 @@ export class SyncEngine {
           const outcome = await this.#resolve(store, remote);
           if (outcome.conflicted.length) conflicts++;
           pulled++;
+          if (!remote.deletedAt) {
+            if (!applied.has(store)) applied.set(store, []);
+            applied.get(store).push(remote);
+          }
         }
       }
 
@@ -281,7 +288,53 @@ export class SyncEngine {
       if (!response.more) break;
     }
 
-    return { pulled, conflicts };
+    const dangling = await this.#noteDangling(applied);
+    return { pulled, conflicts, dangling };
+  }
+
+  /**
+   * After the pull, not during it.
+   *
+   * `applyRemote` does not enforce referential integrity, deliberately: rows
+   * arrive in whatever order the backend hands them over, so a transaction can
+   * land before the account it names and refusing it would drop a row the
+   * household really has. `data/integrity.js` sets that out and calls it a real
+   * weakening.
+   *
+   * The weakening is in the *refusing*, though, and this does not refuse. It
+   * waits until the pull has finished — at which point "it might still be
+   * coming" has expired — and records what is still pointing at nothing, so
+   * the household hears about it from the activity card instead of meeting it
+   * on a screen that says "unknown".
+   *
+   * Deletions are not examined. A row that arrived deleted is a tombstone, and
+   * a tombstone's references are nobody's problem.
+   *
+   * Never throws, for the same reason `recordDiagnostic` does not: an audit
+   * that could fail a sync would be worse than no audit.
+   */
+  async #noteDangling(applied) {
+    if (!applied.size) return 0;
+
+    try {
+      const broken = await this.#db.danglingAmong(applied);
+      if (!broken.length) return 0;
+
+      await recordDiagnostic(this.#db.adapter, {
+        kind: KIND.reference,
+        where: 'sync.pull',
+        // The field, not the ids. Which reference is broken is what groups
+        // usefully, and an id here would be a record identifier in a store
+        // `redact` is not asked to clean. The entity has its own column, so
+        // putting it in the code as well would only make the two disagree.
+        code: broken[0].key ?? '',
+        entity: broken[0].entity,
+        message: t('sync.dangling', { n: broken.length }),
+      });
+      return broken.length;
+    } catch {
+      return 0;
+    }
   }
 
   /**

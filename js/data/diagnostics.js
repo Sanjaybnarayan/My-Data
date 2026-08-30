@@ -73,6 +73,25 @@ export const KIND = Object.freeze({
   connector: 'connector',
   /** The device is running out of room. */
   storage: 'storage',
+  /**
+   * A record arrived from another device pointing at something this one does
+   * not have.
+   *
+   * Its own kind because it is the one entry here that is not a failure. The
+   * write path enforces referential integrity and `applyRemote` is exempt on
+   * purpose — a pull arrives in whatever order the backend hands rows over, so
+   * a transaction can legitimately land before the account it names, and
+   * refusing it would drop a row the household really has. `integrity.js` says
+   * so and calls it a real weakening.
+   *
+   * What was missing was anybody finding out. The audit that exists for this
+   * runs when somebody presses "Check for broken links" in Settings, which
+   * means it runs when they already suspect. This is the same audit, run at
+   * the one moment the ordering excuse has expired — after a pull has finished
+   * — so the household is told rather than discovering it on a screen that
+   * says "unknown".
+   */
+  reference: 'reference',
 });
 
 /* ---------------------------------------------------------------- redaction */
