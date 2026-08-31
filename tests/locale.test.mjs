@@ -121,10 +121,26 @@ describe('coverage is measured, never declared', () => {
       assert.ok(Math.abs(c - expected) < 0.001,
         `coverage ${c} should be ${expected} — ${strings} strings of ${strings + labels.length} keys`);
 
-      // And the point of it: every UI string is nowhere near a translation.
-      assert.ok(c < 0.5, `expected well under half, got ${c}`);
-      assert.ok(labels.length > strings,
-        `${labels.length} schema labels against ${strings} strings — labels should dominate`);
+      /*
+       * And the point of it: every UI string is not a complete translation.
+       *
+       * Said as the relationship rather than as a threshold, because the fault
+       * the comment above describes recurred one level down. `c < 0.5` and
+       * `labels.length > strings` both failed the day Settings → Data was
+       * routed into the catalogue — 54 sentences that had been unreachable
+       * English became reachable keys, and the UI catalogue passed the schema
+       * for the first time. Neither assertion had found anything wrong: the
+       * ratchet had done exactly what it is for, and two constants written
+       * when labels happened to be the larger half called it a regression.
+       *
+       * What is durable is that the labels are a large block and a UI-only
+       * catalogue leaves every one of them untranslated.
+       */
+      assert.ok(c < 1, 'a UI-only catalogue must not report complete coverage');
+      assert.ok(labels.length > 100,
+        `only ${labels.length} schema labels, so this proves little`);
+      assert.equal(Math.round((1 - c) * (strings + labels.length)), labels.length,
+        'the untranslated remainder should be exactly the schema labels');
     });
   });
 
@@ -337,14 +353,20 @@ describe('what counts as a user-facing string', () => {
      * it to every file was caught only by the self-description numbers going
      * stale, which is a check about documents rather than about this rule.
      *
-     * `label:` in a settings screen is not reachable by `labelKeys()`, so it
+     * `label:` in a module screen is not reachable by `labelKeys()`, so it
      * must still be counted. If it ever stops being, the ratchet has quietly
      * stopped measuring most of the application.
+     *
+     * The specimen was `Browser storage quota` in `js/modules/settings/data.js`
+     * until that screen was routed through the catalogue — which is the
+     * outcome this ratchet exists to produce, so the file stopped being an
+     * example of unrouted UI English and a live one had to take its place.
+     * Naming a specimen by hand is the weakness here: it proves the scope on
+     * one file and needs moving again the day Finance is routed too.
      */
     const { byFile } = survey();
-    const uiLabels = (byFile['js/modules/settings/data.js'] ?? [])
-      .map((row) => row.text);
-    assert.ok(uiLabels.includes('Browser storage quota'),
+    const uiLabels = (byFile['js/modules/finance.js'] ?? []).map((row) => row.text);
+    assert.ok(uiLabels.includes('Liquid cash'),
       'a UI label stopped being counted, so the exclusion is no longer scoped');
 
     const schema = byFile['js/data/schema.js'] ?? [];
