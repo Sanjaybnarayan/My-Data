@@ -91,3 +91,120 @@ UI-14 at PARTIALLY_COMPLETE for that reason.
 What has changed is that the keyboard half is now driven rather than assumed.
 Until this file existed, every check in the suite reached its target by
 clicking.
+
+---
+
+# The Dialogs Said Four Things, and Two of Them Were Not True
+
+`js/ui/components/modal.js`, `tests/browser.mjs`.
+
+`modal.js` opens by claiming four behaviours — focus moved in on open and
+restored on close, focus trapped while open, Escape closes — and adds that
+"each of them is invisible until somebody using a keyboard or a screen reader
+hits it". That sentence was right, and it was describing its own file.
+
+The suite touched modals in fifteen places. Every one of them waited for
+`.modal`, read its text, clicked a button and waited for it to detach. Nothing
+had ever pressed Escape. Nothing had asked what a dialog is *called*. So the
+two claims that were false had nothing standing between them and a release.
+
+## A destructive confirmation announced as the dialog underneath it
+
+The title carried `id="modal-title"` — a constant — in a module that stacks
+dialogs deliberately. `openDialogs` is an array, the Android back button closes
+"the dialog on top", and the scroll lock releases only when the last one goes.
+
+`aria-labelledby` resolves through `getElementById`, which returns the **first**
+match in the document. With two dialogs open, the one on top was announced with
+the name of the one underneath it.
+
+Settings → Connection → *Changes that could not be sent* → **Discard** reaches
+it in three clicks. Measured in the page, before the fix:
+
+```
+dialogs:          2
+ids named
+  modal-title:    2
+top dialog is:    "Discard this change?"
+announced as:     "Changes that could not be sent"
+```
+
+A confirmation asking whether to throw away a pending change, introducing
+itself as the list it was opened from. A destructive confirmation is the worst
+thing in this application to mislabel, and the household member most likely to
+be misled by it is the one who cannot see which dialog is on top.
+
+`prompt` had the same construction in `for="prompt-input"`, where two stacked
+prompts would put the label on the first one's field. Nothing reaches that
+today — every `prompt` in the tree is awaited before the next opens — so it is
+fixed as the same fault rather than reported as a second one.
+
+## And a dialog that never took focus at all
+
+Found by the check written for the first fault, which is the whole argument for
+writing it:
+
+```js
+const firstField = dialog.querySelector('input, select, textarea, button:not([aria-label="Close"])');
+focus(firstField ?? dialog);
+```
+
+The fallback says plainly what to do when a dialog has no field in it. It had
+never once worked. `focus()` calls `el.focus()`, and a `div` with no `tabindex`
+is not focusable — `.focus()` on one is a silent no-op. So for any dialog whose
+only control is its own Close button, which that selector excludes on purpose,
+focus stayed on whatever was behind the dialog while an `aria-modal` element
+covered the page.
+
+Reachable in several places, all of them the *quiet* branch: Settings → Data →
+*Check for broken links* on a database with none, and every dialog whose body
+is an `empty()` — "Nothing stuck", "Nothing deleted", "Nothing has conflicted".
+A household with tidy records is the one that gets the broken dialog.
+
+The dialog now carries `tabindex="-1"`: reachable by script, never a stop in
+the Tab order — `trapFocus` excludes `[tabindex="-1"]` from its cycle for the
+same reason.
+
+**This is the router fault at the top of this file with the halves swapped.**
+There, `tabindex="-1"` was set and nothing ever focused it. Here, something
+focused it and the attribute was never set. The same two lines, failing in
+opposite directions, in two components, neither caught by a check that read
+markup.
+
+## What is checked now
+
+Five checks, built in the page rather than driven through the live path — the
+real `Discard` button throws a record's pending change away, and the reasoning
+is the one the `listItem` block already records:
+
+- two dialogs at once do not share one title id;
+- the dialog on top is announced by its own name;
+- opening a dialog moves focus into it;
+- Escape closes a dismissable dialog;
+- closing it puts focus back where it came from.
+
+Mutation-tested, both ways. Restoring the constant id fails the first two and
+nothing else:
+
+```
+FAIL  two dialogs at once do not share one title id
+FAIL  and the dialog on top is announced by its own name
+      announced as "The one underneath", is "The one on top"
+```
+
+Removing the `tabindex` fails the third and nothing else:
+
+```
+FAIL  opening a dialog moves focus into it
+      movedIn: false
+```
+
+## What this still does not establish
+
+The same limit as everything above it. These are claims about focus, ids and
+`aria-labelledby` resolution — that the top dialog's accessible name is now its
+own title is a fact about the DOM, not a recording of a screen reader saying
+it. `docs/UI_PHASE_STATUS.md` keeps UI-14 at PARTIALLY_COMPLETE, and this
+finding is an argument for why it should stay there: the fault was in the
+half that markup checks can see, and it survived fifteen dialog checks that
+were looking at the text instead.

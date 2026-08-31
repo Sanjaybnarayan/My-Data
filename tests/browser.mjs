@@ -46,6 +46,7 @@ const IN_PAGE = Object.freeze({
   schema: './js/data/schema.js',
   consent: './js/data/consent.js',
   basics: './js/ui/components/basics.js',
+  modal: './js/ui/components/modal.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -2383,6 +2384,101 @@ async function main() {
         keyed.role === 'button', String(keyed.role));
       check('and answers Enter and Space, not only a click',
         keyed.fired === 2, `${keyed.fired} of 2 keys reached the handler`);
+
+      await page.waitForTimeout(200);
+    }
+
+    /* ------------------------------------------------------ the dialogs */
+
+    /*
+     * What a dialog is called, and what a keyboard can do to it.
+     *
+     * `modal.js` opens by claiming four things — focus moved in on open and
+     * restored on close, focus trapped while open, Escape closes — and adds
+     * that "each of them is invisible until somebody using a keyboard or a
+     * screen reader hits it". The suite touched modals in fifteen places and
+     * every one of them waited for `.modal`, read its text, clicked a button
+     * and waited for it to detach. Nothing had ever pressed Escape, and
+     * nothing had asked what a dialog is named.
+     *
+     * What that missed: the title carried `id="modal-title"`, a constant, in
+     * a module that stacks dialogs deliberately. `aria-labelledby` resolves
+     * through `getElementById`, which returns the first match in the
+     * document, so the dialog on top was announced with the name of the one
+     * underneath it. Settings → Connection → *Changes that could not be
+     * sent* → **Discard** reaches it: the confirmation asking whether to
+     * throw away a pending change announced itself as "Changes that could
+     * not be sent".
+     *
+     * Built in the page rather than driven through that path, for the reason
+     * the `listItem` block above gives — the live one discards a record.
+     */
+    {
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+
+      const stacked = await page.evaluate(async (spec) => {
+        const { modal } = await import(spec);
+        const under = modal({ title: 'The one underneath', body: 'first' });
+        const over = modal({ title: 'The one on top', body: 'second' });
+
+        const dialogs = [...document.querySelectorAll('.modal')];
+        const top = dialogs[dialogs.length - 1];
+        const labelledBy = top.getAttribute('aria-labelledby');
+        const announced = labelledBy ? document.getElementById(labelledBy) : null;
+
+        const titleIds = [...document.querySelectorAll('.modal-header h2')].map((el) => el.id);
+        const result = {
+          dialogs: dialogs.length,
+          unique: new Set(titleIds).size === titleIds.length && titleIds.every(Boolean),
+          realTitle: top.querySelector('h2')?.textContent ?? null,
+          announcedAs: announced?.textContent ?? null,
+        };
+        over.close();
+        under.close();
+        return result;
+      }, IN_PAGE.modal);
+
+      check('two dialogs at once do not share one title id',
+        stacked.dialogs === 2 && stacked.unique, JSON.stringify(stacked));
+      check('and the dialog on top is announced by its own name',
+        stacked.announcedAs !== null && stacked.announcedAs === stacked.realTitle,
+        `announced as ${JSON.stringify(stacked.announcedAs)}, `
+        + `is ${JSON.stringify(stacked.realTitle)}`);
+
+      /*
+       * The other three claims in that header, none of which had a check.
+       * Escape is dispatched rather than typed so this does not depend on
+       * which element the browser happens to have focused.
+       */
+      const keyboard = await page.evaluate(async (spec) => {
+        const { modal } = await import(spec);
+        const opener = document.createElement('button');
+        opener.textContent = 'Opener';
+        document.body.append(opener);
+        opener.focus();
+
+        modal({ title: 'Keyboard probe', body: 'body', footer: [] });
+        const movedIn = document.querySelector('.modal')?.contains(document.activeElement)
+          ?? false;
+
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Escape', bubbles: true, cancelable: true,
+        }));
+        await new Promise((r) => setTimeout(r, 50));
+
+        const closed = document.querySelector('.modal') === null;
+        const restored = document.activeElement === opener;
+        opener.remove();
+        return { movedIn, closed, restored };
+      }, IN_PAGE.modal);
+
+      check('opening a dialog moves focus into it',
+        keyboard.movedIn, JSON.stringify(keyboard));
+      check('Escape closes a dismissable dialog',
+        keyboard.closed, JSON.stringify(keyboard));
+      check('and closing it puts focus back where it came from',
+        keyboard.restored, JSON.stringify(keyboard));
 
       await page.waitForTimeout(200);
     }

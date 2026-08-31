@@ -63,6 +63,19 @@ name, a role, a level — and none is a claim about what somebody hears. The
 carried `role="button"` correctly and answered only a pointer, and no
 markup check would have caught it.
 
+Two more since, both in `js/ui/components/modal.js` and both in the half that
+markup checks *can* see — they survived because fifteen dialog checks all read
+the text and none asked what a dialog was called. The title id was a constant
+in a module that stacks dialogs, so `aria-labelledby` resolved to the first
+match and the dialog on top was announced with the name of the one underneath
+it — reached by Settings → Connection → *Changes that could not be sent* →
+**Discard**, a destructive confirmation introducing itself as the list behind
+it. And `focus(firstField ?? dialog)` had never worked, because the dialog had
+no `tabindex` and `.focus()` on a plain `div` is a no-op, so any dialog whose
+only control is its own Close button never took focus at all. Five checks now
+cover them, mutation-tested both ways. `docs/KEYBOARD_NAVIGATION.md` has the
+measurements.
+
 **UI-17, Android polish.** Four real faults found and fixed — a dialog
 stranded by the back button, an unredacted recents thumbnail, two navigations
 at once, and an undeclared keyboard mode. All four were code-level and
