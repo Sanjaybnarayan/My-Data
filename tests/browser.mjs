@@ -1306,7 +1306,11 @@ async function main() {
       check('taking one asks for the recovery phrase rather than a new password',
         /recovery phrase/i.test(await page.locator('.modal').innerText()));
 
-      await page.locator('#prompt-input').fill('not-the-phrase-at-all');
+      // The field inside the dialog, not `#prompt-input`. That id stopped
+      // being a constant when stacked dialogs turned out to collide on their
+      // ids, and a check that names one is a check about how an id is spelled
+      // rather than about what the dialog asks for.
+      await page.locator('.modal input').first().fill('not-the-phrase-at-all');
       await page.getByRole('button', { name: 'Take the backup' }).click();
       await page.waitForTimeout(1500);
 
