@@ -208,3 +208,70 @@ it. `docs/UI_PHASE_STATUS.md` keeps UI-14 at PARTIALLY_COMPLETE, and this
 finding is an argument for why it should stay there: the fault was in the
 half that markup checks can see, and it survived fifteen dialog checks that
 were looking at the text instead.
+
+## And the duplicate id is now checked generically
+
+The dialog fault was found by reading the code and suspecting it. That is not
+a method — it does not scale to the next one, and it did not find this one for
+the eleven months the constant sat there.
+
+So the accessibility walk, which already opens every module and entity screen
+and checks heading order, accessible names and labels, now also fails on **any
+id used twice on any screen**. A duplicate is invalid HTML on its own, but the
+reason it earns a check is what points at one: `aria-labelledby`,
+`aria-describedby` and `label[for]` all resolve through `getElementById`, which
+returns the first match. A duplicate never errors. It quietly names the wrong
+element, which is the whole of what went wrong in the dialogs.
+
+---
+
+# The Undo That Expired, and Was Never Announced
+
+`js/ui/components/toast.js`, `js/locale/en.js`, `tests/browser.mjs`.
+
+Deleting a record raises `Person deleted` with an **Undo** beside it. That
+button is the only way back — the record is soft-deleted and restoring it
+otherwise means knowing about Settings → Deleted items.
+
+It carried the ordinary four-second timer.
+
+## Two faults, one line apart
+
+**It expired.** `duration = ms ?? (kind === 'error' ? 0 : 4000)`. An error gets
+no timer because somebody has to read it; nothing said the same about a toast
+that *offers* something. Four seconds is enough to read "Person deleted" and
+not enough to notice a button beside it, decide, and reach it — and for
+somebody tabbing towards it, or waiting to be told it is there, it is not an
+offer at all.
+
+The application already knew this. Both actionable toasts in `js/app.js` pass
+`ms: 0` by hand. The Undo after a delete is the third, and the one that did
+not — so the convention existed, and the one place a household is most likely
+to want it was the place it was missed. It is decided in `toast()` now rather
+than at the call site, so the next actionable toast does not have to remember.
+
+**And it was never announced.** `announce(message, …)` was passed the message
+alone, so the live region said "Person deleted" and stopped. The button beside
+it was announced to nobody. The person who cannot see an Undo is the person who
+most needs telling it exists, and they were the one told least.
+
+The live region now carries both, through one catalogue key rather than two
+announcements — `{message} — {action} available` — because where the offer
+belongs in the sentence is a fact about the language, not about the component.
+
+## What is checked
+
+Nothing had ever driven a toast for its own sake. The suite read one's text in
+a single place and cleared leftovers in another; it had never raised one,
+waited to see whether it survived, or asked what the live region said about it.
+Four checks now:
+
+- both toasts were raised — the premise, so the rest cannot pass on an empty
+  screen;
+- a toast offering an action announces the action, not only the message;
+- a plain confirmation clears itself — so the timer is still real;
+- and an Undo does not expire before it can be taken.
+
+The third is what stops the fix from being "remove the timer". A confirmation
+that needs dismissing is the fault the file's own header warns about: *"Saved"
+that needs a click is worse than no message at all.*

@@ -47,6 +47,7 @@ const IN_PAGE = Object.freeze({
   consent: './js/data/consent.js',
   basics: './js/ui/components/basics.js',
   modal: './js/ui/components/modal.js',
+  toast: './js/ui/components/toast.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -2483,6 +2484,62 @@ async function main() {
         keyboard.closed, JSON.stringify(keyboard));
       check('and closing it puts focus back where it came from',
         keyboard.restored, JSON.stringify(keyboard));
+
+      await page.waitForTimeout(200);
+    }
+
+    /* -------------------------------------------------- the Undo offer */
+
+    /*
+     * A toast that offers something has to still be there when somebody
+     * reaches for it, and has to say that it is offering.
+     *
+     * Deleting a record raises `Person deleted` with an **Undo** beside it,
+     * and that button is the only way back. It carried the ordinary
+     * four-second timer, so the offer expired while somebody was still
+     * tabbing towards it — and `announce()` was passed the message alone, so
+     * the person who cannot see the button was never told it was there. Both
+     * actionable toasts in `app.js` already passed `ms: 0` by hand, which is
+     * the convention this restores rather than invents.
+     *
+     * Nothing had ever driven a toast for its own sake: the suite read one's
+     * text in a single place and cleared leftovers in another, and had never
+     * raised one, waited to see whether it survived, or asked what the live
+     * region said about it.
+     */
+    {
+      const seeded = await page.evaluate(async (spec) => {
+        const { toast } = await import(spec);
+        document.querySelectorAll('.toast').forEach((el) => el.remove());
+        toast('A plain confirmation');
+        toast('Person deleted', { action: { label: 'Undo', onClick: () => {} } });
+        await new Promise((r) => { setTimeout(r, 120); });
+        return {
+          announced: [...document.querySelectorAll('[role="status"]')]
+            .map((el) => el.textContent ?? '').join(' | '),
+          raised: document.querySelectorAll('.toast').length,
+        };
+      }, IN_PAGE.toast);
+
+      check('both toasts were raised', seeded.raised === 2, JSON.stringify(seeded));
+      check('a toast offering an action announces the action, not only the message',
+        /Person deleted/.test(seeded.announced) && /Undo/.test(seeded.announced),
+        seeded.announced);
+
+      // Past the four-second timer a plain toast runs on. The wait is the
+      // check: the claim is about what is still on screen after it.
+      await page.waitForTimeout(5000);
+
+      const after = await page.evaluate(() => {
+        const texts = [...document.querySelectorAll('.toast')].map((el) => el.textContent ?? '');
+        document.querySelectorAll('.toast').forEach((el) => el.remove());
+        return texts;
+      });
+
+      check('a plain confirmation clears itself',
+        !after.some((text) => /A plain confirmation/.test(text)), JSON.stringify(after));
+      check('and an Undo does not expire before it can be taken',
+        after.some((text) => /Person deleted/.test(text)), JSON.stringify(after));
 
       await page.waitForTimeout(200);
     }
@@ -6179,6 +6236,8 @@ async function main() {
       const unlabelled = [];
       /** @type {string[]} */
       const raw = [];
+      /** @type {string[]} */
+      const duplicateIds = [];
 
       const walked = [];
       for (const mod of SCHEMA_MODULES) walked.push(`#/${mod.id}`);
@@ -6228,7 +6287,7 @@ async function main() {
             return box.width > 0 || box.height > 0;
           };
 
-          const out = { skips: [], nameless: [], unlabelled: [], raw: [] };
+          const out = { skips: [], nameless: [], unlabelled: [], raw: [], duplicateIds: [] };
 
           /*
            * A locale key, or a placeholder, drawn where a sentence belongs.
@@ -6295,6 +6354,32 @@ async function main() {
             last = level;
           }
 
+          /*
+           * An id used twice.
+           *
+           * Invalid on its own, but the reason it is worth a check is what
+           * points at one. `aria-labelledby`, `aria-describedby` and
+           * `label[for]` all resolve through `getElementById`, which returns
+           * the first match in the document — so a duplicate does not fail,
+           * it silently names the wrong element.
+           *
+           * That is exactly how the dialog fault got in: `id="modal-title"`
+           * was a constant in a module that stacks dialogs, and the one on
+           * top was announced with the name of the one underneath. It was
+           * found by reasoning about the code rather than by a check, and
+           * this is the check that would have found it — for any element,
+           * on any screen, without anybody having to suspect it first.
+           */
+          const seen = new Map();
+          for (const el of document.querySelectorAll('[id]')) {
+            const id = el.id;
+            if (!id) continue;
+            seen.set(id, (seen.get(id) ?? 0) + 1);
+          }
+          for (const [id, count] of seen) {
+            if (count > 1) out.duplicateIds.push(`#${id} x${count}`);
+          }
+
           return out;
         });
 
@@ -6302,6 +6387,7 @@ async function main() {
         for (const one of found.nameless) nameless.push(`${hash}: ${one}`);
         for (const one of found.unlabelled) unlabelled.push(`${hash}: ${one}`);
         for (const one of found.raw) raw.push(`${hash}: ${one}`);
+        for (const one of found.duplicateIds) duplicateIds.push(`${hash}: ${one}`);
       }
 
       // The premise. A walk that rendered nothing would satisfy all three.
@@ -6320,6 +6406,11 @@ async function main() {
       // "Lock now" and nothing errors.
       check('no screen shows a locale key or an unfilled placeholder',
         raw.length === 0, [...new Set(raw)].slice(0, 6).join(' | '));
+
+      // Whatever points at a duplicate id resolves to the first one, which is
+      // how a dialog came to be announced with another dialog's name.
+      check('no screen uses one id twice',
+        duplicateIds.length === 0, [...new Set(duplicateIds)].slice(0, 6).join(' | '));
     }
 
     /* ------------------------------------------------ settings, measured */

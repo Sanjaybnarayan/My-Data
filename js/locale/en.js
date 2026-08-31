@@ -112,6 +112,11 @@ export const strings = {
   // hidden, so a household can see what is actually in the record.
   'url.notLinked': 'Not opened as a link: only http, https, mailto and tel addresses are.',
 
+  // What the live region says for a toast that offers a button. One key
+  // rather than a message and a label announced separately, because where the
+  // offer belongs in the sentence is a fact about the language.
+  'toast.withAction': '{message} — {action} available',
+
   // Notifications. Raised by the page when the application is opened — there
   // is no server and no push subscription, so nothing arrives while it is
   // closed, and this card must not suggest otherwise.
