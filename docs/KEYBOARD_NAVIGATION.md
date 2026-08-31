@@ -275,3 +275,85 @@ Four checks now:
 The third is what stops the fix from being "remove the timer". A confirmation
 that needs dismissing is the fault the file's own header warns about: *"Saved"
 that needs a click is worse than no message at all.*
+
+---
+
+# The Live Region Held One Message, and Kept the Wrong One
+
+`js/ui/dom.js`, `tests/browser.mjs`.
+
+Two faults in `announce()`, the one function every screen-reader announcement
+in this application goes through — the router's *"you are now on Finance"*, and
+every toast.
+
+## Politeness was rewritten per message
+
+There was one region, and each call set its `aria-live` before writing to it:
+
+```js
+liveRegion.setAttribute('aria-live', assertive ? 'assertive' : 'polite');
+```
+
+A screen reader registers a live region when it is inserted and takes its
+politeness then. Rewriting the attribute afterwards is not reliably picked up,
+which puts the one case that depends on it — an error, the only caller that
+passes `assertive` — on the setting it was trying not to use.
+
+There are two regions now, one per politeness, each created once and never
+retuned.
+
+## And two messages in one frame left only the second
+
+`schedule` batches into a single animation frame, so two calls close together
+wrote both messages into the same element back to back with nothing between
+them. Measured, reading the mutation records rather than the element:
+
+```
+["(cleared)", "Dashboard", "Could not save"]
+```
+
+Three mutations, one frame. The first message reached the DOM and was gone
+before anything could read it.
+
+**This was not hypothetical, and it broke the fix directly above it in this
+file.** `crud.js` deletes a record like this:
+
+```js
+toast('Person deleted', { action: { label: 'Undo', … } });
+router.navigate({ module: def.module, entity: entityName });
+```
+
+The toast announces the offer; the navigation announces the screen it lands
+on. So the Undo announcement — added one commit earlier precisely so that
+somebody who cannot see the button is told it exists — was overwritten by the
+name of a list. The fix was correct and the plumbing underneath it threw the
+message away.
+
+Messages are queued now, one per frame, in order.
+
+## Measuring this correctly took three attempts
+
+Worth recording, because the first two readings said the code was fine.
+
+1. A `MutationObserver` that pushed one entry per *callback*. The callback
+   batches records, so two mutations collapsed into one entry.
+2. One entry per record, but reading `el.textContent` inside the callback — by
+   then the element already held the final value, so every entry read the same
+   string.
+3. One entry per record, reading `record.addedNodes[0].data` — the value at
+   the time of that mutation. Only this one shows the sequence.
+
+The first two are the same mistake in different clothes: asking the element
+what happened instead of asking the record. A measurement that reads the end
+state cannot see something being overwritten, which is the only thing this was
+looking for.
+
+## What is checked, and what is still not
+
+- an announcement is not overwritten by the next one in the same frame;
+- politeness is a property of the region, not rewritten per message.
+
+Both are claims about the DOM: that the region holds each message for a frame
+of its own, and that two regions exist with fixed `aria-live` values. Whether a
+screen reader speaks them in that order is not something this machine can
+establish and is not claimed. UI-14 stays PARTIALLY_COMPLETE.

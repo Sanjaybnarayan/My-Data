@@ -48,6 +48,7 @@ const IN_PAGE = Object.freeze({
   basics: './js/ui/components/basics.js',
   modal: './js/ui/components/modal.js',
   toast: './js/ui/components/toast.js',
+  dom: './js/ui/dom.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -2307,7 +2308,11 @@ async function main() {
       await go(page, '#/finance');
       await page.waitForTimeout(500);
       const spoken = await page.evaluate(() => ({
-        region: document.querySelector('[aria-live]')?.textContent?.trim() ?? '',
+        // The polite region by name, not the first `[aria-live]` in the
+        // document. There are two now — polite and assertive, each with its
+        // own fixed politeness — and which one comes first depends on which
+        // kind of message the session happened to raise earliest.
+        region: document.querySelector('.sr-only[aria-live="polite"]')?.textContent?.trim() ?? '',
         heading: document.querySelector('.app-content h1, .app-content h2')
           ?.textContent?.trim() ?? '',
       }));
@@ -2540,6 +2545,57 @@ async function main() {
         !after.some((text) => /A plain confirmation/.test(text)), JSON.stringify(after));
       check('and an Undo does not expire before it can be taken',
         after.some((text) => /Person deleted/.test(text)), JSON.stringify(after));
+
+      /*
+       * And the announcement survives the navigation that follows it.
+       *
+       * Deleting a record raises the Undo toast and then navigates back to
+       * the list, which announces the screen it landed on. Both went into one
+       * region inside a single animation frame, so the offer was overwritten
+       * by the name of a page before anything could read it — measured as
+       * ["(cleared)", "Dashboard", "Could not save"], three mutations and one
+       * frame.
+       *
+       * Read from the mutation records rather than the element: every entry
+       * reads the final value if you ask the element, which is what made this
+       * look fine the first time it was measured.
+       */
+      const spokenInOrder = await page.evaluate(async (spec) => {
+        const { announce } = await import(spec);
+        announce('warm the region');
+        await new Promise((r) => { setTimeout(r, 150); });
+
+        const polite = document.querySelector('.sr-only[aria-live="polite"]');
+        const said = [];
+        const obs = new MutationObserver((records) => {
+          for (const rec of records) {
+            const text = [...rec.addedNodes]
+              .map((n) => /** @type {any} */ (n).data ?? '').join('');
+            if (text) said.push(text);
+          }
+        });
+        obs.observe(polite, { childList: true, characterData: true, subtree: true });
+
+        announce('Person deleted — Undo available');
+        announce('Everyone');
+        await new Promise((r) => { setTimeout(r, 500); });
+        obs.disconnect();
+
+        return {
+          said,
+          regions: [...document.querySelectorAll('.sr-only[aria-live]')]
+            .map((el) => el.getAttribute('aria-live')).sort(),
+        };
+      }, IN_PAGE.dom);
+
+      check('an announcement is not overwritten by the next one in the same frame',
+        spokenInOrder.said.length === 2
+        && /Undo available/.test(spokenInOrder.said[0])
+        && spokenInOrder.said[1] === 'Everyone',
+        JSON.stringify(spokenInOrder.said));
+      check('and politeness is a property of the region, not rewritten per message',
+        spokenInOrder.regions.join(',') === 'assertive,polite',
+        JSON.stringify(spokenInOrder.regions));
 
       await page.waitForTimeout(200);
     }
