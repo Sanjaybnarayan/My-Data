@@ -11,7 +11,7 @@
  * because `visibleModules` did not return one.
  */
 
-import { h, replace, $, announce } from './dom.js';
+import { h, replace, $, announce, focus } from './dom.js';
 import { icon } from './icons.js';
 import { Router } from './router.js';
 import { modules } from '../data/schema.js';
@@ -224,10 +224,36 @@ export function buildShell({ actor, onSearch, onLock, router }) {
   ]);
 
   const root = h('div', { class: 'app', dataset: { nav: 'full' } }, [
-    h('a', { class: 'skip-link', href: '#main' }, 'Skip to content'),
+    /*
+     * Skip to content, which used to skip to nowhere.
+     *
+     * `href="#main"` is the ordinary way to write this and is wrong in a
+     * hash-routed application: the hash *is* the route. `Router.parse('#main')`
+     * returns `module: "main"`, nothing is registered under that name, so it
+     * fell through to the fallback loader — which tears the current view down
+     * and calls `closeAllModals()` on the way.
+     *
+     * So the first thing in the tab order, the one accommodation a keyboard
+     * user reaches before anything else, did not skip past the navigation. It
+     * threw them off the screen they were on.
+     *
+     * The `href` stays, because it is what makes this a link a keyboard can
+     * reach and a screen reader announces as one. The navigation is prevented
+     * and the focus moved by hand — which is all the href was ever wanted for.
+     */
+    h('a', {
+      class: 'skip-link',
+      href: '#main',
+      onClick: (event) => {
+        event.preventDefault();
+        focus(outlet);
+      },
+    }, 'Skip to content'),
     nav,
     header,
-    h('main', { class: 'app-main' }, outlet),
+    // A `div`, not a second `<main>`. `outlet` below is the one, and a `main`
+    // inside a `main` is two landmarks where a screen reader expects one.
+    h('div', { class: 'app-main' }, outlet),
     bottomNav,
   ]);
 

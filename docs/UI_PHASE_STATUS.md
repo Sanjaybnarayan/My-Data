@@ -63,7 +63,24 @@ name, a role, a level — and none is a claim about what somebody hears. The
 carried `role="button"` correctly and answered only a pointer, and no
 markup check would have caught it.
 
-Two more since, both in `js/ui/components/modal.js` and both in the half that
+Six more since, and the pattern in all of them is that the fault was in the
+half a markup check can see while every existing check was reading text
+instead.
+
+In `js/ui/components/toast.js`, the **Undo after deleting a record expired in
+four seconds** and its action was never announced at all — so the only way back
+from a delete was invisible to anyone who could not see the button, and gone
+before most people could reach it. In `js/ui/dom.js`, the **live region kept
+only the last of two messages raised in the same frame** and retuned its own
+politeness per call; the first of those broke the Undo announcement in the very
+flow it was written for, because deleting a record announces the offer and then
+navigates, which announces the screen. In `js/ui/shell.js`, **Skip to content
+threw the user off the page**: `href="#main"` is a route in a hash-routed
+application, so the first item in the tab order loaded the fallback view and
+closed anything open — an accommodation worse than its absence. Beside it, two
+nested `<main>` elements gave the document two main landmarks.
+
+The remaining two are in `js/ui/components/modal.js`, both in the half that
 markup checks *can* see — they survived because fifteen dialog checks all read
 the text and none asked what a dialog was called. The title id was a constant
 in a module that stacks dialogs, so `aria-labelledby` resolved to the first
@@ -89,14 +106,25 @@ machine can report on.
 - **UI-11** — a device integration or a new data model. Neither is UI work,
   and the sensor half must not be faked.
 - **UI-14** — one session with a real screen reader (TalkBack on the APK,
-  NVDA or VoiceOver on the web build). Everything checkable without one has
-  now been checked.
+  NVDA or VoiceOver on the web build). **What this line used to say —
+  "everything checkable without one has now been checked" — was not true, and
+  six faults found since say so.** A dialog announced as the one underneath it,
+  a dialog that never took focus, an Undo that expired, an Undo never
+  announced, a live region that kept the wrong message, and a skip link that
+  navigated away: every one visible to a check that reads markup, and every one
+  sitting under checks that were reading text. The honest version is that a
+  screen-reader session is still required, and that its absence was being used
+  to explain gaps which were never about screen readers at all.
 - **UI-17** — a person with the APK on a phone. Two of its four fixes are
   confirmed that way; the recents thumbnail and the back-button behaviour are
   not.
 
-None of the three can be closed from a build machine, and none is waiting on
-code that could be written here.
+None of the three can be **closed** from a build machine. That is not the same
+as there being no code to write, which is what this line said before, one
+paragraph below a list of six faults fixed here in code. What each of the three
+needs to reach COMPLETE is a device, a data model or a person with a screen
+reader; what they can still yield in the meantime is faults, and they keep
+yielding them to anybody who looks at the markup rather than the text.
 
 ## What is not started
 

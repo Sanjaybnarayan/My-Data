@@ -357,3 +357,87 @@ Both are claims about the DOM: that the region holds each message for a frame
 of its own, and that two regions exist with fixed `aria-live` values. Whether a
 screen reader speaks them in that order is not something this machine can
 establish and is not claimed. UI-14 stays PARTIALLY_COMPLETE.
+
+---
+
+# Skip To Content Skipped You Off The Page
+
+`js/ui/shell.js`, `tests/browser.mjs`.
+
+The first element in the tab order, and the one accommodation a keyboard user
+meets before anything else:
+
+```js
+h('a', { class: 'skip-link', href: '#main' }, 'Skip to content'),
+```
+
+That is how a skip link is normally written, and it is wrong here, because
+**this application is hash-routed — the hash is the route.** Measured against
+the real parser:
+
+```
+#main        -> module="main"  path="main"
+#/finance    -> module="finance"
+```
+
+Nothing is registered under `main`, so `resolve()` takes
+`this.#routes.get('main') ?? this.#fallback` and loads the fallback — which
+tears down the current view and calls `closeAllModals()` on the way past.
+
+So pressing Tab once and Enter did not skip the navigation. It threw the user
+off the screen they were on, closed anything they had open, and left them on a
+fallback view. The accommodation was worse than its absence: a keyboard user
+who never found the skip link was better off than one who used it.
+
+The `href` stays — it is what makes this a link a keyboard reaches and a
+screen reader announces as one. The navigation is prevented and the focus is
+moved by hand, which is all the `href` was ever wanted for.
+
+## The check had to be in two halves, and this is why
+
+The obvious check is "focus lands on the content". It passes on the broken
+version. Measured with the fix reverted:
+
+```
+before:    ""
+after:     "#main"      <- the route moved
+focusedId: "main"       <- and focus still arrived
+```
+
+Native fragment navigation focuses `#main` on its own, because the outlet
+carries `tabindex="-1"`. So the focus assertion is satisfied by exactly the
+code that has just navigated the user away. Only the second half — *the route
+did not move* — fails.
+
+A check that passes on the fault is the thing this repository keeps finding,
+and here it was one assertion away.
+
+## And there were two main landmarks
+
+```html
+<main class="app-main">
+  <main class="app-content" id="main" tabindex="-1"> … </main>
+</main>
+```
+
+One `main` per document, never inside another. Two landmarks make "jump to the
+main content" a question with two answers. The outer element is a `div` now;
+`outlet` is the landmark, and it is the one the skip link targets.
+
+Checked rather than assumed before changing it: the stylesheet selects
+`.app-main` and `.skip-link` by class with no bare tag rules, nothing in the
+application or the suite queries either by tag, and no CSS uses `:target`, so
+preventing the default costs nothing that was being relied on.
+
+## What is checked
+
+- the skip link exists and moves focus to the content;
+- and does not navigate away from the screen it was used on;
+- there is exactly one main landmark, and none inside another.
+
+Mutation-tested. Restoring the plain `href` fails the second and not the
+first; restoring the nested `<main>` gives `{"mains": 2, "nested": 1}` and
+fails the third alone.
+
+As everywhere else in this file: these are claims about focus, hashes and
+landmark counts. Nothing here has run under a screen reader.

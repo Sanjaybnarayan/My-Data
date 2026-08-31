@@ -2600,6 +2600,58 @@ async function main() {
       await page.waitForTimeout(200);
     }
 
+    /* ------------------------------------------------ skip to content */
+
+    /*
+     * The first thing in the tab order, and it used to throw you off the page.
+     *
+     * `href="#main"` is how a skip link is normally written and is wrong in a
+     * hash-routed application, because the hash is the route.
+     * `Router.parse('#main')` returns `module: "main"`, nothing is registered
+     * under that name, and the router falls through to its fallback loader —
+     * which tears down the current view and closes any open dialog on the way.
+     *
+     * So the one accommodation a keyboard user reaches before anything else
+     * did not skip the navigation; it replaced the screen they were on. The
+     * check is therefore in two halves: focus lands on the content, *and* the
+     * route did not move. Without the second half this passes on the version
+     * that navigates, because the fallback screen has an outlet too.
+     */
+    {
+      await go(page, '#/finance');
+      await page.waitForTimeout(400);
+
+      const skipped = await page.evaluate(() => {
+        const link = document.querySelector('.skip-link');
+        if (!link) return { found: false };
+        const before = globalThis.location.hash;
+        /** @type {any} */ (link).click();
+        return {
+          found: true,
+          before,
+          after: globalThis.location.hash,
+          focused: document.activeElement?.id ?? null,
+          inContent: document.activeElement === document.querySelector('#main'),
+        };
+      });
+
+      check('the skip link exists and moves focus to the content',
+        skipped.found && skipped.inContent, JSON.stringify(skipped));
+      check('and does not navigate away from the screen it was used on',
+        skipped.before === skipped.after, `${skipped.before} -> ${skipped.after}`);
+
+      // One `main` per document. `outlet` is it; the frame around it used to
+      // be a second, which is two landmarks where a reader expects one.
+      const landmarks = await page.evaluate(() => ({
+        mains: document.querySelectorAll('main').length,
+        nested: document.querySelectorAll('main main').length,
+      }));
+      check('there is exactly one main landmark, and none inside another',
+        landmarks.mains === 1 && landmarks.nested === 0, JSON.stringify(landmarks));
+
+      await page.waitForTimeout(200);
+    }
+
     /* ------------------------------------------------ the global search */
 
     /*
