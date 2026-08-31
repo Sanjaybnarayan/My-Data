@@ -25,6 +25,7 @@ import * as fin from '../domain/finance.js';
 import { netWorth } from '../domain/networth.js';
 import { portfolioSummary, allocation, holdingGain, xirr, cashFlows } from '../domain/portfolio.js';
 import { allReminders, datedEntities } from '../domain/reminders.js';
+import { reviewGoals, describeGoal } from '../domain/goals.js';
 
 /** Phrases that name a time span, longest first so "last month" beats "month". */
 /** @type {[RegExp, string][]} */
@@ -402,6 +403,164 @@ export const intents = [
       });
 
       return { text: lines.join('. ') + '.', records: { entity: 'vehicle', rows: vehicles } };
+    },
+  },
+
+  {
+    id: 'goals',
+    examples: ['What are our financial goals?', 'How are we doing on savings?', 'Show goals.'],
+    patterns: [/\b(goals?|savings?\s*target|financial\s*goal)\b/i,
+      /\bhow\s+are\s+we\s+doing\s+on\b/i],
+    async handle(ctx) {
+      const goals = await ctx.load('goal');
+      if (!goals.length) return { text: 'No financial goals have been set up yet.' };
+
+      const accounts = fin.accountBalances(
+        await ctx.load('account'),
+        await ctx.load('transaction'),
+      );
+      const holdings = await ctx.load('holding');
+
+      const balanceOf = (id) => accounts.find((a) => a.id === id)?.balance ?? 0;
+      const holdingValueOf = (id) => {
+        const h = holdings.find((hh) => hh.id === id);
+        return h ? (h.currentValue ?? h.invested ?? 0) : 0;
+      };
+
+      /*
+       * Monthly spend is needed for emergency-fund goals that express their
+       * target in months of spending rather than a fixed rupee amount.
+       * We use the last-month period to estimate it; if no transactions exist
+       * we default to zero and the goal will say it cannot be measured.
+       */
+      const lastMonth = fin.inPeriod(
+        await ctx.load('transaction'),
+        { ...range('last-month', ctx.clock) },
+      );
+      const monthlySpend = Math.abs(fin.totals(lastMonth).expense);
+
+      const rows = reviewGoals(goals, { balanceOf, holdingValueOf, monthlySpend, clock: ctx.clock });
+
+      const open = rows.filter((r) => r.status !== 'reached');
+      const reached = rows.filter((r) => r.status === 'reached');
+
+      const parts = rows.slice(0, 3).map((r) => `${r.goal.name}: ${describeGoal(r, money)}`);
+      const tail = rows.length > 3 ? ` ${rows.length - 3} more.` : '';
+
+      return {
+        text: `${goals.length} goal${goals.length === 1 ? '' : 's'} — `
+          + `${open.length} open, ${reached.length} reached. `
+          + parts.join('. ') + (parts.length ? '.' : '') + tail,
+        records: { entity: 'goal', rows: goals },
+      };
+    },
+  },
+
+  {
+    id: 'emergency-contacts',
+    examples: ['Who do we call in an emergency?', 'Show emergency contacts.'],
+    patterns: [/\b(emergency\s*contacts?|who\s+(?:do|should)\s+(?:we|i)\s+call)\b/i],
+    async handle(ctx) {
+      const contacts = await ctx.load('emergencyContact');
+      if (!contacts.length) {
+        return { text: 'No emergency contacts are stored. Add them under Emergency.' };
+      }
+
+      /*
+       * Contacts are sorted by priority (lower number = higher priority).
+       * Phone numbers are encrypted and decrypted by ctx.load — the assistant
+       * never decrypts or logs them; it shows the name and relationship only.
+       */
+      const sorted = contacts.slice().sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+      const first = sorted[0];
+      const lines = sorted.slice(0, 3).map(
+        (c) => `${c.name}${c.relationship ? ` (${c.relationship})` : ''}`,
+      );
+      const tail = sorted.length > 3 ? ` and ${sorted.length - 3} more` : '';
+
+      return {
+        text: `${sorted.length} emergency contact${sorted.length === 1 ? '' : 's'}. `
+          + `First: ${first.name}${first.relationship ? `, ${first.relationship}` : ''}. `
+          + lines.join(', ') + tail + '.',
+        records: { entity: 'emergencyContact', rows: sorted },
+      };
+    },
+  },
+
+  {
+    id: 'trips',
+    examples: ['Are there upcoming trips?', 'When is the next holiday?', 'Show travel plans.'],
+    patterns: [/\b(trips?|travel|holiday|holidays|journey|flight)\b/i],
+    async handle(ctx) {
+      const trips = await ctx.load('trip');
+      if (!trips.length) return { text: 'No trips are recorded.' };
+
+      const now = today(ctx.clock);
+      const upcoming = trips
+        .filter((t) => t.departsOn && t.departsOn >= now)
+        .sort((a, b) => a.departsOn.localeCompare(b.departsOn));
+      const past = trips
+        .filter((t) => !t.departsOn || t.departsOn < now)
+        .sort((a, b) => b.departsOn?.localeCompare(a.departsOn ?? '') ?? 0);
+
+      if (!upcoming.length) {
+        const last = past[0];
+        return {
+          text: `No trips are planned. The last one was ${last?.destination ?? 'unknown'}`
+            + (last?.departsOn ? ` on ${formatDay(last.departsOn)}` : '') + '.',
+          records: { entity: 'trip', rows: past.slice(0, 5) },
+        };
+      }
+
+      const next = upcoming[0];
+      const days = daysUntil(next.departsOn, ctx.clock);
+      const rest = upcoming.length > 1 ? ` ${upcoming.length - 1} more planned.` : '';
+
+      return {
+        text: `Next trip: ${next.destination} on ${formatDay(next.departsOn)}`
+          + ` — ${days === 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'}`}.`
+          + (next.returnsOn ? ` Returns ${formatDay(next.returnsOn)}.` : '')
+          + rest,
+        records: { entity: 'trip', rows: upcoming.slice(0, 5) },
+      };
+    },
+  },
+
+  {
+    id: 'staff',
+    examples: ['Who is on household staff?', 'Show staff.', 'List household help.'],
+    patterns: [/\b(staff|household\s*help|cook|driver|cleaner|maid|housekeeper)\b/i],
+    async handle(ctx) {
+      const members = await ctx.load('staff');
+      if (!members.length) return { text: 'No household staff are recorded.' };
+
+      /*
+       * A staff record without an endedOn date is current; one with a date
+       * in the past is a historical record. Show active members only, and
+       * report how many are on record overall.
+       */
+      const now = today(ctx.clock);
+      const active = members.filter((s) => !s.endedOn || s.endedOn >= now);
+      const former = members.length - active.length;
+
+      if (!active.length) {
+        return {
+          text: `No current staff. ${former} former record${former === 1 ? '' : 's'} on file.`,
+          records: { entity: 'staff', rows: members },
+        };
+      }
+
+      const names = active.slice(0, 3).map(
+        (s) => s.role + (s.monthlyPay ? ` — ${money(s.monthlyPay)}/month` : ''),
+      );
+      const tail = active.length > 3 ? ` and ${active.length - 3} more` : '';
+
+      return {
+        text: `${active.length} active staff member${active.length === 1 ? '' : 's'}: `
+          + names.join(', ') + tail + '.'
+          + (former ? ` ${former} former record${former === 1 ? '' : 's'} also on file.` : ''),
+        records: { entity: 'staff', rows: active },
+      };
     },
   },
 ];

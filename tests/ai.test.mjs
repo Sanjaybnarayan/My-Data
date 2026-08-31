@@ -410,6 +410,118 @@ describe('what the assistant may never be handed', () => {
   });
 });
 
+describe('goals intent', () => {
+  test('reports the goal count and status', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db, { name: 'Savings', openingBalance: '50000' });
+    await db.repo('goal').create({
+      name: 'Emergency Fund', kind: 'emergency fund',
+      targetAmount: '100000', accounts: [account.id],
+    });
+    const answer = await new Assistant({ db, clock }).answer('What are our financial goals?');
+    assert.equal(answer.intent, 'goals');
+    assert.includes(answer.text, 'Emergency Fund');
+    assert.ok(answer.records?.rows?.length, 'goals must be returned as records');
+  });
+
+  test('says so when no goals are set', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('Show goals.');
+    assert.includes(answer.text, 'No financial goals');
+  });
+
+  test('matches the savings-target phrasing', async () => {
+    assert.equal(matchIntent('How are we doing on savings?')?.intent?.id, 'goals');
+  });
+});
+
+describe('emergency contacts intent', () => {
+  test('lists contacts by priority', async () => {
+    const db = await makeDb();
+    await db.repo('emergencyContact').create({
+      name: 'Dr. Priya', kind: 'doctor', relationship: 'Family doctor', priority: 1,
+      phone: '9876543210',
+    });
+    await db.repo('emergencyContact').create({
+      name: 'Sunita', kind: 'family', relationship: 'Sister', priority: 2,
+      phone: '9123456789',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Who do we call in an emergency?');
+    assert.equal(answer.intent, 'emergency-contacts');
+    assert.includes(answer.text, 'Dr. Priya');
+    assert.ok(answer.records?.rows?.length);
+  });
+
+  test('says so when no emergency contacts are stored', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('Show emergency contacts.');
+    assert.includes(answer.text, 'No emergency contacts');
+  });
+});
+
+describe('trips intent', () => {
+  test('reports the next upcoming trip', async () => {
+    const db = await makeDb();
+    await db.repo('trip').create({
+      destination: 'Goa', kind: 'holiday',
+      departsOn: '2025-07-01', returnsOn: '2025-07-07',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Are there upcoming trips?');
+    assert.equal(answer.intent, 'trips');
+    assert.includes(answer.text, 'Goa');
+    assert.includes(answer.text, 'Jul 2025');
+  });
+
+  test('reports the last trip when nothing is planned', async () => {
+    const db = await makeDb();
+    await db.repo('trip').create({
+      destination: 'Ooty', kind: 'holiday',
+      departsOn: '2025-03-10', returnsOn: '2025-03-15',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Show travel plans.');
+    assert.equal(answer.intent, 'trips');
+    assert.includes(answer.text, 'No trips are planned');
+    assert.includes(answer.text, 'Ooty');
+  });
+
+  test('says so when no trips are recorded', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('When is the next holiday?');
+    assert.includes(answer.text, 'No trips are recorded');
+  });
+});
+
+describe('staff intent', () => {
+  test('lists active staff members', async () => {
+    const db = await makeDb();
+    const p = await makePerson(db, { name: 'Raju Kumar' });
+    await db.repo('staff').create({
+      person: p.id, role: 'Cook', monthlyPay: '12000', startedOn: '2024-01-01',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Who is on household staff?');
+    assert.equal(answer.intent, 'staff');
+    assert.includes(answer.text, 'Cook');
+    assert.ok(answer.records?.rows?.length);
+  });
+
+  test('says so when no staff are recorded', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('Show staff.');
+    assert.includes(answer.text, 'No household staff');
+  });
+
+  test('does not show former staff as active', async () => {
+    const db = await makeDb();
+    const p = await makePerson(db, { name: 'Lakshmi' });
+    await db.repo('staff').create({
+      person: p.id, role: 'Driver', startedOn: '2022-01-01', endedOn: '2024-12-31',
+    });
+    const answer = await new Assistant({ db, clock }).answer('List household help.');
+    assert.includes(answer.text, 'No current staff');
+    assert.includes(answer.text, '1 former record');
+  });
+});
+
 describe('the assistant says which span it compared', () => {
   /*
    * The written summary asserted "Spending is 94% below last month" on the 2nd
