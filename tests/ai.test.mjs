@@ -421,7 +421,7 @@ describe('goals intent', () => {
     const answer = await new Assistant({ db, clock }).answer('What are our financial goals?');
     assert.equal(answer.intent, 'goals');
     assert.includes(answer.text, 'Emergency Fund');
-    assert.ok(answer.records?.rows?.length, 'goals must be returned as records');
+    assert.ok(/** @type {any} */ (answer.records)?.rows?.length, 'goals must be returned as records');
   });
 
   test('says so when no goals are set', async () => {
@@ -449,7 +449,7 @@ describe('emergency contacts intent', () => {
     const answer = await new Assistant({ db, clock }).answer('Who do we call in an emergency?');
     assert.equal(answer.intent, 'emergency-contacts');
     assert.includes(answer.text, 'Dr. Priya');
-    assert.ok(answer.records?.rows?.length);
+    assert.ok(/** @type {any} */ (answer.records)?.rows?.length);
   });
 
   test('says so when no emergency contacts are stored', async () => {
@@ -501,7 +501,7 @@ describe('staff intent', () => {
     const answer = await new Assistant({ db, clock }).answer('Who is on household staff?');
     assert.equal(answer.intent, 'staff');
     assert.includes(answer.text, 'Cook');
-    assert.ok(answer.records?.rows?.length);
+    assert.ok(/** @type {any} */ (answer.records)?.rows?.length);
   });
 
   test('says so when no staff are recorded', async () => {
