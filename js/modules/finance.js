@@ -21,13 +21,12 @@ import * as fin from '../domain/finance.js';
 import { format, formatCompact } from '../core/money.js';
 import { formatDay, relativeDays } from '../core/dates.js';
 import { entitiesOfModule } from '../data/schema.js';
-import { TransfersService } from '../services/transfers.js';
 import { FinanceService } from '../services/finance.js';
+import { transfersCard } from './finance-transfers.js';
 import { GoalsService } from '../services/goals.js';
 import { CfoService } from '../services/cfo.js';
 import { describeLine } from '../domain/cfo.js';
 import { describeGoal, STATUS as GOAL_STATUS } from '../domain/goals.js';
-import { CONFIDENCE } from '../domain/events.js';
 import { describeSettlement } from '../domain/settlement.js';
 import { staleness, describeStaleness, describeEmi } from '../domain/amortise.js';
 import { describeSpendByMember, settleable } from '../domain/household.js';
@@ -40,8 +39,6 @@ import { t } from '../core/locale.js';
 import { ExplainService } from '../services/explain.js';
 import { describeExplainability } from '../domain/explain.js';
 import { describeExplanation } from '../domain/explain.js';
-import { toast } from '../ui/components/toast.js';
-import { userMessage } from '../core/errors.js';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -49,7 +46,10 @@ const TABS = [
   { id: 'transaction', label: 'Transactions' },
   { id: 'account', label: 'Accounts' },
   { id: 'import', label: 'Import' },
-  { id: 'bankStatement', label: 'Imported files' },
+  // `labelKey`, not `label`: a `t()` call in this array would run once when
+  // the module loads and keep whatever language was active then. The rest of
+  // these labels are English written here, which is a separate debt.
+  { id: 'bankStatement', labelKey: 'finance.tab.imported' },
   { id: 'shops', label: 'Shops' },
   { id: 'people', label: 'People' },
   { id: 'lending', label: 'Lending' },
@@ -96,7 +96,7 @@ export async function render(route) {
 
   const tabs = h('div', {
     class: 'chip-row', role: 'group', 'aria-label': t('finance.title'), style: { marginBottom: 'var(--space-4)' },
-  }, TABS.map((tab) => chip(tab.label, {
+  }, TABS.map((tab) => chip(tab.labelKey ? t(tab.labelKey) : tab.label, {
     pressed: tab.id === active,
     onClick: () => app().router.navigate(
       tab.id === 'overview'
@@ -263,9 +263,8 @@ async function positionScreen() {
 
   return h('div', { class: 'stack' }, [
     card({ class: 'cfo-position' }, [
-      cardHeader('Where the money stands', null, {
-        subtitle: `Figures for ${out.monthLabel}, the last complete month · `
-          + 'every one names where it came from',
+      cardHeader(t('finance.position.title'), null, {
+        subtitle: t('finance.position.subtitle', { month: out.monthLabel }),
       }),
       h('div', { class: 'list' }, out.lines.map((row) => listItem({
         title: row.label,
@@ -275,12 +274,14 @@ async function positionScreen() {
     ]),
 
     card({ class: 'card--quiet cfo-partial' }, [
-      cardHeader(`${partial.month}, so far`, null, {
-        subtitle: `Up to ${formatDay(partial.upTo)}`,
+      cardHeader(t('finance.position.partial', { month: partial.month }), null, {
+        subtitle: t('finance.position.upTo', { day: formatDay(partial.upTo) }),
       }),
-      h('p', { class: 'small' },
-        `In: ${format(partial.income)} · Out: ${format(partial.expense)} · `
-        + `Net: ${format(partial.net)}`),
+      h('p', { class: 'small' }, t('finance.position.flow', {
+        income: format(partial.income),
+        expense: format(partial.expense),
+        net: format(partial.net),
+      })),
       h('p', { class: 'small faint' }, partial.note),
     ]),
   ]);
@@ -291,9 +292,8 @@ async function goalsBanner() {
   if (!review.any) return null;
 
   return [card({ class: 'goals-progress' }, [
-    cardHeader('Where each goal stands', null, {
-      subtitle: 'Read from the accounts and holdings that fund it, not from a '
-        + 'figure anybody typed',
+    cardHeader(t('finance.goals.title'), null, {
+      subtitle: t('finance.goals.subtitle'),
     }),
     h('div', { class: 'list' }, review.rows.map((row) => listItem({
       title: row.goal.name,
@@ -306,7 +306,7 @@ async function goalsBanner() {
     }))),
     review.spendHistory
       ? h('p', { class: 'small faint' },
-        `An emergency fund is sized in months of spending, and ${review.spendHistory}.`)
+        t('finance.goals.emergency', { history: review.spendHistory }))
       : null,
   ])];
 }
@@ -319,16 +319,14 @@ async function explainBanner() {
 
   if (review.problems.length) {
     cards.push(card({ class: 'explain-problems' }, [
-      cardHeader('Movements with something wrong behind them',
+      cardHeader(t('finance.explain.problems'),
         badge(String(review.problems.length), 'warning'), { iconName: 'alert' }),
       h('div', { class: 'list' }, review.problems.slice(0, 8).map((row) => listItem({
         title: row.title,
         subtitle: `${row.problem[0].toUpperCase()}${row.problem.slice(1)}.`,
         href: Router.href({ module: 'finance', entity: 'economicEvent', id: row.event }),
       }))),
-      h('p', { class: 'small faint' },
-        'Nothing here has been changed. A figure recorded on a movement is what '
-        + 'somebody confirmed; the rows are what they say now, and both are kept.'),
+      h('p', { class: 'small faint' }, t('finance.explain.unchanged')),
     ]));
   }
 
@@ -356,7 +354,7 @@ async function movementEvidence(record) {
   const { amount, chains, problems } = explanation;
 
   return card({ class: 'explain-detail' }, [
-    cardHeader('Where this came from', null, { iconName: 'info' }),
+    cardHeader(t('finance.explain.origin'), null, { iconName: 'info' }),
 
     h('p', { class: 'small' }, describeExplanation(explanation)),
 
@@ -364,9 +362,9 @@ async function movementEvidence(record) {
     // the record. Neither is corrected and neither is hidden.
     amount.agrees === false
       ? h('div', { class: 'row row--between' }, [
-        h('span', { class: 'small muted' }, 'Recorded here'),
+        h('span', { class: 'small muted' }, t('finance.explain.recordedHere')),
         money(amount.recorded),
-        h('span', { class: 'small muted' }, 'The rows now say'),
+        h('span', { class: 'small muted' }, t('finance.explain.rowsSay')),
         money(amount.fromLegs),
       ])
       : null,
@@ -388,141 +386,6 @@ async function movementEvidence(record) {
 
 /* --------------------------------------------------------------- overview */
 
-/**
- * The two ends of one movement, offered for joining up.
- *
- * Hidden entirely when there is nothing to join, because a card that is empty
- * most months teaches somebody to stop looking at it.
- *
- * The two confidences are rendered differently on purpose. A probable pairing
- * gets a button; a possible one gets a sentence saying why nobody can tell,
- * and no button at all. Offering a confirm control for an uncertain pairing
- * would move the deciding from the person to the click.
- */
-function transfersCard(db, transfers, repaint) {
-  const { proposals, total, unmatched, sets = [], setsTotal, undecided = [] } = transfers;
-  if (!proposals.length && !unmatched.length && !sets.length && !undecided.length) return null;
-
-  const probable = proposals.filter((p) => p.confidence === CONFIDENCE.PROBABLE);
-  const questions = proposals.filter((p) => p.confidence === CONFIDENCE.POSSIBLE);
-
-  async function acceptFee(proposal) {
-    try {
-      await new TransfersService(db).confirmWithFee(proposal);
-      toast('Recorded as one movement, less the charge — every row is kept',
-        { kind: 'success' });
-      await repaint();
-    } catch (err) {
-      toast(userMessage(err), { kind: 'error' });
-    }
-  }
-
-  async function confirmSet(set) {
-    try {
-      await new TransfersService(db).confirmSet(set);
-      toast('Recorded as one movement — every statement row is kept', { kind: 'success' });
-      await repaint();
-    } catch (err) {
-      toast(userMessage(err), { kind: 'error' });
-    }
-  }
-
-  async function confirm(proposal) {
-    try {
-      await new TransfersService(db).confirm(proposal);
-      toast('Recorded as one movement — both statement rows are kept', { kind: 'success' });
-      await repaint();
-    } catch (err) {
-      toast(userMessage(err), { kind: 'error' });
-    }
-  }
-
-  const line = (p) => listItem({
-    title: `${p.fromName} → ${p.toName}`,
-    subtitle: `${formatDay(p.out.date)} · ${p.why}`,
-    value: format(p.amount),
-    leading: badge(p.confidence, p.confidence === CONFIDENCE.PROBABLE ? 'info' : 'warning'),
-    trailing: p.confidence === CONFIDENCE.PROBABLE
-      ? button('One movement', { variant: 'subtle', onClick: () => confirm(p) })
-      // A near-match with exactly one charge accounting for it can now be
-      // accepted by a person. The engine still will not: unequal amounts never
-      // match *automatically*, which is not the same as never.
-      : p.evidence?.length === 1 && !p.ambiguous
-        ? button('Accept with the charge', { variant: 'subtle', onClick: () => acceptFee(p) })
-        : null,
-  });
-
-  return card({}, [
-    cardHeader('Money you moved between your own accounts', [], {
-      subtitle: total.movements
-        ? `${format(total.moved)} across ${total.movements} ${total.movements === 1 ? 'movement' : 'movements'}`
-        : 'Nothing confirmed yet',
-      iconName: 'refresh',
-    }),
-
-    // The sentence the per-account figures cannot say. Each of them carries
-    // the full amount — right for one account, and twice for one movement.
-    h('p', { class: 'small muted' },
-      'A transfer between your own accounts appears twice, once on each statement. '
-      + 'These are the pairs that look like one movement. Confirming keeps both rows.'),
-
-    probable.length ? h('div', { class: 'list' }, probable.map(line)) : null,
-
-    questions.length
-      ? h('details', { class: 'small' }, [
-        h('summary', {}, `${questions.length} that nobody can decide from the figures`),
-        h('div', { class: 'list' }, questions.map(line)),
-      ])
-      : null,
-
-    // A movement that landed in more than one piece. Measured: ₹50,000 out of
-    // one account arriving as ₹30,000 and ₹20,000 in two others produced no
-    // proposal at all, so all three rows sat under the "no partner" line below
-    // with nothing to say they add up to something.
-    sets.length
-      ? h('div', {}, [
-        h('p', { class: 'small muted' },
-          'These moved in more than one piece — one row on one side, several on the other. '
-          + 'The amount is counted once, not once per row.'),
-        h('div', { class: 'list' }, sets.map((set) => listItem({
-          title: set.shape === 'split'
-            ? `${set.anchorName} → ${set.legNames.join(', ')}`
-            : `${set.legNames.join(', ')} → ${set.anchorName}`,
-          subtitle: `${formatDay(set.anchor.date)} · ${set.why}`,
-          value: format(set.amount),
-          leading: badge(set.confidence,
-            set.confidence === CONFIDENCE.PROBABLE ? 'info' : 'warning'),
-          // There is now something a confirmation can write: a shared id on
-          // every leg. `linkFor` could not express this — `toAccount` names one
-          // destination and a split has several — which is why this row used to
-          // carry no control at all.
-          trailing: set.confidence === CONFIDENCE.PROBABLE
-            ? button('One movement', { variant: 'subtle', onClick: () => confirmSet(set) })
-            : null,
-        }))),
-        setsTotal?.movements
-          ? h('p', { class: 'small faint' },
-            `${format(setsTotal.moved)} across ${setsTotal.movements} `
-            + `${setsTotal.movements === 1 ? 'movement' : 'movements'} in pieces`)
-          : null,
-      ].filter(Boolean))
-      : null,
-
-    // Where the search stopped rather than guessed. Saying nothing here would
-    // read as "there is nothing", which is a different claim.
-    undecided.length
-      ? h('p', { class: 'small faint' },
-        `${undecided.length} ${undecided.length === 1 ? 'row has' : 'rows have'} too many `
-        + 'possible partners to work out — ' + undecided[0].why)
-      : null,
-
-    unmatched.length
-      ? h('p', { class: 'small faint' },
-        `${unmatched.length} transfer ${unmatched.length === 1 ? 'row has' : 'rows have'} no `
-        + 'partner at all — usually the other account\u2019s statement has not been imported.')
-      : null,
-  ].filter(Boolean));
-}
 
 /**
  * Loans, and whether the figure recorded against them still holds.
@@ -547,23 +410,24 @@ function loansCard(loans, transactions) {
   }));
 
   return card({}, [
-    cardHeader('Loans', [], {
-      subtitle: `${format(live.reduce((n, l) => n + (l.outstanding ?? 0), 0))} recorded as outstanding`,
+    cardHeader(t('finance.loans.title'), [], {
+      subtitle: t('finance.loans.outstanding', {
+        amount: format(live.reduce((n, l) => n + (l.outstanding ?? 0), 0)),
+      }),
       iconName: 'bank',
     }),
 
     h('div', { class: 'list' }, rows.map(({ loan, note }) => listItem({
       title: loan.name,
-      subtitle: note ?? `${loan.interestRate ?? '—'}% · EMI ${format(loan.emiAmount ?? 0)}`,
+      subtitle: note ?? t('finance.loans.terms', {
+        rate: loan.interestRate ?? '—', emi: format(loan.emiAmount ?? 0),
+      }),
       value: format(loan.outstanding ?? 0),
       leading: badge(loan.kind ?? 'loan', note ? 'warning' : ''),
     }))),
 
     rows.some((r) => r.note)
-      ? h('p', { class: 'small faint' },
-        'Estimates come from the rate and EMI recorded here, so they cannot know '
-        + 'about a rate change, a prepayment or a payment holiday. Update the figure '
-        + 'from the lender’s statement, not from this.')
+      ? h('p', { class: 'small faint' }, t('finance.loans.estimates'))
       : null,
   ].filter(Boolean));
 }
@@ -583,18 +447,22 @@ function memberCard(report) {
   if (!report?.members.length) return null;
 
   return card({}, [
-    cardHeader('Who paid, this month', [], {
+    cardHeader(t('finance.members.title'), [], {
       subtitle: report.complete
-        ? 'Every payment has somebody recorded against it'
-        : `${report.coverage}% of this month’s spending has somebody recorded against it`,
+        ? t('finance.members.complete')
+        : t('finance.members.coverage', { percent: report.coverage }),
       iconName: 'user',
     }),
 
     h('div', { class: 'list' }, report.members.map((member) => listItem({
       leading: avatar(member.person.name),
       title: member.person.name,
-      subtitle: `${member.count} ${member.count === 1 ? 'payment' : 'payments'}`
-        + (member.topCategory ? ` · mostly ${member.topCategory}` : ''),
+      subtitle: member.topCategory
+        ? t('finance.members.topCategory', {
+          payments: t('finance.members.payments', { n: member.count }),
+          category: member.topCategory,
+        })
+        : t('finance.members.payments', { n: member.count }),
       value: format(member.spent),
       trailing: badge(`${member.shareOfTagged}%`),
     }))),
@@ -618,13 +486,17 @@ function memberCard(report) {
  * current balance hands the bank an interest-free loan on the difference.
  */
 function billSubtitle(bill) {
-  const when = `${formatDay(bill.dueOn)} · ${relativeDays(bill.dueOn)}`;
+  const when = t('finance.bills.when', {
+    day: formatDay(bill.dueOn), relative: relativeDays(bill.dueOn),
+  });
   // A subscription that does not renew itself stops on that date. Left
   // unsaid, the row looks identical to a bill that pays itself.
-  if (bill.source === 'subscription') return bill.why ? `${when} · ${bill.why}` : when;
+  if (bill.source === 'subscription') {
+    return bill.why ? t('finance.bills.whenWhy', { when, why: bill.why }) : when;
+  }
   if (bill.source !== 'card') return when;
-  if (!bill.statement) return `${when} · ${bill.why}`;
-  return `${when} · from the statement of ${formatDay(bill.statement)}`;
+  if (!bill.statement) return t('finance.bills.whenWhy', { when, why: bill.why });
+  return t('finance.bills.fromStatement', { when, day: formatDay(bill.statement) });
 }
 
 async function financeOverview() {
@@ -647,23 +519,23 @@ async function financeOverview() {
       memberCard(byMember),
 
       card({}, [
-        cardHeader('This month'),
+        cardHeader(t('finance.overview.thisMonth')),
         h('div', { class: 'row', style: { gap: 'var(--space-6)' } }, [
           metric({
-            label: 'Spent',
+            label: t('finance.overview.spent'),
             value: formatCompact(compare.current.expense),
             delta: compare.expenseChange,
             goodWhen: 'down',
             hint: fin.comparedWith(compare),
           }),
           metric({
-            label: 'Received',
+            label: t('finance.overview.received'),
             value: formatCompact(compare.current.income),
             delta: compare.incomeChange,
             hint: fin.comparedWith(compare),
           }),
           metric({
-            label: 'Net',
+            label: t('finance.overview.net'),
             value: formatCompact(compare.current.net),
             compact: true,
           }),
@@ -697,27 +569,26 @@ async function financeOverview() {
         // assumptions are hidden is a forecast presenting itself as an answer.
         runway.assumptions.length
           ? h('p', { class: 'small faint' },
-            `Assuming: ${runway.assumptions.join('; ')}.`)
+            t('finance.overview.assuming', { list: runway.assumptions.join('; ') }))
           : null,
       ].filter(Boolean)),
 
       loansCard(loans, transactions),
 
       card({}, [
-        cardHeader('Cash & accounts'),
+        cardHeader(t('finance.overview.cash')),
 
         // Said where the balances are, not in a log. A balance summed from the
         // most recent rows is not the account's balance once there are more of
         // them than that, and the household is the only one who can tell
         // whether it matters to them.
         truncated
-          ? h('p', { class: 'small money--negative' },
-            `Only the most recent ${TRANSACTION_LIMIT.toLocaleString('en-IN')} transactions `
-            + 'were read, so these balances are computed from part of your history '
-            + 'rather than all of it.')
+          ? h('p', { class: 'small money--negative' }, t('finance.overview.truncated', {
+            n: TRANSACTION_LIMIT.toLocaleString('en-IN'),
+          }))
           : null,
         metric({
-          label: 'Liquid cash',
+          label: t('finance.overview.liquid'),
           value: formatCompact(fin.liquidCash(balances)),
         }),
         h('div', { class: 'list' }, balances
@@ -726,11 +597,17 @@ async function financeOverview() {
           .slice(0, 8)
           .map((account) => listItem({
             title: account.name,
-            subtitle: `${account.kind}${account.institution ? ` · ${account.institution}` : ''}`,
+            subtitle: account.institution
+              ? t('finance.overview.accountAt', {
+                kind: account.kind, institution: account.institution,
+              })
+              : account.kind,
             value: format(account.balance),
             tone: account.balance < 0 ? 'negative' : null,
             trailing: account.utilisation !== null && account.utilisation > 0.3
-              ? badge(`${Math.round(account.utilisation * 100)}% used`,
+              ? badge(t('finance.overview.utilisation', {
+                percent: Math.round(account.utilisation * 100),
+              }),
                 account.utilisation > 0.7 ? 'danger' : 'warning')
               : null,
             href: Router.href({ module: 'finance', entity: 'account', id: account.id }),
@@ -738,33 +615,37 @@ async function financeOverview() {
       ]),
 
       card({}, [
-        cardHeader('Twelve months'),
+        cardHeader(t('finance.overview.year')),
         barChart(fin.spendingBars(series), {
           height: 140,
-          label: 'Spending by month over a year',
+          label: t('finance.overview.yearChart'),
           tone: () => seriesColour(1),
         }),
-        lineChart(balanceSeries, { height: 120, label: 'Cumulative net position' }),
+        lineChart(balanceSeries, { height: 120, label: t('finance.overview.netChart') }),
       ]),
 
       categories.length
         ? card({}, [
-          cardHeader('Where it went this month'),
-          donutChart(categories, { label: 'Spending by category', size: 160 }),
+          cardHeader(t('finance.overview.categories')),
+          donutChart(categories, { label: t('finance.overview.categoryChart'), size: 160 }),
         ])
         : null,
 
       budgetRows.length
         ? card({}, [
-          cardHeader('Budgets', badge(
-            `${budgetRows.filter((b) => b.state === 'over').length} over`,
+          cardHeader(t('finance.overview.budgets'), badge(
+            t('finance.overview.overBudget', {
+              n: budgetRows.filter((b) => b.state === 'over').length,
+            }),
             budgetRows.some((b) => b.state === 'over') ? 'danger' : 'positive',
           )),
           h('div', { class: 'stack' }, budgetRows.map((b) => h('div', { class: 'stack stack--tight' }, [
             h('div', { class: 'row row--between small' }, [
               h('span', {}, b.category),
               h('span', { class: 'numeric muted' },
-                b.remaining >= 0 ? `${format(b.remaining)} left` : `${format(-b.remaining)} over`),
+                b.remaining >= 0
+                  ? t('finance.overview.left', { amount: format(b.remaining) })
+                  : t('finance.overview.over', { amount: format(-b.remaining) })),
             ]),
             progress(b.spent, b.limit, { warnAt: (b.alertAtPercent ?? 80) / 100 }),
           ]))),
@@ -773,7 +654,7 @@ async function financeOverview() {
 
       card({ class: 'card--flush' }, [
         h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
-          cardHeader('Due in the next 30 days')),
+          cardHeader(t('finance.overview.due'))),
         bills.length
           ? h('div', { class: 'list' }, bills.map((bill) => listItem({
             title: bill.name,
@@ -786,7 +667,7 @@ async function financeOverview() {
               : bill.source === 'card' ? badge('statement')
                 : bill.autoDebit ? badge('auto') : null,
           })))
-          : empty({ title: 'Nothing due', iconName: 'check' }),
+          : empty({ title: t('finance.overview.nothingDue'), iconName: 'check' }),
       ]),
     ].filter(Boolean)));
   }

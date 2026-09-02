@@ -16,7 +16,7 @@ does is make a second language *possible* and make an incomplete one
 | Piece | What it is |
 | --- | --- |
 | `js/core/locale.js` | `t()`, catalogue registration, the active language, and the measurements below |
-| `js/locale/en.js` | The authoritative catalogue. 798<!--live:localeKeys--> keys today |
+| `js/locale/en.js` | The authoritative catalogue. 861<!--live:localeKeys--> keys today |
 | `js/core/labels.js` | The one door the schema's English passes through on its way to a screen |
 | `tools/strings.mjs` | Counts the English still written directly into the source |
 
@@ -46,7 +46,7 @@ with strings the application will never show. A refused line counts as zero.
 
 ## What still cannot be translated
 
-**3,056<!--live:unroutedStrings--> English strings, across 154<!--live:unroutedFiles--> files.** That is the measured count from
+**3,038<!--live:unroutedStrings--> English strings, across 156<!--live:unroutedFiles--> files.** That is the measured count from
 `node tools/strings.mjs`, and it is the number that matters. They are written
 directly into the source, so no catalogue can reach them and no translator will
 ever see them.
@@ -80,8 +80,11 @@ different piece of work; until then its English is load-bearing.
 held 72 unrouted sentences of ordinary UI prose — the erase confirmation, the
 backup and restore dialogs, what a deletion left behind. All but one are now
 catalogue keys in `js/locale/en-settings-data.js`, and the count fell to
-3,056<!--live:unroutedStrings-->: below the 3,101 the rise was measured against,
-and below the 3,089 that preceded both commits.
+3,056: below the 3,101 the rise was measured against, and below the 3,089 that
+preceded both commits. That figure is history and carries no live marker — it
+had one, and the marker rewrote it to the current count the next time the
+number moved, turning a record of what one commit achieved into a claim about
+the tree today.
 
 Four of those sentences had been concatenated across three and seven source
 lines. They are one key each now, because the placeholder check can only guard
@@ -97,6 +100,36 @@ English happened to break it into. Two things came out of doing it:
   extension, so a translation that dropped `.familyos` would produce a file that
   will not reopen. A filename is not prose and is better left in one language.
 
+### And again, for the assistant's coverage
+
+Phase 18 raised it by 105 — 88 answer sentences in `js/ai/intents-household.js`
+and 17 refusal reasons in `js/ai/coverage.js` — and the same argument applies to
+the first group for the same reason: an assistant that replies in Hindi and
+parses only English is worse than one that does neither.
+
+The reasons in `coverage.js` are a different case and are counted anyway. They
+are read by a test and shown to nobody, so a translator handed them would be
+translating text that never renders. Excusing them would mean a rule saying
+which files hold prose for people and which hold prose for tests, and this
+repository has now found eight hand-maintained lists that drifted from a
+derivable one. Being over-counted by seventeen is the cheaper mistake.
+
+So the debt was paid on `js/modules/finance.js`, whose 79 strings were screen
+labels and figure captions — the kind that route cleanly. They are
+`js/locale/en-finance-screen.js` now, whole sentences with named placeholders
+rather than the fragments the template literals had been assembled from. Two
+things came out of doing it:
+
+- **A `t()` call in a module-level constant resolves once.** The tab labels are
+  built when the module loads, so a key looked up there would keep whichever
+  language was active at import and never follow a change. That tab carries a
+  `labelKey` and is resolved at render instead. `js/modules/calendar.js:45` still
+  has the original shape.
+- **The file went over the 800-line cap** the module-size ratchet holds it to,
+  because a routed call site is taller than the literal it replaced. The
+  transfers card moved to `js/modules/finance-transfers.js` rather than the cap
+  moving.
+
 Routing 54 keys in also made the UI catalogue larger than the schema's label
 set for the first time, which failed two assertions in `tests/locale.test.mjs`
 that had been written when labels were the larger half — `c < 0.5` and
@@ -107,7 +140,7 @@ relationship: the untranslated remainder is exactly the schema labels.
 
 What *is* reachable today:
 
-- 798<!--live:localeKeys--> UI message keys — dates, the generic record screens, the language card
+- 861<!--live:localeKeys--> UI message keys — dates, the generic record screens, the language card
 - 748<!--live:labelKeys--> schema label keys — 25<!--live:modules--> modules, 53<!--live:entities--> entities in two forms each, 617<!--live:fields--> fields
 
 748<!--live:labelKeys--> of those are derived from the schema by `labelKeys()`, so a new entity is
@@ -116,7 +149,7 @@ something a translator is told about rather than something they discover.
 ## Why no second language ships
 
 Not because the mechanism is not ready. Because nobody has translated anything,
-and machine-translating 3,056<!--live:unroutedStrings--> strings of Indian financial and legal vocabulary
+and machine-translating 3,038<!--live:unroutedStrings--> strings of Indian financial and legal vocabulary
 would have produced something worse than English.
 
 The application says things like *a credit-card settlement is not an expense*,
@@ -133,7 +166,7 @@ being empty.
 
 ## What a translator would need
 
-1. `js/locale/en.js` — 798<!--live:localeKeys--> strings, whole sentences, with `{placeholders}`
+1. `js/locale/en.js` — 861<!--live:localeKeys--> strings, whole sentences, with `{placeholders}`
    intact. Every placeholder must survive or the line is refused.
 2. The 748<!--live:labelKeys--> label keys from `labelKeys()` — entity names, field names, module
    names.

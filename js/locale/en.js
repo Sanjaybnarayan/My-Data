@@ -25,6 +25,7 @@ import { tradebookStrings } from './en-tradebook.js';
 import { periodStrings } from './en-periods.js';
 import { settingsDataStrings } from './en-settings-data.js';
 import { instalmentStrings } from './en-instalments.js';
+import { financeScreenStrings } from './en-finance-screen.js';
 import { calendarStrings } from './en-calendar.js';
 
 export const strings = {
@@ -38,6 +39,7 @@ export const strings = {
   ...periodStrings,
   ...settingsDataStrings,
   ...instalmentStrings,
+  ...financeScreenStrings,
   ...calendarStrings,
 
   // Dates. Abbreviated month names, because a table column has no room for

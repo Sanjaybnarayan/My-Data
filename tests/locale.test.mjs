@@ -7,6 +7,11 @@ import { labelKeys, entityKey, fieldKey, moduleKey } from '../js/core/labels.js'
 import { strings as english } from '../js/locale/en.js';
 import { formatDay, formatInstant, relativeDays } from '../js/core/dates.js';
 import { survey, userFacing, check, readInventory, findIn } from '../tools/strings.mjs';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 setSuite('locale');
 
@@ -357,17 +362,27 @@ describe('what counts as a user-facing string', () => {
      * must still be counted. If it ever stops being, the ratchet has quietly
      * stopped measuring most of the application.
      *
-     * The specimen was `Browser storage quota` in `js/modules/settings/data.js`
-     * until that screen was routed through the catalogue — which is the
-     * outcome this ratchet exists to produce, so the file stopped being an
-     * example of unrouted UI English and a live one had to take its place.
-     * Naming a specimen by hand is the weakness here: it proves the scope on
-     * one file and needs moving again the day Finance is routed too.
+     * The specimen used to be named by hand — `Browser storage quota` in
+     * `js/modules/settings/data.js`, then `Liquid cash` in the finance screen.
+     * Both stopped being specimens when their screen was routed through the
+     * catalogue, which is the outcome this ratchet exists to produce: the
+     * check failed on success, twice, and each time the fix was to go and find
+     * another file that had not been done yet.
+     *
+     * So it is derived instead. Somewhere outside the schema there is a
+     * `label:` holding English, and turning the exclusion on would stop it
+     * being counted. Which file that is does not matter and will keep
+     * changing; that it is *some* file other than the schema is the rule.
      */
     const { byFile } = survey();
-    const uiLabels = (byFile['js/modules/finance.js'] ?? []).map((row) => row.text);
-    assert.ok(uiLabels.includes('Liquid cash'),
-      'a UI label stopped being counted, so the exclusion is no longer scoped');
+    const scoped = Object.entries(byFile).filter(([rel, rows]) => {
+      if (rel === 'js/data/schema.js') return false;
+      const source = readFileSync(join(ROOT, rel), 'utf8');
+      return findIn(source, { labelsRouted: true }).length < rows.length;
+    });
+    assert.ok(scoped.length > 0,
+      'no UI label is counted anywhere outside the schema, so the exclusion is '
+      + 'either no longer scoped or nothing is left to prove it on');
 
     const schema = byFile['js/data/schema.js'] ?? [];
     assert.ok(schema.length > 0, 'the schema counts nothing at all, which cannot be right');

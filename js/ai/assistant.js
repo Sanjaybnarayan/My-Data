@@ -25,9 +25,23 @@ import { t } from '../core/locale.js';
 
 /** @typedef {{text: string, intent?: string, [extra: string]: unknown}} Answer */
 
-export function matchIntent(question) {
+/**
+ * Every intent whose patterns claim the question, best first.
+ *
+ * More than one usually does, and which is *right* is not always decidable
+ * from the words. "Where is the RC book?" and "Where are the safe zones?" are
+ * the same sentence to a parser: `find-document` claims both, because its
+ * pattern swallows everything after "where", and by length it outranks any
+ * intent that names a single thing. The first is a document search and the
+ * second is not — and the difference is whether a document by that name is
+ * stored, which no pattern can know.
+ *
+ * So the ranking is a running order rather than a verdict. `answer` walks it
+ * and takes the first intent that has something to say; see `soft` there.
+ */
+export function rankIntents(question) {
   const text = question.trim();
-  if (!text) return null;
+  if (!text) return [];
 
   const scored = [];
   for (const intent of intents) {
@@ -41,9 +55,12 @@ export function matchIntent(question) {
     }
   }
 
-  if (!scored.length) return null;
   scored.sort((a, b) => b.weight - a.weight);
-  return scored[0];
+  return scored;
+}
+
+export function matchIntent(question) {
+  return rankIntents(question)[0] ?? null;
 }
 
 export class Assistant {
@@ -100,59 +117,100 @@ export class Assistant {
     return this.#db.search(term, options);
   }
 
-  /** @returns {Promise<Answer>} */
+  /**
+   * @returns {Promise<Answer>}
+   *
+   * Candidates are tried in order and the first with something to say wins.
+   *
+   * Two ways an intent declines. Returning `null` means *not this question*,
+   * and the next candidate gets a turn. Returning `{ soft: true }` means
+   * *this is my answer, but I would rather a specific one* — the only intent
+   * that does it is `find-document`, when the search finds nothing, because
+   * "nothing matching “the safe zones” is stored" is a true sentence and a
+   * useless one while `safe-zones` is sitting behind it in the list. A soft
+   * answer is kept aside and used only if nothing after it answers, so the
+   * search still gets to say what it found nothing of when nothing else can.
+   *
+   * This replaced a static rank in which `find-document` lost to any specific
+   * intent. That fixed the safe zones and broke *"Where is the car
+   * insurance?"*, which stopped finding the policy document and started
+   * listing renewal dates — because the question of which reading is right
+   * turns on whether a document by that name exists, and no ordering of
+   * patterns can know that.
+   */
   async answer(question) {
     this.#cache.clear();
     this.#unreadable.clear();
 
-    const hit = matchIntent(question);
-    if (!hit) return this.#unknown(question);
+    const candidates = rankIntents(question);
+    if (!candidates.length) return this.#unknown(question);
 
-    const ctx = {
-      text: question.trim(),
-      match: hit.match,
-      period: parsePeriod(question, this.#clock),
-      clock: this.#clock,
-      load: (name) => this.load(name),
-      search: (term, options) => this.search(term, options),
-      db: this.#db,
-    };
+    const period = parsePeriod(question, this.#clock);
+    /** @type {{result: any, hit: any, blocked: string[]}|null} */
+    let held = null;
 
-    try {
-      const result = await hit.intent.handle(ctx);
-      if (!result) return this.#unknown(question);
+    for (const hit of candidates) {
+      // Per candidate, because `load` caches an unreadable entity as `[]`:
+      // without this, one intent's permission error would silently become the
+      // next intent's "nothing is recorded".
+      const touched = new Set();
+      const ctx = {
+        text: question.trim(),
+        match: hit.match,
+        period,
+        clock: this.#clock,
+        load: (name) => { touched.add(name); return this.load(name); },
+        search: (term, options) => this.search(term, options),
+        db: this.#db,
+      };
 
-      /*
-       * An answer computed over records that could not be read is not an
-       * answer. It is the same sentence a household with no records gets,
-       * which is the one thing it must not be mistaken for — so this refuses
-       * rather than caveats. A number nobody can trust is worse than no
-       * number, and this is the file whose whole premise is that confidence
-       * is not verification.
-       */
-      if (this.#unreadable.size) {
-        const names = [...this.#unreadable].sort();
+      let result;
+      try {
+        result = await hit.intent.handle(ctx);
+      } catch (err) {
         return {
-          text: t('assistant.unreadable', { names: names.join(' or ') }),
+          text: 'I could not work that out from the records on this device.',
+          error: err.message,
           intent: hit.intent.id,
-          unreadable: names,
         };
       }
+      if (!result) continue;
 
+      const blocked = [...touched].filter((name) => this.#unreadable.has(name)).sort();
+      if (result.soft) {
+        held ??= { result, hit, blocked };
+        continue;
+      }
+      return this.#finish(result, hit, period, blocked);
+    }
+
+    if (held) return this.#finish(held.result, held.hit, period, held.blocked);
+    return this.#unknown(question);
+  }
+
+  /**
+   * An answer computed over records that could not be read is not an answer.
+   * It is the same sentence a household with no records gets, which is the one
+   * thing it must not be mistaken for — so this refuses rather than caveats. A
+   * number nobody can trust is worse than no number, and this is the file
+   * whose whole premise is that confidence is not verification.
+   */
+  #finish(result, hit, period, blocked) {
+    if (blocked.length) {
       return {
-        ...result,
+        text: t('assistant.unreadable', { names: blocked.join(' or ') }),
         intent: hit.intent.id,
-        // Stated so an answer about "last month" cannot be misread as
-        // "all time" when the question did not say.
-        period: ctx.period.assumed ? { ...ctx.period, note: 'assumed this month' } : ctx.period,
-      };
-    } catch (err) {
-      return {
-        text: 'I could not work that out from the records on this device.',
-        error: err.message,
-        intent: hit.intent.id,
+        unreadable: blocked,
       };
     }
+    const { soft, ...rest } = result;
+    return {
+      ...rest,
+      intent: hit.intent.id,
+      // Stated so an answer about "last month" cannot be misread as
+      // "all time" when the question did not say.
+      period: period.assumed ? { ...period, note: 'assumed this month' } : period,
+    };
   }
 
   #unknown(question) {
