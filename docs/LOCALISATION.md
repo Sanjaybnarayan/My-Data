@@ -16,7 +16,7 @@ does is make a second language *possible* and make an incomplete one
 | Piece | What it is |
 | --- | --- |
 | `js/core/locale.js` | `t()`, catalogue registration, the active language, and the measurements below |
-| `js/locale/en.js` | The authoritative catalogue. 775<!--live:localeKeys--> keys today |
+| `js/locale/en.js` | The authoritative catalogue. 778<!--live:localeKeys--> keys today |
 | `js/core/labels.js` | The one door the schema's English passes through on its way to a screen |
 | `tools/strings.mjs` | Counts the English still written directly into the source |
 
@@ -107,10 +107,10 @@ relationship: the untranslated remainder is exactly the schema labels.
 
 What *is* reachable today:
 
-- 775<!--live:localeKeys--> UI message keys — dates, the generic record screens, the language card
-- 745<!--live:labelKeys--> schema label keys — 25<!--live:modules--> modules, 53<!--live:entities--> entities in two forms each, 614<!--live:fields--> fields
+- 778<!--live:localeKeys--> UI message keys — dates, the generic record screens, the language card
+- 748<!--live:labelKeys--> schema label keys — 25<!--live:modules--> modules, 53<!--live:entities--> entities in two forms each, 617<!--live:fields--> fields
 
-745<!--live:labelKeys--> of those are derived from the schema by `labelKeys()`, so a new entity is
+748<!--live:labelKeys--> of those are derived from the schema by `labelKeys()`, so a new entity is
 something a translator is told about rather than something they discover.
 
 ## Why no second language ships
@@ -133,9 +133,9 @@ being empty.
 
 ## What a translator would need
 
-1. `js/locale/en.js` — 775<!--live:localeKeys--> strings, whole sentences, with `{placeholders}`
+1. `js/locale/en.js` — 778<!--live:localeKeys--> strings, whole sentences, with `{placeholders}`
    intact. Every placeholder must survive or the line is refused.
-2. The 745<!--live:labelKeys--> label keys from `labelKeys()` — entity names, field names, module
+2. The 748<!--live:labelKeys--> label keys from `labelKeys()` — entity names, field names, module
    names.
 3. A decision on `midSentence`: `'lower'` if the language lowercases nouns
    inside a sentence the way English does, `'preserve'` otherwise. German

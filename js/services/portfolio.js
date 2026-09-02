@@ -28,7 +28,9 @@ import {
 import { costBasis, gainOn } from '../domain/costbasis.js';
 import { netWorth } from '../domain/networth.js';
 import { accrualReport } from '../domain/accrual.js';
-import { instalmentLinks, instalmentSummary } from '../domain/instalments.js';
+import {
+  instalmentLinks, instalmentSummary, missedInstalmentSummary,
+} from '../domain/instalments.js';
 import { startOfFinancialYear, endOfFinancialYear, today } from '../core/dates.js';
 
 export class PortfolioService extends Service {
@@ -207,6 +209,10 @@ export class PortfolioService extends Service {
       instalments: instalmentSummary(instalmentLinks({
         holdings, investmentTransactions: txns, transactions: data.transactions,
       })),
+      // The other half of the same question: not which row paid an instalment,
+      // but which instalment nothing paid. Answerable only since `holding`
+      // began recording the schedule to measure against.
+      instalmentSchedule: missedInstalmentSummary(holdings, txns),
       netWorth: worth,
       // A percentage, or null when there is nothing to be a percentage of.
       // Dividing by zero assets produced `0%` before, which reads as "your

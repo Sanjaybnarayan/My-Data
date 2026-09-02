@@ -14,6 +14,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   LINK, recurringDeposits, instalmentsOf, candidatesFor, instalmentLinks, instalmentSummary,
+  SCHEDULE, WHY, instalmentSchedule, missedInstalments, missedInstalmentSummary,
 } from '../js/domain/instalments.js';
 import { MATCH_DAYS } from '../js/domain/evidence.js';
 
@@ -158,5 +159,103 @@ describe('the counts', () => {
   test('a household with no recurring deposits gets zero, not a crash', () => {
     assert.deep(instalmentSummary(instalmentLinks({ holdings: [FD] })),
       { total: 0, matched: 0, ambiguous: 0, unmatched: 0 });
+  });
+});
+
+/*
+ * The schedule, and the gap in it.
+ *
+ * Phase 7's stated remainder: a missed instalment could not be detected
+ * because a holding recorded no schedule to be missing from. These cover the
+ * three things that could make the new answer worthless — a refusal that
+ * reads as "nothing missed", a day-exact comparison that reports a gap for
+ * every payment that settled late, and one payment answering two periods.
+ */
+describe('a recurring deposit schedule', () => {
+  const clock = () => Date.parse('2026-06-15T10:00:00Z');
+  const rd = (over = {}) => ({
+    id: 'hold_rd', kind: 'recurring deposit', name: 'RD',
+    instalmentAmount: 500000, instalmentEvery: 'month', instalmentFrom: '2026-03-01',
+    ...over,
+  });
+  const paid = (dates) => dates.map((date, i) => ({
+    id: 'iv' + i, holding: 'hold_rd', kind: 'contribution', date, amount: 500000,
+  }));
+
+  test('with no schedule recorded it refuses rather than reporting nothing missed', () => {
+    const answer = missedInstalments(rd({ instalmentFrom: null }), [], { clock });
+    assert.equal(answer.status, SCHEDULE.UNRECORDED);
+    assert.length(answer.missed, 0);
+    assert.equal(answer.why, WHY.NO_START);
+  });
+
+  test('and an amount is as necessary as a date', () => {
+    const answer = missedInstalments(rd({ instalmentAmount: null }), [], { clock });
+    assert.equal(answer.status, SCHEDULE.UNRECORDED);
+    assert.equal(answer.why, WHY.NO_AMOUNT);
+  });
+
+  /*
+   * The distinction the whole entity change exists for. Both answers carry an
+   * empty `missed`; only the status tells them apart, and a caller that reads
+   * the list alone would report a household with no schedule as up to date.
+   */
+  test('unrecorded and on-track are not the same empty list', () => {
+    const none = missedInstalments(rd({ instalmentFrom: null }), [], { clock });
+    const good = missedInstalments(rd(), paid(['2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01']), { clock });
+    assert.deep([none.missed, good.missed], [[], []]);
+    assert.not(none.status === good.status, 'the two empties must not report the same status');
+    assert.equal(good.status, SCHEDULE.ON_TRACK);
+  });
+
+  test('a month with no instalment is named', () => {
+    const answer = missedInstalments(rd(), paid(['2026-03-01', '2026-05-01', '2026-06-01']), { clock });
+    assert.equal(answer.status, SCHEDULE.MISSED);
+    assert.deep(answer.missed, ['2026-04-01']);
+  });
+
+  test('a payment that settled late still answers its month', () => {
+    // Due the 1st, paid the 4th. A day-exact comparison would call this a gap.
+    const answer = missedInstalments(rd(), paid(['2026-03-04', '2026-04-03', '2026-05-06', '2026-06-02']), { clock });
+    assert.equal(answer.status, SCHEDULE.ON_TRACK, JSON.stringify(answer.missed));
+  });
+
+  test('two payments in one month do not cover the next one', () => {
+    const answer = missedInstalments(rd(), paid(['2026-03-01', '2026-03-20', '2026-05-01', '2026-06-01']), { clock });
+    assert.deep(answer.missed, ['2026-04-01']);
+  });
+
+  test('nothing is due after maturity', () => {
+    const answer = missedInstalments(
+      rd({ maturesOn: '2026-04-30' }), paid(['2026-03-01', '2026-04-01']), { clock });
+    assert.equal(answer.status, SCHEDULE.ON_TRACK);
+    assert.equal(answer.due, 2);
+  });
+
+  test('an instalment due today is not yet missed', () => {
+    const answer = missedInstalments(
+      rd({ instalmentFrom: '2026-06-15' }), [], { clock });
+    assert.deep(answer.missed, ['2026-06-15']);
+    assert.equal(answer.due, 1);
+  });
+
+  test('a schedule starting on the 31st does not walk forward a day a month', () => {
+    const { due } = instalmentSchedule(rd({ instalmentFrom: '2026-01-31' }), { clock });
+    assert.deep(due.slice(0, 4), ['2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30']);
+  });
+
+  test('a quarterly deposit is judged on its quarter, not its first month', () => {
+    const q = rd({ instalmentEvery: 'quarter', instalmentFrom: '2026-01-01' });
+    // Due Jan and Apr; paid in February and June — both inside their windows.
+    const answer = missedInstalments(q, paid(['2026-02-10', '2026-06-05']), { clock });
+    assert.equal(answer.status, SCHEDULE.ON_TRACK, JSON.stringify(answer.missed));
+  });
+
+  test('the summary counts deposits that cannot be judged apart from those behind', () => {
+    const holdings = [rd(), { ...rd({ instalmentFrom: null }), id: 'hold_b' }];
+    const s = missedInstalmentSummary(holdings, paid(['2026-03-01']), { clock });
+    assert.equal(s.unrecorded, 1);
+    assert.equal(s.behind, 1);
+    assert.ok(s.missed >= 3, `expected several missed, got ${s.missed}`);
   });
 });

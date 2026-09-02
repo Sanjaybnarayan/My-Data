@@ -53,6 +53,7 @@ const SHELL = [
   './js/locale/en-tradebook.js',
   './js/locale/en-periods.js',
   './js/locale/en-settings-data.js',
+  './js/locale/en-instalments.js',
   './js/locale/en-example.js',
   './js/locale/en.js',
   './js/core/native.js',

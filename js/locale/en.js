@@ -24,6 +24,7 @@ import { signinStrings } from './en-signin.js';
 import { tradebookStrings } from './en-tradebook.js';
 import { periodStrings } from './en-periods.js';
 import { settingsDataStrings } from './en-settings-data.js';
+import { instalmentStrings } from './en-instalments.js';
 
 export const strings = {
   // A valuation that is real but old. `domain/networth.js` says why twelve
@@ -35,6 +36,7 @@ export const strings = {
   ...tradebookStrings,
   ...periodStrings,
   ...settingsDataStrings,
+  ...instalmentStrings,
 
   // Dates. Abbreviated month names, because a table column has no room for
   // the full ones and a household reading its own records knows which is which.
@@ -381,18 +383,6 @@ export const strings = {
   'notify.push.today': 'Something is due today. Open FamilyOS to see what.',
   'notify.push.soon': 'The next one is due in {days} day(s). Open FamilyOS to see what.',
 
-  // What the portfolio can say about an RD instalment against the ledger.
-  // `ambiguous` is deliberately not phrased as a problem to fix: instalments
-  // are the same amount every month, so two debits a day apart are genuinely
-  // indistinguishable and naming both is the honest answer.
-  'instalments.title': 'Recurring deposit instalments',
-  'instalments.subtitle': '{matched} of {total} match a row in the ledger',
-  'instalments.unmatched': '{n} instalment(s) have no bank row in the ledger for the same '
-    + 'amount within a day. Either the payment is not imported yet, or it did not leave the '
-    + 'account.',
-  'instalments.ambiguous': '{n} could be more than one row. Instalments are the same amount '
-    + 'every month, so nothing here can tell two debits a day apart apart — both are kept and '
-    + 'neither is chosen.',
 
   // Rule 57 counted across a household. `scopeCapped` exists because the old
   // sentence said "movements" while counting only the sample it had walked.
