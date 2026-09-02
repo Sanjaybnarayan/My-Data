@@ -26,6 +26,7 @@ import { netWorth } from '../domain/networth.js';
 import { portfolioSummary, allocation, holdingGain, xirr, cashFlows } from '../domain/portfolio.js';
 import { allReminders, datedEntities } from '../domain/reminders.js';
 import { reviewGoals, describeGoal } from '../domain/goals.js';
+import { mileage, describeMileage } from '../domain/fuel.js';
 
 /** Phrases that name a time span, longest first so "last month" beats "month". */
 /** @type {[RegExp, string][]} */
@@ -383,7 +384,19 @@ export const intents = [
   {
     id: 'vehicle-compliance',
     examples: ['Is the car insurance valid?', 'When is the PUC due?'],
-    patterns: [/\b(puc|fastag|rc|vehicle|car|bike|scooter)\b/i],
+    /*
+     * The second pattern exists because "When is the PUC due?" — this
+     * intent's own example, on the help panel — was answered with a list of
+     * pending bills. `bills` matches `due` and this matched `PUC`, both three
+     * characters, and `matchIntent` breaks a tie on weight by declaration
+     * order, which puts `bills` first. Spanning from the part to the question
+     * about it makes the match longer than the word `due` alone, so the
+     * question reaches the intent that offers it.
+     */
+    patterns: [
+      /\b(puc|fastag|rc)\b[^.?!]{0,40}?\b(due|expir\w+|valid)\b/i,
+      /\b(puc|fastag|rc|vehicle|car|bike|scooter)\b/i,
+    ],
     async handle(ctx) {
       const vehicles = await ctx.load('vehicle');
       if (!vehicles.length) return { text: 'No vehicles are recorded.' };
@@ -403,6 +416,76 @@ export const intents = [
       });
 
       return { text: lines.join('. ') + '.', records: { entity: 'vehicle', rows: vehicles } };
+    },
+  },
+
+  {
+    id: 'mileage',
+    examples: ['What mileage are we getting?', 'How much fuel are we using?'],
+    // `mileage` and `fuel` are longer than the `car` in `vehicle-compliance`,
+    // and `matchIntent` weighs the match by length, so a question about how
+    // far a tank goes is not answered with an insurance date.
+    patterns: [/\b(mileage|kmpl|fuel|petrol|diesel)\b/i],
+    async handle(ctx) {
+      const logs = await ctx.load('fuelLog');
+      if (!logs.length) return { text: 'No fill-ups are recorded, so mileage cannot be worked out.' };
+
+      const vehicles = await ctx.load('vehicle');
+      // `describeMileage` already says why a figure is missing — a tank that
+      // was never filled to full, an odometer that went backwards. Repeating
+      // the refusal here in different words would be a second place to keep
+      // in step with `domain/fuel.js`.
+      const lines = vehicles
+        .map((v) => ({ v, result: mileage(v.id, logs) }))
+        .filter(({ result }) => result.fills > 0)
+        .map(({ v, result }) => `${v.registration}: ${describeMileage(result, money)}`);
+
+      if (!lines.length) return { text: 'Fill-ups are recorded, but not against any vehicle.' };
+      return { text: lines.join('. ') + '.', records: { entity: 'fuelLog', rows: logs } };
+    },
+  },
+
+  {
+    id: 'employment',
+    examples: ['Who is employed?', 'Who works where?'],
+    /*
+     * Not `salary`: that word belongs to the income intent, and a household
+     * asking what it earned wants the ledger, not a list of job titles.
+     *
+     * `who works` is spelled out rather than a bare `work`, because
+     * `find-document` matches any question opening with *where* and consumes
+     * the whole sentence — and `matchIntent` weighs by match length, so a
+     * four-letter word never beats it. "Where does everyone work?" was this
+     * intent's own example and was answered by the document search.
+     */
+    patterns: [/\b(employ\w+|workplace)\b/i, /\bwho works\b/i],
+    async handle(ctx) {
+      const jobs = await ctx.load('employment');
+      if (!jobs.length) return { text: 'No employment is recorded.' };
+
+      const people = await ctx.load('person');
+      const who = (id) => people.find((p) => p.id === id)?.name ?? 'Someone';
+      // A job with no end date is the current one. Past employers are counted
+      // rather than listed: the question is where people work, not where they
+      // used to.
+      const current = jobs.filter((j) => !j.endedOn);
+      const past = jobs.length - current.length;
+
+      if (!current.length) {
+        return {
+          text: `Nobody is recorded as currently employed. ${past} past `
+            + `${past === 1 ? 'job is' : 'jobs are'} on file.`,
+          records: { entity: 'employment', rows: jobs },
+        };
+      }
+
+      const lines = current.map((j) => `${who(j.person)} at ${j.employer}`
+        + (j.designation ? ` as ${j.designation}` : ''));
+      return {
+        text: lines.join(', ') + '.'
+          + (past ? ` ${past} past ${past === 1 ? 'job' : 'jobs'} also on file.` : ''),
+        records: { entity: 'employment', rows: current },
+      };
     },
   },
 

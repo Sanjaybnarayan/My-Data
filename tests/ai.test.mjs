@@ -1,7 +1,7 @@
 import { test, describe, assert, setSuite, fakeClock } from './harness.mjs';
 import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 import { Assistant, matchIntent } from '../js/ai/assistant.js';
-import { parsePeriod, exampleQuestions } from '../js/ai/intents.js';
+import { parsePeriod, exampleQuestions, intents } from '../js/ai/intents.js';
 import { datedEntities } from '../js/domain/reminders.js';
 import { summarise } from '../js/ai/summary.js';
 import { comparePeriods } from '../js/domain/finance.js';
@@ -92,6 +92,28 @@ describe('intent matching', () => {
     for (const example of exampleQuestions()) {
       assert.ok(matchIntent(example), `an intent's own example does not match it: ${example}`);
     }
+  });
+
+  /*
+   * And matches the intent that *offers* it, which the check above does not
+   * say despite its message claiming to.
+   *
+   * `matchIntent(example)` being truthy only means something matched. An
+   * `employment` example reading "Where does everyone work?" matched
+   * `find-document` — the `where …` prefix consumes the whole sentence and
+   * wins on length — and the check passed, because something had. An example
+   * on the help panel that answers a different question than the card it sits
+   * under is exactly what this was meant to prevent.
+   */
+  test('and every example matches the intent that offers it', () => {
+    const wrong = [];
+    for (const intent of intents) {
+      for (const example of intent.examples) {
+        const got = matchIntent(example)?.intent?.id;
+        if (got !== intent.id) wrong.push(`${intent.id}: "${example}" -> ${got}`);
+      }
+    }
+    assert.deep(wrong, []);
   });
 });
 
@@ -576,5 +598,77 @@ describe('the assistant says which span it compared', () => {
     const rows = spend('2025-07-01', '2025-08-02', rs(258));
     const text = summaryFor(rows, '2025-08-02');
     assert.not(text.includes('below'), 'nothing fell — the month started');
+  });
+});
+
+describe('mileage intent', () => {
+  test('reports km/l per vehicle from the fill-ups', async () => {
+    const db = await makeDb();
+    const v = await db.repo('vehicle').create({
+      registration: 'KA01AB1234', make: 'Maruti', model: 'Swift', kind: 'car',
+    });
+    // Two full tanks: the stretch between them is what can be measured.
+    await db.repo('fuelLog').create({
+      vehicle: v.id, date: '2025-05-01', odometer: 10000, litres: '30', fullTank: true, amount: '3000',
+    });
+    await db.repo('fuelLog').create({
+      vehicle: v.id, date: '2025-05-20', odometer: 10450, litres: '30', fullTank: true, amount: '3000',
+    });
+    const answer = await new Assistant({ db, clock }).answer('What mileage are we getting?');
+    assert.equal(answer.intent, 'mileage');
+    assert.includes(answer.text, 'KA01AB1234');
+    assert.includes(answer.text, 'km/l');
+  });
+
+  /*
+   * `vehicle-compliance` matches `car`, and a mileage question mentions one.
+   * `matchIntent` weighs by match length, so this is a claim about that rule
+   * holding rather than about the words chosen.
+   */
+  test('a mileage question is not answered with an insurance date', () => {
+    assert.equal(matchIntent('what mileage does the car get?')?.intent?.id, 'mileage');
+  });
+
+  test('says so when there are no fill-ups', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('How much fuel are we using?');
+    assert.includes(answer.text, 'No fill-ups are recorded');
+  });
+});
+
+describe('employment intent', () => {
+  test('names who works where', async () => {
+    const db = await makeDb();
+    const p = await makePerson(db, { name: 'Asha Narayan' });
+    await db.repo('employment').create({
+      person: p.id, employer: 'Infosys', designation: 'Architect', startedOn: '2020-01-01',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Who works where?');
+    assert.equal(answer.intent, 'employment');
+    assert.includes(answer.text, 'Infosys');
+    assert.includes(answer.text, 'Asha Narayan');
+  });
+
+  test('a job with an end date is past, not current', async () => {
+    const db = await makeDb();
+    const p = await makePerson(db, { name: 'Ravi' });
+    await db.repo('employment').create({
+      person: p.id, employer: 'Old Corp', startedOn: '2018-01-01', endedOn: '2022-06-30',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Who is employed?');
+    assert.includes(answer.text, 'Nobody is recorded as currently employed');
+    assert.includes(answer.text, '1 past job');
+  });
+
+  // The income intent owns `salary`; a question about earnings must not be
+  // answered with a list of job titles.
+  test('asking about salary still reaches the ledger, not the job list', () => {
+    assert.equal(matchIntent('what was our salary last month?')?.intent?.id, 'income');
+  });
+
+  test('says so when no employment is recorded', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('Who is employed?');
+    assert.includes(answer.text, 'No employment is recorded');
   });
 });
