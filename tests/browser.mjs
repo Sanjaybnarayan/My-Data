@@ -1453,13 +1453,44 @@ async function main() {
           accountNumber: '50100777666555', holder: people[0]?.id ?? '',
           openingBalance: '250000',
         });
+        /*
+         * Two whole months ending with the last complete one, derived from the
+         * clock rather than written down.
+         *
+         * These were `2026-06-*` and `2026-07-*`, which encoded an assumption
+         * nobody stated: that today is some day in August 2026.
+         *
+         * The position page reports the **last complete** month and renders
+         * "transactions dated in {month}" only when that month has rows —
+         * otherwise it says, correctly, that nothing is recorded for it. On
+         * 2026-09-02 the reporting month became August, June and July were
+         * both too old to be it, and the check went on expecting the first
+         * wording. It failed on the calendar rather than on the code.
+         *
+         * Measured while fixing it, so the comment does not overstate: the
+         * other half of that assertion, "bills included", was never at risk.
+         * It needs `MIN_MONTHS` = 2 complete months of expenses *anywhere* in
+         * the past, which June and July go on satisfying however old they get.
+         * Only the reporting month expires.
+         *
+         * M-2 and M-1 keep both properties on any date. Days 1, 5, 9 and 11
+         * exist in every month, and both months are wholly past, so no row is
+         * ever dated after today and silently dropped.
+         */
+        const now = new Date();
+        const monthStart = (back) => new Date(now.getFullYear(), now.getMonth() - back, 1);
+        const on = (d, day) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+          + `-${String(day).padStart(2, '0')}`;
+        const older = monthStart(2);
+        const lastComplete = monthStart(1);
+
         for (const [date, kind, amount, category] of [
-          ['2026-06-01', 'income', '150000', 'salary'],
-          ['2026-06-05', 'expense', '45000', 'rent'],
-          ['2026-06-09', 'expense', '18000', 'groceries'],
-          ['2026-07-01', 'income', '150000', 'salary'],
-          ['2026-07-05', 'expense', '45000', 'rent'],
-          ['2026-07-11', 'expense', '21000', 'groceries'],
+          [on(older, 1), 'income', '150000', 'salary'],
+          [on(older, 5), 'expense', '45000', 'rent'],
+          [on(older, 9), 'expense', '18000', 'groceries'],
+          [on(lastComplete, 1), 'income', '150000', 'salary'],
+          [on(lastComplete, 5), 'expense', '45000', 'rent'],
+          [on(lastComplete, 11), 'expense', '21000', 'groceries'],
         ]) {
           await app().db.repo('transaction').create({
             date, kind, amount, category, account: account.id,
@@ -3442,8 +3473,13 @@ async function main() {
             tenantName: 'R Krishnan',
           });
         }
+        // The 1st, not the 5th. The credit has to land in the current month,
+        // because the report's wording is "a credit **this month** could belong
+        // to more than one letting" — but a row dated after today is not
+        // counted, and `-05` is in the future on the 1st to the 4th. It passed
+        // for most of every month and failed for four days of it.
         const now = new Date();
-        const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-05`;
+        const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
         await app().db.repo('transaction').create({
           date: day, kind: 'income', amount: '35000', category: 'rental income',
           account: account.id, direction: 'in',
@@ -6346,6 +6382,8 @@ async function main() {
       const raw = [];
       /** @type {string[]} */
       const duplicateIds = [];
+      /** @type {string[]} */
+      const hiddenButFocusable = [];
 
       const walked = [];
       for (const mod of SCHEMA_MODULES) walked.push(`#/${mod.id}`);
@@ -6395,7 +6433,10 @@ async function main() {
             return box.width > 0 || box.height > 0;
           };
 
-          const out = { skips: [], nameless: [], unlabelled: [], raw: [], duplicateIds: [] };
+          const out = {
+            skips: [], nameless: [], unlabelled: [], raw: [],
+            duplicateIds: [], hiddenButFocusable: [],
+          };
 
           /*
            * A locale key, or a placeholder, drawn where a sentence belongs.
@@ -6471,13 +6512,63 @@ async function main() {
            * the first match in the document — so a duplicate does not fail,
            * it silently names the wrong element.
            *
-           * That is exactly how the dialog fault got in: `id="modal-title"`
-           * was a constant in a module that stacks dialogs, and the one on
-           * top was announced with the name of the one underneath. It was
-           * found by reasoning about the code rather than by a check, and
-           * this is the check that would have found it — for any element,
-           * on any screen, without anybody having to suspect it first.
+           * A duplicate id is how the dialog fault did its damage:
+           * `id="modal-title"` was a constant in a module that stacks
+           * dialogs, so the one on top was announced with the name of the one
+           * underneath.
+           *
+           * **This check would not have caught that, and saying otherwise was
+           * wrong.** The walk navigates screen by screen with nothing open —
+           * the router closes every dialog on the way out — so it never sees
+           * two dialogs, which is the only state in which those two ids exist
+           * at once. The stacked-dialog check earlier in this file is what
+           * covers the modal fault; this one covers duplicate ids in the
+           * markup of a screen at rest, which is a different and also real
+           * thing. Both are worth having. Neither substitutes for the other.
            */
+          /*
+           * Focusable, and hidden from the people focus is for.
+           *
+           * `aria-hidden="true"` takes an element out of the accessibility
+           * tree; it does not take it out of the tab order. An element that is
+           * both is a stop a keyboard user lands on and a screen reader cannot
+           * name — it reads as nothing at all, and there is no way to tell
+           * what was just focused.
+           *
+           * This application uses the pattern correctly in three places: a
+           * file input hidden behind a visible button, in `chat.js`,
+           * `statements.js` and `reports.js`, each pairing `aria-hidden` with
+           * `tabindex="-1"` so the button beside it is the only stop. The
+           * check exists so the fourth one has to as well — and because the
+           * walk above deliberately skips `[aria-hidden]` subtrees when
+           * looking for nameless controls, which is exactly where this fault
+           * would hide from it.
+           */
+          const FOCUSABLE = 'a[href], button, input, select, textarea,'
+            + ' [tabindex]:not([tabindex="-1"])';
+          for (const hidden of document.querySelectorAll('[aria-hidden="true"]')) {
+            // The element **itself**, then its descendants. The first version
+            // of this asked only `hidden.querySelectorAll(...)`, which cannot
+            // return the element it was called on — and every real instance of
+            // this pattern in the application puts `aria-hidden` directly on
+            // the focusable thing, a file input behind a visible button. So it
+            // was looking for a shape this codebase does not use and blind to
+            // the one it does. Mutation-testing it found that; the check had
+            // passed and could not have failed.
+            for (const el of [hidden, ...hidden.querySelectorAll(FOCUSABLE)]) {
+              if (!el.matches(FOCUSABLE)) continue;
+              if (el.getAttribute('tabindex') === '-1') continue;
+              if (/** @type {any} */ (el).disabled) continue;
+              // Nothing in a `display: none` subtree is in the tab order, so
+              // it is not reachable and not a fault. `sr-only` positions off
+              // screen and keeps its box, which is the case that matters.
+              if (!(/** @type {any} */ (el).offsetParent)
+                && getComputedStyle(el).position !== 'fixed') continue;
+              out.hiddenButFocusable.push(
+                `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 30)}`);
+            }
+          }
+
           const seen = new Map();
           for (const el of document.querySelectorAll('[id]')) {
             const id = el.id;
@@ -6496,6 +6587,7 @@ async function main() {
         for (const one of found.unlabelled) unlabelled.push(`${hash}: ${one}`);
         for (const one of found.raw) raw.push(`${hash}: ${one}`);
         for (const one of found.duplicateIds) duplicateIds.push(`${hash}: ${one}`);
+        for (const one of found.hiddenButFocusable) hiddenButFocusable.push(`${hash}: ${one}`);
       }
 
       // The premise. A walk that rendered nothing would satisfy all three.
@@ -6519,6 +6611,12 @@ async function main() {
       // how a dialog came to be announced with another dialog's name.
       check('no screen uses one id twice',
         duplicateIds.length === 0, [...new Set(duplicateIds)].slice(0, 6).join(' | '));
+
+      // Tabbable and unnameable: `aria-hidden` removes an element from the
+      // accessibility tree, never from the tab order.
+      check('nothing hidden from a screen reader is still in the tab order',
+        hiddenButFocusable.length === 0,
+        [...new Set(hiddenButFocusable)].slice(0, 6).join(' | '));
     }
 
     /* ------------------------------------------------ settings, measured */

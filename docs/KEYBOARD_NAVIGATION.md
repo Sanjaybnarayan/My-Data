@@ -220,8 +220,16 @@ and checks heading order, accessible names and labels, now also fails on **any
 id used twice on any screen**. A duplicate is invalid HTML on its own, but the
 reason it earns a check is what points at one: `aria-labelledby`,
 `aria-describedby` and `label[for]` all resolve through `getElementById`, which
-returns the first match. A duplicate never errors. It quietly names the wrong
-element, which is the whole of what went wrong in the dialogs.
+returns the first match. A duplicate never errors — it quietly names the wrong
+element.
+
+**It would not have caught the dialog fault, though, and the first version of
+this section said it would.** The walk moves screen to screen with nothing
+open, because the router closes every dialog on the way out, so it never
+observes the one state where two `modal-title` ids exist at once. The
+stacked-dialog check above is what covers that. This one covers duplicate ids
+in a screen at rest. Both are real; neither stands in for the other, and
+writing that it did was the same shape of claim this file exists to correct.
 
 ---
 
