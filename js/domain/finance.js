@@ -10,7 +10,7 @@
  * rupees would put a float back into a chain of exact integers.
  */
 
-import { sum, changePercent, divide } from '../core/money.js';
+import { sum, changePercent, divide, addable } from '../core/money.js';
 import { settled, onlySettled } from '../data/integrity.js';
 import { t } from '../core/locale.js';
 import { cardBills, isBillableCard } from './cards.js';
@@ -57,7 +57,8 @@ export function byCategory(transactions, { kind = 'expense' } = {}) {
   const buckets = new Map();
   for (const t of transactions) {
     if (!settled(t) || t.kind !== kind) continue;
-    buckets.set(t.category || 'other', (buckets.get(t.category || 'other') ?? 0) + (t.amount ?? 0));
+    buckets.set(t.category || 'other',
+      (buckets.get(t.category || 'other') ?? 0) + addable(t.amount));
   }
   return [...buckets]
     .map(([label, value]) => ({ label, value }))
@@ -186,6 +187,11 @@ export function accountBalances(accounts, transactions) {
 
   for (const t of transactions) {
     if (!settled(t)) continue;
+    // Its own arithmetic rather than `sum`, so it needs the same guard: a
+    // balance that met a string amount came back `null`, which reads on the
+    // screen as "this account has no balance" rather than "one row could not
+    // be read". `unreadableAmounts` is what says the latter.
+    if (t.amount !== undefined && t.amount !== null && !Number.isFinite(t.amount)) continue;
     const amount = t.amount ?? 0;
     if (t.kind === 'income') {
       balances.set(t.account, (balances.get(t.account) ?? 0) + amount);
@@ -253,7 +259,7 @@ export function budgetStatus(budgets, transactions, { month = today() } = {}) {
 
   for (const t of transactions) {
     if (!settled(t) || !isSpending(t) || !withinRange(t.date, bounds)) continue;
-    spent.set(t.category, (spent.get(t.category) ?? 0) + (t.amount ?? 0));
+    spent.set(t.category, (spent.get(t.category) ?? 0) + addable(t.amount));
   }
 
   return budgets

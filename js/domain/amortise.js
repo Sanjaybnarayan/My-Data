@@ -36,7 +36,7 @@
  */
 
 
-import { mul, roundMoney } from '../core/money.js';
+import { mul, roundMoney, addable } from '../core/money.js';
 import { settled } from '../data/integrity.js';
 /** A year of an annual rate, as a monthly fraction. */
 export const monthlyRate = (annualPercent) => (annualPercent ?? 0) / 100 / 12;
@@ -235,7 +235,7 @@ export function emiBreakdown(loans, transactions, inPeriod) {
     // rather than dropped — a figure that quietly excluded them would be
     // smaller than the truth and impossible to reconcile.
     if (!canProject(loan)) {
-      const spent = payments.filter(inPeriod).reduce((n, t) => n + (t.amount ?? 0), 0);
+      const spent = payments.filter(inPeriod).reduce((n, t) => n + addable(t.amount), 0);
       if (spent) {
         total += spent;
         unprojected.push({ loan: loan.name, amount: spent });
@@ -245,7 +245,7 @@ export function emiBreakdown(loans, transactions, inPeriod) {
 
     const run = amortise(loan, payments.length);
     if (run.negative) {
-      const spent = payments.filter(inPeriod).reduce((n, t) => n + (t.amount ?? 0), 0);
+      const spent = payments.filter(inPeriod).reduce((n, t) => n + addable(t.amount), 0);
       if (spent) {
         total += spent;
         unprojected.push({ loan: loan.name, amount: spent });

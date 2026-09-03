@@ -17,6 +17,7 @@ import {
   isReadableAmount, unreadableAmounts, describeUnreadable, heldRows, describeHeld,
 } from '../js/domain/amounts.js';
 import { summarise } from '../js/domain/categorise.js';
+import { totals, byCategory, accountBalances } from '../js/domain/finance.js';
 
 setSuite('amounts');
 
@@ -86,6 +87,94 @@ describe('the totals themselves', () => {
 
   test('a clean month is unaffected', () => {
     assert.equal(summarise([row('a', 250000), row('b', 100000)]).moneyOut, 350000);
+  });
+
+  /*
+   * The three above test `summarise`, and `summarise` was the only thing that
+   * had ever been fixed.
+   *
+   * `domain/amounts.js` says a total "adds only finite numbers", which was
+   * true of one private helper in `domain/categorise.js` and of nothing the
+   * finance screen shows. Measured on the real path: a month containing one
+   * hand-edited row reported spending of `'2500000twenty thousand'` through
+   * `totals()` and `byCategory()`, and a balance of `null` — the exact string
+   * `amounts.js` quotes in its own docstring as the thing it fixed.
+   *
+   * The sentence beside those figures said the row was **not** in these
+   * totals. That is the part worth naming: not a number that was wrong, but a
+   * disclosure that was false, next to a figure that had swallowed the row it
+   * promised to exclude. So each of these asserts the arithmetic *and* the
+   * count, because the claim under test is the sentence.
+   */
+  const money = (id, amount, extra = {}) => ({
+    id, amount, date: '2026-07-05', kind: 'expense', direction: 'out',
+    category: 'food', account: 'a1', ...extra,
+  });
+
+  test('the finance total does not concatenate, and says what it left out', () => {
+    const rows = [money('a', 250000), money('b', 'twenty thousand')];
+    const out = totals(rows);
+    assert.equal(typeof out.expense, 'number', String(out.expense));
+    assert.equal(out.expense, 250000);
+    assert.equal(unreadableAmounts(rows).count, 1, 'the sentence has to be true too');
+  });
+
+  test('nor does the category breakdown, which keeps its own running total', () => {
+    // Its own `Map`, not `sum`, so fixing `sum` alone left this one corrupt
+    // while the headline beside it had been corrected.
+    const rows = [money('a', 250000), money('b', 'twenty thousand')];
+    const [food] = byCategory(rows);
+    assert.equal(typeof food.value, 'number', String(food.value));
+    assert.equal(food.value, 250000);
+  });
+
+  /*
+   * Nineteen call sites were fixed and three of them are asserted above. This
+   * is what covers the other sixteen.
+   *
+   * It reads source, and says so: it cannot tell you a figure is right, only
+   * that nobody has spelled the guard the old way again. `?? 0` is the exact
+   * shape of the bug — it treats a missing amount as zero, which is correct,
+   * and a string amount as a string, which concatenates. The three behavioural
+   * tests above are what prove the arithmetic; this is what stops it coming
+   * back somewhere none of them look.
+   */
+  test('nothing adds an amount without asking whether it is one', async () => {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const { join, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'js');
+
+    const walk = async (dir) => {
+      const found = [];
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) found.push(...await walk(full));
+        else if (entry.name.endsWith('.js')) found.push(full);
+      }
+      return found;
+    };
+
+    const files = await walk(root);
+    assert.ok(files.length > 100, `only ${files.length} files walked, so this proves little`);
+
+    const offenders = [];
+    for (const file of files) {
+      const src = await readFile(file, 'utf8');
+      // Addition and absolute value only. `(x.amount ?? 0) > 0` is a
+      // comparison, not a total, and flagging it would make this noise.
+      const bad = src.match(/\+ \([A-Za-z_]+\.amount \?\? 0\)|Math\.abs\([A-Za-z_]+\.amount \?\? 0\)/g);
+      if (bad) offenders.push(`${file.slice(root.length + 1)} (${bad.length})`);
+    }
+    assert.deep(offenders, []);
+  });
+
+  test('and a balance is a number rather than nothing at all', () => {
+    // `null` reads on the screen as "this account has no balance", which is a
+    // different and worse claim than "one row could not be read".
+    const accounts = [{ id: 'a1', name: 'HDFC', kind: 'savings', openingBalance: 500000 }];
+    const rows = [money('a', 250000), money('b', 'twenty thousand')];
+    assert.equal(accountBalances(accounts, rows)[0].balance, 250000);
   });
 });
 

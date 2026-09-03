@@ -47,7 +47,7 @@
  * from so the household can disagree with it.
  */
 
-import { format, divide } from '../core/money.js';
+import { format, divide, addable } from '../core/money.js';
 import { settled } from '../data/integrity.js';
 
 /** Below this, a multiple is arithmetic rather than news. ₹2,000 in paise. */
@@ -110,7 +110,7 @@ export function categoryHistory(rows, { month }) {
 
     if (!perMonth.has(key)) perMonth.set(key, new Map());
     const months = perMonth.get(key);
-    months.set(at, (months.get(at) ?? 0) + (row.amount ?? 0));
+    months.set(at, (months.get(at) ?? 0) + addable(row.amount));
   }
 
   // The same month, a year earlier. A household's own past is the only thing

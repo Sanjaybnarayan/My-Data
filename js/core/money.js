@@ -86,7 +86,46 @@ export const add = (a, b) => (a ?? 0) + (b ?? 0);
 export const sub = (a, b) => (a ?? 0) - (b ?? 0);
 export const negate = (a) => -(a ?? 0);
 export const abs = (a) => Math.abs(a ?? 0);
-export const sum = (list) => list.reduce((t, n) => t + (n ?? 0), 0);
+/**
+ * Add money, skipping anything that is not a number to add.
+ *
+ * The `?? 0` this replaced treated a missing amount as zero and a *string*
+ * amount as a string: `t + 'twenty thousand'` concatenates, so one hand-edited
+ * row in the household's own Sheet turned a month's spending into
+ * `'2500000twenty thousand'` — formatted, shown, and not an error anywhere.
+ *
+ * `domain/amounts.js` was written about exactly that string and says a total
+ * "adds only finite numbers". That was true of one private helper in
+ * `domain/categorise.js` and of nothing else: `totals()`, `byCategory()` and
+ * every other caller here still concatenated, while the sentence beside them
+ * told the household the row was **not** in these totals. A disclosure that is
+ * false is worse than none, because it is believed.
+ *
+ * Skipping is safe to do quietly *only* because it is not quiet:
+ * `unreadableAmounts()` counts these rows and `describeUnreadable()` is what
+ * the screens say. Nothing here guesses at what the amount was meant to be —
+ * the row is in the household's spreadsheet and they are the only ones who
+ * know.
+ */
+/**
+ * The part of a value that can be added to money.
+ *
+ * `sum` is not the only place money is added up — sixteen functions across the
+ * domain keep their own running totals in a `Map` or a `reduce`, and each
+ * spelled the guard as `?? 0`, which admits a string. Fixing `sum` alone left
+ * `byCategory` still reporting `'2500000twenty thousand'` while the total
+ * beside it had been corrected: two figures about one month, disagreeing on
+ * one screen.
+ *
+ * Zero, not null: the caller is building a total, and `null` would spread
+ * through it and make the whole figure unavailable because one row could not
+ * be read. The row is not silently dropped — `unreadableAmounts()` counts
+ * exactly these and `describeUnreadable()` is what the screen says.
+ */
+export const addable = (value) => (Number.isFinite(value) ? value : 0);
+
+/** Add a list of money figures, skipping anything that is not one. */
+export const sum = (list) => list.reduce((t, n) => t + addable(n), 0);
 
 /**
  * Round a money figure that was worked out some other way.

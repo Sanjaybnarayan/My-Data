@@ -400,7 +400,7 @@ async function movementEvidence(record) {
  * arguing with their bank using a number this application made up would be
  * worse off than one with a stale figure they know is stale.
  */
-function loansCard(loans, transactions) {
+function loansCard(loans, transactions, held) {
   const live = (loans ?? []).filter((loan) => !loan.deletedAt);
   if (!live.length) return null;
 
@@ -429,6 +429,11 @@ function loansCard(loans, transactions) {
     rows.some((r) => r.note)
       ? h('p', { class: 'small faint' }, t('finance.loans.estimates'))
       : null,
+
+    // A held repayment makes the estimate above look further from the stored
+    // balance than it is. Said here rather than left to the runway line, which
+    // counts every held row and not the ones these figures read.
+    held ? h('p', { class: 'small faint' }, held) : null,
   ].filter(Boolean));
 }
 
@@ -511,7 +516,7 @@ async function financeOverview() {
     const {
       transactions, loans, balances, compare, series, balanceSeries, runway, truncated,
       categories, settlement, emi, byMember, bills, budgetRows, commitment,
-      transfers, unreadable, held,
+      transfers, unreadable, held, runwayHeld, billsHeld, loansHeld,
     } = await new FinanceService(db).overview();
 
     replace(host, h('div', { class: 'grid grid--wide' }, [
@@ -575,6 +580,15 @@ async function financeOverview() {
           class: runway.shortfall ? 'small money--negative' : 'small faint',
         }, describeRunway(runway, format)),
 
+        /*
+         * Beside the runway figure rather than the month's totals, because it
+         * is about a different set of rows. The sentence higher up covers the
+         * month; this covers the history runway is built from, and a row held
+         * in neither window would otherwise be excluded from a forecast with
+         * nothing on the screen to say so.
+         */
+        runwayHeld ? h('p', { class: 'small faint' }, runwayHeld) : null,
+
         // Said where the figure is, not in a tooltip. A forecast whose
         // assumptions are hidden is a forecast presenting itself as an answer.
         runway.assumptions.length
@@ -583,7 +597,7 @@ async function financeOverview() {
           : null,
       ].filter(Boolean)),
 
-      loansCard(loans, transactions),
+      loansCard(loans, transactions, loansHeld),
 
       card({}, [
         cardHeader(t('finance.overview.cash')),
@@ -663,8 +677,17 @@ async function financeOverview() {
         : null,
 
       card({ class: 'card--flush' }, [
-        h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
-          cardHeader(t('finance.overview.due'))),
+        h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } }, [
+          cardHeader(t('finance.overview.due')),
+
+          // A card bill short a held purchase is the one figure here where
+          // being wrong is expensive, so it says so rather than presenting a
+          // statement balance quietly about fewer rows. Inside the header's
+          // own padding rather than in a box of its own: `card--flush` has no
+          // body padding, and a second inline style here would be a second
+          // place to change the spacing.
+          billsHeld ? h('p', { class: 'small faint' }, billsHeld) : null,
+        ].filter(Boolean)),
         bills.length
           ? h('div', { class: 'list' }, bills.map((bill) => listItem({
             title: bill.name,
@@ -678,7 +701,7 @@ async function financeOverview() {
                 : bill.autoDebit ? badge('auto') : null,
           })))
           : empty({ title: t('finance.overview.nothingDue'), iconName: 'check' }),
-      ]),
+      ].filter(Boolean)),
     ].filter(Boolean)));
   }
 

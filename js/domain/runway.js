@@ -52,7 +52,7 @@
  */
 
 import { addDays, daysBetween, today } from '../core/dates.js';
-import { divide, roundMoney } from '../core/money.js';
+import { divide, roundMoney, addable } from '../core/money.js';
 import { accountBalances, liquidCash } from './finance.js';
 import { settled } from '../data/integrity.js';
 
@@ -95,7 +95,7 @@ export function typicalDailySpend(transactions, { billCategories = null, clock =
     if (skip.has(row.category)) continue;
     const month = monthOf(row.date);
     if (!month || row.date > now) continue;
-    perMonth.set(month, (perMonth.get(month) ?? 0) + (row.amount ?? 0));
+    perMonth.set(month, (perMonth.get(month) ?? 0) + addable(row.amount));
   }
 
   // The month in progress is dropped: it is a partial total, and dividing a
@@ -144,7 +144,7 @@ export function typicalMonthlyOutgoings(transactions, { clock = Date.now } = {})
     if (row.kind !== 'expense') continue;
     const month = monthOf(row.date);
     if (!month || row.date > now) continue;
-    perMonth.set(month, (perMonth.get(month) ?? 0) + (row.amount ?? 0));
+    perMonth.set(month, (perMonth.get(month) ?? 0) + addable(row.amount));
   }
 
   const complete = [...perMonth].filter(([month]) => month < monthOf(now));

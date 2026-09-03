@@ -3634,6 +3634,49 @@ async function main() {
       check('the rent report renders without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
+      /*
+       * A held credit is a month that will be receipted later, and until the
+       * pull that releases it the report reads exactly like a month nobody
+       * paid. `rentReceived` asks `settled()`, so the row leaves the figure —
+       * this is whether the screen admits it.
+       *
+       * Read twice, before and after the mark, because the sentence is `faint`
+       * body text and "it is on the page" would pass on any screen that had it
+       * for some other reason. The first read is the half that makes the
+       * second mean something.
+       */
+      check('nothing is held yet, so the report says nothing about holding',
+        !/not in these totals yet/.test(reports), reports.slice(0, 1200));
+
+      await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const accounts = await app().db.repo('account').list({ decrypt: false });
+        const account = accounts.find((one) => one.name === 'Rent account') ?? accounts[0];
+        const now = new Date();
+        const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-02`;
+        const credit = await app().db.repo('transaction').create({
+          date: day, kind: 'income', amount: '35000', category: 'rental income',
+          account: account.id, direction: 'in',
+        });
+        await app().db.repo('transaction').setHeld(credit.id, new Date().toISOString());
+      }, IN_PAGE.context);
+
+      /*
+       * Away and back, not straight back. `go` sets `location.hash`, and
+       * assigning a hash its current value fires no `hashchange`, so the
+       * router never re-renders and the page still shows what it drew before
+       * the row was held. Written the short way first, and this check failed
+       * against a screen that was working — the second read was of the first
+       * render.
+       */
+      await go(page, '#/dashboard');
+      await go(page, '#/reports');
+      await page.waitForTimeout(800);
+      const withHeld = await page.locator('.app-content').innerText();
+
+      check('a credit the sync is holding is named rather than silently dropped',
+        /not in these totals yet/.test(withHeld), withHeld.slice(0, 1400));
+
       if (SHOTS) await shot(page, 'reports-rent');
     }
 

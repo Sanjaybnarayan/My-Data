@@ -157,22 +157,51 @@ The suite passed 3113 of 3113 with every row of that table wrong, which is why
 the tests added with the fix ask the only question that settles it — *does the
 answer change when the mark is removed?* — rather than reading imports.
 
-### What those ten figures do not yet say
+### What those ten figures say, and which still do not
 
 `domain/amounts.js` was written against a specific fault: a total that is
 right about the rows it counted and says nothing about the ones it left out.
-Excluding a held row from ten more figures is the good half of that trade, and
-`describeHeld` — the sentence that closes it — is currently shown in one
-place, the month summary in `services/finance.js`.
+Excluding a held row from ten more figures is the good half of that trade;
+`describeHeld` is the sentence that closes it, and for a while it was shown in
+one place, the month summary in `services/finance.js`.
 
-So the exclusion is disclosed at the household level and not beside each
-figure. A held row says so **on its own record**, and the activity card gives
-the number a pull is holding; a member's spend, a card bill, a cost basis and
-the rest now quietly leave it out. That is strictly better than counting it
-silently, which is what they did before, and it is not the whole of what
-`amounts.js` argues for. Saying it per figure is a screen change in ten
-modules and has not been made — recorded here so the table above is not read
-as a claim that it has.
+A held row also says so **on its own record**, and the activity card gives the
+number a pull is holding, so the exclusion was never wholly silent. It was
+silent *beside the figures*, which is where somebody reading a number is
+standing.
+
+All of them now carry it, in six sentences rather than ten. The month totals,
+the cost basis on the investments screen, the rent report, cash runway, the
+card bills due, and the loans card each say what their own figure left out.
+
+A member's spend and the deposits accrual card get none of their own, and that
+is the rule below rather than an omission: both read exactly the window a
+sentence on the same screen already covers — the month, and the portfolio's
+trades — so a second one would be the same number twice on one screen.
+
+**One sentence per window, not one per screen** — and equally, never one
+window's sentence beside another window's figure. Runway is why this is stated
+as a rule. The month summary's sentence is scoped to the month its totals are
+about, which is right for them and useless for a forecast built from complete
+months of history — measured, four rows held in past months moved monthly
+outgoings from ₹10,000 to ₹1,000 and a usual day from ₹300 to nothing, while
+the month-scoped sentence returned `null` and the screen said nothing at all.
+Reusing that sentence beside the runway figure would have looked like
+disclosure and reported on the wrong rows, so runway carries its own, scoped
+to everything up to today. The test asserts the pair — month `null`, runway
+not — because a test of the second alone would pass on a duplicate of the
+first.
+
+The card bill and the loans card are the same argument from the other end.
+Both read narrower sets than any existing sentence: one cycle on one card
+account, and the rows `paymentsFor` matches for a loan. `runwayHeld` counts
+rows neither figure reads, so reusing it there would put a number beside a
+figure it is not about — disclosure in appearance and misdirection in fact. So
+each counts the rows its own figure would have used, the loan set obtained by
+asking `paymentsFor` against the same list with the marks taken off rather
+than copying its matching rules into the service, where the two would drift.
+A held card purchase of ₹40,000 took the bill from ₹42,000 to ₹2,000, which is
+the figure on this screen where being wrong is dearest.
 
 Two functions gained a filter they never had. `totals()` and `byCategory()`
 added up whatever array they were handed and trusted `inPeriod` to have

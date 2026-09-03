@@ -35,7 +35,7 @@
  * the household being the issuer: they sign it because it is true.
  */
 
-import { format } from '../core/money.js';
+import { format, addable } from '../core/money.js';
 import { formatDay, nextMonth } from '../core/dates.js';
 import { settled } from '../data/integrity.js';
 
@@ -167,7 +167,7 @@ export function rentReceived(property, transactions, { from, to, others = [] }) 
  */
 export function rentYear(months) {
   const received = (months ?? []).filter((m) => m.received);
-  const total = received.reduce((sum, m) => sum + (m.amount ?? 0), 0);
+  const total = received.reduce((sum, m) => sum + addable(m.amount), 0);
 
   const contested = (months ?? []).filter((m) => !m.received && m.why);
 

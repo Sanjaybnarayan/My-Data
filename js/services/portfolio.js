@@ -28,6 +28,7 @@ import {
 import { costBasis, gainOn } from '../domain/costbasis.js';
 import { netWorth } from '../domain/networth.js';
 import { accrualReport } from '../domain/accrual.js';
+import { heldRows, describeHeld } from '../domain/amounts.js';
 import {
   instalmentLinks, instalmentSummary, missedInstalmentSummary,
 } from '../domain/instalments.js';
@@ -187,6 +188,22 @@ export class PortfolioService extends Service {
       summary,
       rows,
       pooled,
+      /*
+       * The trades this device is holding out of every figure above.
+       *
+       * `costBasis` and `accrualReport` ask `settled()`, so a trade that
+       * arrived naming a holding this device does not have is already gone by
+       * the time `invested` is added up. That is right, and on its own it is
+       * the silent omission `domain/amounts.js` exists to prevent: the figure
+       * would be correct about the trades it counted and say nothing about the
+       * ones it left out.
+       *
+       * Read from `txns` before any of that filtering, because that is the
+       * only list the held rows are still in — `heldRows` over a list some
+       * predicate has already cleaned is a counter that cannot count, which is
+       * how the same mistake was made once already in `services/finance.js`.
+       */
+      held: describeHeld(heldRows(txns.filter((one) => !one.deletedAt))),
       allocation: allocation(holdings),
       dividends: dividendIncome(txns, {
         from: startOfFinancialYear(asOf),
