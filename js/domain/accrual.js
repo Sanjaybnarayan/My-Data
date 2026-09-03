@@ -48,6 +48,7 @@
 
 
 import { roundMoney } from '../core/money.js';
+import { settled } from '../data/integrity.js';
 /**
  * How often each instrument compounds, by convention in India.
  *
@@ -199,7 +200,7 @@ export function accruedValue(holding, asOf) {
  */
 export function instalmentsFor(holding, transactions) {
   return (transactions ?? [])
-    .filter((t) => t.holding === holding?.id && !t.deletedAt)
+    .filter((t) => t.holding === holding?.id && settled(t))
     .filter((t) => INSTALMENT_KINDS.has(t.kind) && (t.amount ?? 0) > 0)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
@@ -228,7 +229,7 @@ export function canAccrueRecurring(holding, transactions) {
   }
   if (!(holding.interestRate > 0)) return { ok: false, why: 'no interest rate is recorded' };
 
-  const paid = (transactions ?? []).filter((t) => t.holding === holding.id && !t.deletedAt);
+  const paid = (transactions ?? []).filter((t) => t.holding === holding.id && settled(t));
   if (!instalmentsFor(holding, transactions).length) {
     return {
       ok: false,
@@ -327,7 +328,7 @@ export function accrualReport(holdings, asOf, { transactions = [], tolerance = 1
   const drifted = [];
   const unchecked = [];
 
-  for (const holding of (holdings ?? []).filter((h) => !h.deletedAt && h.active !== false)) {
+  for (const holding of (holdings ?? []).filter((h) => settled(h) && h.active !== false)) {
     // A recurring deposit takes the other route entirely — every instalment
     // accrued from its own date rather than the total from one.
     if (holding.kind === 'recurring deposit') {

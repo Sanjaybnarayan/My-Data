@@ -48,6 +48,7 @@
  */
 
 import { format, divide } from '../core/money.js';
+import { settled } from '../data/integrity.js';
 
 /** Below this, a multiple is arithmetic rather than news. ₹2,000 in paise. */
 export const FLOOR = 2_000_00;
@@ -97,7 +98,7 @@ export function categoryHistory(rows, { month }) {
   const perMonth = new Map();
 
   for (const row of rows ?? []) {
-    if (!row || row.deletedAt) continue;
+    if (!settled(row)) continue;
     if (row.direction !== 'out') continue;
     const key = row.category || 'other';
     const at = monthOf(row.date);

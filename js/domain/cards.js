@@ -40,12 +40,12 @@
  */
 
 import { today } from '../core/dates.js';
+import { settled } from '../data/integrity.js';
 
 /** A card that could produce a bill at all. */
 export function isBillableCard(account) {
-  return Boolean(account)
+  return settled(account)
     && account.kind === 'credit card'
-    && !account.deletedAt
     && account.archived !== true;
 }
 
@@ -107,7 +107,7 @@ export function statementBalance(account, transactions, statement) {
   let owed = 0;
 
   for (const txn of transactions ?? []) {
-    if (txn.deletedAt) continue;
+    if (!settled(txn)) continue;
     if (String(txn.date) > statement) continue;
 
     const amount = txn.amount ?? 0;

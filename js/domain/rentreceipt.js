@@ -37,6 +37,7 @@
 
 import { format } from '../core/money.js';
 import { formatDay, nextMonth } from '../core/dates.js';
+import { settled } from '../data/integrity.js';
 
 /** Above this, an Indian tenant needs the landlord's PAN to claim HRA. */
 export const PAN_THRESHOLD = 1_00_000_00;
@@ -82,7 +83,7 @@ export function rentReceived(property, transactions, { from, to, others = [] }) 
   }
 
   const inWindow = (transactions ?? []).filter((t) => t
-    && !t.deletedAt
+    && settled(t)
     && t.direction === 'in'
     && t.date >= from && t.date <= to);
 
@@ -110,7 +111,7 @@ export function rentReceived(property, transactions, { from, to, others = [] }) 
    */
   const rivals = (others ?? []).filter((other) => other
     && other.id !== property.id
-    && !other.deletedAt
+    && settled(other)
     && other.rented
     && other.monthlyRent);
 

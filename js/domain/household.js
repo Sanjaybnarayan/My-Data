@@ -39,6 +39,8 @@
  * "spent on".
  */
 
+import { settled } from '../data/integrity.js';
+
 /**
  * Spending per household member, with the coverage that qualifies it.
  *
@@ -50,13 +52,13 @@
  */
 export function spendByMember(people, transactions, inPeriod = () => true) {
   const spending = (transactions ?? [])
-    .filter((t) => !t.deletedAt && t.direction !== 'in' && t.kind !== 'income')
+    .filter((t) => settled(t) && t.direction !== 'in' && t.kind !== 'income')
     // A transfer between the household's own accounts is not spending, and
     // counting it would make whoever moves money look like the big spender.
     .filter((t) => t.kind !== 'transfer')
     .filter(inPeriod);
 
-  const byId = new Map((people ?? []).filter((p) => !p.deletedAt).map((p) => [p.id, p]));
+  const byId = new Map((people ?? []).filter(settled).map((p) => [p.id, p]));
 
   let tagged = 0;
   let untagged = 0;
