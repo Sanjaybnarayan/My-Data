@@ -6384,11 +6384,30 @@ async function main() {
       const duplicateIds = [];
       /** @type {string[]} */
       const hiddenButFocusable = [];
+      /** @type {string[]} */
+      const dangling = [];
+      let labelsSeen = 0;
 
       const walked = [];
       for (const mod of SCHEMA_MODULES) walked.push(`#/${mod.id}`);
       for (const [name, def] of Object.entries(SCHEMA_ENTITIES)) {
         walked.push(`#/${def.module}/${name}`);
+        /*
+         * And the form, which this walk had never opened.
+         *
+         * Every route above is a list. Lists carry a heading, a search box
+         * and rows; the forms carry almost every control in the application —
+         * 617 fields across 53 entities — and none of the checks below had
+         * ever seen one. So "every control a person can operate has an
+         * accessible name" was true of the screens with the fewest controls.
+         *
+         * What it was missing, found by probing rather than by reading:
+         * `<label for>` on 31 fields pointed at an id no element carried,
+         * because four field types build a chip group or a sentence rather
+         * than an input. That is on nearly every form in the schema, and it
+         * sat outside the walk entirely.
+         */
+        walked.push(`#/${def.module}/${name}/new`);
       }
       walked.push('#/profile', '#/settings', '#/notifications', '#/wellbeing', '#/timeline');
 
@@ -6435,8 +6454,42 @@ async function main() {
 
           const out = {
             skips: [], nameless: [], unlabelled: [], raw: [],
-            duplicateIds: [], hiddenButFocusable: [],
+            duplicateIds: [], hiddenButFocusable: [], dangling: [],
+            labels: document.querySelectorAll('label[for], .field-label').length,
           };
+
+          /*
+           * A reference that points at no element.
+           *
+           * `label[for]`, `aria-labelledby`, `aria-describedby` and
+           * `aria-controls` all resolve through `getElementById`. When the id
+           * is not in the document the attribute does not fail — it resolves
+           * to nothing, and the element is left unnamed or undescribed while
+           * the markup reads as though it were named. Nothing here looked for
+           * that: the unlabelled check below asks whether a `label[for]`
+           * exists *for a control*, never whether a label points at one.
+           *
+           * The dialog fault was the same mechanism with a duplicate id
+           * rather than a missing one — `aria-labelledby` resolving to the
+           * wrong element instead of to none. Both are a reference nobody
+           * followed.
+           */
+          const resolves = (id) => Boolean(id && document.getElementById(id));
+          for (const el of document.querySelectorAll('label[for]')) {
+            const target = el.getAttribute('for');
+            if (!resolves(target)) {
+              out.dangling.push(`label[for="${target}"] ("${(el.textContent || '').trim().slice(0, 24)}")`);
+            }
+          }
+          for (const attr of ['aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns']) {
+            for (const el of document.querySelectorAll(`[${attr}]`)) {
+              for (const one of (el.getAttribute(attr) || '').split(/\s+/).filter(Boolean)) {
+                if (!resolves(one)) {
+                  out.dangling.push(`${el.tagName.toLowerCase()}[${attr}="${one}"]`);
+                }
+              }
+            }
+          }
 
           /*
            * A locale key, or a placeholder, drawn where a sentence belongs.
@@ -6588,11 +6641,27 @@ async function main() {
         for (const one of found.raw) raw.push(`${hash}: ${one}`);
         for (const one of found.duplicateIds) duplicateIds.push(`${hash}: ${one}`);
         for (const one of found.hiddenButFocusable) hiddenButFocusable.push(`${hash}: ${one}`);
+        for (const one of found.dangling) dangling.push(`${hash}: ${one}`);
+        labelsSeen += found.labels;
       }
 
       // The premise. A walk that rendered nothing would satisfy all three.
       check('the accessibility walk actually opened screens', walked.length > 40,
         `${walked.length} screens`);
+      // And opened forms, not only lists. Everything below reads whatever the
+      // walk drew, so a walk that quietly stopped covering the screens with
+      // the controls on them would still come back clean.
+      check('and opened a form, where the controls are',
+        walked.filter((one) => one.endsWith('/new')).length > 40,
+        `${walked.filter((one) => one.endsWith('/new')).length} forms`);
+      /*
+       * And the forms drew fields. Counting the routes only proves they were
+       * navigated to; a form that failed to render would leave every check
+       * below reading an empty page and reporting nothing wrong — which is
+       * the shape of every fault this phase has found.
+       */
+      check('and those forms drew field labels',
+        labelsSeen > 400, `${labelsSeen} labels across the walk`);
 
       check('no screen jumps a heading level', skips.length === 0,
         [...new Set(skips)].slice(0, 6).join(' | '));
@@ -6617,6 +6686,11 @@ async function main() {
       check('nothing hidden from a screen reader is still in the tab order',
         hiddenButFocusable.length === 0,
         [...new Set(hiddenButFocusable)].slice(0, 6).join(' | '));
+
+      // A label pointing at nothing is not a label. It reads as one in the
+      // markup and in a review, and resolves to no element at run time.
+      check('every label and aria reference points at an element that exists',
+        dangling.length === 0, [...new Set(dangling)].slice(0, 6).join(' | '));
     }
 
     /* ------------------------------------------------ settings, measured */

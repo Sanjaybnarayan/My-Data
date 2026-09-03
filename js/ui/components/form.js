@@ -85,6 +85,42 @@ export async function entityForm(entityName, options) {
     const error = h('div', { class: 'field-error', id: `${id}-error`, hidden: true });
     errorNodes.set(field.key, error);
 
+    /*
+     * Does the control carry the id the label points at?
+     *
+     * Asked of the tree rather than answered from a list of field types,
+     * because the list is the thing that goes wrong. Four types build
+     * something no id can sit on — a chip group for `multiref` and
+     * `multienum`, a sentence about attachments for `files` and `image` — and
+     * `<label for>` on those resolved to no element at all. Measured on
+     * `#/insurance/policy/new`: *Persons covered* and *Documents* both
+     * pointed at ids nothing had. Clicking the label did nothing, where every
+     * other field's label focuses its control, and a screen reader read the
+     * text as loose prose beside a group that then repeated it.
+     *
+     * 31 fields across the schema are one of those four types, so this is on
+     * nearly every form in the application rather than in a corner of it.
+     */
+    const labelable = Boolean(control.id === id || control.querySelector?.(`[id="${id}"]`));
+    const labelId = `${id}-label`;
+
+    if (!labelable) {
+      // A group named by the text beside it, rather than a label pointing at
+      // nothing. `aria-label` is removed where `checkboxSet` set one: with the
+      // visible text now naming the group, keeping both announces it twice.
+      control.setAttribute?.('role', control.getAttribute?.('role') || 'group');
+      control.setAttribute?.('aria-labelledby', labelId);
+      control.removeAttribute?.('aria-label');
+      // These controls never received `common`, so nothing tied them to their
+      // error either — a refused `multiref` showed a red line nothing pointed at.
+      control.setAttribute?.('aria-describedby', `${id}-error`);
+    }
+
+    const name = [
+      fieldLabel(def.name, field),
+      field.required ? h('span', { class: 'required', 'aria-hidden': 'true' }, '*') : null,
+    ];
+
     const wide = ['textarea', 'richtext', 'tags', 'multiref', 'multienum', 'files'];
     return h('div', {
       class: ['field', wide.includes(field.type) && 'field--full'],
@@ -93,10 +129,10 @@ export async function entityForm(entityName, options) {
       // destination account) stays out of the way until that choice is made.
       hidden: !isShown(field),
     }, [
-      field.type === 'boolean' ? null : h('label', { class: 'field-label', for: id }, [
-        fieldLabel(def.name, field),
-        field.required ? h('span', { class: 'required', 'aria-hidden': 'true' }, '*') : null,
-      ]),
+      field.type === 'boolean' ? null
+        : labelable
+          ? h('label', { class: 'field-label', for: id }, name)
+          : h('span', { class: 'field-label', id: labelId }, name),
       control,
       field.help ? h('div', { class: 'field-help' }, field.help) : null,
       error,
