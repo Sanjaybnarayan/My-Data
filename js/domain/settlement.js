@@ -41,6 +41,7 @@
  */
 
 /** Categories a card bill arrives under, in both spellings the app uses. */
+import { addable } from '../core/money.js';
 import { settled } from '../data/integrity.js';
 
 const SETTLEMENT_CATEGORIES = new Set(['credit-card', 'credit card']);
@@ -82,7 +83,7 @@ export function settlementReport(transactions, accounts) {
     if (!cardIds.has(txn.account)) continue;
     if (isSettlement(txn, cardIds)) continue;      // a payment *into* the card
     if (txn.direction === 'in') continue;          // a refund, not a purchase
-    spendingOn.set(txn.account, (spendingOn.get(txn.account) ?? 0) + (txn.amount ?? 0));
+    spendingOn.set(txn.account, (spendingOn.get(txn.account) ?? 0) + addable(txn.amount));
   }
 
   /** Which card a settlement pays, where that can be told at all. */
@@ -106,7 +107,7 @@ export function settlementReport(transactions, accounts) {
     (anyCardSpending ? doubleCounted : onlyRecord).push(txn);
   }
 
-  const sum = (list) => list.reduce((n, t) => n + (t.amount ?? 0), 0);
+  const sum = (list) => list.reduce((n, t) => n + addable(t.amount), 0);
 
   return {
     settlements,

@@ -46,6 +46,7 @@
  * this file overrides it.
  */
 
+import { addable } from '../core/money.js';
 import { lineageOf, describe as describeLineage, depth } from '../data/lineage.js';
 import { provenanceOf, SOURCES } from '../data/provenance.js';
 import { t } from '../core/locale.js';
@@ -83,7 +84,7 @@ export function amountFromLegs(legs) {
 
   const side = (which) => directed
     .filter((leg) => leg.direction === which)
-    .reduce((total, leg) => total + (leg.amount ?? 0), 0);
+    .reduce((total, leg) => total + addable(leg.amount), 0);
 
   return Math.max(side('out'), side('in'));
 }

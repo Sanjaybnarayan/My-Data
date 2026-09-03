@@ -39,6 +39,7 @@
  * target would take, and claims nothing about whether it will happen.
  */
 
+import { addable } from '../core/money.js';
 import { monthsBetween, today } from '../core/dates.js';
 
 export const STATUS = Object.freeze({
@@ -176,7 +177,7 @@ export function progressOf(goal, {
     ...(goal.accounts ?? []).map((id) => ({ kind: 'account', id, amount: balanceOf(id) })),
     ...(goal.holdings ?? []).map((id) => ({ kind: 'holding', id, amount: holdingValueOf(id) })),
   ];
-  const funded = sources.reduce((total, source) => total + (source.amount ?? 0), 0);
+  const funded = sources.reduce((total, source) => total + addable(source.amount), 0);
 
   if (why) {
     return {

@@ -30,7 +30,7 @@ import { toast } from '../ui/components/toast.js';
 import { confirm } from '../ui/components/modal.js';
 import { app } from '../context.js';
 import { importList, orphanedTransactions, planUndo } from '../domain/imports.js';
-import { format } from '../core/money.js';
+import { format, addable } from '../core/money.js';
 import { formatDay } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
@@ -112,7 +112,7 @@ export async function render() {
    * them apart by, which is exactly why they are a problem.
    */
   async function clearOrphans(orphans) {
-    const total = orphans.reduce((sum, row) => sum + (row.amount ?? 0), 0);
+    const total = orphans.reduce((sum, row) => sum + addable(row.amount), 0);
 
     const ok = await confirm({
       title: `Remove ${orphans.length} orphaned transactions?`,
@@ -229,7 +229,7 @@ export async function render() {
   }
 
   function orphanCard(orphans) {
-    const total = orphans.reduce((sum, row) => sum + (row.amount ?? 0), 0);
+    const total = orphans.reduce((sum, row) => sum + addable(row.amount), 0);
 
     return card({ class: 'card--quiet' }, [
       cardHeader('Transactions with no file', [

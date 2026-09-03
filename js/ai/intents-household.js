@@ -10,7 +10,7 @@
  * `ctx` carries.
  */
 
-import { format } from '../core/money.js';
+import { format, addable } from '../core/money.js';
 import { range, formatDay, today, daysUntil } from '../core/dates.js';
 import * as fin from '../domain/finance.js';
 import { reviewGoals, describeGoal } from '../domain/goals.js';
@@ -108,7 +108,7 @@ export const householdIntents = [
         return { text: 'Nothing has been recorded as bought, and no receipts are stored.' };
       }
       const recent = [...purchases].sort((a, b) => String(b.boughtOn).localeCompare(String(a.boughtOn)))[0];
-      const spent = receipts.reduce((n, r) => n + (r.amount ?? 0), 0);
+      const spent = receipts.reduce((n, r) => n + addable(r.amount), 0);
       return {
         text: `${purchases.length} purchase${purchases.length === 1 ? '' : 's'} recorded`
           + (recent?.item ? `, the latest being ${recent.item}` : '')

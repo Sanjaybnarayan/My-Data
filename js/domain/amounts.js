@@ -25,6 +25,25 @@
  * fault this application has already been bitten by twice — a number that is
  * quietly about less than it claims.
  *
+ * ## What that sentence was true of, for a long time
+ *
+ * One private helper in `domain/categorise.js`, and nothing else. `totals()`,
+ * `byCategory()` and `accountBalances()` — the figures the finance screen
+ * actually shows — still added with `?? 0`, which admits a string, so a month
+ * containing one hand-edited row reported spending of `'2500000twenty
+ * thousand'` and a balance of `null`. The string above was quoted here as the
+ * thing that had been fixed while it was still what the screen printed.
+ *
+ * The worst part was not the arithmetic. `describeUnreadable()` was already
+ * shown beside those figures saying the row was **not** in these totals, and
+ * it was in them. A disclosure that is false is worse than none, because it is
+ * believed — and the test covering it passed throughout, because it tested
+ * `summarise` in `categorise.js`, the one place the fix had landed.
+ *
+ * `addable()` in `core/money.js` is the guard, `sum` uses it, and nineteen
+ * call sites that kept their own running totals now do too. A ratchet in
+ * `tests/amounts.test.mjs` refuses the `?? 0` spelling anywhere under `js/`.
+ *
  * This is the other half. Nothing here fixes a row or guesses at it; it counts
  * what could not be read so a screen can say so.
  */

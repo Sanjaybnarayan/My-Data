@@ -40,6 +40,7 @@
  * means.
  */
 
+import { addable } from '../core/money.js';
 import { nextMonth, today as todayOf } from '../core/dates.js';
 
 /** What a month's payments came to, against what was agreed. */
@@ -110,7 +111,7 @@ export function reconcile(staff, payments = [], today = todayOf(), leave = []) {
   const months = [];
   for (let month = from; month <= to; month = nextMonth(month)) {
     const inMonth = dated.filter((row) => monthOf(row.date) === month);
-    const paid = inMonth.reduce((sum, row) => sum + Math.abs(row.amount ?? 0), 0);
+    const paid = inMonth.reduce((sum, row) => sum + Math.abs(addable(row.amount)), 0);
 
     // Skipped rather than pro-rated — see the header. The reason travels with
     // the row, because "not judged" without a why is a screen going quiet.

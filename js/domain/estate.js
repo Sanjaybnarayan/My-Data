@@ -50,6 +50,7 @@
  * known here — because an unknown amount is a gap, not a zero.
  */
 
+import { addable } from '../core/money.js';
 import { compareValue, AGREEMENT } from './kycconflict.js';
 import { ENVELOPE_PREFIX } from '../security/crypto.js';
 
@@ -284,7 +285,7 @@ export function estate(data) {
     nominations: recorded,
     groups: nomineeGroups(data),
     gaps,
-    atStake: gaps.reduce((total, gap) => total + (gap.amount ?? 0), 0),
+    atStake: gaps.reduce((total, gap) => total + addable(gap.amount), 0),
     valueUnknown: gaps.filter((gap) => gap.amount === null).length,
     unresolved: recorded.filter((row) => !row.person).length,
     // Records this could not read at all — see `sealed` above. Never folded

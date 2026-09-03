@@ -25,7 +25,7 @@ import {
 } from '../domain/tree.js';
 import { upcomingDates } from '../domain/reminders.js';
 import { formatDay, ageOn, today, relativeDays } from '../core/dates.js';
-import { format as formatMoney } from '../core/money.js';
+import { format as formatMoney, addable } from '../core/money.js';
 import { reconcile, disagreements } from '../domain/staffpay.js';
 
 const TABS = [
@@ -229,7 +229,7 @@ function staffPay({ payments, agreed, staff, leave }) {
 
     payments.length
       ? h('div', { class: 'list' }, payments.slice(0, 6).map((row) => listItem({
-        title: formatMoney(Math.abs(row.amount ?? 0)),
+        title: formatMoney(Math.abs(addable(row.amount))),
         subtitle: formatDay(row.date),
       })))
       : h('p', { class: 'small muted' },

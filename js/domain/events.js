@@ -42,6 +42,8 @@
  *     would destroy source data to tidy a screen.
  */
 
+import { addable } from '../core/money.js';
+
 const DAY = 24 * 60 * 60 * 1000;
 
 /**
@@ -667,5 +669,5 @@ export function recordedMovements(transactions) {
 }
 
 function sumOf(legs) {
-  return legs.reduce((total, leg) => total + (leg.amount ?? 0), 0);
+  return legs.reduce((total, leg) => total + addable(leg.amount), 0);
 }
