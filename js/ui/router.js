@@ -124,12 +124,6 @@ export class Router {
     const loader = this.#routes.get(route.module) ?? this.#fallback;
     if (!loader) return null;
 
-    // Tear the previous view down before the next one mounts: a module that
-    // subscribed to the bus must unsubscribe, or every navigation leaks a
-    // listener and the tenth visit renders ten times.
-    this.#teardown?.();
-    this.#teardown = null;
-
     // A dialog is mounted on `document.body`, so replacing the outlet's
     // children leaves it standing over whatever the next screen turns out to
     // be — scroll still locked, focus still trapped, and a confirmation's
@@ -149,6 +143,28 @@ export class Router {
         view?.destroy?.();
         return null;
       }
+
+      /*
+       * Tear the previous view down here, and not before the render.
+       *
+       * A module that subscribed to the bus must unsubscribe, or every
+       * navigation leaks a listener and the tenth visit renders ten times.
+       * That was done first, at the top of this method — which was fine for
+       * every navigation that worked and wrong for the ones that did not.
+       *
+       * `replaceChildren` is below and runs only on success, so a render that
+       * throws deliberately leaves the previous screen up rather than blanking
+       * the app. But its teardown had already run, so what stayed on display
+       * was a dead screen: it looked live, its subscriptions were gone, and it
+       * would never update again. The household's evidence that anything was
+       * wrong was a toast that expires.
+       *
+       * Nothing is torn down now until there is something to replace it with.
+       * The old view stays subscribed for the length of the new render, which
+       * costs one repaint of a node about to be discarded.
+       */
+      this.#teardown?.();
+      this.#teardown = null;
 
       this.#outlet.replaceChildren();
       if (view?.node) {

@@ -49,6 +49,7 @@ const IN_PAGE = Object.freeze({
   modal: './js/ui/components/modal.js',
   toast: './js/ui/components/toast.js',
   dom: './js/ui/dom.js',
+  wellbeing: './js/modules/wellbeing.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -6824,6 +6825,75 @@ async function main() {
       // markup and in a review, and resolves to no element at run time.
       check('every label and aria reference points at an element that exists',
         dangling.length === 0, [...new Set(dangling)].slice(0, 6).join(' | '));
+    }
+
+    /* --------------------------------------- a screen that fails to open */
+
+    /*
+     * What is left on display when a module's render throws.
+     *
+     * The whole walk asserts that no screen throws. Nothing asked what happens
+     * when one does — and the answer was worse than it looked. `resolve()`
+     * calls `replaceChildren` only after a successful render, so the previous
+     * screen deliberately stays up rather than the app going blank. But the
+     * previous view's `destroy` had already run at the top of the method, so
+     * what stayed up was a dead screen: still drawn, no longer subscribed to
+     * `dataChanged`, and never updating again. The only sign was a toast.
+     *
+     * Driven rather than reasoned about: a throwing loader is registered on a
+     * spare route, and the check is whether the screen behind it still reacts
+     * to a record being written.
+     */
+    {
+      await go(page, '#/finance/account');
+      await page.waitForTimeout(400);
+      const before = await page.locator('.list-item, tbody tr').count();
+
+      const failed = await page.evaluate(async ([spec, wellbeing]) => {
+        const { app } = await import(spec);
+        app().router.register('wellbeing', () => { throw new Error('deliberate'); });
+        globalThis.location.hash = '#/wellbeing';
+        await new Promise((r) => setTimeout(r, 600));
+        const out = {
+          outletEmpty: !document.querySelector('.app-content')?.children.length,
+          toast: Boolean(document.querySelector('.toast')),
+        };
+        // Put the real loader back before anything else runs. The first
+        // version of this left the throwing one registered and took ten
+        // later checks down with it — every wellbeing assertion after this
+        // point, plus the accessibility walk that opens every module.
+        app().router.register('wellbeing', () => import(wellbeing));
+        return out;
+      }, [IN_PAGE.context, IN_PAGE.wellbeing]);
+
+      check('a screen that throws does not blank the one behind it',
+        !failed.outletEmpty, 'the outlet was emptied');
+      check('and says so rather than failing silently', failed.toast);
+
+      // The half that was broken. A write goes into the store the surviving
+      // screen is listening to; if its subscription was torn down before the
+      // failed render, the row never appears and the household is looking at a
+      // screen that has quietly stopped being true.
+      const grew = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        await app().db.repo('account').create({
+          name: 'Router Survivor Bank', kind: 'savings', openingBalance: '1000',
+        });
+        await new Promise((r) => setTimeout(r, 600));
+        return document.body.innerText.includes('Router Survivor Bank');
+      }, IN_PAGE.context);
+
+      check('and the screen left standing is still live, not just still drawn',
+        grew, 'a record written after the failed navigation never reached it');
+
+      // And the route this borrowed is handed back working, so nothing after
+      // it is testing a module this block broke.
+      await go(page, '#/wellbeing');
+      await page.waitForTimeout(500);
+      check('and the borrowed route works again afterwards',
+        (await page.locator('.app-content').innerText()).length > 0
+        && !/could not be opened/i.test(await page.locator('.app-content').innerText()));
+      await go(page, '#/finance/account');
     }
 
     /* ------------------------------------------------ settings, measured */
