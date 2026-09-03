@@ -31,12 +31,14 @@ import { Service, TRANSACTION_LIMIT, transactionsTruncated } from './service.js'
 import { TransfersService } from './transfers.js';
 import * as fin from '../domain/finance.js';
 import { settlementReport } from '../domain/settlement.js';
-import { unreadableAmounts, describeUnreadable } from '../domain/amounts.js';
+import {
+  unreadableAmounts, describeUnreadable, heldRows, describeHeld,
+} from '../domain/amounts.js';
 import { emiBreakdown } from '../domain/amortise.js';
 import { spendByMember } from '../domain/household.js';
 import { fromRecords } from '../domain/ledger.js';
 import { recurring as recurringCharges } from '../domain/categorise.js';
-import { today } from '../core/dates.js';
+import { today, range, withinRange } from '../core/dates.js';
 import { cashRunway } from '../domain/runway.js';
 
 /**
@@ -90,6 +92,30 @@ export function assembleOverview(data, { clock = Date.now } = {}) {
   // no branch. Why any row is unreadable is in `js/domain/amounts.js`.
   const unreadable = describeUnreadable(unreadableAmounts(inMonth));
 
+  /*
+   * And the rows the sync is holding out of the same figures.
+   *
+   * `settled()` keeps a held row out of every total, which on its own is the
+   * silent omission `domain/amounts.js` was written about — the figure is
+   * right about the rows it counted and says nothing about the ones it did
+   * not. This is the sentence that stops it being silent, built here for the
+   * same reason as the one above: the screen carries no branch.
+   *
+   * **Not read from `inMonth`.** `inPeriod` asks `settled()`, so a held row is
+   * already gone by then and `heldRows(inMonth)` is zero however many are
+   * being held — a counter that cannot count, reporting nothing wrong on
+   * exactly the rows it exists for. It reads the month out of the unfiltered
+   * list instead, which is the only place the held rows still are.
+   *
+   * Scoped to the month the figures are about rather than the whole device: a
+   * transaction held from last year is not what makes this month's total
+   * short.
+   */
+  const monthBounds = range('month', clock);
+  const held = describeHeld(heldRows(
+    transactions.filter((one) => !one.deletedAt && withinRange(one.date, monthBounds)),
+  ));
+
   // The other half of the same question. A card bill is counted twice and is
   // simply wrong; an EMI is counted once and is correct — it just conflates a
   // cost with money that moved from cash into a smaller debt. The whole history
@@ -139,6 +165,7 @@ export function assembleOverview(data, { clock = Date.now } = {}) {
     categories: fin.byCategory(inMonth),
     settlement,
     unreadable,
+    held,
     emi,
     byMember,
     // `account.statementDay` and `account.dueDay` are on the account form and

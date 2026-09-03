@@ -574,6 +574,8 @@ export const strings = {
   'profile.settings': 'Settings',
   'profile.settingsHint': 'Security, privacy, connections, display, data',
   'amounts.unreadable.one': 'One record has an amount this device cannot read, so it is not in these totals. Check it in your spreadsheet.',
+  'amounts.held.one': 'One record arrived from another device naming a record this one does not have, so it is not in these totals yet. It appears once the record it names arrives.',
+  'amounts.held.many': '{n} records arrived from another device naming records this one does not have, so they are not in these totals yet. They appear once the records they name arrive.',
   'amounts.unreadable.many': '{n} records have an amount this device cannot read, so they are not in these totals. Check them in your spreadsheet.',
   'assistant.unreadable': 'I could not read your {names} records, so I cannot answer that. This is not the same as having none — something went wrong reading them.',
   'search.keepTyping': 'Keep typing — {n} letters or more to search',

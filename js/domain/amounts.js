@@ -67,3 +67,33 @@ export function describeUnreadable(report) {
     ? t('amounts.unreadable.one')
     : t('amounts.unreadable.many', { n: report.count });
 }
+
+/**
+ * The rows a sync is holding out of the arithmetic.
+ *
+ * The same shape as the pair above and here for the same reason. A held row
+ * names a record this device does not have, so `settled()` keeps it out of
+ * every total — which on its own trades one fault for the other this module
+ * was written about: the figure would be right about the rows it counted and
+ * say nothing about the ones it did not.
+ *
+ * The difference from an unreadable amount is that this one usually fixes
+ * itself: the next pull brings what the row names and the mark clears. So the
+ * sentence says the total will change rather than sending somebody to their
+ * spreadsheet.
+ *
+ * @param {readonly {id?: string, heldAt?: unknown}[]} rows
+ * @returns {{count: number, ids: string[]}}
+ */
+export function heldRows(rows) {
+  const held = (rows ?? []).filter((row) => Boolean(row?.heldAt));
+  return { count: held.length, ids: held.map((row) => row?.id).filter(Boolean) };
+}
+
+/** What to tell somebody about them, or null when there is nothing to tell. */
+export function describeHeld(report) {
+  if (!report?.count) return null;
+  return report.count === 1
+    ? t('amounts.held.one')
+    : t('amounts.held.many', { n: report.count });
+}

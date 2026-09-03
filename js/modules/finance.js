@@ -511,7 +511,7 @@ async function financeOverview() {
     const {
       transactions, loans, balances, compare, series, balanceSeries, runway, truncated,
       categories, settlement, emi, byMember, bills, budgetRows, commitment,
-      transfers, unreadable,
+      transfers, unreadable, held,
     } = await new FinanceService(db).overview();
 
     replace(host, h('div', { class: 'grid grid--wide' }, [
@@ -548,6 +548,16 @@ async function financeOverview() {
           class: settlement.corrected ? 'small money--negative' : 'small faint',
         }, describeSettlement(settlement, compare.current.expense, format)) : null,
         unreadable ? h('p', { class: 'small money--negative' }, unreadable) : null,
+
+        /*
+         * `faint`, not `money--negative`, and the difference is the point.
+         * An unreadable amount is a row somebody has to go and fix. A held row
+         * fixes itself on the next sync that brings what it names, so telling
+         * a household their money is wrong would be a false alarm every time.
+         * It still has to be said: without it the figure above is quietly
+         * about fewer rows than it looks.
+         */
+        held ? h('p', { class: 'small faint' }, held) : null,
 
         // Deliberately `faint` rather than a warning: unlike the card bill,
         // nothing here is wrong. The figure above is a correct cash-flow

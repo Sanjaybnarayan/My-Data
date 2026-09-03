@@ -26,7 +26,7 @@ not by a check.
 | UI-12 | Secondary modules | **MOSTLY_COMPLETE** | `#139`; `docs/SECONDARY_MODULES.md` |
 | UI-13 | Settings | **MOSTLY_COMPLETE** | `#140`; `docs/SETTINGS_SCREEN.md` |
 | UI-14 | Accessibility | **PARTIALLY_COMPLETE** | `#136`, `#137`, `#146`; `docs/UI_ACCESSIBILITY.md`, `docs/KEYBOARD_NAVIGATION.md`, `docs/TEXT_SIZE_AND_ROTATION.md`. See below |
-| UI-15 | Money and figures | **MOSTLY_COMPLETE** | `#138`; `docs/MONEY_ROUNDING.md` |
+| UI-15 | Money and figures | **MOSTLY_COMPLETE** | `#138`; `docs/MONEY_ROUNDING.md`. A held row is now named beside the total it is missing from — see below |
 | UI-16 | Information architecture | **MOSTLY_COMPLETE** | `docs/UI_INFORMATION_ARCHITECTURE.md`, `#143` |
 | UI-17 | Android polish | **PARTIALLY_COMPLETE** | `#141`, `#142`, `#143`, `#144`. See below |
 
@@ -49,6 +49,32 @@ because **the data does not exist**, not because a screen was left unbuilt:
 The `CANNOT_SHOW` lists **are** the completed work: a screen that says which
 of six named reasons applies, rather than one that shows nothing or, worse,
 shows a number it made up.
+
+## A total that is quietly about fewer rows than it looks
+
+`js/domain/amounts.js` was written about one instance of this and states the
+rule in its own words: a figure that is *"right about the rows it could read
+and says nothing about the one it could not"* is **"a number that is quietly
+about less than it claims"**.
+
+Holding unresolved rows out of the arithmetic — the Phase 1 work — created a
+second instance of exactly that, and this is the other half. `heldRows` and
+`describeHeld` are the same pair as `unreadableAmounts` and
+`describeUnreadable`, and the finance overview carries the sentence beside the
+figure rather than leaving the household to reconcile a total that is short.
+
+Two things are deliberately different from its sibling:
+
+- It is `faint`, not `money--negative`. An unreadable amount is a row somebody
+  has to go and fix in their spreadsheet. A held row fixes itself on the next
+  sync that brings what it names, so red would be a false alarm every time.
+- The sentence says the total will change, and does not send anybody looking.
+
+**The first version of the count could not count.** It read the held rows out
+of `inMonth`, which comes from `inPeriod`, which asks `settled()` — so the held
+rows were already gone and the count was zero however many were being held. A
+counter reporting nothing wrong on exactly the rows it exists for. It reads the
+month out of the unfiltered list now, and a test fails if it goes back.
 
 ## The two that are further behind than the rest
 
