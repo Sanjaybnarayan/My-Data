@@ -10,6 +10,7 @@
  */
 
 import { sum, roundMoney } from '../core/money.js';
+import { settled } from '../data/integrity.js';
 import { today, daysBetween, daysUntil } from '../core/dates.js';
 
 /* --------------------------------------------------------------- holdings */
@@ -51,7 +52,7 @@ export function assetClass(kind) {
 export function allocation(holdings) {
   const buckets = new Map();
   for (const holding of holdings) {
-    if (holding.deletedAt || holding.active === false) continue;
+    if (!settled(holding) || holding.active === false) continue;
     const key = assetClass(holding.kind);
     buckets.set(key, (buckets.get(key) ?? 0) + holdingValue(holding));
   }
@@ -66,7 +67,7 @@ export function allocation(holdings) {
 }
 
 export function portfolioSummary(holdings) {
-  const live = holdings.filter((h) => !h.deletedAt && h.active !== false);
+  const live = holdings.filter((h) => settled(h) && h.active !== false);
   const invested = sum(live.map((h) => h.invested ?? 0));
   const value = sum(live.map(holdingValue));
   return {
@@ -101,7 +102,7 @@ export function portfolioSummary(holdings) {
  */
 export function cashFlows(holding, transactions, { asOf = today(), value: closing = null } = {}) {
   const flows = transactions
-    .filter((t) => t.holding === holding.id && !t.deletedAt)
+    .filter((t) => t.holding === holding.id && settled(t))
     .map((t) => {
       const amount = t.amount ?? 0;
       const outward = t.kind === 'buy' || t.kind === 'contribution' || t.kind === 'charge';
@@ -215,7 +216,7 @@ export function cagr(invested, value, years) {
 
 export function dividendIncome(transactions, { from, to } = {}) {
   return sum(transactions
-    .filter((t) => !t.deletedAt)
+    .filter(settled)
     .filter((t) => t.kind === 'dividend' || t.kind === 'interest')
     .filter((t) => (!from || t.date >= from) && (!to || t.date <= to))
     .map((t) => t.amount ?? 0));
@@ -224,7 +225,7 @@ export function dividendIncome(transactions, { from, to } = {}) {
 /** Deposits and bonds coming due, so a maturity is not discovered late. */
 export function maturingSoon(holdings, days = 90) {
   return holdings
-    .filter((h) => !h.deletedAt && h.maturesOn)
+    .filter((h) => settled(h) && h.maturesOn)
     .map((h) => ({ ...h, daysAway: daysUntil(h.maturesOn) }))
     .filter((h) => h.daysAway >= 0 && h.daysAway <= days)
     .sort((a, b) => a.daysAway - b.daysAway);

@@ -55,6 +55,30 @@
 import { entities, entity, entityNames } from './schema.js';
 import { ValidationError } from '../core/errors.js';
 
+/**
+ * A row that may contribute to a figure.
+ *
+ * Two ways it may not. **Deleted** is the old one, written out by hand in
+ * about twenty places across the money modules. **Held** is new: a row that
+ * arrived from a sync naming something that has not, and that the end-of-pull
+ * audit could judge.
+ *
+ * Held rows are still listed, still opened, still theirs — what they may not
+ * do is quietly add themselves to a total. A transaction whose account is not
+ * here shows an account nobody can open, and rule 57 says a financial event
+ * must be explainable; a figure it contributed to would be one the household
+ * cannot trace to anything. So it is shown and marked, and left out of the
+ * arithmetic until what it names arrives.
+ *
+ * It is one predicate rather than `!row.deletedAt && !row.heldAt` repeated,
+ * because the repeated version is what let `heldAt` be forgotten in nineteen
+ * of twenty places the first time somebody adds a third reason.
+ */
+export const settled = (row) => Boolean(row) && !row.deletedAt && !row.heldAt;
+
+/** @template T @param {T[]} rows @returns {T[]} */
+export const onlySettled = (rows) => (rows ?? []).filter(settled);
+
 /** Every `ref` and `multiref` field on an entity, with what it points at. */
 export function referenceFieldsOf(entityName) {
   const def = entities[entityName];

@@ -343,6 +343,21 @@ export async function recordDetail(entityName, id, options = {}) {
       ]))
       : null,
 
+    /*
+     * Said here, on the record, rather than only counted on the activity card.
+     *
+     * A held row is shown and does not add itself to any total, and somebody
+     * looking at a transaction that is plainly there and plainly missing from
+     * the month's spending is owed the reason on the record rather than a
+     * number somewhere else.
+     */
+    record.heldAt
+      ? card({ class: 'card--quiet' }, h('div', { class: 'row' }, [
+        icon('alert', { size: 18 }),
+        h('span', { class: 'small' }, t('record.held')),
+      ]))
+      : null,
+
     h('div', { class: 'grid' }, [...groups].map(([groupName, fields]) => card({}, [
       cardHeader(groupName),
       h('dl', { class: 'stack stack--tight', style: { margin: 0 } },

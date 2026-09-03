@@ -14,7 +14,7 @@ import { entities, entity, referenceFields, referencedIds,
 import { searchIndex, indexEntry } from './search.js';
 import { Chain, verify as verifyChain } from './chain.js';
 import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
-import { danglingIn } from './integrity.js';
+import { danglingIn, unresolved } from './integrity.js';
 import { rowFilter, readScope } from '../security/rbac.js';
 import { Keyring } from '../security/keyring.js';
 import { deviceId as resolveDeviceId } from '../core/ids.js';
@@ -444,6 +444,18 @@ export class Database {
       this.#pointsAtSomething,
       this.#absenceMeansSomething,
     );
+  }
+
+  /**
+   * The unresolved references of one row, for the hold-and-release path.
+   *
+   * Same predicates as the audit — the same reader's read scope, the same
+   * definition of a row that exists — so a row is never held by one rule and
+   * released by another.
+   */
+  async unresolvedFor(entityName, row) {
+    const bad = await unresolved(entityName, row, this.#pointsAtSomething);
+    return bad.filter((one) => this.#absenceMeansSomething(one.entity));
   }
 
   #everyRow = (entityName) => this.adapter.query(entityName, {});

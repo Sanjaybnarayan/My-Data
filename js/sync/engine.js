@@ -41,6 +41,12 @@ import { bus, TOPIC } from '../core/bus.js';
 import { TransportError } from '../core/errors.js';
 
 const CURSOR_KEY = 'sync.cursors';
+/**
+ * Which rows are held, so releasing them costs nothing on the normal sync
+ * where none are. A scan for held rows would grow with the household's whole
+ * history while the thing it looks for is almost always empty.
+ */
+const HELD_KEY = 'sync.held';
 const FINGERPRINT_KEY = 'sync.schemaFingerprint';
 const LAST_RUN_KEY = 'sync.lastRun';
 
@@ -288,8 +294,40 @@ export class SyncEngine {
       if (!response.more) break;
     }
 
+    const released = await this.#releaseSettled();
     const dangling = await this.#noteDangling(applied);
-    return { pulled, conflicts, dangling };
+    return { pulled, conflicts, dangling, released };
+  }
+
+  /**
+   * Rows held by an earlier pull whose references have since arrived.
+   *
+   * Run before the audit below, so a row held last time and satisfied by this
+   * pull is released rather than counted again — and so the two never disagree
+   * about the same row inside one sync.
+   *
+   * A held row whose entity or record has since gone is dropped from the list
+   * rather than kept forever: there is nothing left to release.
+   */
+  async #releaseSettled() {
+    const held = (await this.#db.meta(HELD_KEY)) ?? [];
+    if (!held.length) return 0;
+
+    const stillHeld = [];
+    let released = 0;
+    for (const { store, id } of held) {
+      if (!entities[store]) continue;
+      const row = await this.#db.adapter.read(store, id);
+      if (!row) continue;
+      const bad = await this.#db.unresolvedFor(store, row).catch(() => null);
+      if (bad === null) { stillHeld.push({ store, id }); continue; }
+      if (bad.length) { stillHeld.push({ store, id }); continue; }
+      await this.#db.repo(store).setHeld(id, null);
+      released += 1;
+    }
+
+    await this.#db.setMeta(HELD_KEY, stillHeld);
+    return released;
   }
 
   /**
@@ -301,11 +339,25 @@ export class SyncEngine {
    * household really has. `data/integrity.js` sets that out and calls it a real
    * weakening.
    *
-   * The weakening is in the *refusing*, though, and this does not refuse. It
-   * waits until the pull has finished — at which point "it might still be
-   * coming" has expired — and records what is still pointing at nothing, so
-   * the household hears about it from the activity card instead of meeting it
-   * on a screen that says "unknown".
+   * The weakening was in the *refusing*, and this now refuses — in the only
+   * way that does not destroy a record.
+   *
+   * **Dropping the row was never available.** Measured: a transaction naming
+   * an account arrives in one pull and the account in the next, because the
+   * other device wrote it a moment after this pull read its cursor. Discarding
+   * at the end of the first pull loses the transaction for good — the server's
+   * cursor has moved past it and no later pull brings it back.
+   *
+   * So the row is **held**: kept, listed, openable, and marked `heldAt` so it
+   * contributes to no total. `settled()` in `data/integrity.js` is the one
+   * predicate the money modules ask, beside the deleted check they already
+   * made. Rule 57 says a financial event must be explainable, and a figure
+   * built partly from a transaction whose account nobody can open is one the
+   * household cannot trace to anything.
+   *
+   * Held is never permanent and never silent. `#releaseSettled` clears the
+   * mark on the next pull that brings what the row names, and the diagnostic
+   * on the activity card says how many are being left out.
    *
    * Deletions are not examined. A row that arrived deleted is a tombstone, and
    * a tombstone's references are nobody's problem.
@@ -319,6 +371,21 @@ export class SyncEngine {
     try {
       const broken = await this.#db.danglingAmong(applied);
       if (!broken.length) return 0;
+
+      // Held before the diagnostic is written, so a household reading the
+      // count is reading rows that are already out of the arithmetic rather
+      // than a warning about rows still in it.
+      const held = (await this.#db.meta(HELD_KEY)) ?? [];
+      const keys = new Set(held.map((one) => `${one.store}:${one.id}`));
+      const at = new Date(this.#clock()).toISOString();
+      for (const one of broken) {
+        await this.#db.repo(one.entity).setHeld(one.id, at);
+        if (!keys.has(`${one.entity}:${one.id}`)) {
+          keys.add(`${one.entity}:${one.id}`);
+          held.push({ store: one.entity, id: one.id });
+        }
+      }
+      await this.#db.setMeta(HELD_KEY, held);
 
       await recordDiagnostic(this.#db.adapter, {
         kind: KIND.reference,

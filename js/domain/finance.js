@@ -11,6 +11,7 @@
  */
 
 import { sum, changePercent, divide } from '../core/money.js';
+import { settled, onlySettled } from '../data/integrity.js';
 import { t } from '../core/locale.js';
 import { cardBills, isBillableCard } from './cards.js';
 import { subscriptionBills, commitmentSummary } from './commitments.js';
@@ -23,7 +24,7 @@ import {
 export function inPeriod(transactions, period, clock = Date.now) {
   const bounds = typeof period === 'string' ? range(period, clock) : period;
   if (!bounds) return [];
-  return transactions.filter((t) => !t.deletedAt && withinRange(t.date, bounds));
+  return transactions.filter((t) => settled(t) && withinRange(t.date, bounds));
 }
 
 /**
@@ -34,9 +35,20 @@ export function inPeriod(transactions, period, clock = Date.now) {
 export const isSpending = (t) => t.kind === 'expense';
 export const isIncome = (t) => t.kind === 'income';
 
+/*
+ * Both of these filter, rather than trusting the caller to have done it.
+ *
+ * They took whatever array they were handed and added it up. In practice
+ * `inPeriod` was always upstream and did the filtering, so nothing was wrong —
+ * but that made the guarantee a property of the call sites rather than of the
+ * two functions that actually add money, and a deleted row reached a total the
+ * moment somebody called either one directly. A held row did too, which is how
+ * this was found.
+ */
 export function totals(transactions) {
-  const expense = sum(transactions.filter(isSpending).map((t) => t.amount));
-  const income = sum(transactions.filter(isIncome).map((t) => t.amount));
+  const live = onlySettled(transactions);
+  const expense = sum(live.filter(isSpending).map((t) => t.amount));
+  const income = sum(live.filter(isIncome).map((t) => t.amount));
   return { income, expense, net: income - expense };
 }
 
@@ -44,7 +56,7 @@ export function totals(transactions) {
 export function byCategory(transactions, { kind = 'expense' } = {}) {
   const buckets = new Map();
   for (const t of transactions) {
-    if (t.kind !== kind) continue;
+    if (!settled(t) || t.kind !== kind) continue;
     buckets.set(t.category || 'other', (buckets.get(t.category || 'other') ?? 0) + (t.amount ?? 0));
   }
   return [...buckets]
@@ -81,7 +93,7 @@ export function monthlySeries(transactions, monthsBack = 6, clock = Date.now) {
   for (let i = 0; i < monthsBack; i++) {
     const from = addMonths(start, i);
     const bounds = { from, to: endOfMonth(from) };
-    const rows = transactions.filter((t) => !t.deletedAt && withinRange(t.date, bounds));
+    const rows = transactions.filter((t) => settled(t) && withinRange(t.date, bounds));
     out.push({
       month: from.slice(0, 7),
       label: formatDay(from, { withYear: false }).replace(/^\d+ /, ''),
@@ -173,7 +185,7 @@ export function accountBalances(accounts, transactions) {
   const balances = new Map(accounts.map((a) => [a.id, a.openingBalance ?? 0]));
 
   for (const t of transactions) {
-    if (t.deletedAt) continue;
+    if (!settled(t)) continue;
     const amount = t.amount ?? 0;
     if (t.kind === 'income') {
       balances.set(t.account, (balances.get(t.account) ?? 0) + amount);
@@ -240,12 +252,12 @@ export function budgetStatus(budgets, transactions, { month = today() } = {}) {
   const spent = new Map();
 
   for (const t of transactions) {
-    if (t.deletedAt || !isSpending(t) || !withinRange(t.date, bounds)) continue;
+    if (!settled(t) || !isSpending(t) || !withinRange(t.date, bounds)) continue;
     spent.set(t.category, (spent.get(t.category) ?? 0) + (t.amount ?? 0));
   }
 
   return budgets
-    .filter((b) => !b.deletedAt)
+    .filter(settled)
     .map((b) => {
       const used = spent.get(b.category) ?? 0;
       const limit = perMonth(b);
@@ -314,7 +326,7 @@ export function upcomingBills(recurring, loans, {
   const out = [];
 
   for (const r of recurring) {
-    if (r.deletedAt || r.active === false) continue;
+    if (!settled(r) || r.active === false) continue;
     if (!r.nextDueOn || r.nextDueOn > horizon) continue;
     out.push(asBill({
       id: r.id,
@@ -335,7 +347,7 @@ export function upcomingBills(recurring, loans, {
   }
 
   for (const loan of loans) {
-    if (loan.deletedAt || !loan.emiAmount || !loan.emiDay) continue;
+    if (!settled(loan) || !loan.emiAmount || !loan.emiDay) continue;
     if (loan.endsOn && loan.endsOn < from) continue;
     const due = nextEmiDate(loan.emiDay, from);
     if (due > horizon) continue;
@@ -491,7 +503,7 @@ export function billsInRange(recurring, loans, {
   }));
 
   for (const r of recurring ?? []) {
-    if (r.deletedAt || r.active === false || !r.nextDueOn) continue;
+    if (!settled(r) || r.active === false || !r.nextDueOn) continue;
 
     for (let n = 0; n < LIMIT; n += 1) {
       const dueOn = occurrence(r.nextDueOn, r.frequency, n);
@@ -533,7 +545,7 @@ export function billsInRange(recurring, loans, {
   }
 
   for (const loan of loans ?? []) {
-    if (loan.deletedAt || !loan.emiAmount || !loan.emiDay) continue;
+    if (!settled(loan) || !loan.emiAmount || !loan.emiDay) continue;
 
     let due = nextEmiDate(loan.emiDay, from);
     for (let n = 0; n < LIMIT && due <= to; n += 1) {
@@ -715,11 +727,11 @@ export function committedMonthlyOutflow(recurring, loans) {
   };
 
   const recurringTotal = sum(recurring
-    .filter((r) => !r.deletedAt && r.active !== false && r.kind !== 'salary')
+    .filter((r) => settled(r) && r.active !== false && r.kind !== 'salary')
     .map(perMonthAmount));
 
   const emiTotal = sum(loans
-    .filter((l) => !l.deletedAt && l.emiAmount && (!l.endsOn || daysUntil(l.endsOn) > 0))
+    .filter((l) => settled(l) && l.emiAmount && (!l.endsOn || daysUntil(l.endsOn) > 0))
     .map((l) => l.emiAmount));
 
   return recurringTotal + emiTotal;

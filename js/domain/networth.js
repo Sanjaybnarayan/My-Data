@@ -23,6 +23,7 @@
  */
 
 import { sum } from '../core/money.js';
+import { settled } from '../data/integrity.js';
 import { accountBalances } from './finance.js';
 import { holdingValue } from './portfolio.js';
 import { monthsBetween, today } from '../core/dates.js';
@@ -72,7 +73,7 @@ export function netWorth(data, { clock = Date.now } = {}) {
     properties = [], vehicles = [], loans = [],
   } = data;
 
-  const live = (rows) => rows.filter((r) => !r.deletedAt);
+  const live = (rows) => rows.filter(settled);
 
   /**
    * Rows whose valuation is real but old, with the age said on each.
@@ -167,8 +168,8 @@ export function netWorthByPerson(data, people) {
   const bucket = (id) => byPerson.get(id) ?? unattributed;
 
   const withBalances = accountBalances(
-    data.accounts.filter((a) => !a.deletedAt),
-    data.transactions.filter((t) => !t.deletedAt),
+    data.accounts.filter(settled),
+    data.transactions.filter(settled),
   );
 
   for (const account of withBalances) {
@@ -178,13 +179,13 @@ export function netWorthByPerson(data, people) {
     else target.assets += account.balance;
   }
 
-  for (const holding of data.holdings.filter((h) => !h.deletedAt && h.active !== false)) {
+  for (const holding of data.holdings.filter((h) => settled(h) && h.active !== false)) {
     bucket(holding.owner).assets += holdingValue(holding);
   }
-  for (const property of data.properties.filter((p) => !p.deletedAt)) {
+  for (const property of data.properties.filter(settled)) {
     bucket(property.owner).assets += property.currentValue || property.purchasePrice || 0;
   }
-  for (const loan of data.loans.filter((l) => !l.deletedAt)) {
+  for (const loan of data.loans.filter(settled)) {
     bucket(loan.borrower).liabilities += loan.outstanding ?? 0;
   }
 

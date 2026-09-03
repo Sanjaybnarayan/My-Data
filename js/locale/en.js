@@ -462,7 +462,8 @@ export const strings = {
   'sos.map': 'Map: {url}',
   'sos.accuracy': 'Accurate to about {n} m.',
   'sos.noPosition': 'No position could be read on this device.',
-  'sync.dangling': '{n} record(s) arrived from another device pointing at records this one does not have. Settings \u2192 Data \u2192 Check for broken links.',
+  'record.held': 'This arrived from another device and names a record this one does not have. It is kept and shown, and left out of totals until what it names arrives — a figure it added to would be one nobody could trace.',
+  'sync.dangling': '{n} record(s) arrived from another device naming records this one does not have. They are listed and marked, and left out of totals until what they name arrives. Settings \u2192 Data \u2192 Check for broken links.',
   'safety.somebody': 'This person',
 
   // How coarse a fix is, said in the units a person thinks in.

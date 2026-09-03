@@ -91,6 +91,51 @@ has, to satisfy an ordering nobody promised.
 arrive.** A dangling reference can still enter this database through a sync from
 a device running an older version.
 
+### What a pull refuses, and what it cannot
+
+It refuses to let the row count. It does not refuse the row.
+
+**Dropping was never available, and this is the measurement that settles it.**
+A transaction naming an account arrives in one pull and the account in the
+next, because the other device wrote it a moment after this pull read its
+cursor:
+
+```
+pull 1: {"pulled":1,"dangling":1}   reference resolves? false
+pull 2: {"pulled":1,"dangling":0}   reference resolves? true
+```
+
+Discarding at the end of pull 1 loses the transaction for good — the server's
+cursor has moved past it and no later pull brings it back. Anything calling
+itself a refusal has to survive that.
+
+So a row whose reference the end-of-pull audit can judge and cannot resolve is
+**held**: `heldAt` is stamped on it, and `settled()` in `js/data/integrity.js`
+is the single predicate the money modules ask beside the deleted check they
+already made. The row is still listed, still opened, still the household's. It
+adds itself to no total, because rule 57 says a financial event must be
+explainable and a figure built partly from a transaction whose account nobody
+can open is one nobody can trace.
+
+Held is neither permanent nor silent:
+
+- The next pull that brings what the row names releases it, and the release
+  runs before the audit so the same pull cannot hold and re-hold one row.
+- The record screen says so on the record, not only as a count elsewhere.
+- The activity card gives the number being left out.
+
+`settled()` replaced about twenty hand-written `!row.deletedAt` checks across
+`finance.js`, `networth.js` and `portfolio.js`. That was not tidiness: `heldAt`
+is a second reason, and adding it to twenty conditions by hand is how nineteen
+of them keep the old meaning. A test asserts that a module which imports the
+predicate does not also spell the check out beside it.
+
+Two functions gained a filter they never had. `totals()` and `byCategory()`
+added up whatever array they were handed and trusted `inPeriod` to have
+filtered first. It always had, so nothing was wrong — but the guarantee lived
+in the call sites rather than in the two functions that add the money, and a
+deleted row reached a total the moment somebody called either directly.
+
 `danglingIn()` is the other half of that admission: it walks every entity with
 references and reports the broken ones, so a household can be shown them rather
 than meeting one on a screen that says "unknown". Each finding names two
@@ -135,5 +180,5 @@ which is offline-first for reasons that have not changed. That needs a hosting
 decision, and it has not been made.
 
 Until it is, this document's claim is narrow and deliberate: **referential
-integrity is enforced on local writes, is not enforced on sync, and there is no
-relational database.**
+integrity is enforced on local writes; a pull refuses to let an unresolved row
+count but never refuses the row; and there is no relational database.**
