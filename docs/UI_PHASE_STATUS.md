@@ -76,6 +76,33 @@ rows were already gone and the count was zero however many were being held. A
 counter reporting nothing wrong on exactly the rows it exists for. It reads the
 month out of the unfiltered list now, and a test fails if it goes back.
 
+## A screen that failed to open left a dead one behind it
+
+Not an accessibility fault and not in any phase's gap list, but it belongs
+here because of how it hid. The whole browser walk asserts that no screen
+throws. Nothing asked what happens when one does.
+
+`Router#resolve` calls `replaceChildren` only after a successful render, so a
+failed navigation deliberately leaves the previous screen up rather than
+blanking the application. That part was right. The previous view's `destroy`
+ran at the top of the method though, before the loader and the render that
+might throw — so what stayed on display was **still drawn and no longer
+subscribed**. A record saved on another device, or by the household on the
+very next tap, would not appear on it, and the only sign anything had gone
+wrong was a toast that expires.
+
+Nothing is torn down now until there is something to replace it with.
+
+The check is worth reading for what it does *not* assert. That the outlet is
+not blanked, and that a toast appears, were both already true of the broken
+version — a check made of those two would have passed against the fault it was
+written for. The one that matters writes a record after the failed navigation
+and asks whether the surviving screen reacts to it: still *live*, not merely
+still drawn.
+
+Measured, by putting the teardown back where it was: **one failure out of 729,
+and it is that one.** The other three assertions passed against the bug.
+
 ## The two that are further behind than the rest
 
 **UI-14, accessibility.** Heading order and accessible names were fixed across
@@ -89,9 +116,30 @@ name, a role, a level — and none is a claim about what somebody hears. The
 carried `role="button"` correctly and answered only a pointer, and no
 markup check would have caught it.
 
-Six more since, and the pattern in all of them is that the fault was in the
+Seven more since, and the pattern in all of them is that the fault was in the
 half a markup check can see while every existing check was reading text
 instead.
+
+**The seventh was not in a screen at all — it was in where the walk looked.**
+Every route the accessibility walk visited was a list: module screens and
+entity list screens. The forms carry almost every control in the application,
+617<!--live:fields--> fields across 53<!--live:entities--> entities, and none
+of the checks had ever opened one. So *every control a person can operate has
+an accessible name* was true of the screens with the fewest controls on them.
+
+What was sitting there: **31 fields whose `<label for>` pointed at an id no
+element carried.** Four field types build a chip group or a sentence about
+attachments rather than an input, so nothing holds the id the label names.
+Clicking the label did nothing, where every other field's label focuses its
+control; for a `multiref` the name was announced twice, once as loose text and
+once by the group that repeats it. Those controls had no `aria-describedby`
+either, so a refused `multiref` showed a red line nothing pointed at.
+
+The fix asks the tree rather than keeping a list of field types — a list is
+what goes wrong. The walk opens all 53 forms now, and a new check follows every
+`label[for]`, `aria-labelledby`, `aria-describedby`, `aria-controls` and
+`aria-owns` to an element that exists. A reference to nothing does not fail: it
+resolves to nothing, and reads as a label in a review.
 
 In `js/ui/components/toast.js`, the **Undo after deleting a record expired in
 four seconds** and its action was never announced at all — so the only way back
