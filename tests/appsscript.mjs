@@ -20,6 +20,9 @@
  */
 
 import { createHash } from 'node:crypto';
+
+/** The real `Date`, kept before any stub shadows it. */
+const OriginalDate = Date;
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -89,18 +92,25 @@ export function loadAppsScript(files, globals, exports) {
  * nothing — so a test that forgets the fixture fails on the missing workbook
  * rather than quietly exercising a different path.
  *
+ * `now` is injectable because the cache expires against it, and expiry is a
+ * security property of a one-time code rather than a detail: how long a code
+ * stays usable, and whether anything a caller does extends that, cannot be
+ * asked at all without moving the clock.
+ *
  * @param {{owner?: string, tokens?: Record<string, object>, properties?: object,
  *          driveFiles?: Record<string, object>, files?: string[],
- *          workbook?: object|null, randomBytes?: () => number[]}} setup
+ *          workbook?: object|null, randomBytes?: () => number[],
+ *          now?: () => number}} setup
  */
 export function backend({
   owner = 'owner@example.com', tokens = {}, properties = {},
   driveFiles = {}, files = ['Policy.gs', 'Code.gs', 'Drive.gs'],
   workbook = null,
   randomBytes = () => [0, 0, 0, 0],
+  now = () => Date.now(),
 } = {}) {
   const props = propertyStore(properties);
-  const cache = cacheStore();
+  const cache = cacheStore({ now });
   const fetched = [];
   const logged = [];
   const mailed = [];
@@ -228,6 +238,26 @@ export function backend({
     },
     GmailApp: {},
     console: { log: (...args) => logged.push(args.join(' ')), warn() {}, error() {} },
+
+    /*
+     * One clock for the script and the cache it writes to.
+     *
+     * `Otp.gs` reads `Date.now()` to work out how much life a code has left,
+     * and the cache stub expires against the injected `now`. Left unbound, the
+     * script read the real clock while the cache read the test's — two clocks,
+     * so a test that moved time forward moved it for only one of them and
+     * could not observe expiry at all. A stub that is less faithful than the
+     * deployment tests something that was never deployed, which is the rule
+     * at the top of this file.
+     */
+    Date: Object.assign(
+      /** @param {any[]} args */
+      function StubDate(...args) {
+        return new (/** @type {any} */ (OriginalDate))(...args);
+      },
+      OriginalDate,
+      { now },
+    ),
   };
 
   // Conditional, because the factory returns an object literal naming every
