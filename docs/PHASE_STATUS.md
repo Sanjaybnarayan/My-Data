@@ -114,7 +114,7 @@ which is the one failure the master brief names above all others.
 
 | What | Why it matters |
 | --- | --- |
-| **Redeploy the Apps Script** | `apps-script/` is source somebody pastes into script.google.com. **3 changes are inert until it happens**, and §8 of `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md` is the list — named there and not copied here, because this cell named two of them for as long as there were two. A test holds that number against §8's own. `docs/SETUP.md` now says how, including why *New deployment* is the wrong button. |
+| **Redeploy the Apps Script** | `apps-script/` is source somebody pastes into script.google.com. **4 changes are inert until it happens**, and §8 of `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md` is the list — named there and not copied here, because this cell named two of them for as long as there were two. A test holds that number against §8's own. `docs/SETUP.md` now says how, including why *New deployment* is the wrong button. |
 | **Set which person you are** | Settings → *Who has agreed to what* → *Household accounts* → *Which person you are*. Until then the backend refuses this account's own chat messages. |
 | **PLAY-01, account deletion** | A Play Console and legal judgement, recorded in `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md`. |
 

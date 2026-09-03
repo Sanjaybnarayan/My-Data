@@ -55,6 +55,18 @@
  * A SHA-256 of the code, salted with the address, never the code itself. Ten
  * minutes. One use. Five wrong attempts and the code is destroyed rather than
  * left to be guessed at leisure.
+ *
+ * **Ten minutes from when it was issued, and a wrong guess does not move
+ * that.** Writing the attempt counter back used to hand the code a fresh ten
+ * minutes, because `cache.put` replaces an entry rather than extending one —
+ * so four wrong guesses, which is what is allowed before the fifth destroys
+ * it, could keep a ten-minute code alive for fifty. The person buying that
+ * time was the person guessing. `issuedAt` is stored so the rewrite can put
+ * back the life the code had left.
+ *
+ * Nothing had ever asked: forty-nine checks covered which codes verify, how
+ * many wrong ones are allowed and what the cache gives away, and not one of
+ * them moved the clock.
  */
 
 /* global CacheService, PropertiesService, MailApp, UrlFetchApp, Utilities, fail */
@@ -260,6 +272,9 @@ function otpRequest(payload) {
       hash: otpHash(address, code),
       personId: person.personId,
       attempts: 0,
+      // When it was issued, so a rewrite of the attempt counter can put back
+      // the life it had left rather than a fresh ten minutes. See `otpVerify`.
+      issuedAt: Date.now(),
     }), OTP_TTL_SECONDS);
 
     if (channel === 'sms') otpSendSms(address, code, Boolean(otpEscrowFor(person.personId)));
@@ -299,7 +314,32 @@ function otpVerify(payload) {
       cache.remove(key);
       throw fail('too many wrong codes — ask for a new one', 429);
     }
-    cache.put(key, JSON.stringify(stored), OTP_TTL_SECONDS);
+
+    /*
+     * Written back with the life it had left, not a fresh ten minutes.
+     *
+     * `cache.put` replaces an entry rather than extending one, so this line
+     * used to hand the code a whole new TTL every time somebody guessed wrong
+     * — and four wrong guesses are allowed before the fifth destroys it. A
+     * code the household was told would last ten minutes could be kept alive
+     * for fifty by the person trying to guess it. A failed attempt must
+     * shorten a secret's life or leave it alone; it must never lengthen it.
+     *
+     * `expiresInSeconds: OTP_TTL_SECONDS` goes back to the caller from
+     * `otpRequest`, so this was a promise the backend made and did not keep.
+     *
+     * A code issued before this change carries no `issuedAt`. It gets one
+     * second, which expires it almost at once: the alternative is to trust an
+     * unknown age, and the safe direction for a secret with no known issue
+     * time is gone rather than kept.
+     */
+    var age = Math.floor((Date.now() - Number(stored.issuedAt || 0)) / 1000);
+    var left = stored.issuedAt ? (OTP_TTL_SECONDS - age) : 1;
+    if (left <= 0) {
+      cache.remove(key);
+      throw fail('that code has expired or was never sent', 401);
+    }
+    cache.put(key, JSON.stringify(stored), left);
     throw fail('that code is not right', 401);
   }
 

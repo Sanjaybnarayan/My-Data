@@ -15,7 +15,12 @@ const DIRECTORY = JSON.stringify([
  * never returns it — that is the property under test — so a test that could
  * not choose it could only assert the shape of something it never sees.
  */
-function withOtp({ digits = 123456, properties = {} } = {}) {
+/**
+ * @param {{digits?: number, properties?: object, now?: () => number}} [setup]
+ *   `now` is the clock both the script and its cache read, for the expiry
+ *   checks below — see `backend` in `appsscript.mjs` for why they must share.
+ */
+function withOtp({ digits = 123456, properties = {}, now = undefined } = {}) {
   const n = digits;
   return backend({
     files: ['Policy.gs', 'Code.gs', 'Otp.gs'],
@@ -23,6 +28,7 @@ function withOtp({ digits = 123456, properties = {} } = {}) {
     randomBytes: () => [
       (n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff,
     ],
+    ...(now ? { now } : {}),
   });
 }
 
@@ -193,6 +199,74 @@ describe('what is kept', () => {
       assert.not(decoded.includes('asha'), `the address decoded out of ${key}`);
       assert.not(decoded.includes('example.com'), `the address decoded out of ${key}`);
     }
+  });
+});
+
+describe('how long a code stays usable', () => {
+  /*
+   * Nothing asked this before. Forty-nine checks cover which codes verify,
+   * how many wrong ones are allowed and what the cache gives away, and not one
+   * of them moves the clock — so the ten-minute life of a code, which is the
+   * whole reason a six-digit secret is safe to send through a mailbox, was
+   * asserted nowhere.
+   */
+  const ADDRESS = 'asha@example.com';
+  const CODE = codeFor(123456);
+
+  test('a code dies at the ten minutes it was issued for', () => {
+    let clock = 1_000_000_000_000;
+    const api = withOtp({ now: () => clock });
+
+    const sent = api.post('otp.request', '', { channel: 'email', address: ADDRESS });
+    assert.equal(sent.data.expiresInSeconds, 600);
+
+    clock += 599_000;
+    const still = api.post('otp.verify', '', { address: ADDRESS, code: CODE });
+    assert.equal(still.ok, true, JSON.stringify(still));
+    assert.equal(still.data.verified, true);
+  });
+
+  test('and is gone once they have passed', () => {
+    let clock = 1_000_000_000_000;
+    const api = withOtp({ now: () => clock });
+    api.post('otp.request', '', { channel: 'email', address: ADDRESS });
+
+    clock += 601_000;
+    const out = api.post('otp.verify', '', { address: ADDRESS, code: CODE });
+    assert.equal(out.ok, false, JSON.stringify(out));
+    assert.equal(/expired|never sent/.test(out.error), true, out.error);
+  });
+
+  /*
+   * The one that found something.
+   *
+   * `otpVerify` writes the attempt counter back with `cache.put(key, ...,
+   * OTP_TTL_SECONDS)`, and that call does not extend an existing entry — it
+   * replaces it with a fresh ten minutes. So every wrong guess bought the code
+   * another full lifetime, and four of them are allowed before the fifth
+   * destroys it. A code the household was told would last ten minutes could be
+   * kept alive for fifty by the very person trying to guess it, which is the
+   * wrong way round: a failed attempt should shorten a secret's life, never
+   * lengthen it.
+   *
+   * `expiresInSeconds: 600` is returned to the caller, so this was also a
+   * claim the backend made and then did not keep.
+   */
+  test('and a wrong guess does not buy it more time', () => {
+    let clock = 1_000_000_000_000;
+    const api = withOtp({ now: () => clock });
+    api.post('otp.request', '', { channel: 'email', address: ADDRESS });
+
+    // Nine minutes in, somebody guesses wrong.
+    clock += 540_000;
+    const wrong = api.post('otp.verify', '', { address: ADDRESS, code: '000000' });
+    assert.equal(/not right/.test(wrong.error), true, wrong.error);
+
+    // Two minutes later the code is eleven minutes old and must be gone.
+    clock += 120_000;
+    const out = api.post('otp.verify', '', { address: ADDRESS, code: CODE });
+    assert.equal(out.ok, false,
+      'a wrong guess extended the code past the ten minutes it was issued for');
   });
 });
 

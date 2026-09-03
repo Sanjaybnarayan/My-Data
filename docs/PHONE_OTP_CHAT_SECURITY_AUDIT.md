@@ -528,6 +528,35 @@ until it is redeployed.
 2. **OTP-01** — take the script lock around the pre-auth one-time-code path.
    Written and tested here; inert everywhere until the same redeploy.
 3. **LOCK-01** — `withLock` now takes `getScriptLock()` too. Same redeploy.
+4. **OTP-02** — a wrong guess no longer buys the code more time. Same redeploy.
+
+---
+
+### OTP-02 · MEDIUM · a failed attempt extended the life of the code it failed against
+
+`otpVerify` writes the attempt counter back after a wrong guess. It did that
+with `cache.put(key, …, OTP_TTL_SECONDS)`, and `cache.put` replaces an entry
+rather than extending one — so every wrong guess handed the code a fresh ten
+minutes. Four are allowed before the fifth destroys it, so a code the household
+was told would last ten minutes could be kept alive for fifty, and the person
+buying that time was the person guessing it.
+
+It was also a promise the backend made and did not keep: `otpRequest` returns
+`expiresInSeconds: 600` to the caller.
+
+`issuedAt` is stored with the code now, and the rewrite puts back the life it
+had left. A code from before this change carries no `issuedAt` and gets one
+second, which expires it almost at once — the alternative is to trust an
+unknown age, and for a secret with no known issue time the safe direction is
+gone rather than kept.
+
+**Why nothing caught it.** Forty-nine checks covered which codes verify, how
+many wrong ones are allowed, and what the cache gives away. Not one moved the
+clock, so the ten-minute life of a code — the whole reason a six-digit secret
+is safe to send through a mailbox — was asserted nowhere. Asking the question
+needed the harness's clock made injectable, and needed the script and its cache
+to share it: `Otp.gs` reads `Date.now()` while the cache stub expired against
+the test's clock, so a test that moved time moved it for only one of them.
 
 ---
 
@@ -581,7 +610,7 @@ Following the brief's phase structure, restricted to what exists here:
 | --- | --- | --- |
 | 1 | This audit | **Done** |
 | 2 | Threat model | **Done** (§7) |
-| 3 | OTP security | **OTP-01 done** — this row read *already met* until §10's concurrency requirement was tested rather than read; the escrow is documented in `docs/SIGN_IN_BY_CODE.md` |
+| 3 | OTP security | **OTP-01 and OTP-02 done** — this row read *already met* until §10's concurrency requirement was tested rather than read, and read *done* again until the ten-minute life of a code was tested rather than read: forty-nine checks and not one moved the clock, so a wrong guess buying the code another ten minutes went unseen. The escrow is documented in `docs/SIGN_IN_BY_CODE.md` |
 | 4 | Session / token | TOK-01 **done** |
 | 5 | Android secure storage | TOK-01 **done** in-repo. A Keystore-backed bridge would be stronger still and is not built |
 | 6 | Network security | Already met |
