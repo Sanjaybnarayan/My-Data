@@ -662,6 +662,71 @@ describe('a reference that arrives pointing at nothing', () => {
       'the pre-existing breakage vanished, so this proves nothing');
   });
 
+  /*
+   * A reference the reader was never going to receive.
+   *
+   * The audit resolves a reference by reading the local store, and a pull is
+   * filtered by role on the server (`readableEntities` in
+   * `apps-script/Policy.gs`). So for a restricted role a withheld row and a
+   * row that does not exist are the same absence, and the audit was calling
+   * both of them broken.
+   *
+   * 24 reference fields in this schema point from something a child may read
+   * at something they may not — `vehicle.owner`, `relationship.fromPerson`,
+   * `appointment.person`, `education.person` and twenty more — so this was not
+   * an edge: a child's device put a broken-link diagnostic on the activity
+   * card on any sync that brought one of them, telling the household member
+   * least able to judge it that their records were damaged.
+   */
+  test('a reference the reader may not see is not called broken', async () => {
+    const db = await makeDb({ role: 'child', personId: 'per_kid' });
+    const vehicle = {
+      id: 'veh_1', rev: 1, origin: 'dev_b', createdAt: '2025-01-01T00:00:00.000Z',
+      createdBy: 'p1', updatedAt: '2025-01-02T00:00:00.000Z', updatedBy: 'p1',
+      deletedAt: null, schemaVersion: 1,
+      registration: 'KA01AB1234', make: 'Maruti', model: 'Swift', kind: 'car',
+      // A child may read `vehicle` and may not read `person`, so this row was
+      // never sent to them and its absence says nothing.
+      owner: 'per_owner',
+    };
+    const engine = new SyncEngine({ db, transport: pullOf({ vehicle: [vehicle] }) });
+
+    const result = await engine.pullOnce();
+
+    assert.equal(result.pulled, 1, 'the row was not applied, which is a different bug');
+    assert.equal(result.dangling, 0,
+      'a row the server withheld by role was reported as a broken link');
+    assert.length((await db.adapter.query('diagnostics', {}))
+      .filter((e) => e.kind === 'reference'), 0);
+  });
+
+  test('and the reader who would have received it is still told', async () => {
+    /*
+     * The half that decides whether the check above is worth having. Same
+     * rows, same missing person, an owner reading them: an owner's pull is
+     * filtered by nothing, so the absence really is news and silencing it
+     * would have turned the fix into a way of never reporting anything.
+     */
+    const db = await makeDb({ role: 'owner', personId: 'per_owner' });
+    const vehicle = {
+      id: 'veh_1', rev: 1, origin: 'dev_b', createdAt: '2025-01-01T00:00:00.000Z',
+      createdBy: 'p1', updatedAt: '2025-01-02T00:00:00.000Z', updatedBy: 'p1',
+      deletedAt: null, schemaVersion: 1,
+      registration: 'KA01AB1234', make: 'Maruti', model: 'Swift', kind: 'car',
+      owner: 'per_gone',
+    };
+    const engine = new SyncEngine({ db, transport: pullOf({ vehicle: [vehicle] }) });
+
+    const result = await engine.pullOnce();
+
+    assert.equal(result.dangling, 1, 'the owner stopped being told about a real breakage');
+    const noted = (await db.adapter.query('diagnostics', {}))
+      .find((e) => e.kind === 'reference');
+    assert.ok(noted, 'no reference diagnostic for the role that can act on one');
+    assert.equal(noted.entity, 'vehicle');
+    assert.equal(noted.code, 'owner');
+  });
+
   test('and a pull that brings nothing says nothing', async () => {
     // No rows, no scan: the check must not cost anything on the common case
     // of a sync that had nothing to fetch.

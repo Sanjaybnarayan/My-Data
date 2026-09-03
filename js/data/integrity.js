@@ -185,13 +185,27 @@ export function refuseBlocked(entityName, blocked) {
  * refused today, and a household is better told than left to meet one on a
  * screen that says "unknown".
  */
-export async function danglingIn(rowsOf, exists) {
+/**
+ * @param {(entityName: string) => boolean} [judgeable] Whether the absence of
+ * a row of this entity is evidence of anything. It is not, when the signed-in
+ * role may not read that entity in full: pulls are filtered by role, so a
+ * withheld row and a missing row are indistinguishable from here. See
+ * `readScope` in `js/security/rbac.js` for what this was costing.
+ *
+ * Defaults to trusting every absence, which is right for the owner and is what
+ * every caller wanted before roles were in the picture.
+ */
+export async function danglingIn(rowsOf, exists, judgeable = () => true) {
   const out = [];
   for (const name of entityNames()) {
     if (!referenceFieldsOf(name).length) continue;
     for (const row of (await rowsOf(name)) ?? []) {
       if (row?.deletedAt) continue;
       for (const bad of await unresolved(name, row, exists)) {
+        // Not `continue`-ing before `unresolved` runs: the read costs the same
+        // either way, and filtering the findings keeps the one rule in one
+        // place rather than splitting it across the loop and the call.
+        if (!judgeable(bad.entity)) continue;
         // Two identities are in play and they are kept apart deliberately.
         // `entity`/`id` are the row that is broken — the one a household would
         // open to fix it. `points` is what it names and cannot find. Spreading

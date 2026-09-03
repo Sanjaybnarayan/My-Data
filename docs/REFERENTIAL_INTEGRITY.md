@@ -97,6 +97,30 @@ than meeting one on a screen that says "unknown". Each finding names two
 things kept deliberately apart — the row that is broken, and what it points at
 and cannot find.
 
+### What the audit cannot see, and used to report anyway
+
+A reference is resolved by reading the local store. **A row the server withheld
+by role is the same absence as a row that does not exist**, and the audit was
+calling both of them broken.
+
+Pulls are filtered by role on the server — `readableEntities` in
+`apps-script/Policy.gs` is named for it — and 24 reference fields in this schema
+point from something a `child` may read at a person, loan or vault item they may
+not. Measured against the real engine: a child's device pulling one vehicle
+reported `reference/vehicle/owner` and put a broken-link diagnostic on the
+activity card. Every sync that brought a vehicle, a relationship, an appointment
+or an education record did the same, telling the household member least placed
+to judge it that their records were damaged.
+
+So the audit now asks `readScope()` how much of the target entity the signed-in
+role reads. Anything short of `all` — including a child's own-record view of
+`person`, which shows them one row and hides the rest — means a missing target
+is not evidence of anything, and it is skipped. An owner reads everything, so
+an owner's audit is unchanged and still reports the breakage this file is about.
+
+This is also why sync cannot be made to refuse on the current signal, whatever
+the ordering argument. Refusing would have deleted a child's vehicles.
+
 ## What is still missing
 
 The specification's Phase 1 asks for a relational database. This is not one.
