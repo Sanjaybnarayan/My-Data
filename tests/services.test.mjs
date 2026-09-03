@@ -135,6 +135,35 @@ describe('the portfolio question', () => {
     assert.equal(view.rows[0].invested, 100_000);
   });
 
+  test('a trade the sync is holding is left out of invested, and said so', async () => {
+    /*
+     * Two halves, and the second is the one worth having. `costBasis` asks
+     * `settled()`, so a held trade leaves `invested` — that much is asserted
+     * by the arithmetic below. But an exclusion nobody is told about is the
+     * silent omission `domain/amounts.js` exists to prevent, so the sentence
+     * is asserted too, and the screen renders `view.held` verbatim.
+     *
+     * Both readings are taken from one fixture that differs only by the mark,
+     * so neither half can pass on a figure that was never going to move.
+     */
+    const db = await makeDb();
+    const { holding } = await aPortfolio(db);
+    const extra = await db.repo('investmentTransaction').create({
+      holding: holding.id, date: '2026-08-05', kind: 'buy', amount: 60_000, units: 40,
+    });
+
+    const counted = await new PortfolioService(db).overview({ asOf: '2026-08-14' });
+    assert.equal(counted.rows[0].invested, 160_000, 'the fixture does not move the figure');
+    assert.equal(counted.held, null, 'nothing is held yet, so there is nothing to say');
+
+    await db.repo('investmentTransaction').setHeld(extra.id, '2026-09-01T00:00:00.000Z');
+
+    const view = await new PortfolioService(db).overview({ asOf: '2026-08-14' });
+    assert.equal(view.rows[0].invested, 100_000, 'the held trade is still in invested');
+    assert.ok(view.held, 'the trade left the figure and the screen was told nothing');
+    assert.includes(view.held, 'not in these totals yet');
+  });
+
   test('a rate needs two dated flows, and says nothing rather than zero', async () => {
     // The distinction that a rendering test cannot see: `0` reads as "this
     // investment is flat", `null` as "nothing here can say".
@@ -396,6 +425,36 @@ describe('the finance overview, assembled where it can be reached', () => {
     budgets: [], recurring: [], loans: [], subscriptions: [], digitalAssets: [], people: [],
   });
 
+  /**
+   * A card with a cycle and a loan with repayments, so the two figures that
+   * are neither the month nor all of history can be measured.
+   *
+   * `held` marks the large card purchase and the July repayment — one row for
+   * each figure, so a sentence that reported the wrong set is visible as a
+   * sentence that speaks when it should not.
+   */
+  const withCardAndLoan = ({ held }) => ({
+    accounts: [
+      { id: 'a1', name: 'HDFC', kind: 'savings', openingBalance: 50_000_00, deletedAt: null },
+      { id: 'c1', name: 'Card', kind: 'credit card', statementDay: 5, dueDay: 20, deletedAt: null },
+    ],
+    transactions: [
+      { id: 'p1', date: '2026-07-03', amount: 2_000_00, kind: 'expense', direction: 'out',
+        category: 'food', account: 'c1', narration: '', deletedAt: null },
+      { id: 'X', date: '2026-07-04', amount: 40_000_00, kind: 'expense', direction: 'out',
+        category: 'food', account: 'c1', narration: '', deletedAt: null,
+        ...(held ? { heldAt: '2026-07-10T00:00:00.000Z' } : {}) },
+      { id: 'e1', date: '2026-06-05', amount: 10_000_00, kind: 'expense', direction: 'out',
+        category: 'EMI', account: 'a1', narration: '', deletedAt: null },
+      { id: 'e2', date: '2026-07-05', amount: 10_000_00, kind: 'expense', direction: 'out',
+        category: 'EMI', account: 'a1', narration: '', deletedAt: null,
+        ...(held ? { heldAt: '2026-07-10T00:00:00.000Z' } : {}) },
+    ],
+    loans: [{ id: 'l1', name: 'Home loan', kind: 'home', emiAmount: 10_000_00, emiDay: 5,
+      outstanding: 500_000_00, interestRate: 8, deletedAt: null }],
+    budgets: [], recurring: [], subscriptions: [], digitalAssets: [], people: [],
+  });
+
   test('the balance is the opening figure plus what moved', () => {
     const view = assembleOverview(records(), { clock });
     assert.equal(view.balances[0].balance, 50_000_00 + 120_000_00 - 35_000_00);
@@ -409,6 +468,125 @@ describe('the finance overview, assembled where it can be reached', () => {
 
     assert.ok(july.categories.length > 0, 'July has spending, or this test proves nothing');
     assert.equal(september.categories.length, 0, 'July is not September');
+  });
+
+  test('a row held outside this month is still named, beside the figure it moved', () => {
+    /*
+     * Two windows, two sentences, and this is why there are two.
+     *
+     * `held` is scoped to the month the totals are about. Runway is not: it is
+     * built from complete months of history, so a row held in April changes
+     * months-of-cover in July while falling outside the month's window
+     * entirely. Measured before this existed, a household's monthly outgoings
+     * read ₹1,000 against a true ₹10,000 and the screen said nothing.
+     *
+     * The assertion that matters is the pair — `held` null and `runwayHeld`
+     * not. Asserting only the second would pass on a duplicate of the first,
+     * which is the version of this that would have been useless.
+     */
+    const data = records();
+    for (const month of ['03', '04', '05', '06']) {
+      data.transactions.push({
+        id: `h${month}`, date: `2026-${month}-11`, amount: 9_000_00, kind: 'expense',
+        direction: 'out', category: 'food', account: 'a1', narration: '',
+        deletedAt: null, heldAt: '2026-07-01T00:00:00.000Z',
+      });
+    }
+
+    const view = assembleOverview(data, { clock });
+    assert.equal(view.held, null, 'nothing is held in July, so the month says nothing');
+    assert.ok(view.runwayHeld, 'but four rows left the runway figure and it said nothing');
+    assert.includes(view.runwayHeld, 'not in these totals yet');
+
+    /*
+     * And the figure the sentence is about has to be one those rows moved,
+     * or it is a disclosure about nothing.
+     *
+     * Written first against `runway.months` and `runway.shortfall`: the first
+     * is not a field `cashRunway` returns and the second is null either way,
+     * so the comparison was between two things that could not differ. The
+     * fields that actually carry it are `perDay` — 0 against ₹300, because
+     * four held months are not enough history to take a median of — and the
+     * cash the rows never left.
+     */
+    const loose = records();
+    for (const month of ['03', '04', '05', '06']) {
+      loose.transactions.push({
+        id: `h${month}`, date: `2026-${month}-11`, amount: 9_000_00, kind: 'expense',
+        direction: 'out', category: 'food', account: 'a1', narration: '', deletedAt: null,
+      });
+    }
+    const counted = assembleOverview(loose, { clock });
+    assert.equal(counted.runwayHeld, null, 'unheld, there is nothing to report');
+    assert.equal(counted.runway.perDay, 300_00);
+    assert.equal(view.runway.perDay, 0,
+      'the held rows do not change the runway, so this proves nothing about it');
+    assert.not(view.runway.cash === counted.runway.cash,
+      'nor do they change the cash the forecast starts from');
+  });
+
+  test('a held purchase leaves the card bill, and the bill says so', () => {
+    /*
+     * The figure on this screen where being wrong is dearest. `cardBills`
+     * reads `statementBalance` over one cycle on one card account, so a held
+     * purchase leaves the bill and the household is shown a smaller number to
+     * pay than they owe.
+     *
+     * Neither sentence already on the screen covers it: `held` is scoped to
+     * the month's totals and `runwayHeld` to every row up to today, and both
+     * count rows this figure never reads. So the assertion is the pair — the
+     * bill moved, and the sentence beside it is not one of those two.
+     */
+    const view = assembleOverview(withCardAndLoan({ held: true }), { clock });
+    const counted = assembleOverview(withCardAndLoan({ held: false }), { clock });
+
+    const billOf = (v) => v.bills.filter((one) => one.source === 'card').map((one) => one.amount);
+    assert.deep(counted.bills.filter((one) => one.source === 'card')
+      .map((one) => one.amount), [42_000_00], 'the fixture does not build the bill it claims');
+    assert.deep(billOf(view), [2_000_00], 'the held purchase is still on the bill');
+
+    assert.ok(view.billsHeld, 'the bill went short and nothing beside it said so');
+    assert.includes(view.billsHeld, 'not in these totals yet');
+    assert.equal(counted.billsHeld, null, 'unheld, there is nothing to report');
+  });
+
+  test('a held repayment leaves the loan figures, and the loans card says so', () => {
+    /*
+     * `paymentsFor` decides what counts as a repayment, and it asks
+     * `settled()`. A held EMI row therefore leaves both the EMI breakdown and
+     * the staleness estimate the loans card shows.
+     *
+     * Scoped to the rows `paymentsFor` would have matched rather than to all
+     * of history, which is what makes it worth having beside `runwayHeld`
+     * instead of being the same number twice.
+     */
+    const view = assembleOverview(withCardAndLoan({ held: true }), { clock });
+    const counted = assembleOverview(withCardAndLoan({ held: false }), { clock });
+
+    assert.equal(counted.emi.total, 10_000_00, 'the fixture does not move the EMI figure');
+    assert.equal(view.emi.total, 0, 'the held repayment still counts');
+
+    assert.ok(view.loansHeld, 'the repayment left the figure and the card said nothing');
+    assert.includes(view.loansHeld, 'not in these totals yet');
+    assert.equal(counted.loansHeld, null, 'unheld, there is nothing to report');
+  });
+
+  test('the two new sentences are about their own rows, not a copy of another', () => {
+    /*
+     * The failure this guards against is the easy one: wiring a screen to a
+     * sentence that already exists, which looks like disclosure and reports
+     * the wrong rows. Here only a card purchase is held, so the loans sentence
+     * must stay silent — a duplicate of either neighbour would speak.
+     */
+    const data = withCardAndLoan({ held: false });
+    const purchase = data.transactions.find((one) => one.id === 'X');
+    purchase.heldAt = '2026-07-10T00:00:00.000Z';
+
+    const view = assembleOverview(data, { clock });
+    assert.ok(view.billsHeld, 'the held row is a card purchase, so the bill speaks');
+    assert.equal(view.loansHeld, null,
+      'no repayment is held, so the loans card has nothing to say');
+    assert.ok(view.runwayHeld, 'and the row is still in the history runway reads');
   });
 
   test('a missing entity yields an empty view rather than throwing', () => {

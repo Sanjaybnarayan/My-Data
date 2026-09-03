@@ -222,6 +222,7 @@ async function portfolioView() {
 
     const {
       summary, rows, pooled, dividends, maturing, shareOfAssets, accrual, instalments,
+      held,
       instalmentSchedule,
     } = view;
     const fyFrom = startOfFinancialYear(today());
@@ -277,6 +278,16 @@ async function portfolioView() {
             `${summary.fromForms} of ${summary.count} holdings have no transactions `
             + 'recorded, so their figures are still the ones typed on the form.')
           : null,
+
+        /*
+         * And the trades left out of the figure by a sync rather than by a
+         * missing form. `faint` like its neighbours and unlike an unreadable
+         * amount: nothing here is wrong and nobody has to go and fix it — the
+         * trade rejoins the total on the pull that brings the holding it
+         * names. Saying it anyway is the point, because without it `invested`
+         * is quietly about fewer trades than it looks.
+         */
+        held ? h('p', { class: 'small faint' }, held) : null,
       ].filter(Boolean)),
 
       // Directly under the summary, because it qualifies the gain figure in it.

@@ -34,12 +34,13 @@ import { settlementReport } from '../domain/settlement.js';
 import {
   unreadableAmounts, describeUnreadable, heldRows, describeHeld,
 } from '../domain/amounts.js';
-import { emiBreakdown } from '../domain/amortise.js';
+import { emiBreakdown, paymentsFor } from '../domain/amortise.js';
 import { spendByMember } from '../domain/household.js';
 import { fromRecords } from '../domain/ledger.js';
 import { recurring as recurringCharges } from '../domain/categorise.js';
 import { today, range, withinRange } from '../core/dates.js';
 import { cashRunway } from '../domain/runway.js';
+import { isBillableCard } from '../domain/cards.js';
 
 /**
  * Declared once, here, rather than inline in the screen.
@@ -177,6 +178,59 @@ export function assembleOverview(data, { clock = Date.now } = {}) {
     // same tranche that built it, because "the domain function exists and no
     // screen calls it" is the finding this repository keeps making.
     runway: cashRunway(accounts, transactions, bills, { from: today(clock), clock }),
+    /*
+     * And the rows held out of *that* figure, which `held` above does not
+     * cover.
+     *
+     * `held` is scoped to the month the totals are about, which is right for
+     * them and wrong here: runway is built from `typicalDailySpend` and
+     * `typicalMonthlyOutgoings`, and both read complete months of history. A
+     * row held three months ago changes months-of-cover and falls outside the
+     * month's window entirely — measured, a household's monthly outgoings read
+     * ₹1,000 against a true ₹10,000 while the month-scoped sentence returned
+     * null and the screen said nothing at all.
+     *
+     * So this is scoped to what runway actually reads: everything up to today,
+     * future-dated rows excluded because those two functions skip them. One
+     * disclosure per window, not one per screen — the same sentence in the
+     * wrong window is the silence it was written to prevent.
+     */
+    runwayHeld: describeHeld(heldRows(transactions.filter((one) => one
+      && !one.deletedAt
+      && one.date <= today(clock)))),
+    /*
+     * The two windows left, and neither is the month or the whole history.
+     *
+     * A card bill is `statementBalance` over one cycle on one card account; a
+     * loan's staleness note is `paymentsFor` over that loan's own repayments.
+     * Both ask `settled()`, so both go short by a held row and neither is
+     * covered by a sentence scoped to the month or to everything up to today
+     * — `runwayHeld` counts rows these figures never read, which would be a
+     * number beside a figure it is not about.
+     *
+     * So each counts the rows its own figure would have used. The card set is
+     * rows on or into a billable card; the loan set is the rows `paymentsFor`
+     * would have matched, obtained by asking it against the same list with the
+     * marks taken off, which is the only way to name them without copying its
+     * matching rules here and letting the two drift.
+     */
+    billsHeld: (() => {
+      const cardIds = new Set((accounts ?? []).filter(isBillableCard).map((one) => one.id));
+      if (!cardIds.size) return null;
+      return describeHeld(heldRows(transactions.filter((one) => one
+        && !one.deletedAt
+        && (cardIds.has(one.account) || cardIds.has(one.toAccount)))));
+    })(),
+    loansHeld: (() => {
+      const live = (loans ?? []).filter((one) => one && !one.deletedAt);
+      if (!live.length) return null;
+      const unmarked = transactions.map(({ heldAt, ...rest }) => rest);
+      const wouldCount = new Set(live.flatMap((loan) => paymentsFor(loan, unmarked))
+        .map((one) => one.id));
+      return describeHeld(heldRows(transactions.filter((one) => one
+        && !one.deletedAt
+        && wouldCount.has(one.id))));
+    })(),
     budgetRows: fin.budgetStatus(budgets, transactions),
     commitment: fin.committed({
       recurring, loans, subscriptions, digitalAssets, detected,

@@ -18,6 +18,7 @@ import { reports, produce, exportEntity } from '../reports/build.js';
 import { entities, entity } from '../data/schema.js';
 import { range, formatDay, today, addMonths } from '../core/dates.js';
 import { format } from '../core/money.js';
+import { heldRows, describeHeld } from '../domain/amounts.js';
 import { docx } from '../reports/docx.js';
 import {
   rentReceived, rentYear, rentReceiptBlocks, rentReceiptFilename,
@@ -89,6 +90,20 @@ function rentReceiptsCard() {
     const to = today();
     const from = addMonths(to, -12).slice(0, 8) + '01';
 
+    /*
+     * A credit the sync is holding is a month that will be receipted later and
+     * reads, until then, exactly like a month nobody paid.
+     *
+     * Counted over the credits in the window this report covers, and from the
+     * unfiltered list on purpose: `rentReceived` asks `settled()`, so by the
+     * time it has run the held rows are gone and counting them there would
+     * count nothing at all.
+     */
+    const held = describeHeld(heldRows(transactions.filter((one) => one
+      && !one.deletedAt
+      && one.direction === 'in'
+      && one.date >= from && one.date <= to)));
+
     replace(host, card({ class: 'card--quiet', style: { marginTop: 'var(--space-5)' } }, [
       cardHeader('Rent receipts', null, { iconName: 'receipt' }),
       h('p', { class: 'small muted' },
@@ -96,6 +111,9 @@ function rentReceiptsCard() {
         + 'month, from the payment that actually arrived — a month with no '
         + 'matching credit gets no receipt, because a receipt is a statement '
         + 'that money was received.'),
+
+      // `faint`, not a warning: the receipt is not missing, it is early.
+      held ? h('p', { class: 'small faint' }, held) : null,
 
       h('div', { class: 'list' }, rented.map((property) => {
         // Every other letting is passed in so a credit two of them could
