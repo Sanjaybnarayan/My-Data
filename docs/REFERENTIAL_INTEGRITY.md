@@ -130,6 +130,33 @@ is a second reason, and adding it to twenty conditions by hand is how nineteen
 of them keep the old meaning. A test asserts that a module which imports the
 predicate does not also spell the check out beside it.
 
+**Three modules was not the money.** That ratchet reads imports, so it says
+which modules adopted the predicate and nothing at all about which figures a
+held row still reaches — and ten more modules add up money without ever asking
+`finance.js`. Measured by holding one ₹90,000 transaction and reading the
+answer twice, with the mark and without it:
+
+| Figure | Held row counted? |
+|---|---|
+| `household.spendByMember` | a member's spend read ₹1,20,000 instead of ₹30,000 |
+| `runway.typicalDailySpend`, `typicalMonthlyOutgoings` | 10× the true figure, so months-of-cover with it |
+| `unusual.unusualSpending` | **raised a "16× above usual" alert built only on the held row** |
+| `cards.statementBalance` | ₹51,000 on the bill instead of ₹1,000 |
+| `settlement.settlementReport` | a held payment settled a card bill |
+| `amortise.paymentsFor` | a held row counted as a loan repayment |
+| `costbasis.costBasis` | invested read ₹1,40,000 instead of ₹50,000 |
+| `rentreceipt.rentReceived` | a held credit marked a month's rent received |
+| `accrual.instalmentsFor` | a held row counted as an instalment the deposit received |
+
+The alert is the one that matters most. A total being wrong is a number; being
+told your food spending is sixteen times its usual size, on the evidence of a
+transaction whose account nobody can open, is rule 57 failing in the direction
+that reaches the household. All ten now ask `settled()`.
+
+The suite passed 3113 of 3113 with every row of that table wrong, which is why
+the tests added with the fix ask the only question that settles it — *does the
+answer change when the mark is removed?* — rather than reading imports.
+
 Two functions gained a filter they never had. `totals()` and `byCategory()`
 added up whatever array they were handed and trusted `inPeriod` to have
 filtered first. It always had, so nothing was wrong — but the guarantee lived

@@ -37,6 +37,7 @@
 
 
 import { mul, roundMoney } from '../core/money.js';
+import { settled } from '../data/integrity.js';
 /** A year of an annual rate, as a monthly fraction. */
 export const monthlyRate = (annualPercent) => (annualPercent ?? 0) / 100 / 12;
 
@@ -105,7 +106,7 @@ export function canProject(loan) {
 export function paymentsFor(loan, transactions) {
   const named = String(loan?.name ?? '').toLowerCase();
   return (transactions ?? [])
-    .filter((t) => !t.deletedAt && t.direction !== 'in')
+    .filter((t) => settled(t) && t.direction !== 'in')
     .filter((t) => t.category === 'EMI' || t.category === 'emi'
       || t.recurring === loan?.id
       || (named && String(t.payee ?? '').toLowerCase().includes(named)))
@@ -225,7 +226,7 @@ export function emiBreakdown(loans, transactions, inPeriod) {
   const byLoan = [];
   const unprojected = [];
 
-  for (const loan of (loans ?? []).filter((l) => !l.deletedAt)) {
+  for (const loan of (loans ?? []).filter(settled)) {
     const payments = paymentsFor(loan, transactions);
     if (!payments.length) continue;
 

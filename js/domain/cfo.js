@@ -45,6 +45,7 @@ import * as fin from './finance.js';
 import { netWorth } from './networth.js';
 import { typicalDailySpend, typicalMonthlyOutgoings } from './runway.js';
 import { unusualSpending } from './unusual.js';
+import { settled } from '../data/integrity.js';
 import { reviewGoals, STATUS as GOAL_STATUS } from './goals.js';
 import { today, startOfMonth, endOfMonth, addMonths, formatDay } from '../core/dates.js';
 
@@ -79,7 +80,7 @@ export function position(data, { clock = Date.now } = {}) {
   } = data ?? {};
 
   const month = lastCompleteMonth(clock);
-  const inMonth = transactions.filter((t) => !t.deletedAt
+  const inMonth = transactions.filter((t) => settled(t)
     && t.date >= monthRange(month).from && t.date <= monthRange(month).to);
   const monthTotals = fin.totals(inMonth);
   const monthLabel = formatDay(`${month}-01`, { withYear: true }).replace(/^\d+\s/, '');
@@ -226,7 +227,7 @@ function goalsLine(goalRows) {
 function partialMonth(transactions, clock) {
   const now = today(clock);
   const month = now.slice(0, 7);
-  const rows = transactions.filter((t) => !t.deletedAt
+  const rows = transactions.filter((t) => settled(t)
     && t.date >= startOfMonth(now) && t.date <= now);
   const totals = fin.totals(rows);
   return {

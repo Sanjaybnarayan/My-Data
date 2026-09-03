@@ -41,6 +41,8 @@
  */
 
 /** Categories a card bill arrives under, in both spellings the app uses. */
+import { settled } from '../data/integrity.js';
+
 const SETTLEMENT_CATEGORIES = new Set(['credit-card', 'credit card']);
 
 const CARD_KINDS = new Set(['credit card', 'card', 'credit']);
@@ -52,7 +54,7 @@ export function isCard(account) {
 
 /** Is this row a payment *of* a card bill, rather than a purchase *on* a card? */
 export function isSettlement(txn, cardIds = new Set()) {
-  if (!txn || txn.deletedAt) return false;
+  if (!settled(txn)) return false;
   if (txn.direction !== 'out' && txn.kind !== 'expense') return false;
   // Either the row says so, or it names a card account as its destination.
   return SETTLEMENT_CATEGORIES.has(txn.category) || cardIds.has(txn.toAccount);
@@ -69,7 +71,7 @@ export function settlementReport(transactions, accounts) {
   const cards = (accounts ?? []).filter(isCard);
   const cardIds = new Set(cards.map((c) => c.id));
 
-  const rows = (transactions ?? []).filter((t) => !t.deletedAt);
+  const rows = (transactions ?? []).filter(settled);
   const settlements = rows.filter((t) => isSettlement(t, cardIds));
 
   // A card whose own statement has been imported has purchases of its own.

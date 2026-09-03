@@ -54,6 +54,7 @@
 import { addDays, daysBetween, today } from '../core/dates.js';
 import { divide, roundMoney } from '../core/money.js';
 import { accountBalances, liquidCash } from './finance.js';
+import { settled } from '../data/integrity.js';
 
 /** Fewer months than this and "typical" is one month with a name. */
 export const MIN_MONTHS = 2;
@@ -88,7 +89,7 @@ export function typicalDailySpend(transactions, { billCategories = null, clock =
   const now = today(clock);
 
   for (const row of transactions ?? []) {
-    if (!row || row.deletedAt) continue;
+    if (!settled(row)) continue;
     if (row.kind !== 'expense' && row.direction !== 'out') continue;
     if (row.kind === 'transfer' || row.kind === 'income') continue;
     if (skip.has(row.category)) continue;
@@ -139,7 +140,7 @@ export function typicalMonthlyOutgoings(transactions, { clock = Date.now } = {})
   const now = today(clock);
 
   for (const row of transactions ?? []) {
-    if (!row || row.deletedAt) continue;
+    if (!settled(row)) continue;
     if (row.kind !== 'expense') continue;
     const month = monthOf(row.date);
     if (!month || row.date > now) continue;
@@ -175,7 +176,7 @@ export function typicalMonthlyOutgoings(transactions, { clock = Date.now } = {})
 export function nextExpectedIncome(transactions, { from = null, clock = Date.now } = {}) {
   const start = from ?? today(clock);
   const credits = (transactions ?? [])
-    .filter((row) => row && !row.deletedAt && (row.kind === 'income' || row.direction === 'in'))
+    .filter((row) => settled(row) && (row.kind === 'income' || row.direction === 'in'))
     .filter((row) => row.date <= start);
 
   if (credits.length < MIN_MONTHS) return null;

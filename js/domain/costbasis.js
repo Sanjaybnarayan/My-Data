@@ -48,6 +48,7 @@
 
 
 import { roundMoney } from '../core/money.js';
+import { settled } from '../data/integrity.js';
 /** Money going in: units acquired and cost incurred. */
 const INWARD = new Set(['buy', 'contribution']);
 
@@ -93,7 +94,7 @@ export function costBasis(holding, transactions = []) {
   };
 
   const rows = (transactions ?? [])
-    .filter((t) => t.holding === holding?.id && !t.deletedAt)
+    .filter((t) => t.holding === holding?.id && settled(t))
     /*
      * Order decides the average, so a list that arrived in any other order
      * would give a different answer for the same records.
