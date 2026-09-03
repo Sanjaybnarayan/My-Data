@@ -157,6 +157,23 @@ The suite passed 3113 of 3113 with every row of that table wrong, which is why
 the tests added with the fix ask the only question that settles it — *does the
 answer change when the mark is removed?* — rather than reading imports.
 
+### What those ten figures do not yet say
+
+`domain/amounts.js` was written against a specific fault: a total that is
+right about the rows it counted and says nothing about the ones it left out.
+Excluding a held row from ten more figures is the good half of that trade, and
+`describeHeld` — the sentence that closes it — is currently shown in one
+place, the month summary in `services/finance.js`.
+
+So the exclusion is disclosed at the household level and not beside each
+figure. A held row says so **on its own record**, and the activity card gives
+the number a pull is holding; a member's spend, a card bill, a cost basis and
+the rest now quietly leave it out. That is strictly better than counting it
+silently, which is what they did before, and it is not the whole of what
+`amounts.js` argues for. Saying it per figure is a screen change in ten
+modules and has not been made — recorded here so the table above is not read
+as a claim that it has.
+
 Two functions gained a filter they never had. `totals()` and `byCategory()`
 added up whatever array they were handed and trusted `inPeriod` to have
 filtered first. It always had, so nothing was wrong — but the guarantee lived
