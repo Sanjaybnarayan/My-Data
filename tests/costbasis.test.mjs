@@ -309,3 +309,72 @@ describe('the sentence', () => {
     assert.includes(describeCostBasis(basis, (n) => String(n)), 'The form says 5000000');
   });
 });
+
+describe('two trades on the same day', () => {
+  /*
+   * The sort settles a tie the date could not.
+   *
+   * `costBasis` sorts by date because "order decides the average" — its own
+   * words. Two trades on one day tie, and a stable sort leaves a tie in the
+   * order it was handed, which is whatever the repository returned. So the
+   * same records gave two answers.
+   *
+   * Measured before the tie-break was added: `invested=120000 realised=20000`
+   * one way round, `invested=130000 realised=30000` the other. Ten thousand
+   * rupees of realised gain, decided by storage order, on what is an ordinary
+   * day for anybody who trades — and exactly what `domain/tradebook.js`
+   * imports from a broker's own file.
+   */
+  const holding = { id: 'h1', invested: 0, units: 0 };
+  const earlier = {
+    id: 't0', holding: 'h1', date: '2025-01-01', kind: 'buy',
+    units: 100, amount: 50000, charges: 0,
+  };
+  const buy = {
+    id: 't1', holding: 'h1', date: '2025-03-01', kind: 'buy',
+    units: 100, amount: 100000, charges: 0,
+  };
+  const sell = {
+    id: 't2', holding: 'h1', date: '2025-03-01', kind: 'sell',
+    units: 40, amount: 50000, charges: 0,
+  };
+
+  /** The three figures a household would see change. */
+  const shape = (basis) => ({
+    invested: basis.invested, units: basis.units, realised: basis.realised,
+  });
+
+  test('give the same answer whichever order they arrive in', () => {
+    assert.deep(
+      shape(costBasis(holding, [earlier, buy, sell])),
+      shape(costBasis(holding, [earlier, sell, buy])),
+    );
+  });
+
+  test('and the day’s buy is available to the day’s sell', () => {
+    /*
+     * Which of the two answers is right, asserted rather than left to whichever
+     * the sort happens to produce. 200 units cost 150,000, so the average is
+     * 750; selling 40 removes 30,000 of cost and realises 50,000 − 30,000.
+     * The other reading sells 40 of the 100 bought in January at an average of
+     * 500 and reports 30,000 — a larger gain, from units the household had not
+     * finished buying.
+     */
+    const basis = costBasis(holding, [earlier, sell, buy]);
+    assert.equal(basis.invested, 120000);
+    assert.equal(basis.realised, 20000);
+  });
+
+  test('and a charge on the same day is counted before a sale, not after', () => {
+    // A charge adds to cost with no units, so it raises the average the sale
+    // is measured against. Ranked with the acquisitions for that reason.
+    const charge = {
+      id: 't3', holding: 'h1', date: '2025-03-01', kind: 'charge',
+      amount: 1000, charges: 0,
+    };
+    assert.deep(
+      shape(costBasis(holding, [earlier, buy, charge, sell])),
+      shape(costBasis(holding, [earlier, sell, charge, buy])),
+    );
+  });
+});

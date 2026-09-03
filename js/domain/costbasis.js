@@ -94,9 +94,29 @@ export function costBasis(holding, transactions = []) {
 
   const rows = (transactions ?? [])
     .filter((t) => t.holding === holding?.id && !t.deletedAt)
-    // Order decides the average, so a list that arrived in any other order
-    // would give a different answer for the same records.
-    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    /*
+     * Order decides the average, so a list that arrived in any other order
+     * would give a different answer for the same records.
+     *
+     * **The date alone did not settle it.** Two trades on one day tie, and a
+     * stable sort leaves a tie in the order the caller supplied — which is
+     * whatever the repository happened to return. Measured, on one buy and one
+     * sell dated the same day: `invested=120000 realised=20000` one way round
+     * and `invested=130000 realised=30000` the other. A ₹10,000 difference in
+     * a household's realised gain, decided by storage order.
+     *
+     * That is an ordinary day on a broker statement, and `domain/tradebook.js`
+     * imports exactly those files.
+     *
+     * Within a day, acquisitions settle before disposals: you cannot sell what
+     * the day's buy has not yet given you, which is how a contract note reads
+     * and how same-day activity is conventionally treated. Everything that is
+     * not a disposal ranks first — a buy, a bonus, a dividend, a charge — and
+     * their order among themselves cannot change the outcome, because each
+     * only adds to `cost` or `units` and neither reads the other.
+     */
+    .sort((a, b) => String(a.date).localeCompare(String(b.date))
+      || (OUTWARD.has(a.kind) ? 1 : 0) - (OUTWARD.has(b.kind) ? 1 : 0));
 
   if (!rows.length) {
     return {
