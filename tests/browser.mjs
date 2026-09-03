@@ -1824,7 +1824,21 @@ async function main() {
       // something to align — and one of each direction, because a column that
       // only ever holds expenses proves nothing about the layout.
       for (const row of [
-        { amount: '645', payee: 'ZOMATO LIMITED', kind: 'expense' },
+        /*
+         * A statement narration, not a tidy shop name.
+         *
+         * This was `ZOMATO LIMITED` — fourteen characters, in the column the
+         * layout deliberately gives the most width to. The spill check below
+         * asserts that no cell overflows into its neighbour, and against
+         * fourteen characters it could not have failed however the layout
+         * behaved: it was measuring content chosen to fit.
+         *
+         * The fault its comment describes — "9 Aug 2026" and a payee printed
+         * as one word — came from an imported row, and this is the shape an
+         * import actually produces. `ZOMATO LIMITED` is still in it, because
+         * the legibility check further down looks for exactly that.
+         */
+        { amount: '645', payee: 'UPI/DR/402913847562/ZOMATO LIMITED/HDFC/zomato@paytm/Order', kind: 'expense' },
         { amount: '50000', payee: 'ACME SOFTWARE PAYROLL', kind: 'income' },
         { amount: '2499', payee: 'BLINKIT COMMERCE PRIVATE LIMITED', kind: 'expense' },
       ]) {
@@ -1923,13 +1937,53 @@ async function main() {
       check('the description column is the one that gets the space',
         widths.description > widths.account, JSON.stringify(widths));
 
-      // A fixed column does not grow for its content — it spills into its
-      // neighbour, which is how "9 Aug 2026" and a payee ended up printed as
-      // one word. Nothing may be wider than the cell holding it.
-      const spill = await page.locator('.ledger-row').first().evaluate((row) => [...row.cells]
-        .filter((cell) => cell.scrollWidth > cell.clientWidth + 1)
-        .map((cell) => `${cell.className}: ${cell.scrollWidth} > ${cell.clientWidth}`));
-      check('no column overflows into the one beside it', spill.length === 0, spill.join(' | '));
+      /*
+       * A fixed column does not grow for its content — it spills into its
+       * neighbour, which is how "9 Aug 2026" and a payee ended up printed as
+       * one word. Nothing may be wider than the cell holding it.
+       *
+       * **This asked `row.cells`, which cannot answer.** `.ledger-payee` and
+       * `.ledger-narration` each carry `overflow: hidden` themselves, so the
+       * child clips itself to the cell and the `<td>` never overflows —
+       * `scrollWidth === clientWidth` on every cell, whatever is in it.
+       * Measured: with the description column cut from 28% to 6%, so it held
+       * 74px, this check still passed. A different check caught the mutation.
+       *
+       * So it asks the elements that carry the text, and asks the right thing
+       * of them. Content wider than its box is expected and is the documented
+       * design — `css/components.css` calls clipping "the honest failure" —
+       * but only if it is clipped *visibly*, with an ellipsis, rather than
+       * painted over the column beside it.
+       */
+      const fit = await page.locator('.ledger-row').first().evaluate((row) => {
+        const carriers = [...row.querySelectorAll('.ledger-payee, .ledger-narration, .col--date')];
+        const bad = [];
+        let clipped = 0;
+        for (const el of carriers) {
+          const cell = el.closest('td');
+          if (!cell) continue;
+          const style = getComputedStyle(el);
+          if (el.scrollWidth > el.clientWidth + 1) {
+            clipped += 1;
+            if (style.textOverflow !== 'ellipsis' || style.overflow === 'visible') {
+              bad.push(`${el.className || el.tagName}: cut with no ellipsis`);
+            }
+          }
+          // And nothing paints outside the cell holding it, ellipsis or not.
+          if (el.getBoundingClientRect().right > cell.getBoundingClientRect().right + 1) {
+            bad.push(`${el.className || el.tagName}: paints past its column`);
+          }
+        }
+        return { bad, clipped, carriers: carriers.length };
+      });
+
+      // The premise. With the fourteen-character payee this seed used to
+      // carry, nothing was ever clipped and both checks below passed on a row
+      // where there was nothing to get wrong.
+      check('the ledger row has content that does not fit', fit.clipped > 0,
+        `${fit.clipped} of ${fit.carriers} carriers were clipped`);
+      check('and what does not fit is ellipsised, not painted over the next column',
+        fit.bad.length === 0, fit.bad.join(' | '));
 
       // A row opens in place rather than navigating, because comparing it
       // against its neighbours is why somebody opened it.
@@ -1942,6 +1996,85 @@ async function main() {
         (await page.locator('table.table--ledger').count()) === 1);
       check('the opened row offers a category without a form',
         (await page.locator('.ledger-detail-actions select').count()) === 1);
+
+      /*
+       * And it shows what the closed row could not.
+       *
+       * This is the other half of the layout's bargain, and it had no check.
+       * `css/components.css` clips a payee and a narration to one line and
+       * calls that "the honest failure — the row opens for anything that did
+       * not fit". Everything above asserts the row opens, stays on the screen
+       * and offers a category; none of it asked whether opening it revealed
+       * the text. A row that opened and still showed `UPI/DR/40291384…` would
+       * have passed every one of them.
+       */
+      const readable = async () => page.locator('.ledger-row').first().evaluate((row) => {
+        const payee = row.querySelector('.ledger-payee');
+        if (!payee) return { text: '', pastCell: true, why: 'no payee element' };
+        const cell = payee.closest('td');
+        const style = getComputedStyle(payee);
+        const past = cell
+          ? payee.getBoundingClientRect().right > cell.getBoundingClientRect().right + 1
+          : true;
+        // Hidden, not merely wider than its box. An opened row sets
+        // `overflow: visible`, so text past the edge is still drawn and still
+        // read; a closed one sets `hidden`, and the same overflow is gone.
+        const hiddenText = style.overflow === 'hidden'
+          && payee.scrollWidth > payee.clientWidth + 1;
+        return {
+          text: payee.textContent.trim(),
+          pastCell: past,
+          hiddenText,
+          why: `open=${row.classList.contains('ledger-row--open')} `
+            + `white-space=${style.whiteSpace} overflow=${style.overflow} `
+            + `wrap=${style.overflowWrap} `
+            + `${payee.scrollWidth}>${payee.clientWidth} `
+            + `hidden=${hiddenText} pastCell=${past}`,
+        };
+      });
+
+      /*
+       * `pastCell`, not `scrollWidth > clientWidth`.
+       *
+       * The first version of this check asked the latter and reported a fault
+       * that is not one. An opened row sets `overflow: visible`, so content
+       * wider than its box is *drawn* rather than hidden — the household can
+       * read it. Measured on the desktop width: `257>248 pastCell=false`, nine
+       * pixels over its box and still inside its column. Wrong measurement,
+       * right name.
+       *
+       * What would be a fault is text painting into the column beside it,
+       * which is the whole subject of the rule above. A bank narration is
+       * slash-delimited with no spaces, `overflow-wrap` is `normal`, and
+       * `white-space: normal` breaks only at whitespace — so nothing about
+       * this text can wrap, and how far it runs is decided by how much room
+       * the cell has. Checked at both widths for that reason.
+       */
+      const wide = await readable();
+      /*
+       * `hiddenText`, not `pastCell`.
+       *
+       * The first two versions of this check both measured the wrong thing,
+       * and the second survived a mutation that should have killed it.
+       * Reverting the open rule to `white-space: nowrap; overflow: hidden` —
+       * an opened row that reveals nothing, the exact fault this exists for —
+       * left the check passing, because a clipped element stays inside its
+       * cell by definition and `pastCell` was all it asked.
+       *
+       * What separates revealed from clipped is whether any of the text is
+       * *hidden*: `overflow: hidden` with content wider than the box. Visible
+       * overflow is not a fault here — it is the opened row doing its job.
+       */
+      check('and shows in full what the closed row had to clip',
+        !wide.hiddenText && wide.text.includes('zomato@paytm'), wide.why);
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(350);
+      const narrow = await readable();
+      check('and still inside its own column on a phone',
+        !narrow.pastCell && !narrow.hiddenText, narrow.why);
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(300);
 
       await page.locator('.ledger-row').first().click();
       await page.waitForTimeout(250);
