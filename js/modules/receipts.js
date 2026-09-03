@@ -801,7 +801,7 @@ export async function render() {
         iconName: 'globe',
       }),
 
-      h('div', { class: 'chip-row' }, all.map((entry) => chip(entry.name, {
+      h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Data sources' }, all.map((entry) => chip(entry.name, {
         pressed: active(entry.key),
         onClick: () => toggle(entry.key),
       }))),
@@ -809,7 +809,7 @@ export async function render() {
       shops.length
         ? h('div', { style: { marginTop: 'var(--space-3)' } }, [
           h('p', { class: 'small muted' }, 'Yours:'),
-          h('div', { class: 'chip-row' }, shops.map((shop) => chip(`${shop.name}  ✕`, {
+          h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Saved shops' }, shops.map((shop) => chip(`${shop.name}  ✕`, {
             onClick: () => removeShop(shop.key),
           }))),
         ])

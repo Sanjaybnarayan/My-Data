@@ -23,22 +23,76 @@
  */
 
 import { sum } from '../core/money.js';
+import { settled } from '../data/integrity.js';
 import { accountBalances } from './finance.js';
 import { holdingValue } from './portfolio.js';
+import { monthsBetween, today } from '../core/dates.js';
+import { t } from '../core/locale.js';
 
 const CREDIT_KINDS = new Set(['credit card', 'loan']);
 
 /**
+ * How old a valuation may be before this says so.
+ *
+ * `staleValuations` used to mean one thing only: **no `currentValue` at all**.
+ * A holding valued at cost, a property falling back to its purchase price, a
+ * vehicle with no figure. All three are honest gaps, and all three were
+ * reported.
+ *
+ * What was not reported is the opposite case, and it is the more misleading of
+ * the two. A property carrying a `currentValue` from three years ago
+ * contributed its full figure to net worth and was flagged as nothing, while
+ * the same property with the figure deleted was flagged. The unknown was
+ * surfaced and the confidently-stale was silent — and a precise-looking number
+ * that is three years old misleads a household further than a missing one,
+ * because a missing one asks to be filled in.
+ *
+ * `valuedOn` was already recorded on both holdings and properties, and already
+ * read by `domain/accrual.js` to compound a deposit from the day its figure
+ * was true. Nothing judged its age.
+ *
+ * Twelve months, because that is the cadence at which a household actually
+ * revisits what a flat or a fund is worth, and because a figure that has been
+ * through a full year of whatever moves it is no longer evidence of anything.
+ * The number is a judgement and is named here rather than buried; the *age* is
+ * carried on each row, so a household can disagree with the threshold and
+ * still see what it is disagreeing about.
+ *
+ * This changes no figure. It adds a sentence beside one.
+ */
+export const STALE_AFTER_MONTHS = 12;
+
+/**
  * @param {{accounts, transactions, holdings, properties, vehicles, loans}} data
+ * @param {{clock?: () => number}} [options]
  * @returns {{total, assets, liabilities, breakdown, staleValuations}}
  */
-export function netWorth(data) {
+export function netWorth(data, { clock = Date.now } = {}) {
   const {
     accounts = [], transactions = [], holdings = [],
     properties = [], vehicles = [], loans = [],
   } = data;
 
-  const live = (rows) => rows.filter((r) => !r.deletedAt);
+  const live = (rows) => rows.filter(settled);
+
+  /**
+   * Rows whose valuation is real but old, with the age said on each.
+   *
+   * Only rows that *have* a figure: one without is already reported above for
+   * the better reason, and saying both about the same row would be two
+   * findings where there is one.
+   */
+  const aged = (rows, entity, nameOf) => live(rows)
+    .filter((r) => r.currentValue && r.valuedOn)
+    .map((r) => ({ row: r, months: monthsBetween(r.valuedOn, today(clock)) }))
+    .filter(({ months }) => Number.isFinite(months) && months >= STALE_AFTER_MONTHS)
+    .map(({ row, months }) => ({
+      entity,
+      id: row.id,
+      name: nameOf(row),
+      reason: t(months === 1 ? 'networth.aged.one' : 'networth.aged.many', { months }),
+      months,
+    }));
 
   const withBalances = accountBalances(live(accounts), live(transactions));
   const counted = withBalances.filter((a) => a.includeInNetWorth !== false && !a.archived);
@@ -93,6 +147,12 @@ export function netWorth(data) {
       ...live(vehicles)
         .filter((v) => !v.currentValue)
         .map((v) => ({ entity: 'vehicle', id: v.id, name: v.registration, reason: 'not valued — excluded' })),
+
+      // A vehicle carries no `valuedOn`, so its figure cannot be aged and is
+      // not pretended to be. Said here rather than left as an omission a
+      // reader has to notice.
+      ...aged(holdings, 'holding', (h) => h.name),
+      ...aged(properties, 'property', (p) => p.name),
     ],
   };
 }
@@ -108,8 +168,8 @@ export function netWorthByPerson(data, people) {
   const bucket = (id) => byPerson.get(id) ?? unattributed;
 
   const withBalances = accountBalances(
-    data.accounts.filter((a) => !a.deletedAt),
-    data.transactions.filter((t) => !t.deletedAt),
+    data.accounts.filter(settled),
+    data.transactions.filter(settled),
   );
 
   for (const account of withBalances) {
@@ -119,13 +179,13 @@ export function netWorthByPerson(data, people) {
     else target.assets += account.balance;
   }
 
-  for (const holding of data.holdings.filter((h) => !h.deletedAt && h.active !== false)) {
+  for (const holding of data.holdings.filter((h) => settled(h) && h.active !== false)) {
     bucket(holding.owner).assets += holdingValue(holding);
   }
-  for (const property of data.properties.filter((p) => !p.deletedAt)) {
+  for (const property of data.properties.filter(settled)) {
     bucket(property.owner).assets += property.currentValue || property.purchasePrice || 0;
   }
-  for (const loan of data.loans.filter((l) => !l.deletedAt)) {
+  for (const loan of data.loans.filter(settled)) {
     bucket(loan.borrower).liabilities += loan.outstanding ?? 0;
   }
 

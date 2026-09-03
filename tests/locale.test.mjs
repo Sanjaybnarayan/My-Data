@@ -7,6 +7,11 @@ import { labelKeys, entityKey, fieldKey, moduleKey } from '../js/core/labels.js'
 import { strings as english } from '../js/locale/en.js';
 import { formatDay, formatInstant, relativeDays } from '../js/core/dates.js';
 import { survey, userFacing, check, readInventory, findIn } from '../tools/strings.mjs';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 setSuite('locale');
 
@@ -121,10 +126,26 @@ describe('coverage is measured, never declared', () => {
       assert.ok(Math.abs(c - expected) < 0.001,
         `coverage ${c} should be ${expected} — ${strings} strings of ${strings + labels.length} keys`);
 
-      // And the point of it: every UI string is nowhere near a translation.
-      assert.ok(c < 0.5, `expected well under half, got ${c}`);
-      assert.ok(labels.length > strings,
-        `${labels.length} schema labels against ${strings} strings — labels should dominate`);
+      /*
+       * And the point of it: every UI string is not a complete translation.
+       *
+       * Said as the relationship rather than as a threshold, because the fault
+       * the comment above describes recurred one level down. `c < 0.5` and
+       * `labels.length > strings` both failed the day Settings → Data was
+       * routed into the catalogue — 54 sentences that had been unreachable
+       * English became reachable keys, and the UI catalogue passed the schema
+       * for the first time. Neither assertion had found anything wrong: the
+       * ratchet had done exactly what it is for, and two constants written
+       * when labels happened to be the larger half called it a regression.
+       *
+       * What is durable is that the labels are a large block and a UI-only
+       * catalogue leaves every one of them untranslated.
+       */
+      assert.ok(c < 1, 'a UI-only catalogue must not report complete coverage');
+      assert.ok(labels.length > 100,
+        `only ${labels.length} schema labels, so this proves little`);
+      assert.equal(Math.round((1 - c) * (strings + labels.length)), labels.length,
+        'the untranslated remainder should be exactly the schema labels');
     });
   });
 
@@ -337,15 +358,31 @@ describe('what counts as a user-facing string', () => {
      * it to every file was caught only by the self-description numbers going
      * stale, which is a check about documents rather than about this rule.
      *
-     * `label:` in a settings screen is not reachable by `labelKeys()`, so it
+     * `label:` in a module screen is not reachable by `labelKeys()`, so it
      * must still be counted. If it ever stops being, the ratchet has quietly
      * stopped measuring most of the application.
+     *
+     * The specimen used to be named by hand — `Browser storage quota` in
+     * `js/modules/settings/data.js`, then `Liquid cash` in the finance screen.
+     * Both stopped being specimens when their screen was routed through the
+     * catalogue, which is the outcome this ratchet exists to produce: the
+     * check failed on success, twice, and each time the fix was to go and find
+     * another file that had not been done yet.
+     *
+     * So it is derived instead. Somewhere outside the schema there is a
+     * `label:` holding English, and turning the exclusion on would stop it
+     * being counted. Which file that is does not matter and will keep
+     * changing; that it is *some* file other than the schema is the rule.
      */
     const { byFile } = survey();
-    const uiLabels = (byFile['js/modules/settings/data.js'] ?? [])
-      .map((row) => row.text);
-    assert.ok(uiLabels.includes('Browser storage quota'),
-      'a UI label stopped being counted, so the exclusion is no longer scoped');
+    const scoped = Object.entries(byFile).filter(([rel, rows]) => {
+      if (rel === 'js/data/schema.js') return false;
+      const source = readFileSync(join(ROOT, rel), 'utf8');
+      return findIn(source, { labelsRouted: true }).length < rows.length;
+    });
+    assert.ok(scoped.length > 0,
+      'no UI label is counted anywhere outside the schema, so the exclusion is '
+      + 'either no longer scoped or nothing is left to prove it on');
 
     const schema = byFile['js/data/schema.js'] ?? [];
     assert.ok(schema.length > 0, 'the schema counts nothing at all, which cannot be right');

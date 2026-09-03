@@ -47,7 +47,7 @@ export function diagnosticKind(error) {
 
 /** Fields the application owns and a caller may never set directly. */
 const ENVELOPE_KEYS = ['id', 'rev', 'createdAt', 'updatedAt', 'createdBy',
-  'updatedBy', 'deletedAt', 'origin', 'schemaVersion', 'syncState'];
+  'updatedBy', 'deletedAt', 'origin', 'schemaVersion', 'syncState', 'heldAt'];
 
 export class Repository {
   #ctx;
@@ -454,6 +454,29 @@ export class Repository {
     });
     bus.emit(`${TOPIC.dataChanged}:${this.#def.module}`, {
       entity: this.#name, id: stored.id, action: 'remote',
+    });
+    return stored;
+  }
+
+  /**
+   * Mark a row as held, or release it. Envelope only.
+   *
+   * No outbox, no audit, no validation, for the same reason `applyRemote` has
+   * none: this is not somebody editing a record. It is the sync engine saying
+   * whether what the row names has arrived yet, and pushing that back to the
+   * server would send every device a fact about this device's own inbox.
+   */
+  async setHeld(id, heldAt) {
+    const existing = await this.#ctx.adapter.read(this.#name, id);
+    if (!existing) return null;
+    if ((existing.heldAt ?? null) === (heldAt ?? null)) return existing;
+
+    const stored = { ...existing, heldAt: heldAt ?? null };
+    await this.#ctx.adapter.tx([this.#name], 'readwrite', async (t) => {
+      await t.put(this.#name, stored);
+    });
+    bus.emit(`${TOPIC.dataChanged}:${this.#def.module}`, {
+      entity: this.#name, id, action: 'remote',
     });
     return stored;
   }

@@ -149,9 +149,12 @@ No finding; I was looking in the wrong place.
   "more is reachable", and the account with no identity had the most. The
   client now carries the same guard. See
   `docs/THE_ACCOUNT_THAT_WAS_NOBODY.md`.
-- **The browser does not know about the server's `person` exclusion.** It will
-  still offer a child their own person record, and that push will still park.
-  One divergence remains, now with a reason attached.
+- ~~**The browser does not know about the server's `person` exclusion.**~~ *Fixed.*
+  `can()` now refuses a write on `person` through the own-record rule, for the
+  same reason the server does: editing your own person row would let a child
+  change the field the server uses to identify them, making the member-to-person
+  binding no longer owner-controlled. Reads still go through — a child can open
+  and see their record. A test in `tests/security.test.mjs` asserts both halves.
 - **Nothing verifies the backend end to end.** `tests/policy.test.mjs` evaluates
   the real `.gs` files against stubs, which is as close as this repository gets
   without a deployment.

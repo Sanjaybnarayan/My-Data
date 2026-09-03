@@ -1,8 +1,10 @@
 import { test, describe, assert, setSuite, fakeClock } from './harness.mjs';
 import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 import { Assistant, matchIntent } from '../js/ai/assistant.js';
-import { parsePeriod, exampleQuestions } from '../js/ai/intents.js';
-import { datedEntities } from '../js/domain/reminders.js';
+import { parsePeriod, exampleQuestions, intents } from '../js/ai/intents.js';
+import { datedEntities, BY_NAME } from '../js/domain/reminders.js';
+import { NOT_ASKABLE } from '../js/ai/coverage.js';
+import { entityNames } from '../js/data/schema.js';
 import { summarise } from '../js/ai/summary.js';
 import { comparePeriods } from '../js/domain/finance.js';
 import { toMinor } from '../js/core/money.js';
@@ -93,6 +95,62 @@ describe('intent matching', () => {
       assert.ok(matchIntent(example), `an intent's own example does not match it: ${example}`);
     }
   });
+
+  /*
+   * And is *answered* by the intent that offers it, which the check above does
+   * not say despite its message claiming to.
+   *
+   * `matchIntent(example)` being truthy only means something matched. An
+   * `employment` example reading "Where does everyone work?" matched
+   * `find-document` — the `where …` prefix consumes the whole sentence and
+   * wins on length — and the check passed, because something had. An example
+   * on the help panel that answers a different question than the card it sits
+   * under is exactly what this was meant to prevent.
+   *
+   * It drives `answer` rather than `matchIntent` because the ranking is no
+   * longer a verdict: `find-document` outranks half of these by length and
+   * stands aside at run time when its search comes back empty. Asking the
+   * ranking would now report failures that do not happen, and — worse in the
+   * other direction — would pass an intent whose handler returns nothing.
+   */
+  test('and every example is answered by the intent that offers it', async () => {
+    const { db } = await household();
+    const assistant = new Assistant({ db, clock });
+    const wrong = [];
+    for (const intent of intents) {
+      for (const example of intent.examples) {
+        const got = (await assistant.answer(example)).intent;
+        if (got !== intent.id) wrong.push(`${intent.id}: "${example}" -> ${got}`);
+      }
+    }
+    assert.deep(wrong, []);
+  });
+
+  /*
+   * The half of the fall-through a passing example list cannot show. Both of
+   * these are "where is X" and only one is a document; the sentences are the
+   * same shape, so the ordering cannot tell them apart and the run-time answer
+   * has to.
+   */
+  test('a "where is" question reaches the search when the thing is stored', async () => {
+    const { db } = await household();
+    const answer = await new Assistant({ db, clock }).answer('Where is the passport?');
+    assert.equal(answer.intent, 'find-document');
+    assert.includes(answer.text, 'Passport');
+  });
+
+  test('and reaches the specific intent when it is not', async () => {
+    const { db } = await household();
+    const answer = await new Assistant({ db, clock }).answer('Where are the safe zones?');
+    assert.equal(answer.intent, 'safe-zones');
+  });
+
+  test('and still says what it found nothing of when nothing else can', async () => {
+    const { db } = await household();
+    const answer = await new Assistant({ db, clock }).answer('Where is the lease agreement?');
+    assert.equal(answer.intent, 'find-document');
+    assert.includes(answer.text, 'Nothing matching');
+  });
 });
 
 describe('answers', () => {
@@ -110,7 +168,13 @@ describe('answers', () => {
       name: 'Gold', kind: 'gold', invested: '100000', active: true,
     });
     const answer = await new Assistant({ db, clock }).answer('net worth');
-    assert.includes(answer.text, 'valued at cost');
+
+    // The caveat, not its wording. This pinned the phrase "valued at cost",
+    // which stopped being the whole story when `networth.js` started reporting
+    // valuations that are *old* as well as missing — the sentence has to cover
+    // both, and a test that names one of them fails for the wrong reason.
+    assert.includes(answer.text, '1 item is');
+    assert.includes(answer.text, 'the real figure may differ');
   });
 
   test('expenses for last month use last month, not this one', async () => {
@@ -361,7 +425,16 @@ describe('what the assistant may never be handed', () => {
    * model is the same mistake with a worse ending, and the assistant is
    * offline precisely so that neither can happen.
    */
-  const FORBIDDEN = ['smsMessage', 'vaultItem'];
+  /*
+   * Derived from the registry rather than listed again here.
+   *
+   * This was `['smsMessage', 'vaultItem']`, typed out beside
+   * `js/ai/coverage.js`, which names the same two and eight more with the
+   * reason each is refused. Two lists of the same rule is the drift this
+   * repository keeps finding, and the shorter one silently covered less: the
+   * eight it omitted were guarded by nothing.
+   */
+  const FORBIDDEN = Object.keys(NOT_ASKABLE);
 
   test('is not named anywhere in the AI layer', async () => {
     const { readdir, readFile } = await import('node:fs/promises');
@@ -373,9 +446,21 @@ describe('what the assistant may never be handed', () => {
 
     const named = [];
     for (const file of files) {
+      // `coverage.js` is the exception, and the only one: it names these
+      // entities *because* it refuses them, and a sweep that cannot tell a
+      // refusal from a route would forbid writing the refusal down.
+      if (file === 'coverage.js') continue;
       const text = await readFile(`${dir}${file}`, 'utf8');
       for (const entity of FORBIDDEN) {
-        if (new RegExp(`\\b${entity}\\b`).test(text)) named.push(`${file} names ${entity}`);
+        /*
+         * As a quoted literal, not a bare word. The list this sweeps for used
+         * to be `smsMessage` and `vaultItem`, both distinctive; deriving it
+         * from the registry added `will` and `message`, which are ordinary
+         * English — and `\bwill\b` matched "it will not" in a comment. What
+         * the guard is actually about is an AI module *naming* the entity to
+         * reach it, and an entity is reached by its name in quotes.
+         */
+        if (new RegExp(`['"\`]${entity}['"\`]`).test(text)) named.push(`${file} names ${entity}`);
       }
     }
     assert.deep(named, []);
@@ -401,6 +486,118 @@ describe('what the assistant may never be handed', () => {
     const { BY_NAME } = await import('../js/domain/reminders.js');
     assert.ok(BY_NAME.length > 0, 'BY_NAME is empty, so this proves nothing');
     for (const entity of FORBIDDEN) assert.not(BY_NAME.includes(entity));
+  });
+});
+
+describe('goals intent', () => {
+  test('reports the goal count and status', async () => {
+    const db = await makeDb();
+    const account = await makeAccount(db, { name: 'Savings', openingBalance: '50000' });
+    await db.repo('goal').create({
+      name: 'Emergency Fund', kind: 'emergency fund',
+      targetAmount: '100000', accounts: [account.id],
+    });
+    const answer = await new Assistant({ db, clock }).answer('What are our financial goals?');
+    assert.equal(answer.intent, 'goals');
+    assert.includes(answer.text, 'Emergency Fund');
+    assert.ok(/** @type {any} */ (answer.records)?.rows?.length, 'goals must be returned as records');
+  });
+
+  test('says so when no goals are set', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('Show goals.');
+    assert.includes(answer.text, 'No financial goals');
+  });
+
+  test('matches the savings-target phrasing', async () => {
+    assert.equal(matchIntent('How are we doing on savings?')?.intent?.id, 'goals');
+  });
+});
+
+describe('emergency contacts intent', () => {
+  test('lists contacts by priority', async () => {
+    const db = await makeDb();
+    await db.repo('emergencyContact').create({
+      name: 'Dr. Priya', kind: 'doctor', relationship: 'Family doctor', priority: 1,
+      phone: '9876543210',
+    });
+    await db.repo('emergencyContact').create({
+      name: 'Sunita', kind: 'family', relationship: 'Sister', priority: 2,
+      phone: '9123456789',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Who do we call in an emergency?');
+    assert.equal(answer.intent, 'emergency-contacts');
+    assert.includes(answer.text, 'Dr. Priya');
+    assert.ok(/** @type {any} */ (answer.records)?.rows?.length);
+  });
+
+  test('says so when no emergency contacts are stored', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('Show emergency contacts.');
+    assert.includes(answer.text, 'No emergency contacts');
+  });
+});
+
+describe('trips intent', () => {
+  test('reports the next upcoming trip', async () => {
+    const db = await makeDb();
+    await db.repo('trip').create({
+      destination: 'Goa', kind: 'holiday',
+      departsOn: '2025-07-01', returnsOn: '2025-07-07',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Are there upcoming trips?');
+    assert.equal(answer.intent, 'trips');
+    assert.includes(answer.text, 'Goa');
+    assert.includes(answer.text, 'Jul 2025');
+  });
+
+  test('reports the last trip when nothing is planned', async () => {
+    const db = await makeDb();
+    await db.repo('trip').create({
+      destination: 'Ooty', kind: 'holiday',
+      departsOn: '2025-03-10', returnsOn: '2025-03-15',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Show travel plans.');
+    assert.equal(answer.intent, 'trips');
+    assert.includes(answer.text, 'No trips are planned');
+    assert.includes(answer.text, 'Ooty');
+  });
+
+  test('says so when no trips are recorded', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('When is the next holiday?');
+    assert.includes(answer.text, 'No trips are recorded');
+  });
+});
+
+describe('staff intent', () => {
+  test('lists active staff members', async () => {
+    const db = await makeDb();
+    const p = await makePerson(db, { name: 'Raju Kumar' });
+    await db.repo('staff').create({
+      person: p.id, role: 'Cook', monthlyPay: '12000', startedOn: '2024-01-01',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Who is on household staff?');
+    assert.equal(answer.intent, 'staff');
+    assert.includes(answer.text, 'Cook');
+    assert.ok(/** @type {any} */ (answer.records)?.rows?.length);
+  });
+
+  test('says so when no staff are recorded', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('Show staff.');
+    assert.includes(answer.text, 'No household staff');
+  });
+
+  test('does not show former staff as active', async () => {
+    const db = await makeDb();
+    const p = await makePerson(db, { name: 'Lakshmi' });
+    await db.repo('staff').create({
+      person: p.id, role: 'Driver', startedOn: '2022-01-01', endedOn: '2024-12-31',
+    });
+    const answer = await new Assistant({ db, clock }).answer('List household help.');
+    assert.includes(answer.text, 'No current staff');
+    assert.includes(answer.text, '1 former record');
   });
 });
 
@@ -458,5 +655,145 @@ describe('the assistant says which span it compared', () => {
     const rows = spend('2025-07-01', '2025-08-02', rs(258));
     const text = summaryFor(rows, '2025-08-02');
     assert.not(text.includes('below'), 'nothing fell — the month started');
+  });
+});
+
+describe('mileage intent', () => {
+  test('reports km/l per vehicle from the fill-ups', async () => {
+    const db = await makeDb();
+    const v = await db.repo('vehicle').create({
+      registration: 'KA01AB1234', make: 'Maruti', model: 'Swift', kind: 'car',
+    });
+    // Two full tanks: the stretch between them is what can be measured.
+    await db.repo('fuelLog').create({
+      vehicle: v.id, date: '2025-05-01', odometer: 10000, litres: '30', fullTank: true, amount: '3000',
+    });
+    await db.repo('fuelLog').create({
+      vehicle: v.id, date: '2025-05-20', odometer: 10450, litres: '30', fullTank: true, amount: '3000',
+    });
+    const answer = await new Assistant({ db, clock }).answer('What mileage are we getting?');
+    assert.equal(answer.intent, 'mileage');
+    assert.includes(answer.text, 'KA01AB1234');
+    assert.includes(answer.text, 'km/l');
+  });
+
+  /*
+   * `vehicle-compliance` matches `car`, and a mileage question mentions one.
+   * `matchIntent` weighs by match length, so this is a claim about that rule
+   * holding rather than about the words chosen.
+   */
+  test('a mileage question is not answered with an insurance date', () => {
+    assert.equal(matchIntent('what mileage does the car get?')?.intent?.id, 'mileage');
+  });
+
+  test('says so when there are no fill-ups', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('How much fuel are we using?');
+    assert.includes(answer.text, 'No fill-ups are recorded');
+  });
+});
+
+describe('employment intent', () => {
+  test('names who works where', async () => {
+    const db = await makeDb();
+    const p = await makePerson(db, { name: 'Asha Narayan' });
+    await db.repo('employment').create({
+      person: p.id, employer: 'Infosys', designation: 'Architect', startedOn: '2020-01-01',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Who works where?');
+    assert.equal(answer.intent, 'employment');
+    assert.includes(answer.text, 'Infosys');
+    assert.includes(answer.text, 'Asha Narayan');
+  });
+
+  test('a job with an end date is past, not current', async () => {
+    const db = await makeDb();
+    const p = await makePerson(db, { name: 'Ravi' });
+    await db.repo('employment').create({
+      person: p.id, employer: 'Old Corp', startedOn: '2018-01-01', endedOn: '2022-06-30',
+    });
+    const answer = await new Assistant({ db, clock }).answer('Who is employed?');
+    assert.includes(answer.text, 'Nobody is recorded as currently employed');
+    assert.includes(answer.text, '1 past job');
+  });
+
+  // The income intent owns `salary`; a question about earnings must not be
+  // answered with a list of job titles.
+  test('asking about salary still reaches the ledger, not the job list', () => {
+    assert.equal(matchIntent('what was our salary last month?')?.intent?.id, 'income');
+  });
+
+  test('says so when no employment is recorded', async () => {
+    const db = await makeDb();
+    const answer = await new Assistant({ db, clock }).answer('Who is employed?');
+    assert.includes(answer.text, 'No employment is recorded');
+  });
+});
+
+/*
+ * Every entity is either answerable or refused on purpose.
+ *
+ * `docs/PHASE_STATUS.md` carried the assistant's reach as a fraction — "32 of
+ * 53 entity kinds" — which reads as a shortfall and says nothing about the
+ * other twenty-one. Ten of those must never be answerable at all, and a
+ * number cannot carry that difference.
+ *
+ * So the fraction is replaced by a rule: an entity is reachable by a question,
+ * or `js/ai/coverage.js` says why it is not. An entity added tomorrow cannot
+ * be quietly unreachable — it gets an intent or it gets a line, and both are
+ * somebody deciding.
+ */
+describe('what the assistant accounts for', () => {
+  /**
+   * The three routes an entity can arrive by, as the security block uses.
+   *
+   * The whole directory, not `intents.js` alone. Naming one file made the
+   * answer depend on which file the intents happened to live in: splitting
+   * the registry in two moved twelve intents out and the sweep reported the
+   * seventeen entities they read as unreachable — a check that measured the
+   * layout of the source rather than what the assistant can answer.
+   */
+  async function reachable() {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const dir = new URL('../js/ai/', import.meta.url).pathname;
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.js'));
+    assert.ok(files.length >= 3, `only ${files.length} AI modules were read`);
+
+    const named = [];
+    for (const file of files) {
+      const src = await readFile(`${dir}${file}`, 'utf8');
+      named.push(...[...src.matchAll(/load\(\s*'([A-Za-z]\w*)'\s*\)/g)].map((m) => m[1]));
+    }
+    return new Set([...named, ...datedEntities(), ...BY_NAME]);
+  }
+
+  test('every entity is either reachable or refused with a reason', async () => {
+    const reach = await reachable();
+    const unaccounted = entityNames()
+      .filter((name) => !reach.has(name) && !(name in NOT_ASKABLE));
+    assert.deep(unaccounted, []);
+  });
+
+  test('and nothing is both refused and reachable', async () => {
+    const reach = await reachable();
+    const both = Object.keys(NOT_ASKABLE).filter((name) => reach.has(name));
+    assert.deep(both, []);
+  });
+
+  test('the registry names only real entities', () => {
+    const known = new Set(entityNames());
+    assert.deep(Object.keys(NOT_ASKABLE).filter((n) => !known.has(n)), []);
+  });
+
+  /*
+   * A reason that says nothing turns the registry from a decision into a place
+   * to put things. The length floor is deliberately low — it is there to catch
+   * `''` and `'todo'`, not to grade prose.
+   */
+  test('and every refusal gives a reason', () => {
+    const thin = Object.entries(NOT_ASKABLE)
+      .filter(([, why]) => typeof why !== 'string' || why.trim().length < 20)
+      .map(([name]) => name);
+    assert.deep(thin, []);
   });
 });

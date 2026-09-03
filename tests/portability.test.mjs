@@ -104,8 +104,14 @@ describe('what the documents say about restoring', () => {
     ])).join('\n');
     const portability = await readFile(join(ROOT, 'docs/PORTABILITY.md'), 'utf8');
 
+    // The label, or the catalogue key that now stands for it. Routing the
+    // button's text through `t()` emptied the literal out of the module and
+    // flipped this guard a second time — the same fault as the file move
+    // above, one layer along: a check that routing a string can flip is a
+    // check about string literals, and this one is about whether a restore
+    // exists. Either form is the button; neither is the restore going away.
     const canRestore = /async restore\s*\(/.test(service)
-      && /Restore from a file/.test(settings);
+      && /Restore from a file|settings\.data\.restoreFromFile/.test(settings);
 
     const saysItCannot = /It cannot restore them/i.test(portability);
 

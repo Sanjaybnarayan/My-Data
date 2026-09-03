@@ -23,11 +23,24 @@
 import { signinStrings } from './en-signin.js';
 import { tradebookStrings } from './en-tradebook.js';
 import { periodStrings } from './en-periods.js';
+import { settingsDataStrings } from './en-settings-data.js';
+import { instalmentStrings } from './en-instalments.js';
+import { financeScreenStrings } from './en-finance-screen.js';
+import { calendarStrings } from './en-calendar.js';
 
 export const strings = {
+  // A valuation that is real but old. `domain/networth.js` says why twelve
+  // months, and carries the age so the threshold can be argued with.
+  'networth.aged.one': 'valued a month ago',
+  'networth.aged.many': 'valued {months} months ago',
+
   ...signinStrings,
   ...tradebookStrings,
   ...periodStrings,
+  ...settingsDataStrings,
+  ...instalmentStrings,
+  ...financeScreenStrings,
+  ...calendarStrings,
 
   // Dates. Abbreviated month names, because a table column has no room for
   // the full ones and a household reading its own records knows which is which.
@@ -104,6 +117,11 @@ export const strings = {
   // A stored link that is not a link. Shown as the text it is rather than
   // hidden, so a household can see what is actually in the record.
   'url.notLinked': 'Not opened as a link: only http, https, mailto and tel addresses are.',
+
+  // What the live region says for a toast that offers a button. One key
+  // rather than a message and a label announced separately, because where the
+  // offer belongs in the sentence is a fact about the language.
+  'toast.withAction': '{message} — {action} available',
 
   // Notifications. Raised by the page when the application is opened — there
   // is no server and no push subscription, so nothing arrives while it is
@@ -369,18 +387,6 @@ export const strings = {
   'notify.push.today': 'Something is due today. Open FamilyOS to see what.',
   'notify.push.soon': 'The next one is due in {days} day(s). Open FamilyOS to see what.',
 
-  // What the portfolio can say about an RD instalment against the ledger.
-  // `ambiguous` is deliberately not phrased as a problem to fix: instalments
-  // are the same amount every month, so two debits a day apart are genuinely
-  // indistinguishable and naming both is the honest answer.
-  'instalments.title': 'Recurring deposit instalments',
-  'instalments.subtitle': '{matched} of {total} match a row in the ledger',
-  'instalments.unmatched': '{n} instalment(s) have no bank row in the ledger for the same '
-    + 'amount within a day. Either the payment is not imported yet, or it did not leave the '
-    + 'account.',
-  'instalments.ambiguous': '{n} could be more than one row. Instalments are the same amount '
-    + 'every month, so nothing here can tell two debits a day apart apart — both are kept and '
-    + 'neither is chosen.',
 
   // Rule 57 counted across a household. `scopeCapped` exists because the old
   // sentence said "movements" while counting only the sample it had walked.
@@ -456,7 +462,8 @@ export const strings = {
   'sos.map': 'Map: {url}',
   'sos.accuracy': 'Accurate to about {n} m.',
   'sos.noPosition': 'No position could be read on this device.',
-  'sync.dangling': '{n} record(s) arrived from another device pointing at records this one does not have. Settings \u2192 Data \u2192 Check for broken links.',
+  'record.held': 'This arrived from another device and names a record this one does not have. It is kept and shown, and left out of totals until what it names arrives — a figure it added to would be one nobody could trace.',
+  'sync.dangling': '{n} record(s) arrived from another device naming records this one does not have. They are listed and marked, and left out of totals until what they name arrives. Settings \u2192 Data \u2192 Check for broken links.',
   'safety.somebody': 'This person',
 
   // How coarse a fix is, said in the units a person thinks in.
@@ -567,6 +574,8 @@ export const strings = {
   'profile.settings': 'Settings',
   'profile.settingsHint': 'Security, privacy, connections, display, data',
   'amounts.unreadable.one': 'One record has an amount this device cannot read, so it is not in these totals. Check it in your spreadsheet.',
+  'amounts.held.one': 'One record arrived from another device naming a record this one does not have, so it is not in these totals yet. It appears once the record it names arrives.',
+  'amounts.held.many': '{n} records arrived from another device naming records this one does not have, so they are not in these totals yet. They appear once the records they name arrive.',
   'amounts.unreadable.many': '{n} records have an amount this device cannot read, so they are not in these totals. Check them in your spreadsheet.',
   'assistant.unreadable': 'I could not read your {names} records, so I cannot answer that. This is not the same as having none — something went wrong reading them.',
   'search.keepTyping': 'Keep typing — {n} letters or more to search',

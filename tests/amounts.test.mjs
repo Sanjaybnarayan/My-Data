@@ -13,7 +13,9 @@
  */
 
 import { test, describe, assert, setSuite } from './harness.mjs';
-import { isReadableAmount, unreadableAmounts, describeUnreadable } from '../js/domain/amounts.js';
+import {
+  isReadableAmount, unreadableAmounts, describeUnreadable, heldRows, describeHeld,
+} from '../js/domain/amounts.js';
 import { summarise } from '../js/domain/categorise.js';
 
 setSuite('amounts');
@@ -84,5 +86,57 @@ describe('the totals themselves', () => {
 
   test('a clean month is unaffected', () => {
     assert.equal(summarise([row('a', 250000), row('b', 100000)]).moneyOut, 350000);
+  });
+});
+
+describe('rows a sync is holding out of the totals', () => {
+  const at = '2025-01-05T00:00:00.000Z';
+
+  test('counts the held rows and nothing else', () => {
+    const report = heldRows([{ id: 'a' }, { id: 'b', heldAt: at }, { id: 'c', heldAt: null }]);
+    assert.equal(report.count, 1);
+    assert.deep(report.ids, ['b']);
+  });
+
+  test('and says nothing when nothing is held', () => {
+    assert.equal(describeHeld(heldRows([{ id: 'a' }])), null);
+  });
+
+  test('and says the total will change rather than sending anybody to a spreadsheet', () => {
+    /*
+     * The difference from an unreadable amount, which is the reason these are
+     * two functions and not one. An unreadable amount is a row somebody has to
+     * go and fix in their sheet. A held row fixes itself on the next sync that
+     * brings what it names, and telling a household to go and look would be a
+     * false alarm every time.
+     */
+    const said = describeHeld(heldRows([{ id: 'a', heldAt: at }]));
+    assert.ok(said);
+    assert.not(/spreadsheet/i.test(said), 'sends somebody to fix a row that fixes itself');
+  });
+
+  test('and the overview counts them, which asking inPeriod could not', async () => {
+    /*
+     * The mistake this catches was made writing it. The first version read the
+     * held rows out of `inMonth`, which comes from `inPeriod` — and `inPeriod`
+     * asks `settled()`, so the held rows are gone by then and the count was
+     * zero however many were being held. A counter that cannot count, on
+     * exactly the rows it exists for.
+     */
+    const { assembleOverview } = await import('../js/services/finance.js');
+    const clock = () => Date.parse('2025-01-15T10:00:00');
+    const rows = [
+      { id: 't1', date: '2025-01-02', amount: 1000, kind: 'expense', account: 'a1' },
+      { id: 't2', date: '2025-01-03', amount: 500, kind: 'expense', account: 'gone', heldAt: at },
+    ];
+
+    const out = assembleOverview({ accounts: [{ id: 'a1', name: 'A', kind: 'savings' }], transactions: rows }, { clock });
+    assert.ok(out.held, 'a held row inside the month was not reported');
+    assert.equal(out.compare.current.expense, 1000, 'the held row joined the total after all');
+
+    const none = assembleOverview(
+      { accounts: [{ id: 'a1', name: 'A', kind: 'savings' }], transactions: [rows[0]] }, { clock },
+    );
+    assert.equal(none.held, null, 'it reports held rows when there are none');
   });
 });

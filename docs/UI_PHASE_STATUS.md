@@ -26,7 +26,7 @@ not by a check.
 | UI-12 | Secondary modules | **MOSTLY_COMPLETE** | `#139`; `docs/SECONDARY_MODULES.md` |
 | UI-13 | Settings | **MOSTLY_COMPLETE** | `#140`; `docs/SETTINGS_SCREEN.md` |
 | UI-14 | Accessibility | **PARTIALLY_COMPLETE** | `#136`, `#137`, `#146`; `docs/UI_ACCESSIBILITY.md`, `docs/KEYBOARD_NAVIGATION.md`, `docs/TEXT_SIZE_AND_ROTATION.md`. See below |
-| UI-15 | Money and figures | **MOSTLY_COMPLETE** | `#138`; `docs/MONEY_ROUNDING.md` |
+| UI-15 | Money and figures | **MOSTLY_COMPLETE** | `#138`; `docs/MONEY_ROUNDING.md`. A held row is now named beside the total it is missing from — see below |
 | UI-16 | Information architecture | **MOSTLY_COMPLETE** | `docs/UI_INFORMATION_ARCHITECTURE.md`, `#143` |
 | UI-17 | Android polish | **PARTIALLY_COMPLETE** | `#141`, `#142`, `#143`, `#144`. See below |
 
@@ -50,6 +50,59 @@ The `CANNOT_SHOW` lists **are** the completed work: a screen that says which
 of six named reasons applies, rather than one that shows nothing or, worse,
 shows a number it made up.
 
+## A total that is quietly about fewer rows than it looks
+
+`js/domain/amounts.js` was written about one instance of this and states the
+rule in its own words: a figure that is *"right about the rows it could read
+and says nothing about the one it could not"* is **"a number that is quietly
+about less than it claims"**.
+
+Holding unresolved rows out of the arithmetic — the Phase 1 work — created a
+second instance of exactly that, and this is the other half. `heldRows` and
+`describeHeld` are the same pair as `unreadableAmounts` and
+`describeUnreadable`, and the finance overview carries the sentence beside the
+figure rather than leaving the household to reconcile a total that is short.
+
+Two things are deliberately different from its sibling:
+
+- It is `faint`, not `money--negative`. An unreadable amount is a row somebody
+  has to go and fix in their spreadsheet. A held row fixes itself on the next
+  sync that brings what it names, so red would be a false alarm every time.
+- The sentence says the total will change, and does not send anybody looking.
+
+**The first version of the count could not count.** It read the held rows out
+of `inMonth`, which comes from `inPeriod`, which asks `settled()` — so the held
+rows were already gone and the count was zero however many were being held. A
+counter reporting nothing wrong on exactly the rows it exists for. It reads the
+month out of the unfiltered list now, and a test fails if it goes back.
+
+## A screen that failed to open left a dead one behind it
+
+Not an accessibility fault and not in any phase's gap list, but it belongs
+here because of how it hid. The whole browser walk asserts that no screen
+throws. Nothing asked what happens when one does.
+
+`Router#resolve` calls `replaceChildren` only after a successful render, so a
+failed navigation deliberately leaves the previous screen up rather than
+blanking the application. That part was right. The previous view's `destroy`
+ran at the top of the method though, before the loader and the render that
+might throw — so what stayed on display was **still drawn and no longer
+subscribed**. A record saved on another device, or by the household on the
+very next tap, would not appear on it, and the only sign anything had gone
+wrong was a toast that expires.
+
+Nothing is torn down now until there is something to replace it with.
+
+The check is worth reading for what it does *not* assert. That the outlet is
+not blanked, and that a toast appears, were both already true of the broken
+version — a check made of those two would have passed against the fault it was
+written for. The one that matters writes a record after the failed navigation
+and asks whether the surviving screen reacts to it: still *live*, not merely
+still drawn.
+
+Measured, by putting the teardown back where it was: **one failure out of 729,
+and it is that one.** The other three assertions passed against the bug.
+
 ## The two that are further behind than the rest
 
 **UI-14, accessibility.** Heading order and accessible names were fixed across
@@ -62,6 +115,57 @@ name, a role, a level — and none is a claim about what somebody hears. The
 `listItem` fault found this week is the shape of what that misses: nine rows
 carried `role="button"` correctly and answered only a pointer, and no
 markup check would have caught it.
+
+Seven more since, and the pattern in all of them is that the fault was in the
+half a markup check can see while every existing check was reading text
+instead.
+
+**The seventh was not in a screen at all — it was in where the walk looked.**
+Every route the accessibility walk visited was a list: module screens and
+entity list screens. The forms carry almost every control in the application,
+617<!--live:fields--> fields across 53<!--live:entities--> entities, and none
+of the checks had ever opened one. So *every control a person can operate has
+an accessible name* was true of the screens with the fewest controls on them.
+
+What was sitting there: **31 fields whose `<label for>` pointed at an id no
+element carried.** Four field types build a chip group or a sentence about
+attachments rather than an input, so nothing holds the id the label names.
+Clicking the label did nothing, where every other field's label focuses its
+control; for a `multiref` the name was announced twice, once as loose text and
+once by the group that repeats it. Those controls had no `aria-describedby`
+either, so a refused `multiref` showed a red line nothing pointed at.
+
+The fix asks the tree rather than keeping a list of field types — a list is
+what goes wrong. The walk opens all 53 forms now, and a new check follows every
+`label[for]`, `aria-labelledby`, `aria-describedby`, `aria-controls` and
+`aria-owns` to an element that exists. A reference to nothing does not fail: it
+resolves to nothing, and reads as a label in a review.
+
+In `js/ui/components/toast.js`, the **Undo after deleting a record expired in
+four seconds** and its action was never announced at all — so the only way back
+from a delete was invisible to anyone who could not see the button, and gone
+before most people could reach it. In `js/ui/dom.js`, the **live region kept
+only the last of two messages raised in the same frame** and retuned its own
+politeness per call; the first of those broke the Undo announcement in the very
+flow it was written for, because deleting a record announces the offer and then
+navigates, which announces the screen. In `js/ui/shell.js`, **Skip to content
+threw the user off the page**: `href="#main"` is a route in a hash-routed
+application, so the first item in the tab order loaded the fallback view and
+closed anything open — an accommodation worse than its absence. Beside it, two
+nested `<main>` elements gave the document two main landmarks.
+
+The remaining two are in `js/ui/components/modal.js`, both in the half that
+markup checks *can* see — they survived because fifteen dialog checks all read
+the text and none asked what a dialog was called. The title id was a constant
+in a module that stacks dialogs, so `aria-labelledby` resolved to the first
+match and the dialog on top was announced with the name of the one underneath
+it — reached by Settings → Connection → *Changes that could not be sent* →
+**Discard**, a destructive confirmation introducing itself as the list behind
+it. And `focus(firstField ?? dialog)` had never worked, because the dialog had
+no `tabindex` and `.focus()` on a plain `div` is a no-op, so any dialog whose
+only control is its own Close button never took focus at all. Five checks now
+cover them, mutation-tested both ways. `docs/KEYBOARD_NAVIGATION.md` has the
+measurements.
 
 **UI-17, Android polish.** Four real faults found and fixed — a dialog
 stranded by the back button, an unredacted recents thumbnail, two navigations
@@ -76,14 +180,25 @@ machine can report on.
 - **UI-11** — a device integration or a new data model. Neither is UI work,
   and the sensor half must not be faked.
 - **UI-14** — one session with a real screen reader (TalkBack on the APK,
-  NVDA or VoiceOver on the web build). Everything checkable without one has
-  now been checked.
+  NVDA or VoiceOver on the web build). **What this line used to say —
+  "everything checkable without one has now been checked" — was not true, and
+  six faults found since say so.** A dialog announced as the one underneath it,
+  a dialog that never took focus, an Undo that expired, an Undo never
+  announced, a live region that kept the wrong message, and a skip link that
+  navigated away: every one visible to a check that reads markup, and every one
+  sitting under checks that were reading text. The honest version is that a
+  screen-reader session is still required, and that its absence was being used
+  to explain gaps which were never about screen readers at all.
 - **UI-17** — a person with the APK on a phone. Two of its four fixes are
   confirmed that way; the recents thumbnail and the back-button behaviour are
   not.
 
-None of the three can be closed from a build machine, and none is waiting on
-code that could be written here.
+None of the three can be **closed** from a build machine. That is not the same
+as there being no code to write, which is what this line said before, one
+paragraph below a list of six faults fixed here in code. What each of the three
+needs to reach COMPLETE is a device, a data model or a person with a screen
+reader; what they can still yield in the meantime is faults, and they keep
+yielding them to anybody who looks at the markup rather than the text.
 
 ## What is not started
 

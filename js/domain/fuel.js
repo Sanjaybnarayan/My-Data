@@ -135,7 +135,17 @@ export function stretches(fills = []) {
     });
   }
 
-  return { measured, skipped, why: measured.length ? null : WHY.NO_FULL_TANKS };
+  // When nothing was measured, report *why*. Two cases:
+  //
+  //   - Fewer than two full tanks ever → `NO_FULL_TANKS` (caught by the early
+  //     return above, so `skipped` is empty here).
+  //   - Full tanks exist but every stretch was refused → the refusal tells the
+  //     household what to fix (e.g. "the odometer goes backwards"). Using
+  //     `NO_FULL_TANKS` in this case would be literally false — they did record
+  //     full tanks — and the fix it implies (record more fills) would change
+  //     nothing.
+  const firstRefusal = skipped.length ? skipped[0].why : null;
+  return { measured, skipped, why: measured.length ? null : (firstRefusal ?? WHY.NO_FULL_TANKS) };
 }
 
 /**

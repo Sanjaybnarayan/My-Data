@@ -286,14 +286,14 @@ export async function render() {
             .map((c) => ({ value: c, label: c })),
         ], (value) => set({ category: value })),
 
-        h('div', { class: 'chip-row' }, DIRECTIONS.map((option) => chip(option.label, {
+        h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Direction' }, DIRECTIONS.map((option) => chip(option.label, {
           pressed: filter.direction === option.id,
           onClick: () => set({ direction: option.id }),
         }))),
       ]),
 
       h('div', { class: 'filter-bar filter-bar--secondary' }, [
-        h('div', { class: 'chip-row' }, PERIODS.map((period) => chip(period.label, {
+        h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Period' }, PERIODS.map((period) => chip(period.label, {
           pressed: !filter.from && !filter.to && filter.period === period.id,
           onClick: () => set({ period: period.id, from: '', to: '' }),
         }))),

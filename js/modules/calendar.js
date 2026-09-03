@@ -12,6 +12,7 @@
  */
 
 import { h, replace } from '../ui/dom.js';
+import { t } from '../core/locale.js';
 import { icon } from '../ui/icons.js';
 import {
   card, cardHeader, button, badge, pageHeader, empty, listItem,
@@ -41,7 +42,7 @@ const SOURCES = [
   { id: 'event', label: 'Events', colour: 'var(--series-1)' },
   { id: 'task', label: 'Tasks', colour: 'var(--series-2)' },
   { id: 'appointment', label: 'Appointments', colour: 'var(--series-3)' },
-  { id: 'money', label: 'Money due', colour: 'var(--series-6)' },
+  { id: 'money', label: t('calendar.moneyDue'), colour: 'var(--series-6)' },
   { id: 'expiry', label: 'Renewals', colour: 'var(--series-5)' },
   { id: 'date', label: 'Birthdays', colour: 'var(--series-4)' },
 ];
@@ -86,12 +87,12 @@ export async function render(route) {
 
     replace(host, [
       pageHeader('Calendar', {
-        subtitle: 'Events, tasks, appointments, money due and every renewal date',
+        subtitle: t('calendar.subtitle'),
         actions: [
           // Its own sign-in, for its own permission, asked for only when
           // somebody presses this — never at ordinary sign-in. The scope
           // reaches only calendars this application made; see `sync/calendar.js`.
-          button('Sync to Google', {
+          button(t('calendar.syncGoogle'), {
             variant: 'subtle',
             iconName: 'refresh',
             onClick: () => syncCalendar(),
@@ -99,12 +100,12 @@ export async function render(route) {
           // A year, not the month on screen: a household exporting their
           // calendar wants their renewals, not the four squares they happen to
           // be looking at.
-          button('Export .ics', {
+          button(t('calendar.exportIcs'), {
             variant: 'subtle',
             iconName: 'download',
             onClick: () => exportCalendar(),
           }),
-          button('Add event', {
+          button(t('calendar.addEvent'), {
             variant: 'primary',
             iconName: 'plus',
             onClick: () => app().router.navigate({ module: 'calendar', entity: 'event', id: 'new' }),
@@ -116,12 +117,12 @@ export async function render(route) {
         h('div', { class: 'row row--between', style: { marginBottom: 'var(--space-4)' } }, [
           h('div', { class: 'row' }, [
             h('button', {
-              class: 'btn btn--icon', type: 'button', 'aria-label': 'Previous month',
+              class: 'btn btn--icon', type: 'button', 'aria-label': t('calendar.prevMonth'),
               onClick: () => { month = addMonths(month, -1); paint(); },
             }, icon('chevronLeft')),
             h('h2', { style: { minWidth: '11rem', textAlign: 'center' } }, monthName(month)),
             h('button', {
-              class: 'btn btn--icon', type: 'button', 'aria-label': 'Next month',
+              class: 'btn btn--icon', type: 'button', 'aria-label': t('calendar.nextMonth'),
               onClick: () => { month = addMonths(month, 1); paint(); },
             }, icon('chevronRight')),
           ]),
@@ -131,7 +132,7 @@ export async function render(route) {
           }),
         ]),
 
-        h('div', { class: 'chip-row', style: { marginBottom: 'var(--space-4)' } },
+        h('div', { class: 'chip-row', role: 'group', 'aria-label': t('calendar.sources'), style: { marginBottom: 'var(--space-4)' } },
           SOURCES.map((source) => h('button', {
             class: 'chip',
             type: 'button',
@@ -149,8 +150,7 @@ export async function render(route) {
         // the empty squares below should be read.
         cardsUnknown
           ? h('p', { class: 'small faint', style: { marginBottom: 'var(--space-4)' } },
-            'Credit card bills are not shown this far ahead — a bill is the balance on a '
-            + 'statement, and these cycles have not closed yet. Everything else is here.')
+            t('calendar.cardsNote'))
           : null,
 
         monthGrid(start, end, byDay),
@@ -174,7 +174,7 @@ export async function render(route) {
     const problems = icalProblems(entries);
 
     if (!problems.written) {
-      toast('Nothing dated in the next twelve months to export', { kind: 'info' });
+      toast(t('calendar.nothingToExport'), { kind: 'info' });
       return;
     }
 
@@ -187,8 +187,8 @@ export async function render(route) {
     // Anything left out is said, rather than the file quietly being short.
     const dropped = problems.undated + problems.unidentified;
     toast(dropped
-      ? `${problems.written} entries exported, ${dropped} skipped`
-      : `${problems.written} entries exported — importing again updates them rather than duplicating`,
+      ? t('calendar.exported', { written: problems.written, dropped })
+      : t('calendar.exportedClean', { written: problems.written }),
     { kind: 'success' });
   }
 
@@ -204,7 +204,7 @@ export async function render(route) {
     const from = today();
     const { entries } = await collect(db, { from, to: addMonths(from, 12) });
     if (!entries.length) {
-      toast('Nothing dated in the next twelve months to sync', { kind: 'info' });
+      toast(t('calendar.nothingToSync'), { kind: 'info' });
       return;
     }
 
@@ -218,8 +218,8 @@ export async function render(route) {
 
       const left = failed.length + skipped.length;
       toast(left
-        ? `${written.length} sent to your calendar, ${left} could not be`
-        : `${written.length} sent to a calendar of its own — sync again to update them`,
+        ? t('calendar.synced', { written: written.length, left })
+        : t('calendar.syncedClean', { written: written.length }),
       { kind: left ? 'info' : 'success' });
     } catch (err) {
       failure = err;
@@ -253,7 +253,7 @@ export async function render(route) {
       cells.push(h('button', {
         type: 'button',
         class: 'card month-day',
-        'aria-label': `${formatDay(day)}, ${entries.length} entries`,
+        'aria-label': t('calendar.dayLabel', { day: formatDay(day), n: entries.length }),
         'aria-current': isToday ? 'date' : null,
         'aria-pressed': String(isSelected),
         'data-today': isToday ? '' : null,
@@ -272,7 +272,7 @@ export async function render(route) {
         ])),
 
         entries.length > 3
-          ? h('span', { class: 'small faint' }, `+${entries.length - 3} more`)
+          ? h('span', { class: 'small faint' }, t('calendar.more', { n: entries.length - 3 }))
           : null,
       ]));
     }
@@ -302,7 +302,7 @@ export async function render(route) {
           trailing: entry.time ? badge(entry.time) : null,
           href: entry.href,
         })))
-        : empty({ title: 'Nothing on this day', iconName: 'calendar' }),
+        : empty({ title: t('calendar.nothingToday'), iconName: 'calendar' }),
     ]);
   }
 
@@ -431,7 +431,7 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
       title: bill.name,
       subtitle: bill.amount === null
         // A card with no statement day knows the date and not the figure.
-        ? bill.why ?? 'amount not known'
+        ? bill.why ?? t('calendar.amountUnknown')
         : format(bill.amount),
       amount: bill.amount,
       href: bill.recordId
@@ -465,7 +465,7 @@ export async function collect(db, { from = addMonths(today(), -13), to = addMont
       id: entryId('date', date.id, date.date.slice(0, 4)),
       date: date.date,
       title: date.title,
-      subtitle: date.turning ? `turning ${date.turning}` : (date.kind ?? ''),
+      subtitle: date.turning ? t('calendar.turning', { age: date.turning }) : (date.kind ?? ''),
       href: null,
     });
   }

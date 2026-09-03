@@ -203,18 +203,82 @@ export function trapFocus(container) {
   return () => container.removeEventListener('keydown', onKeydown);
 }
 
-/** Announce something to assistive technology without moving focus. */
-let liveRegion = null;
+/**
+ * Announce something to assistive technology without moving focus.
+ *
+ * ## Two regions, because politeness cannot be changed after the fact
+ *
+ * This was one region whose `aria-live` was rewritten on every call. A screen
+ * reader registers a live region when it is inserted and takes its politeness
+ * then, so flipping the attribute later is not reliably read — which put the
+ * one case that depends on it, an error, on the setting it was trying not to
+ * use. Each politeness now has its own element, created once and never
+ * retuned.
+ *
+ * ## And a queue, because two messages in one frame left only the second
+ *
+ * `schedule` batches into a single animation frame, so two calls close
+ * together wrote both messages into the same region back to back with no paint
+ * between them. Measured, before this changed:
+ *
+ *     ["(cleared)", "Dashboard", "Could not save"]
+ *
+ * Three mutations, one frame. The first message reached the DOM and was gone
+ * again before anything could read it.
+ *
+ * That is not hypothetical. Deleting a record raises the toast offering Undo
+ * and then navigates back to the list, which announces the screen it landed
+ * on — so the offer was overwritten by the name of a page, in the one flow
+ * where the announcement is the only way to know the offer exists.
+ *
+ * One message per frame keeps them in order and gives each its own paint.
+ */
+let politeRegion = null;
+let assertiveRegion = null;
 
-export function announce(message, assertive = false) {
-  if (!liveRegion) {
-    liveRegion = h('div', {
+/** @type {{message: string, assertive: boolean}[]} */
+const announcements = [];
+let announcing = false;
+
+function liveRegion(assertive) {
+  if (assertive) {
+    if (!assertiveRegion) {
+      assertiveRegion = h('div', {
+        class: 'sr-only', role: 'alert', 'aria-live': 'assertive', 'aria-atomic': 'true',
+      });
+      document.body.append(assertiveRegion);
+    }
+    return assertiveRegion;
+  }
+  if (!politeRegion) {
+    politeRegion = h('div', {
       class: 'sr-only', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true',
     });
-    document.body.append(liveRegion);
+    document.body.append(politeRegion);
   }
-  liveRegion.setAttribute('aria-live', assertive ? 'assertive' : 'polite');
+  return politeRegion;
+}
+
+function pump() {
+  const next = announcements.shift();
+  if (!next) {
+    announcing = false;
+    return;
+  }
+  const region = liveRegion(next.assertive);
   // Clearing first forces a re-announcement of an identical message.
-  liveRegion.textContent = '';
-  schedule(() => { liveRegion.textContent = message; });
+  region.textContent = '';
+  schedule(() => {
+    region.textContent = next.message;
+    // The next one waits for a frame of its own rather than overwriting this
+    // one where nothing can read it.
+    schedule(pump);
+  });
+}
+
+export function announce(message, assertive = false) {
+  announcements.push({ message, assertive });
+  if (announcing) return;
+  announcing = true;
+  schedule(pump);
 }

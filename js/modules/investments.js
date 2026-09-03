@@ -54,7 +54,7 @@ export async function render(route) {
           onClick: () => app().router.navigate({ module: 'investments', entity: 'holding', id: 'new' }),
         })],
     }),
-    h('div', { class: 'chip-row', role: 'tablist', style: { marginBottom: 'var(--space-4)' } },
+    h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Investments', style: { marginBottom: 'var(--space-4)' } },
       TABS.map((tab) => chip(tab.label, {
         pressed: tab.id === active,
         onClick: () => app().router.navigate(tab.id === 'portfolio'
@@ -107,8 +107,19 @@ export async function render(route) {
  * the same amount every month, so two debits a day apart are genuinely
  * indistinguishable, and the honest sentence names both rather than choosing.
  */
-function instalmentCard(counts) {
-  if (!counts?.total || (!counts.unmatched && !counts.ambiguous)) return null;
+/** The first date any deposit is behind on, for a card that names one. */
+function earliestMissed(schedule) {
+  return (schedule?.rows ?? [])
+    .flatMap((row) => row.missed)
+    .sort((a, b) => String(a).localeCompare(String(b)))[0] ?? null;
+}
+
+function instalmentCard(counts, schedule) {
+  const behind = schedule?.behind ?? 0;
+  const unrecorded = schedule?.unrecorded ?? 0;
+  const nothingToSay = (!counts?.total || (!counts.unmatched && !counts.ambiguous))
+    && !behind && !unrecorded;
+  if (nothingToSay) return null;
 
   return card({ class: 'card--quiet' }, [
     cardHeader(t('instalments.title'), [], {
@@ -119,8 +130,31 @@ function instalmentCard(counts) {
       ? h('p', { class: 'small' }, t('instalments.unmatched', { n: counts.unmatched }))
       : null,
     counts.ambiguous
-      ? h('p', { class: 'small muted', style: { marginBottom: 0 } },
+      ? h('p', { class: 'small muted' },
         t('instalments.ambiguous', { n: counts.ambiguous }))
+      : null,
+
+    /*
+     * A month the schedule expected and nothing paid.
+     *
+     * This is the half Phase 7 could not answer: without a recorded schedule
+     * there was nothing for a payment to be missing *from*. The earliest date
+     * is named because "three are missing" sends somebody through a year of
+     * statements, and "the earliest is March" sends them to March.
+     */
+    behind
+      ? h('p', { class: 'small' }, [
+        t('instalments.missed', { n: schedule.missed }),
+        ' ',
+        t('instalments.missedFirst', { day: formatDay(earliestMissed(schedule)) }),
+      ])
+      : null,
+
+    // Said last, and never as a fault: nobody filled the schedule in, so the
+    // question is open rather than answered badly.
+    unrecorded
+      ? h('p', { class: 'small muted', style: { marginBottom: 0 } },
+        t('instalments.unscheduled', { n: unrecorded }))
       : null,
   ].filter(Boolean));
 }
@@ -188,6 +222,7 @@ async function portfolioView() {
 
     const {
       summary, rows, pooled, dividends, maturing, shareOfAssets, accrual, instalments,
+      instalmentSchedule,
     } = view;
     const fyFrom = startOfFinancialYear(today());
 
@@ -246,7 +281,7 @@ async function portfolioView() {
 
       // Directly under the summary, because it qualifies the gain figure in it.
       accrualCard(accrual),
-      instalmentCard(instalments),
+      instalmentCard(instalments, instalmentSchedule),
 
       card({}, [
         cardHeader('Asset allocation'),

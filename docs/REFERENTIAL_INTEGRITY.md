@@ -91,11 +91,80 @@ has, to satisfy an ordering nobody promised.
 arrive.** A dangling reference can still enter this database through a sync from
 a device running an older version.
 
+### What a pull refuses, and what it cannot
+
+It refuses to let the row count. It does not refuse the row.
+
+**Dropping was never available, and this is the measurement that settles it.**
+A transaction naming an account arrives in one pull and the account in the
+next, because the other device wrote it a moment after this pull read its
+cursor:
+
+```
+pull 1: {"pulled":1,"dangling":1}   reference resolves? false
+pull 2: {"pulled":1,"dangling":0}   reference resolves? true
+```
+
+Discarding at the end of pull 1 loses the transaction for good — the server's
+cursor has moved past it and no later pull brings it back. Anything calling
+itself a refusal has to survive that.
+
+So a row whose reference the end-of-pull audit can judge and cannot resolve is
+**held**: `heldAt` is stamped on it, and `settled()` in `js/data/integrity.js`
+is the single predicate the money modules ask beside the deleted check they
+already made. The row is still listed, still opened, still the household's. It
+adds itself to no total, because rule 57 says a financial event must be
+explainable and a figure built partly from a transaction whose account nobody
+can open is one nobody can trace.
+
+Held is neither permanent nor silent:
+
+- The next pull that brings what the row names releases it, and the release
+  runs before the audit so the same pull cannot hold and re-hold one row.
+- The record screen says so on the record, not only as a count elsewhere.
+- The activity card gives the number being left out.
+
+`settled()` replaced about twenty hand-written `!row.deletedAt` checks across
+`finance.js`, `networth.js` and `portfolio.js`. That was not tidiness: `heldAt`
+is a second reason, and adding it to twenty conditions by hand is how nineteen
+of them keep the old meaning. A test asserts that a module which imports the
+predicate does not also spell the check out beside it.
+
+Two functions gained a filter they never had. `totals()` and `byCategory()`
+added up whatever array they were handed and trusted `inPeriod` to have
+filtered first. It always had, so nothing was wrong — but the guarantee lived
+in the call sites rather than in the two functions that add the money, and a
+deleted row reached a total the moment somebody called either directly.
+
 `danglingIn()` is the other half of that admission: it walks every entity with
 references and reports the broken ones, so a household can be shown them rather
 than meeting one on a screen that says "unknown". Each finding names two
 things kept deliberately apart — the row that is broken, and what it points at
 and cannot find.
+
+### What the audit cannot see, and used to report anyway
+
+A reference is resolved by reading the local store. **A row the server withheld
+by role is the same absence as a row that does not exist**, and the audit was
+calling both of them broken.
+
+Pulls are filtered by role on the server — `readableEntities` in
+`apps-script/Policy.gs` is named for it — and 24 reference fields in this schema
+point from something a `child` may read at a person, loan or vault item they may
+not. Measured against the real engine: a child's device pulling one vehicle
+reported `reference/vehicle/owner` and put a broken-link diagnostic on the
+activity card. Every sync that brought a vehicle, a relationship, an appointment
+or an education record did the same, telling the household member least placed
+to judge it that their records were damaged.
+
+So the audit now asks `readScope()` how much of the target entity the signed-in
+role reads. Anything short of `all` — including a child's own-record view of
+`person`, which shows them one row and hides the rest — means a missing target
+is not evidence of anything, and it is skipped. An owner reads everything, so
+an owner's audit is unchanged and still reports the breakage this file is about.
+
+This is also why sync cannot be made to refuse on the current signal, whatever
+the ordering argument. Refusing would have deleted a child's vehicles.
 
 ## What is still missing
 
@@ -111,5 +180,5 @@ which is offline-first for reasons that have not changed. That needs a hosting
 decision, and it has not been made.
 
 Until it is, this document's claim is narrow and deliberate: **referential
-integrity is enforced on local writes, is not enforced on sync, and there is no
-relational database.**
+integrity is enforced on local writes; a pull refuses to let an unresolved row
+count but never refuses the row; and there is no relational database.**

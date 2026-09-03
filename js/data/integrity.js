@@ -55,6 +55,30 @@
 import { entities, entity, entityNames } from './schema.js';
 import { ValidationError } from '../core/errors.js';
 
+/**
+ * A row that may contribute to a figure.
+ *
+ * Two ways it may not. **Deleted** is the old one, written out by hand in
+ * about twenty places across the money modules. **Held** is new: a row that
+ * arrived from a sync naming something that has not, and that the end-of-pull
+ * audit could judge.
+ *
+ * Held rows are still listed, still opened, still theirs — what they may not
+ * do is quietly add themselves to a total. A transaction whose account is not
+ * here shows an account nobody can open, and rule 57 says a financial event
+ * must be explainable; a figure it contributed to would be one the household
+ * cannot trace to anything. So it is shown and marked, and left out of the
+ * arithmetic until what it names arrives.
+ *
+ * It is one predicate rather than `!row.deletedAt && !row.heldAt` repeated,
+ * because the repeated version is what let `heldAt` be forgotten in nineteen
+ * of twenty places the first time somebody adds a third reason.
+ */
+export const settled = (row) => Boolean(row) && !row.deletedAt && !row.heldAt;
+
+/** @template T @param {T[]} rows @returns {T[]} */
+export const onlySettled = (rows) => (rows ?? []).filter(settled);
+
 /** Every `ref` and `multiref` field on an entity, with what it points at. */
 export function referenceFieldsOf(entityName) {
   const def = entities[entityName];
@@ -185,13 +209,27 @@ export function refuseBlocked(entityName, blocked) {
  * refused today, and a household is better told than left to meet one on a
  * screen that says "unknown".
  */
-export async function danglingIn(rowsOf, exists) {
+/**
+ * @param {(entityName: string) => boolean} [judgeable] Whether the absence of
+ * a row of this entity is evidence of anything. It is not, when the signed-in
+ * role may not read that entity in full: pulls are filtered by role, so a
+ * withheld row and a missing row are indistinguishable from here. See
+ * `readScope` in `js/security/rbac.js` for what this was costing.
+ *
+ * Defaults to trusting every absence, which is right for the owner and is what
+ * every caller wanted before roles were in the picture.
+ */
+export async function danglingIn(rowsOf, exists, judgeable = () => true) {
   const out = [];
   for (const name of entityNames()) {
     if (!referenceFieldsOf(name).length) continue;
     for (const row of (await rowsOf(name)) ?? []) {
       if (row?.deletedAt) continue;
       for (const bad of await unresolved(name, row, exists)) {
+        // Not `continue`-ing before `unresolved` runs: the read costs the same
+        // either way, and filtering the findings keeps the one rule in one
+        // place rather than splitting it across the loop and the call.
+        if (!judgeable(bad.entity)) continue;
         // Two identities are in play and they are kept apart deliberately.
         // `entity`/`id` are the row that is broken — the one a household would
         // open to fix it. `points` is what it names and cannot find. Spreading

@@ -1,7 +1,7 @@
 import { test, describe, assert, setSuite, fakeClock } from './harness.mjs';
 import * as fin from '../js/domain/finance.js';
 import * as pf from '../js/domain/portfolio.js';
-import { netWorth, netWorthByPerson } from '../js/domain/networth.js';
+import { netWorth, netWorthByPerson, STALE_AFTER_MONTHS } from '../js/domain/networth.js';
 import { expiryReminders, upcomingDates, allReminders, describeReminder } from '../js/domain/reminders.js';
 import { toMinor } from '../js/core/money.js';
 
@@ -277,6 +277,63 @@ describe('portfolio', () => {
 
   test('CAGR is the compound rate, not the simple one', () => {
     assert.close(pf.cagr(100000, 121000, 2), 10, 0.05);
+  });
+
+  test('a current value of zero is not a missing value', () => {
+    // A stock that went bankrupt has currentValue set explicitly to 0. Before
+    // the fix, `if (holding.currentValue)` treated 0 as falsy and fell through
+    // to units × averageCost, reporting a positive value for a worthless holding.
+    assert.equal(pf.holdingValue({ currentValue: 0, units: 100, averageCost: 50000, invested: 50000 }), 0);
+  });
+
+  test('holdingGain names invested, value, gain and percentage', () => {
+    const g = pf.holdingGain({ invested: rs(50000), currentValue: rs(80000) });
+    assert.equal(g.invested, rs(50000));
+    assert.equal(g.value, rs(80000));
+    assert.equal(g.gain, rs(30000));
+    assert.equal(g.gainPercent, 60);
+  });
+
+  test('holdingGain returns null gainPercent when nothing was invested', () => {
+    assert.equal(pf.holdingGain({ invested: 0, currentValue: rs(1000) }).gainPercent, null);
+  });
+
+  test('portfolioSummary counts only live holdings', () => {
+    const holdings = [
+      { id: 'h1', invested: rs(100000), currentValue: rs(120000), active: true, deletedAt: null },
+      { id: 'h2', invested: rs(50000), currentValue: rs(40000), active: true, deletedAt: null },
+      { id: 'h3', invested: rs(80000), currentValue: rs(100000), active: true, deletedAt: '2025-01-01' }, // deleted
+      { id: 'h4', invested: rs(60000), currentValue: rs(70000), active: false, deletedAt: null },         // inactive
+    ];
+    const s = pf.portfolioSummary(holdings);
+    assert.equal(s.count, 2);
+    assert.equal(s.invested, rs(150000));
+    assert.equal(s.value, rs(160000));
+    assert.equal(s.gain, rs(10000));
+    assert.equal(s.gainPercent, Math.round((10000 / 150000) * 10000) / 100);
+  });
+
+  test('dividendIncome sums only income transactions within a range', () => {
+    const txns = [
+      { kind: 'dividend', amount: 5000, date: '2025-03-10', deletedAt: null },
+      { kind: 'interest', amount: 3000, date: '2025-06-01', deletedAt: null },
+      { kind: 'buy', amount: 100000, date: '2025-01-01', deletedAt: null },    // not income
+      { kind: 'dividend', amount: 2000, date: '2024-12-01', deletedAt: null }, // before range
+      { kind: 'dividend', amount: 1000, date: '2025-03-10', deletedAt: 'X' }, // deleted
+    ];
+    assert.equal(pf.dividendIncome(txns, { from: '2025-01-01', to: '2025-12-31' }), 8000);
+  });
+
+  test('assetClass maps kinds to broad classes', () => {
+    assert.equal(pf.assetClass('stock'), 'Equity');
+    assert.equal(pf.assetClass('mutual fund'), 'Equity');
+    assert.equal(pf.assetClass('ETF'), 'Equity');
+    assert.equal(pf.assetClass('fixed deposit'), 'Fixed income');
+    assert.equal(pf.assetClass('PPF'), 'Fixed income');
+    assert.equal(pf.assetClass('EPF'), 'Retirement');
+    assert.equal(pf.assetClass('gold'), 'Commodity');
+    assert.equal(pf.assetClass('crypto'), 'Alternative');
+    assert.equal(pf.assetClass('unknown kind'), 'Other');
   });
 });
 
@@ -556,5 +613,72 @@ describe('a month in progress is not compared to a month that finished', () => {
     const bars = fin.spendingBars(series);
     assert.includes(bars.at(-1).label, 'so far');
     assert.not(bars.at(-2).label.includes('so far'));
+  });
+});
+
+describe('a valuation that is old is not a valuation that is current', () => {
+  /*
+   * `staleValuations` meant one thing: no `currentValue` at all. So a property
+   * carrying a three-year-old figure contributed it in full and was flagged as
+   * nothing, while the same property with the figure deleted was flagged. The
+   * unknown was surfaced and the confidently-stale was silent.
+   *
+   * The codebase already ages two of its three as-of dates —
+   * `domain/kyc.js#stale` at 24 months and `domain/safety.js#STALE_MINUTES` at
+   * two hours. `valuedOn` was the one it did not, on the two entities carrying
+   * a household's largest numbers.
+   */
+  const at = (day) => fakeClock(Date.parse(`${day}T09:00:00Z`));
+  const flat = (valuedOn) => ({
+    accounts: [], transactions: [], holdings: [], vehicles: [], loans: [],
+    properties: [{ id: 'pr1', name: 'Flat', purchasePrice: rs(5000000), currentValue: rs(7000000), valuedOn }],
+  });
+
+  test('an old valuation is reported, and says how old', () => {
+    const out = netWorth(flat('2023-08-30'), { clock: at('2026-08-30') });
+    const found = out.staleValuations.find((s) => s.entity === 'property');
+    assert.ok(found, 'a three-year-old valuation should be reported');
+    assert.equal(found.months, 36);
+    assert.includes(found.reason, '36');
+  });
+
+  test('a recent one is not', () => {
+    const out = netWorth(flat('2026-03-30'), { clock: at('2026-08-30') });
+    assert.deep(out.staleValuations, [], 'five months is not stale');
+  });
+
+  test('the threshold is the boundary it says it is', () => {
+    const justUnder = netWorth(flat('2025-09-30'), { clock: at('2026-08-30') });
+    const justOver = netWorth(flat('2025-08-30'), { clock: at('2026-08-30') });
+    assert.length(justUnder.staleValuations, 0, `${STALE_AFTER_MONTHS - 1} months is not stale`);
+    assert.length(justOver.staleValuations, 1, `${STALE_AFTER_MONTHS} months is`);
+  });
+
+  test('and no figure moves — this adds a sentence beside one', () => {
+    const old = netWorth(flat('2023-08-30'), { clock: at('2026-08-30') });
+    const fresh = netWorth(flat('2026-08-01'), { clock: at('2026-08-30') });
+    assert.equal(old.total, fresh.total, 'the age changes what is said, never what is counted');
+    assert.equal(old.assets, fresh.assets);
+  });
+
+  test('a row with no valuation is reported once, for the better reason', () => {
+    const out = netWorth({
+      accounts: [], transactions: [], holdings: [], vehicles: [], loans: [],
+      properties: [{ id: 'pr1', name: 'Flat', purchasePrice: rs(5000000), valuedOn: '2019-01-01' }],
+    }, { clock: at('2026-08-30') });
+
+    assert.length(out.staleValuations, 1, 'not both "at purchase price" and "old"');
+    assert.equal(out.staleValuations[0].reason, 'valued at purchase price');
+  });
+
+  test('a vehicle cannot be aged, because it records no valuation date', () => {
+    // Stated rather than left as an omission a reader has to notice: the
+    // schema gives `vehicle` a `currentValue` and no `valuedOn`, so there is
+    // nothing to measure its age against and none is invented.
+    const out = netWorth({
+      accounts: [], transactions: [], holdings: [], properties: [], loans: [],
+      vehicles: [{ id: 'v1', registration: 'KA01AB1234', currentValue: rs(400000) }],
+    }, { clock: at('2026-08-30') });
+    assert.deep(out.staleValuations, []);
   });
 });

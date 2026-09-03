@@ -14,8 +14,8 @@ import { entities, entity, referenceFields, referencedIds,
 import { searchIndex, indexEntry } from './search.js';
 import { Chain, verify as verifyChain } from './chain.js';
 import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
-import { danglingIn } from './integrity.js';
-import { rowFilter } from '../security/rbac.js';
+import { danglingIn, unresolved } from './integrity.js';
+import { rowFilter, readScope } from '../security/rbac.js';
 import { Keyring } from '../security/keyring.js';
 import { deviceId as resolveDeviceId } from '../core/ids.js';
 import { memoryStorage } from '../security/session.js';
@@ -421,7 +421,7 @@ export class Database {
    * broken reference instead of two.
    */
   async danglingReferences() {
-    return danglingIn(this.#everyRow, this.#pointsAtSomething);
+    return danglingIn(this.#everyRow, this.#pointsAtSomething, this.#absenceMeansSomething);
   }
 
   /**
@@ -439,10 +439,41 @@ export class Database {
    * @param {Map<string, object[]>} rows what a pull applied, by entity
    */
   async danglingAmong(rows) {
-    return danglingIn((entityName) => rows.get(entityName) ?? [], this.#pointsAtSomething);
+    return danglingIn(
+      (entityName) => rows.get(entityName) ?? [],
+      this.#pointsAtSomething,
+      this.#absenceMeansSomething,
+    );
+  }
+
+  /**
+   * The unresolved references of one row, for the hold-and-release path.
+   *
+   * Same predicates as the audit — the same reader's read scope, the same
+   * definition of a row that exists — so a row is never held by one rule and
+   * released by another.
+   */
+  async unresolvedFor(entityName, row) {
+    const bad = await unresolved(entityName, row, this.#pointsAtSomething);
+    return bad.filter((one) => this.#absenceMeansSomething(one.entity));
   }
 
   #everyRow = (entityName) => this.adapter.query(entityName, {});
+
+  /**
+   * Whether a missing row of this entity is news, for whoever is signed in.
+   *
+   * The predicate below reads through the adapter rather than the repository,
+   * deliberately — an audit that could not see a row would report every
+   * restricted record as broken. But the rows that were never *sent* are not
+   * here to be seen at any level, because a pull is filtered by role, and to
+   * this device they are indistinguishable from rows that do not exist.
+   *
+   * So the audit reports on the entities the actor reads in full and stays
+   * quiet about the rest. It is the difference between *your records are
+   * damaged* and *you are not shown that one*, and only one of those is true.
+   */
+  #absenceMeansSomething = (entityName) => readScope(this.#actor, entityName) === 'all';
 
   /** A reference is satisfied by a row that exists and is not deleted. */
   #pointsAtSomething = async (entityName, id) => {

@@ -98,13 +98,13 @@ export async function render() {
     class: 'input',
     type: 'search',
     placeholder: t('notifications.search'),
-    'aria-label': t('notifications.search'),
+    'aria-label': 'Search what is due',
     onInput: (event) => { filter.term = event.target.value; paint(); },
   });
 
   function chips() {
     const total = attention.items.length;
-    return h('div', { class: 'chip-row' }, [
+    return h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Filter by category' }, [
       chip(t('notifications.all', { n: total }), {
         pressed: filter.category === null,
         onClick: () => { filter.category = null; paint(); },

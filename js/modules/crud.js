@@ -69,7 +69,7 @@ async function moduleScreen(moduleDef, entities, entityName, route) {
   const section = await listSection(entityName, { autoOpenNew: route.id === 'new' });
 
   const tabs = entities.length > 1
-    ? h('div', { class: 'chip-row', role: 'tablist', style: { marginBottom: 'var(--space-4)' } },
+    ? h('div', { class: 'chip-row', role: 'group', 'aria-label': moduleLabel(moduleDef), style: { marginBottom: 'var(--space-4)' } },
       entities.map((e) => chip(entityLabel(e, 'many'), {
         pressed: e.name === entityName,
         onClick: () => app().router.navigate({ module: moduleDef.id, entity: e.name }),
@@ -340,6 +340,21 @@ export async function recordDetail(entityName, id, options = {}) {
         h('span', { class: 'small' },
           `${record._undecryptable.length} field(s) on this record could not be decrypted. `
           + 'They were written with a different key, or the row was edited outside FamilyOS.'),
+      ]))
+      : null,
+
+    /*
+     * Said here, on the record, rather than only counted on the activity card.
+     *
+     * A held row is shown and does not add itself to any total, and somebody
+     * looking at a transaction that is plainly there and plainly missing from
+     * the month's spending is owed the reason on the record rather than a
+     * number somewhere else.
+     */
+    record.heldAt
+      ? card({ class: 'card--quiet' }, h('div', { class: 'row' }, [
+        icon('alert', { size: 18 }),
+        h('span', { class: 'small' }, t('record.held')),
       ]))
       : null,
 

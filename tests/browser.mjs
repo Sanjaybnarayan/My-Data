@@ -46,6 +46,10 @@ const IN_PAGE = Object.freeze({
   schema: './js/data/schema.js',
   consent: './js/data/consent.js',
   basics: './js/ui/components/basics.js',
+  modal: './js/ui/components/modal.js',
+  toast: './js/ui/components/toast.js',
+  dom: './js/ui/dom.js',
+  wellbeing: './js/modules/wellbeing.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -288,15 +292,15 @@ async function main() {
      * the fault this repository keeps finding in itself, and here it cost two
      * screens' worth of coverage.
      *
-     * `assistant` and `timeline` are named because they are registered in
-     * `js/app.js` outside the module list; walking them proves they still
-     * resolve. Everything else arrives by adding a module to the schema, which
-     * is the only place a module should have to be declared.
+     * `assistant`, `timeline` and `wellbeing` are named because they are
+     * registered in `js/app.js` outside the module list; walking them proves
+     * they still resolve. Everything else arrives by adding a module to the
+     * schema, which is the only place a module should have to be declared.
      */
-    const OUTSIDE_THE_SCHEMA = ['assistant', 'timeline'];
+    const OUTSIDE_THE_SCHEMA = ['assistant', 'timeline', 'wellbeing'];
     const modules = [...SCHEMA_MODULES.map((one) => one.id), ...OUTSIDE_THE_SCHEMA];
 
-    check('every module in the schema is walked', modules.length >= 25,
+    check('every module in the schema is walked', modules.length >= 28,
       `only ${modules.length} routes would be opened`);
 
     for (const module of modules) {
@@ -1305,7 +1309,11 @@ async function main() {
       check('taking one asks for the recovery phrase rather than a new password',
         /recovery phrase/i.test(await page.locator('.modal').innerText()));
 
-      await page.locator('#prompt-input').fill('not-the-phrase-at-all');
+      // The field inside the dialog, not `#prompt-input`. That id stopped
+      // being a constant when stacked dialogs turned out to collide on their
+      // ids, and a check that names one is a check about how an id is spelled
+      // rather than about what the dialog asks for.
+      await page.locator('.modal input').first().fill('not-the-phrase-at-all');
       await page.getByRole('button', { name: 'Take the backup' }).click();
       await page.waitForTimeout(1500);
 
@@ -1446,13 +1454,44 @@ async function main() {
           accountNumber: '50100777666555', holder: people[0]?.id ?? '',
           openingBalance: '250000',
         });
+        /*
+         * Two whole months ending with the last complete one, derived from the
+         * clock rather than written down.
+         *
+         * These were `2026-06-*` and `2026-07-*`, which encoded an assumption
+         * nobody stated: that today is some day in August 2026.
+         *
+         * The position page reports the **last complete** month and renders
+         * "transactions dated in {month}" only when that month has rows —
+         * otherwise it says, correctly, that nothing is recorded for it. On
+         * 2026-09-02 the reporting month became August, June and July were
+         * both too old to be it, and the check went on expecting the first
+         * wording. It failed on the calendar rather than on the code.
+         *
+         * Measured while fixing it, so the comment does not overstate: the
+         * other half of that assertion, "bills included", was never at risk.
+         * It needs `MIN_MONTHS` = 2 complete months of expenses *anywhere* in
+         * the past, which June and July go on satisfying however old they get.
+         * Only the reporting month expires.
+         *
+         * M-2 and M-1 keep both properties on any date. Days 1, 5, 9 and 11
+         * exist in every month, and both months are wholly past, so no row is
+         * ever dated after today and silently dropped.
+         */
+        const now = new Date();
+        const monthStart = (back) => new Date(now.getFullYear(), now.getMonth() - back, 1);
+        const on = (d, day) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+          + `-${String(day).padStart(2, '0')}`;
+        const older = monthStart(2);
+        const lastComplete = monthStart(1);
+
         for (const [date, kind, amount, category] of [
-          ['2026-06-01', 'income', '150000', 'salary'],
-          ['2026-06-05', 'expense', '45000', 'rent'],
-          ['2026-06-09', 'expense', '18000', 'groceries'],
-          ['2026-07-01', 'income', '150000', 'salary'],
-          ['2026-07-05', 'expense', '45000', 'rent'],
-          ['2026-07-11', 'expense', '21000', 'groceries'],
+          [on(older, 1), 'income', '150000', 'salary'],
+          [on(older, 5), 'expense', '45000', 'rent'],
+          [on(older, 9), 'expense', '18000', 'groceries'],
+          [on(lastComplete, 1), 'income', '150000', 'salary'],
+          [on(lastComplete, 5), 'expense', '45000', 'rent'],
+          [on(lastComplete, 11), 'expense', '21000', 'groceries'],
         ]) {
           await app().db.repo('transaction').create({
             date, kind, amount, category, account: account.id,
@@ -1786,7 +1825,21 @@ async function main() {
       // something to align — and one of each direction, because a column that
       // only ever holds expenses proves nothing about the layout.
       for (const row of [
-        { amount: '645', payee: 'ZOMATO LIMITED', kind: 'expense' },
+        /*
+         * A statement narration, not a tidy shop name.
+         *
+         * This was `ZOMATO LIMITED` — fourteen characters, in the column the
+         * layout deliberately gives the most width to. The spill check below
+         * asserts that no cell overflows into its neighbour, and against
+         * fourteen characters it could not have failed however the layout
+         * behaved: it was measuring content chosen to fit.
+         *
+         * The fault its comment describes — "9 Aug 2026" and a payee printed
+         * as one word — came from an imported row, and this is the shape an
+         * import actually produces. `ZOMATO LIMITED` is still in it, because
+         * the legibility check further down looks for exactly that.
+         */
+        { amount: '645', payee: 'UPI/DR/402913847562/ZOMATO LIMITED/HDFC/zomato@paytm/Order', kind: 'expense' },
         { amount: '50000', payee: 'ACME SOFTWARE PAYROLL', kind: 'income' },
         { amount: '2499', payee: 'BLINKIT COMMERCE PRIVATE LIMITED', kind: 'expense' },
       ]) {
@@ -1885,13 +1938,53 @@ async function main() {
       check('the description column is the one that gets the space',
         widths.description > widths.account, JSON.stringify(widths));
 
-      // A fixed column does not grow for its content — it spills into its
-      // neighbour, which is how "9 Aug 2026" and a payee ended up printed as
-      // one word. Nothing may be wider than the cell holding it.
-      const spill = await page.locator('.ledger-row').first().evaluate((row) => [...row.cells]
-        .filter((cell) => cell.scrollWidth > cell.clientWidth + 1)
-        .map((cell) => `${cell.className}: ${cell.scrollWidth} > ${cell.clientWidth}`));
-      check('no column overflows into the one beside it', spill.length === 0, spill.join(' | '));
+      /*
+       * A fixed column does not grow for its content — it spills into its
+       * neighbour, which is how "9 Aug 2026" and a payee ended up printed as
+       * one word. Nothing may be wider than the cell holding it.
+       *
+       * **This asked `row.cells`, which cannot answer.** `.ledger-payee` and
+       * `.ledger-narration` each carry `overflow: hidden` themselves, so the
+       * child clips itself to the cell and the `<td>` never overflows —
+       * `scrollWidth === clientWidth` on every cell, whatever is in it.
+       * Measured: with the description column cut from 28% to 6%, so it held
+       * 74px, this check still passed. A different check caught the mutation.
+       *
+       * So it asks the elements that carry the text, and asks the right thing
+       * of them. Content wider than its box is expected and is the documented
+       * design — `css/components.css` calls clipping "the honest failure" —
+       * but only if it is clipped *visibly*, with an ellipsis, rather than
+       * painted over the column beside it.
+       */
+      const fit = await page.locator('.ledger-row').first().evaluate((row) => {
+        const carriers = [...row.querySelectorAll('.ledger-payee, .ledger-narration, .col--date')];
+        const bad = [];
+        let clipped = 0;
+        for (const el of carriers) {
+          const cell = el.closest('td');
+          if (!cell) continue;
+          const style = getComputedStyle(el);
+          if (el.scrollWidth > el.clientWidth + 1) {
+            clipped += 1;
+            if (style.textOverflow !== 'ellipsis' || style.overflow === 'visible') {
+              bad.push(`${el.className || el.tagName}: cut with no ellipsis`);
+            }
+          }
+          // And nothing paints outside the cell holding it, ellipsis or not.
+          if (el.getBoundingClientRect().right > cell.getBoundingClientRect().right + 1) {
+            bad.push(`${el.className || el.tagName}: paints past its column`);
+          }
+        }
+        return { bad, clipped, carriers: carriers.length };
+      });
+
+      // The premise. With the fourteen-character payee this seed used to
+      // carry, nothing was ever clipped and both checks below passed on a row
+      // where there was nothing to get wrong.
+      check('the ledger row has content that does not fit', fit.clipped > 0,
+        `${fit.clipped} of ${fit.carriers} carriers were clipped`);
+      check('and what does not fit is ellipsised, not painted over the next column',
+        fit.bad.length === 0, fit.bad.join(' | '));
 
       // A row opens in place rather than navigating, because comparing it
       // against its neighbours is why somebody opened it.
@@ -1904,6 +1997,85 @@ async function main() {
         (await page.locator('table.table--ledger').count()) === 1);
       check('the opened row offers a category without a form',
         (await page.locator('.ledger-detail-actions select').count()) === 1);
+
+      /*
+       * And it shows what the closed row could not.
+       *
+       * This is the other half of the layout's bargain, and it had no check.
+       * `css/components.css` clips a payee and a narration to one line and
+       * calls that "the honest failure — the row opens for anything that did
+       * not fit". Everything above asserts the row opens, stays on the screen
+       * and offers a category; none of it asked whether opening it revealed
+       * the text. A row that opened and still showed `UPI/DR/40291384…` would
+       * have passed every one of them.
+       */
+      const readable = async () => page.locator('.ledger-row').first().evaluate((row) => {
+        const payee = row.querySelector('.ledger-payee');
+        if (!payee) return { text: '', pastCell: true, why: 'no payee element' };
+        const cell = payee.closest('td');
+        const style = getComputedStyle(payee);
+        const past = cell
+          ? payee.getBoundingClientRect().right > cell.getBoundingClientRect().right + 1
+          : true;
+        // Hidden, not merely wider than its box. An opened row sets
+        // `overflow: visible`, so text past the edge is still drawn and still
+        // read; a closed one sets `hidden`, and the same overflow is gone.
+        const hiddenText = style.overflow === 'hidden'
+          && payee.scrollWidth > payee.clientWidth + 1;
+        return {
+          text: payee.textContent.trim(),
+          pastCell: past,
+          hiddenText,
+          why: `open=${row.classList.contains('ledger-row--open')} `
+            + `white-space=${style.whiteSpace} overflow=${style.overflow} `
+            + `wrap=${style.overflowWrap} `
+            + `${payee.scrollWidth}>${payee.clientWidth} `
+            + `hidden=${hiddenText} pastCell=${past}`,
+        };
+      });
+
+      /*
+       * `pastCell`, not `scrollWidth > clientWidth`.
+       *
+       * The first version of this check asked the latter and reported a fault
+       * that is not one. An opened row sets `overflow: visible`, so content
+       * wider than its box is *drawn* rather than hidden — the household can
+       * read it. Measured on the desktop width: `257>248 pastCell=false`, nine
+       * pixels over its box and still inside its column. Wrong measurement,
+       * right name.
+       *
+       * What would be a fault is text painting into the column beside it,
+       * which is the whole subject of the rule above. A bank narration is
+       * slash-delimited with no spaces, `overflow-wrap` is `normal`, and
+       * `white-space: normal` breaks only at whitespace — so nothing about
+       * this text can wrap, and how far it runs is decided by how much room
+       * the cell has. Checked at both widths for that reason.
+       */
+      const wide = await readable();
+      /*
+       * `hiddenText`, not `pastCell`.
+       *
+       * The first two versions of this check both measured the wrong thing,
+       * and the second survived a mutation that should have killed it.
+       * Reverting the open rule to `white-space: nowrap; overflow: hidden` —
+       * an opened row that reveals nothing, the exact fault this exists for —
+       * left the check passing, because a clipped element stays inside its
+       * cell by definition and `pastCell` was all it asked.
+       *
+       * What separates revealed from clipped is whether any of the text is
+       * *hidden*: `overflow: hidden` with content wider than the box. Visible
+       * overflow is not a fault here — it is the opened row doing its job.
+       */
+      check('and shows in full what the closed row had to clip',
+        !wide.hiddenText && wide.text.includes('zomato@paytm'), wide.why);
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(350);
+      const narrow = await readable();
+      check('and still inside its own column on a phone',
+        !narrow.pastCell && !narrow.hiddenText, narrow.why);
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(300);
 
       await page.locator('.ledger-row').first().click();
       await page.waitForTimeout(250);
@@ -2301,7 +2473,11 @@ async function main() {
       await go(page, '#/finance');
       await page.waitForTimeout(500);
       const spoken = await page.evaluate(() => ({
-        region: document.querySelector('[aria-live]')?.textContent?.trim() ?? '',
+        // The polite region by name, not the first `[aria-live]` in the
+        // document. There are two now — polite and assertive, each with its
+        // own fixed politeness — and which one comes first depends on which
+        // kind of message the session happened to raise earliest.
+        region: document.querySelector('.sr-only[aria-live="polite"]')?.textContent?.trim() ?? '',
         heading: document.querySelector('.app-content h1, .app-content h2')
           ?.textContent?.trim() ?? '',
       }));
@@ -2383,6 +2559,260 @@ async function main() {
         keyed.role === 'button', String(keyed.role));
       check('and answers Enter and Space, not only a click',
         keyed.fired === 2, `${keyed.fired} of 2 keys reached the handler`);
+
+      await page.waitForTimeout(200);
+    }
+
+    /* ------------------------------------------------------ the dialogs */
+
+    /*
+     * What a dialog is called, and what a keyboard can do to it.
+     *
+     * `modal.js` opens by claiming four things — focus moved in on open and
+     * restored on close, focus trapped while open, Escape closes — and adds
+     * that "each of them is invisible until somebody using a keyboard or a
+     * screen reader hits it". The suite touched modals in fifteen places and
+     * every one of them waited for `.modal`, read its text, clicked a button
+     * and waited for it to detach. Nothing had ever pressed Escape, and
+     * nothing had asked what a dialog is named.
+     *
+     * What that missed: the title carried `id="modal-title"`, a constant, in
+     * a module that stacks dialogs deliberately. `aria-labelledby` resolves
+     * through `getElementById`, which returns the first match in the
+     * document, so the dialog on top was announced with the name of the one
+     * underneath it. Settings → Connection → *Changes that could not be
+     * sent* → **Discard** reaches it: the confirmation asking whether to
+     * throw away a pending change announced itself as "Changes that could
+     * not be sent".
+     *
+     * Built in the page rather than driven through that path, for the reason
+     * the `listItem` block above gives — the live one discards a record.
+     */
+    {
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(400);
+
+      const stacked = await page.evaluate(async (spec) => {
+        const { modal } = await import(spec);
+        const under = modal({ title: 'The one underneath', body: 'first' });
+        const over = modal({ title: 'The one on top', body: 'second' });
+
+        const dialogs = [...document.querySelectorAll('.modal')];
+        const top = dialogs[dialogs.length - 1];
+        const labelledBy = top.getAttribute('aria-labelledby');
+        const announced = labelledBy ? document.getElementById(labelledBy) : null;
+
+        const titleIds = [...document.querySelectorAll('.modal-header h2')].map((el) => el.id);
+        const result = {
+          dialogs: dialogs.length,
+          unique: new Set(titleIds).size === titleIds.length && titleIds.every(Boolean),
+          realTitle: top.querySelector('h2')?.textContent ?? null,
+          announcedAs: announced?.textContent ?? null,
+        };
+        over.close();
+        under.close();
+        return result;
+      }, IN_PAGE.modal);
+
+      check('two dialogs at once do not share one title id',
+        stacked.dialogs === 2 && stacked.unique, JSON.stringify(stacked));
+      check('and the dialog on top is announced by its own name',
+        stacked.announcedAs !== null && stacked.announcedAs === stacked.realTitle,
+        `announced as ${JSON.stringify(stacked.announcedAs)}, `
+        + `is ${JSON.stringify(stacked.realTitle)}`);
+
+      /*
+       * The other three claims in that header, none of which had a check.
+       * Escape is dispatched rather than typed so this does not depend on
+       * which element the browser happens to have focused.
+       */
+      const keyboard = await page.evaluate(async (spec) => {
+        const { modal } = await import(spec);
+        const opener = document.createElement('button');
+        opener.textContent = 'Opener';
+        document.body.append(opener);
+        opener.focus();
+
+        modal({ title: 'Keyboard probe', body: 'body', footer: [] });
+        const movedIn = document.querySelector('.modal')?.contains(document.activeElement)
+          ?? false;
+
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Escape', bubbles: true, cancelable: true,
+        }));
+        await new Promise((r) => setTimeout(r, 50));
+
+        const closed = document.querySelector('.modal') === null;
+        const restored = document.activeElement === opener;
+        opener.remove();
+        return { movedIn, closed, restored };
+      }, IN_PAGE.modal);
+
+      check('opening a dialog moves focus into it',
+        keyboard.movedIn, JSON.stringify(keyboard));
+      check('Escape closes a dismissable dialog',
+        keyboard.closed, JSON.stringify(keyboard));
+      check('and closing it puts focus back where it came from',
+        keyboard.restored, JSON.stringify(keyboard));
+
+      await page.waitForTimeout(200);
+    }
+
+    /* -------------------------------------------------- the Undo offer */
+
+    /*
+     * A toast that offers something has to still be there when somebody
+     * reaches for it, and has to say that it is offering.
+     *
+     * Deleting a record raises `Person deleted` with an **Undo** beside it,
+     * and that button is the only way back. It carried the ordinary
+     * four-second timer, so the offer expired while somebody was still
+     * tabbing towards it — and `announce()` was passed the message alone, so
+     * the person who cannot see the button was never told it was there. Both
+     * actionable toasts in `app.js` already passed `ms: 0` by hand, which is
+     * the convention this restores rather than invents.
+     *
+     * Nothing had ever driven a toast for its own sake: the suite read one's
+     * text in a single place and cleared leftovers in another, and had never
+     * raised one, waited to see whether it survived, or asked what the live
+     * region said about it.
+     */
+    {
+      const seeded = await page.evaluate(async (spec) => {
+        const { toast } = await import(spec);
+        document.querySelectorAll('.toast').forEach((el) => el.remove());
+        toast('A plain confirmation');
+        toast('Person deleted', { action: { label: 'Undo', onClick: () => {} } });
+        await new Promise((r) => { setTimeout(r, 120); });
+        return {
+          announced: [...document.querySelectorAll('[role="status"]')]
+            .map((el) => el.textContent ?? '').join(' | '),
+          raised: document.querySelectorAll('.toast').length,
+        };
+      }, IN_PAGE.toast);
+
+      check('both toasts were raised', seeded.raised === 2, JSON.stringify(seeded));
+      check('a toast offering an action announces the action, not only the message',
+        /Person deleted/.test(seeded.announced) && /Undo/.test(seeded.announced),
+        seeded.announced);
+
+      // Past the four-second timer a plain toast runs on. The wait is the
+      // check: the claim is about what is still on screen after it.
+      await page.waitForTimeout(5000);
+
+      const after = await page.evaluate(() => {
+        const texts = [...document.querySelectorAll('.toast')].map((el) => el.textContent ?? '');
+        document.querySelectorAll('.toast').forEach((el) => el.remove());
+        return texts;
+      });
+
+      check('a plain confirmation clears itself',
+        !after.some((text) => /A plain confirmation/.test(text)), JSON.stringify(after));
+      check('and an Undo does not expire before it can be taken',
+        after.some((text) => /Person deleted/.test(text)), JSON.stringify(after));
+
+      /*
+       * And the announcement survives the navigation that follows it.
+       *
+       * Deleting a record raises the Undo toast and then navigates back to
+       * the list, which announces the screen it landed on. Both went into one
+       * region inside a single animation frame, so the offer was overwritten
+       * by the name of a page before anything could read it — measured as
+       * ["(cleared)", "Dashboard", "Could not save"], three mutations and one
+       * frame.
+       *
+       * Read from the mutation records rather than the element: every entry
+       * reads the final value if you ask the element, which is what made this
+       * look fine the first time it was measured.
+       */
+      const spokenInOrder = await page.evaluate(async (spec) => {
+        const { announce } = await import(spec);
+        announce('warm the region');
+        await new Promise((r) => { setTimeout(r, 150); });
+
+        const polite = document.querySelector('.sr-only[aria-live="polite"]');
+        const said = [];
+        const obs = new MutationObserver((records) => {
+          for (const rec of records) {
+            const text = [...rec.addedNodes]
+              .map((n) => /** @type {any} */ (n).data ?? '').join('');
+            if (text) said.push(text);
+          }
+        });
+        obs.observe(polite, { childList: true, characterData: true, subtree: true });
+
+        announce('Person deleted — Undo available');
+        announce('Everyone');
+        await new Promise((r) => { setTimeout(r, 500); });
+        obs.disconnect();
+
+        return {
+          said,
+          regions: [...document.querySelectorAll('.sr-only[aria-live]')]
+            .map((el) => el.getAttribute('aria-live')).sort(),
+        };
+      }, IN_PAGE.dom);
+
+      check('an announcement is not overwritten by the next one in the same frame',
+        spokenInOrder.said.length === 2
+        && /Undo available/.test(spokenInOrder.said[0])
+        && spokenInOrder.said[1] === 'Everyone',
+        JSON.stringify(spokenInOrder.said));
+      check('and politeness is a property of the region, not rewritten per message',
+        spokenInOrder.regions.join(',') === 'assertive,polite',
+        JSON.stringify(spokenInOrder.regions));
+
+      await page.waitForTimeout(200);
+    }
+
+    /* ------------------------------------------------ skip to content */
+
+    /*
+     * The first thing in the tab order, and it used to throw you off the page.
+     *
+     * `href="#main"` is how a skip link is normally written and is wrong in a
+     * hash-routed application, because the hash is the route.
+     * `Router.parse('#main')` returns `module: "main"`, nothing is registered
+     * under that name, and the router falls through to its fallback loader —
+     * which tears down the current view and closes any open dialog on the way.
+     *
+     * So the one accommodation a keyboard user reaches before anything else
+     * did not skip the navigation; it replaced the screen they were on. The
+     * check is therefore in two halves: focus lands on the content, *and* the
+     * route did not move. Without the second half this passes on the version
+     * that navigates, because the fallback screen has an outlet too.
+     */
+    {
+      await go(page, '#/finance');
+      await page.waitForTimeout(400);
+
+      const skipped = await page.evaluate(() => {
+        const link = document.querySelector('.skip-link');
+        if (!link) return { found: false };
+        const before = globalThis.location.hash;
+        /** @type {any} */ (link).click();
+        return {
+          found: true,
+          before,
+          after: globalThis.location.hash,
+          focused: document.activeElement?.id ?? null,
+          inContent: document.activeElement === document.querySelector('#main'),
+        };
+      });
+
+      check('the skip link exists and moves focus to the content',
+        skipped.found && skipped.inContent, JSON.stringify(skipped));
+      check('and does not navigate away from the screen it was used on',
+        skipped.before === skipped.after, `${skipped.before} -> ${skipped.after}`);
+
+      // One `main` per document. `outlet` is it; the frame around it used to
+      // be a second, which is two landmarks where a reader expects one.
+      const landmarks = await page.evaluate(() => ({
+        mains: document.querySelectorAll('main').length,
+        nested: document.querySelectorAll('main main').length,
+      }));
+      check('there is exactly one main landmark, and none inside another',
+        landmarks.mains === 1 && landmarks.nested === 0, JSON.stringify(landmarks));
 
       await page.waitForTimeout(200);
     }
@@ -3177,8 +3607,13 @@ async function main() {
             tenantName: 'R Krishnan',
           });
         }
+        // The 1st, not the 5th. The credit has to land in the current month,
+        // because the report's wording is "a credit **this month** could belong
+        // to more than one letting" — but a row dated after today is not
+        // counted, and `-05` is in the future on the 1st to the 4th. It passed
+        // for most of every month and failed for four days of it.
         const now = new Date();
-        const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-05`;
+        const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
         await app().db.repo('transaction').create({
           date: day, kind: 'income', amount: '35000', category: 'rental income',
           account: account.id, direction: 'in',
@@ -4128,7 +4563,7 @@ async function main() {
       'finance/transaction', 'finance/account', 'investments', 'documents',
       'vehicles', 'health', 'insurance', 'property', 'education', 'tasks',
       'calendar', 'notes', 'vault', 'digital', 'emergency', 'safety', 'chat',
-      'reports', 'assistant', 'settings', 'belongings', 'timeline', 'travel'];
+      'reports', 'assistant', 'settings', 'belongings', 'timeline', 'travel', 'wellbeing'];
 
     const widest = () => page.evaluate(() => {
       const limit = window.innerWidth + 1;
@@ -4161,7 +4596,43 @@ async function main() {
     check('no screen scrolls sideways on a phone', seesaw.length === 0,
       seesaw.join('; '));
 
+    /* -------------------------------- entity tables become cards on mobile */
+
+    /*
+     * `.table--responsive` should convert a multi-column table to a stacked
+     * card list at 390px — each row becomes a grid block, each cell a flex row
+     * with its label on the left and the value on the right. The CSS sets
+     * `display: grid` on `tr`, but without also setting `display: block` on
+     * the `<table>` element the CSS table layout algorithm still computes the
+     * natural column widths, which can be wider than the viewport, causing the
+     * `.table-wrap` to scroll internally instead of the rows becoming cards.
+     *
+     * This check walks every entity screen that has records, reads each
+     * `.table-wrap`, and fails if any one is wider than its container — a
+     * state that means the card layout was not applied.
+     */
     await page.setViewportSize({ width: 390, height: 844 });
+    const tableScreens = ['investments', 'family', 'health', 'insurance',
+      'property', 'education', 'tasks', 'documents', 'belongings'];
+
+    const scrollingTables = [];
+    for (const screen of tableScreens) {
+      await go(page, `#/${screen}`);
+      await page.waitForTimeout(350);
+      const wraps = await page.evaluate(() =>
+        [...document.querySelectorAll('.table-wrap')].map((w) => ({
+          screen: window.location.hash,
+          scrollWidth: w.scrollWidth,
+          clientWidth: w.clientWidth,
+          overflow: w.scrollWidth > w.clientWidth + 1,
+        })));
+      for (const w of wraps) {
+        if (w.overflow) scrollingTables.push(`${screen}: table-wrap scrolls (${w.scrollWidth} > ${w.clientWidth})`);
+      }
+    }
+    check('entity tables render as cards on a phone, not scrollable tables',
+      scrollingTables.length === 0, scrollingTables.join('; '));
+
     await go(page, '#/dashboard');
     await page.waitForTimeout(300);
     if (SHOTS) await shot(page, 'phone');
@@ -4203,7 +4674,7 @@ async function main() {
        * the day cell was: 44px at 390px, 36px at 320px.
        */
       const SCREENS = ['dashboard', 'finance', 'family', 'documents', 'vault',
-        'calendar', 'safety', 'settings', 'reports', 'belongings', 'investments'];
+        'calendar', 'safety', 'settings', 'reports', 'belongings', 'investments', 'wellbeing'];
 
       for (const viewport of [390, 320]) {
         await page.setViewportSize({ width: viewport, height: 844 });
@@ -5101,6 +5572,82 @@ async function main() {
       });
       check('the current tab is marked as current', current === 'notifications', String(current));
 
+      /*
+       * The belongings tab strip carries `aria-current="page"` on the active
+       * link. Without it, a screen reader cannot tell which entity tab is
+       * selected — the CSS class conveys it visually and nothing else does.
+       * `js/modules/belongings.js` is the only module using the `.tab` pattern
+       * directly; the others use `chip()` with `aria-pressed`.
+       */
+      await go(page, '#/belongings/purchase');
+      await page.waitForTimeout(400);
+      const activeBelongingsTab = await page.evaluate(() => {
+        const active = /** @type {any} */ (
+          document.querySelector('.tabs a[aria-current="page"]'));
+        return active?.textContent?.trim() ?? null;
+      });
+      check('the active belongings tab is marked aria-current',
+        activeBelongingsTab !== null, `active tab: ${activeBelongingsTab}`);
+
+      /*
+       * Module chip navigation rows must use `role="group"` not `role="tablist"`.
+       *
+       * `role="tablist"` requires direct children with `role="tab"` (ARIA
+       * ownership). Module chip rows use `chip()`, which renders a `<button
+       * aria-pressed>` — a group of toggle buttons, not a tab set. Using
+       * `tablist` here is an ARIA ownership violation; `group` is correct.
+       *
+       * Check: navigate to identity (multi-chip nav), assert no `.chip-row` on
+       * this screen has `role="tablist"`, and the active chip has `aria-pressed=
+       * "true"`.
+       */
+      await go(page, '#/identity');
+      await page.waitForTimeout(400);
+      const chipGroupResult = await page.evaluate(() => {
+        const badRows = [...document.querySelectorAll('.chip-row[role="tablist"]')].length;
+        const activeChip = document.querySelector('.chip-row[role="group"] button.chip[aria-pressed="true"]');
+        return { badRows, hasActiveChip: activeChip !== null };
+      });
+      check('module chip navigation uses role="group", not tablist',
+        chipGroupResult.badRows === 0,
+        `${chipGroupResult.badRows} .chip-row elements still have role="tablist"`);
+      check('the active module chip has aria-pressed="true"',
+        chipGroupResult.hasActiveChip,
+        'no chip has aria-pressed="true" on the identity screen');
+
+      /*
+       * Module chip-rows must carry an `aria-label` so a screen reader can
+       * announce the group's purpose before reading the buttons inside it.
+       * Without it, assistive technology announces only "group" — context
+       * that the visual heading would otherwise provide.
+       */
+      const chipGroupLabel = await page.evaluate(() => {
+        const group = document.querySelector('.chip-row[role="group"]');
+        return group ? group.getAttribute('aria-label') : null;
+      });
+      check('module chip-rows have an aria-label',
+        chipGroupLabel !== null && chipGroupLabel.length > 0,
+        `chip-row label: ${chipGroupLabel}`);
+
+      /*
+       * Action chips (no toggle state) must not carry `aria-pressed`.
+       *
+       * The settings jump-row uses `chip()` for one-shot scroll actions — not
+       * toggle buttons. Before the fix, `chip()` unconditionally set
+       * `aria-pressed="false"`, which announced them as toggle buttons that
+       * were always off. The fix makes `aria-pressed` conditional on the
+       * caller passing an explicit `pressed` boolean; action chips get none.
+       */
+      await go(page, '#/settings');
+      await page.waitForTimeout(600);
+      const settingsJumpPressed = await page.evaluate(() => {
+        const chips = [...document.querySelectorAll('.settings-jump .chip')];
+        return chips.filter((el) => el.hasAttribute('aria-pressed')).length;
+      });
+      check('settings jump chips have no aria-pressed',
+        settingsJumpPressed === 0,
+        `${settingsJumpPressed} jump chips still carry aria-pressed`);
+
       await go(page, '#/dashboard');
       await page.waitForTimeout(250);
     }
@@ -5967,11 +6514,34 @@ async function main() {
       const unlabelled = [];
       /** @type {string[]} */
       const raw = [];
+      /** @type {string[]} */
+      const duplicateIds = [];
+      /** @type {string[]} */
+      const hiddenButFocusable = [];
+      /** @type {string[]} */
+      const dangling = [];
+      let labelsSeen = 0;
 
       const walked = [];
       for (const mod of SCHEMA_MODULES) walked.push(`#/${mod.id}`);
       for (const [name, def] of Object.entries(SCHEMA_ENTITIES)) {
         walked.push(`#/${def.module}/${name}`);
+        /*
+         * And the form, which this walk had never opened.
+         *
+         * Every route above is a list. Lists carry a heading, a search box
+         * and rows; the forms carry almost every control in the application —
+         * 617 fields across 53 entities — and none of the checks below had
+         * ever seen one. So "every control a person can operate has an
+         * accessible name" was true of the screens with the fewest controls.
+         *
+         * What it was missing, found by probing rather than by reading:
+         * `<label for>` on 31 fields pointed at an id no element carried,
+         * because four field types build a chip group or a sentence rather
+         * than an input. That is on nearly every form in the schema, and it
+         * sat outside the walk entirely.
+         */
+        walked.push(`#/${def.module}/${name}/new`);
       }
       walked.push('#/profile', '#/settings', '#/notifications', '#/wellbeing', '#/timeline');
 
@@ -6016,7 +6586,44 @@ async function main() {
             return box.width > 0 || box.height > 0;
           };
 
-          const out = { skips: [], nameless: [], unlabelled: [], raw: [] };
+          const out = {
+            skips: [], nameless: [], unlabelled: [], raw: [],
+            duplicateIds: [], hiddenButFocusable: [], dangling: [],
+            labels: document.querySelectorAll('label[for], .field-label').length,
+          };
+
+          /*
+           * A reference that points at no element.
+           *
+           * `label[for]`, `aria-labelledby`, `aria-describedby` and
+           * `aria-controls` all resolve through `getElementById`. When the id
+           * is not in the document the attribute does not fail — it resolves
+           * to nothing, and the element is left unnamed or undescribed while
+           * the markup reads as though it were named. Nothing here looked for
+           * that: the unlabelled check below asks whether a `label[for]`
+           * exists *for a control*, never whether a label points at one.
+           *
+           * The dialog fault was the same mechanism with a duplicate id
+           * rather than a missing one — `aria-labelledby` resolving to the
+           * wrong element instead of to none. Both are a reference nobody
+           * followed.
+           */
+          const resolves = (id) => Boolean(id && document.getElementById(id));
+          for (const el of document.querySelectorAll('label[for]')) {
+            const target = el.getAttribute('for');
+            if (!resolves(target)) {
+              out.dangling.push(`label[for="${target}"] ("${(el.textContent || '').trim().slice(0, 24)}")`);
+            }
+          }
+          for (const attr of ['aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns']) {
+            for (const el of document.querySelectorAll(`[${attr}]`)) {
+              for (const one of (el.getAttribute(attr) || '').split(/\s+/).filter(Boolean)) {
+                if (!resolves(one)) {
+                  out.dangling.push(`${el.tagName.toLowerCase()}[${attr}="${one}"]`);
+                }
+              }
+            }
+          }
 
           /*
            * A locale key, or a placeholder, drawn where a sentence belongs.
@@ -6083,6 +6690,82 @@ async function main() {
             last = level;
           }
 
+          /*
+           * An id used twice.
+           *
+           * Invalid on its own, but the reason it is worth a check is what
+           * points at one. `aria-labelledby`, `aria-describedby` and
+           * `label[for]` all resolve through `getElementById`, which returns
+           * the first match in the document — so a duplicate does not fail,
+           * it silently names the wrong element.
+           *
+           * A duplicate id is how the dialog fault did its damage:
+           * `id="modal-title"` was a constant in a module that stacks
+           * dialogs, so the one on top was announced with the name of the one
+           * underneath.
+           *
+           * **This check would not have caught that, and saying otherwise was
+           * wrong.** The walk navigates screen by screen with nothing open —
+           * the router closes every dialog on the way out — so it never sees
+           * two dialogs, which is the only state in which those two ids exist
+           * at once. The stacked-dialog check earlier in this file is what
+           * covers the modal fault; this one covers duplicate ids in the
+           * markup of a screen at rest, which is a different and also real
+           * thing. Both are worth having. Neither substitutes for the other.
+           */
+          /*
+           * Focusable, and hidden from the people focus is for.
+           *
+           * `aria-hidden="true"` takes an element out of the accessibility
+           * tree; it does not take it out of the tab order. An element that is
+           * both is a stop a keyboard user lands on and a screen reader cannot
+           * name — it reads as nothing at all, and there is no way to tell
+           * what was just focused.
+           *
+           * This application uses the pattern correctly in three places: a
+           * file input hidden behind a visible button, in `chat.js`,
+           * `statements.js` and `reports.js`, each pairing `aria-hidden` with
+           * `tabindex="-1"` so the button beside it is the only stop. The
+           * check exists so the fourth one has to as well — and because the
+           * walk above deliberately skips `[aria-hidden]` subtrees when
+           * looking for nameless controls, which is exactly where this fault
+           * would hide from it.
+           */
+          const FOCUSABLE = 'a[href], button, input, select, textarea,'
+            + ' [tabindex]:not([tabindex="-1"])';
+          for (const hidden of document.querySelectorAll('[aria-hidden="true"]')) {
+            // The element **itself**, then its descendants. The first version
+            // of this asked only `hidden.querySelectorAll(...)`, which cannot
+            // return the element it was called on — and every real instance of
+            // this pattern in the application puts `aria-hidden` directly on
+            // the focusable thing, a file input behind a visible button. So it
+            // was looking for a shape this codebase does not use and blind to
+            // the one it does. Mutation-testing it found that; the check had
+            // passed and could not have failed.
+            for (const el of [hidden, ...hidden.querySelectorAll(FOCUSABLE)]) {
+              if (!el.matches(FOCUSABLE)) continue;
+              if (el.getAttribute('tabindex') === '-1') continue;
+              if (/** @type {any} */ (el).disabled) continue;
+              // Nothing in a `display: none` subtree is in the tab order, so
+              // it is not reachable and not a fault. `sr-only` positions off
+              // screen and keeps its box, which is the case that matters.
+              if (!(/** @type {any} */ (el).offsetParent)
+                && getComputedStyle(el).position !== 'fixed') continue;
+              out.hiddenButFocusable.push(
+                `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 30)}`);
+            }
+          }
+
+          const seen = new Map();
+          for (const el of document.querySelectorAll('[id]')) {
+            const id = el.id;
+            if (!id) continue;
+            seen.set(id, (seen.get(id) ?? 0) + 1);
+          }
+          for (const [id, count] of seen) {
+            if (count > 1) out.duplicateIds.push(`#${id} x${count}`);
+          }
+
           return out;
         });
 
@@ -6090,11 +6773,29 @@ async function main() {
         for (const one of found.nameless) nameless.push(`${hash}: ${one}`);
         for (const one of found.unlabelled) unlabelled.push(`${hash}: ${one}`);
         for (const one of found.raw) raw.push(`${hash}: ${one}`);
+        for (const one of found.duplicateIds) duplicateIds.push(`${hash}: ${one}`);
+        for (const one of found.hiddenButFocusable) hiddenButFocusable.push(`${hash}: ${one}`);
+        for (const one of found.dangling) dangling.push(`${hash}: ${one}`);
+        labelsSeen += found.labels;
       }
 
       // The premise. A walk that rendered nothing would satisfy all three.
       check('the accessibility walk actually opened screens', walked.length > 40,
         `${walked.length} screens`);
+      // And opened forms, not only lists. Everything below reads whatever the
+      // walk drew, so a walk that quietly stopped covering the screens with
+      // the controls on them would still come back clean.
+      check('and opened a form, where the controls are',
+        walked.filter((one) => one.endsWith('/new')).length > 40,
+        `${walked.filter((one) => one.endsWith('/new')).length} forms`);
+      /*
+       * And the forms drew fields. Counting the routes only proves they were
+       * navigated to; a form that failed to render would leave every check
+       * below reading an empty page and reporting nothing wrong — which is
+       * the shape of every fault this phase has found.
+       */
+      check('and those forms drew field labels',
+        labelsSeen > 400, `${labelsSeen} labels across the walk`);
 
       check('no screen jumps a heading level', skips.length === 0,
         [...new Set(skips)].slice(0, 6).join(' | '));
@@ -6108,6 +6809,91 @@ async function main() {
       // "Lock now" and nothing errors.
       check('no screen shows a locale key or an unfilled placeholder',
         raw.length === 0, [...new Set(raw)].slice(0, 6).join(' | '));
+
+      // Whatever points at a duplicate id resolves to the first one, which is
+      // how a dialog came to be announced with another dialog's name.
+      check('no screen uses one id twice',
+        duplicateIds.length === 0, [...new Set(duplicateIds)].slice(0, 6).join(' | '));
+
+      // Tabbable and unnameable: `aria-hidden` removes an element from the
+      // accessibility tree, never from the tab order.
+      check('nothing hidden from a screen reader is still in the tab order',
+        hiddenButFocusable.length === 0,
+        [...new Set(hiddenButFocusable)].slice(0, 6).join(' | '));
+
+      // A label pointing at nothing is not a label. It reads as one in the
+      // markup and in a review, and resolves to no element at run time.
+      check('every label and aria reference points at an element that exists',
+        dangling.length === 0, [...new Set(dangling)].slice(0, 6).join(' | '));
+    }
+
+    /* --------------------------------------- a screen that fails to open */
+
+    /*
+     * What is left on display when a module's render throws.
+     *
+     * The whole walk asserts that no screen throws. Nothing asked what happens
+     * when one does — and the answer was worse than it looked. `resolve()`
+     * calls `replaceChildren` only after a successful render, so the previous
+     * screen deliberately stays up rather than the app going blank. But the
+     * previous view's `destroy` had already run at the top of the method, so
+     * what stayed up was a dead screen: still drawn, no longer subscribed to
+     * `dataChanged`, and never updating again. The only sign was a toast.
+     *
+     * Driven rather than reasoned about: a throwing loader is registered on a
+     * spare route, and the check is whether the screen behind it still reacts
+     * to a record being written.
+     */
+    {
+      await go(page, '#/finance/account');
+      await page.waitForTimeout(400);
+      const before = await page.locator('.list-item, tbody tr').count();
+
+      const failed = await page.evaluate(async ([spec, wellbeing]) => {
+        const { app } = await import(spec);
+        app().router.register('wellbeing', () => { throw new Error('deliberate'); });
+        globalThis.location.hash = '#/wellbeing';
+        await new Promise((r) => setTimeout(r, 600));
+        const out = {
+          outletEmpty: !document.querySelector('.app-content')?.children.length,
+          toast: Boolean(document.querySelector('.toast')),
+        };
+        // Put the real loader back before anything else runs. The first
+        // version of this left the throwing one registered and took ten
+        // later checks down with it — every wellbeing assertion after this
+        // point, plus the accessibility walk that opens every module.
+        app().router.register('wellbeing', () => import(wellbeing));
+        return out;
+      }, [IN_PAGE.context, IN_PAGE.wellbeing]);
+
+      check('a screen that throws does not blank the one behind it',
+        !failed.outletEmpty, 'the outlet was emptied');
+      check('and says so rather than failing silently', failed.toast);
+
+      // The half that was broken. A write goes into the store the surviving
+      // screen is listening to; if its subscription was torn down before the
+      // failed render, the row never appears and the household is looking at a
+      // screen that has quietly stopped being true.
+      const grew = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        await app().db.repo('account').create({
+          name: 'Router Survivor Bank', kind: 'savings', openingBalance: '1000',
+        });
+        await new Promise((r) => setTimeout(r, 600));
+        return document.body.innerText.includes('Router Survivor Bank');
+      }, IN_PAGE.context);
+
+      check('and the screen left standing is still live, not just still drawn',
+        grew, 'a record written after the failed navigation never reached it');
+
+      // And the route this borrowed is handed back working, so nothing after
+      // it is testing a module this block broke.
+      await go(page, '#/wellbeing');
+      await page.waitForTimeout(500);
+      check('and the borrowed route works again afterwards',
+        (await page.locator('.app-content').innerText()).length > 0
+        && !/could not be opened/i.test(await page.locator('.app-content').innerText()));
+      await go(page, '#/finance/account');
     }
 
     /* ------------------------------------------------ settings, measured */

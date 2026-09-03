@@ -11,7 +11,7 @@ import {
 } from '../js/security/crypto.js';
 import { Keyring } from '../js/security/keyring.js';
 import {
-  can, assertCan, rowFilter, visibleEntities, visibleModules, atLeast, SUBJECT_FIELD,
+  can, assertCan, rowFilter, readScope, visibleEntities, visibleModules, atLeast, SUBJECT_FIELD,
 } from '../js/security/rbac.js';
 import { validate } from '../js/data/validate.js';
 import { Session, AttemptLimiter, memoryStorage } from '../js/security/session.js';
@@ -19,7 +19,7 @@ import {
   escapeForSheet, unescapeFromSheet, escapeCsv, stripTags, safeUrl, safeFileName,
   sanitizeHtml, escapeHtml,
 } from '../js/security/sanitize.js';
-import { modules, entitiesOfModule, entityNames, ROLES } from '../js/data/schema.js';
+import { modules, entities, entitiesOfModule, entityNames, ROLES } from '../js/data/schema.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -229,6 +229,24 @@ describe('roles', () => {
     assert.not(can(child, 'read', 'healthRecord', theirs));
   });
 
+  test('a child cannot write their own person row, matching the server', () => {
+    // The server's OWN_RECORD table deliberately omits `person`: if somebody
+    // could write their own person row through the own-record rule, they could
+    // change the field the server uses to identify them (the member-to-person
+    // binding), making that binding no longer owner-controlled.
+    //
+    // The browser now agrees: a child writing their own person row is refused
+    // here, so the push never parks with no explanation in the sync diagnostics.
+    //
+    // Reading is still allowed — a child can open their own record — because
+    // seeing it carries no identity risk.
+    const ownPerson = { id: 'p3' };
+    assert.ok(can(child, 'read', 'person', ownPerson),
+      'a child cannot read their own person record');
+    assert.not(can(child, 'write', 'person', ownPerson),
+      'a child wrote their own person row; the server refuses it and the push would park');
+  });
+
   test('a guest sees emergency contacts and nothing else', () => {
     assert.ok(can(guest, 'read', 'emergencyContact'));
     assert.not(can(guest, 'read', 'person'));
@@ -322,6 +340,54 @@ describe('roles', () => {
     assert.includes(seen, 'emergency');
     assert.not(seen.includes('finance'));
     assert.ok(visibleEntities(owner).length > visibleEntities(guest).length);
+  });
+
+  /*
+   * `readScope` is now the one statement of how much of an entity a role may
+   * read, and `rowFilter` and `visibleEntities` are built from it. These
+   * assert the derivation holds rather than restating the rule: a scope of
+   * `all` must pass every row, `none` must pass none, and `own` must pass some
+   * and not others. If the three ever disagree again, the referential audit
+   * starts calling withheld rows broken, which is what this replaced.
+   */
+  test('every read scope agrees with the filter built from it', () => {
+    const wrong = [];
+    for (const actor of [owner, guest, child, adult]) {
+      for (const name of Object.keys(entities)) {
+        const scope = readScope(actor, name);
+        const keep = rowFilter(actor, name);
+        const field = SUBJECT_FIELD[name];
+        const mine = field ? { [field]: actor.personId } : {};
+        const theirs = field ? { [field]: 'per_somebody_else' } : {};
+
+        if (scope === 'all' && !(keep(mine) && keep(theirs))) wrong.push(`${actor.role}/${name} all`);
+        if (scope === 'none' && (keep(mine) || keep(theirs))) wrong.push(`${actor.role}/${name} none`);
+        if (scope === 'own' && (!keep(mine) || keep(theirs))) wrong.push(`${actor.role}/${name} own`);
+        if ((scope !== 'none') !== visibleEntities(actor).includes(name)) {
+          wrong.push(`${actor.role}/${name} visible`);
+        }
+      }
+    }
+    assert.deep(wrong.slice(0, 8), []);
+  });
+
+  /*
+   * The schema fact the audit fix turns on, asserted so it is a measurement
+   * rather than a sentence in a commit message. A child may read 24 reference
+   * fields whose target they may not, and every one of them is a row the
+   * server withholds and the audit must not call broken.
+   */
+  test('a restricted role really does hold references it cannot resolve', () => {
+    const unresolvable = [];
+    for (const name of Object.keys(entities)) {
+      if (readScope(child, name) === 'none') continue;
+      for (const f of entities[name].fields ?? []) {
+        if (!f.ref || !entities[f.ref]) continue;
+        if (readScope(child, f.ref) !== 'all') unresolvable.push(`${name}.${f.key}`);
+      }
+    }
+    assert.ok(unresolvable.length > 10,
+      `only ${unresolvable.length} — if this fell to zero the audit fix guards nothing`);
   });
 
   test('a module lists exactly the entities that name it', () => {

@@ -59,7 +59,7 @@ export async function render(route) {
     card({}, [
       h('div', { class: 'search-box', style: { maxWidth: 'none' } },
         [icon('sparkle', { size: 18 }), input]),
-      h('div', { class: 'chip-row', style: { marginTop: 'var(--space-3)' } },
+      h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Example questions', style: { marginTop: 'var(--space-3)' } },
         exampleQuestions().slice(0, 6).map((example) => h('button', {
           class: 'chip',
           type: 'button',
@@ -103,7 +103,7 @@ function renderAnswer(question, answer, router) {
   ];
 
   if (answer.suggestions?.length) {
-    body.push(h('div', { class: 'chip-row' }, answer.suggestions.map((suggestion) => h('button', {
+    body.push(h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Follow-up questions' }, answer.suggestions.map((suggestion) => h('button', {
       class: 'chip',
       type: 'button',
       onClick: () => router.navigate({ module: 'assistant', query: { q: suggestion } }),

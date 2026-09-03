@@ -584,6 +584,9 @@ const loan = {
 
 /* ---------------------------------------------------------- 4. Investments */
 
+const RD_KIND = 'recurring deposit';
+const RD_ONLY = { group: 'Instalments', showWhen: { kind: RD_KIND } };
+
 const holding = {
   name: 'holding', module: 'investments', sheet: 'Holdings', version: 1,
   labels: { one: 'Holding', many: 'Holdings' }, icon: 'chart',
@@ -594,7 +597,7 @@ const holding = {
   fields: [
     text('name', { required: true, list: true, search: true }),
     pick('kind', ['stock', 'mutual fund', 'ETF', 'gold', 'silver', 'fixed deposit',
-      'recurring deposit', 'PPF', 'EPF', 'NPS', 'bond', 'crypto', 'REIT',
+      RD_KIND, 'PPF', 'EPF', 'NPS', 'bond', 'crypto', 'REIT',
       'business', 'other'], { required: true, list: true }),
     text('symbol', { label: 'Symbol / folio', search: true }),
     ref('owner', 'person', { list: true }),
@@ -607,6 +610,12 @@ const holding = {
     num('interestRate', { label: 'Interest rate %', step: 0.01, group: 'Fixed income' }),
     day('maturesOn', { group: 'Fixed income', expiry: true, expiryLead: 30 }),
     money('maturityValue', { group: 'Fixed income' }),
+
+    // An RD's schedule: recorded, never inferred, or the rows that exist would
+    // invent the thing that judges them. `domain/instalments.js` says why.
+    money('instalmentAmount', { label: 'Instalment amount', ...RD_ONLY }),
+    pick('instalmentEvery', ['month', 'quarter'], { label: 'Paid every', default: 'month', ...RD_ONLY }),
+    day('instalmentFrom', { label: 'First instalment on', ...RD_ONLY }),
     pick('riskLevel', ['low', 'moderate', 'high'], { default: 'moderate' }),
     text('nominee', { encrypted: true }),
     { key: 'active', type: 'boolean', default: true },

@@ -359,8 +359,19 @@
 .cell--muted { color: var(--text-muted); }
 .cell--wrap { white-space: normal; min-width: 12rem; }
 
-/* A phone cannot show eight columns; the list becomes stacked cards. */
+/* A phone cannot show eight columns; the list becomes stacked cards.
+ *
+ * `display: block` on the table itself breaks the CSS table layout model.
+ * Without it, even though `tr` is set to `display: grid`, the `<table>`
+ * element still computes its width using the table layout algorithm —
+ * potentially wider than the viewport — causing the `.table-wrap` to scroll
+ * internally rather than the rows becoming cards. `tbody` needs it too so the
+ * block layout propagates through the hierarchy. The `table-wrap`'s
+ * `overflow-x: auto` catches the document from scrolling, but a table that
+ * renders as a card list never forces a scroll at all. */
 @media (max-width: 720px) {
+  .table--responsive,
+  .table--responsive tbody { display: block; }
   .table--responsive thead { display: none; }
   .table--responsive tr {
     display: grid;

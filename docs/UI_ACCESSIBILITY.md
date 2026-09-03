@@ -103,6 +103,15 @@ and each mutation fails.
 
 ## Implemented
 
+**Entity tables become card lists on a phone.** At 390px, `.table--responsive`
+converts each row to a stacked grid block — label on the left, value on the
+right — rather than scrolling the table horizontally. The `<table>` and `<tbody>`
+elements gain `display: block` in the media query to break the CSS table layout
+model; without it, the table layout algorithm computes natural column widths
+regardless of the row display, making the `.table-wrap` container scroll. Checked
+in `tests/browser.mjs`: entity screens that have records must produce no scrolling
+`.table-wrap` at 390px.
+
 **Reduced motion.** `prefers-reduced-motion: reduce` sets every duration token
 to `0.01ms` — none, not less. Vestibular triggers are not a matter of degree.
 The sync-pill spinner is stopped explicitly.
@@ -167,15 +176,45 @@ state the run never enters is a state nothing measures. Non-text contrast — th
 3:1 that WCAG 2.2 asks for borders, focus rings and icons under 1.4.11 — is not
 checked at all; the sweep looks at text.
 
-**Tables scroll horizontally on a narrow screen** rather than becoming a card
-list.
-
 **No keyboard shortcuts and no roving tabindex** in the bottom navigation or
 the tab strips; both are plain link lists, which works but is not the pattern a
 screen-reader user expects from a tab set. The tab strip in
 `js/modules/belongings.js` uses links rather than `role="tablist"`, which is
-honest — they are navigation, not tabs over one panel — but it means the
-`.tab--active` state is carried by `aria-current` alone.
+honest — they are navigation, not tabs over one panel — and the active link
+carries `aria-current="page"` so a screen reader can identify the current
+destination even without the visual indicator.
+
+**Every interactive chip-row carries `role="group"` and `aria-label`.** This
+applies to three kinds of chip-row the application uses:
+
+- *Module entity navigation* — nine module screens (identity, family,
+  investments, finance, vault, vehicles, health, secondary, crud) use `chip()`
+  to switch between entity tabs. `role="tablist"` would be an ARIA ownership
+  violation; `role="group"` around toggle buttons is correct.
+- *Filter chip-rows* — screens that filter a list by category, person, or
+  direction (notifications, documents, receipts, transactions, timeline) each
+  carry a chip-row of toggle buttons. Each has `role="group"` and an
+  `aria-label` naming what is being filtered (`'Filter by category'`,
+  `'Filter by person'`, `'Direction'`, `'Filter by entity type'`, and so on).
+- *Action chip-rows* — rows of action chips with no toggle state (assistant
+  example questions, follow-up suggestions, settings sections, language
+  picker, theme picker) carry `role="group"` so the group's purpose is
+  announced. Action chips in these groups are `chip()` calls without a
+  `pressed` argument, so no `aria-pressed` is emitted.
+
+`tests/browser.mjs` verifies no `.chip-row` carries `role="tablist"` on any
+screen and that every module chip-row has an `aria-label`.
+
+**`chip()` only sets `aria-pressed` on toggle chips.** When called without
+an explicit `pressed` argument — as in the Settings jump-row, where each
+chip scrolls to a named section rather than toggling state — no `aria-pressed`
+attribute is emitted. Before the fix, `chip()` unconditionally emitted
+`aria-pressed="false"` on every call, announcing action-only chips as toggle
+buttons that were permanently off. The statement-import review row also used
+`chip()` for status indicators with no click handler; those are `badge()`
+now — non-interactive `<span>` elements rather than unnamed buttons.
+`tests/browser.mjs` verifies no jump chip in the Settings section carries
+`aria-pressed`.
 
 **No reduced-transparency handling** (`prefers-reduced-transparency`).
 
@@ -203,6 +242,12 @@ honest — they are navigation, not tabs over one panel — but it means the
 8. If your screen is not reachable from a module route, add it to the walk in
    `tests/browser.mjs` — the checks above found nothing on three screens they
    never opened.
+9. A chip-row that holds interactive toggle buttons or filter chips is a group,
+   not a list. Give it `role="group"` and an `aria-label` that names its
+   purpose (`'Filter by category'`, `'Direction'`, `'Theme'`, the module
+   name). Without the label a screen reader announces only "group" with no
+   context. A chip-row that holds only `badge()` elements (non-interactive
+   spans) is display-only and needs neither.
 
 ## UI-7: the screen that had never opened, and the sweep that found it
 

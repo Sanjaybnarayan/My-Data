@@ -56,7 +56,7 @@ export async function render(route) {
         variant: 'primary', iconName: 'plus', onClick: () => section?.openForm(),
       })],
     }),
-    h('div', { class: 'chip-row', role: 'tablist', style: { marginBottom: 'var(--space-4)' } },
+    h('div', { class: 'chip-row', role: 'group', 'aria-label': t('identity.title'), style: { marginBottom: 'var(--space-4)' } },
       TABS.map((name) => chip(entities.find((e) => e.name === name)?.labels.many ?? name, {
         pressed: name === active,
         onClick: () => app().router.navigate({ module: 'identity', entity: name }),

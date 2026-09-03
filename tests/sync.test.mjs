@@ -4,6 +4,7 @@ import { merge, arbitrate, conflictRecord } from '../js/sync/conflict.js';
 import { Outbox, backoffMs, MAX_ATTEMPTS } from '../js/sync/outbox.js';
 import { SyncEngine, SYNC_STATE } from '../js/sync/engine.js';
 import { FakeTransport } from '../js/sync/transport.js';
+import { totals } from '../js/domain/finance.js';
 import { TransportError } from '../js/core/errors.js';
 
 setSuite('sync');
@@ -552,7 +553,8 @@ describe('a reference that arrives pointing at nothing', () => {
     id: 't1', rev: 1, origin: 'dev_b', createdAt: '2025-01-01T00:00:00.000Z',
     createdBy: 'p1', updatedAt: '2025-01-02T00:00:00.000Z', updatedBy: 'p1',
     deletedAt: null, schemaVersion: 1,
-    date: '2025-01-01', amount: 1000, direction: 'out', account: 'acc_missing',
+    date: '2025-01-01', amount: 1000, direction: 'out', kind: 'expense',
+    account: 'acc_missing',
     ...over,
   });
 
@@ -660,6 +662,172 @@ describe('a reference that arrives pointing at nothing', () => {
     // And the on-request audit still finds it, because it really is broken.
     assert.ok((await db.danglingReferences()).length > 0,
       'the pre-existing breakage vanished, so this proves nothing');
+  });
+
+  /*
+   * A reference the reader was never going to receive.
+   *
+   * The audit resolves a reference by reading the local store, and a pull is
+   * filtered by role on the server (`readableEntities` in
+   * `apps-script/Policy.gs`). So for a restricted role a withheld row and a
+   * row that does not exist are the same absence, and the audit was calling
+   * both of them broken.
+   *
+   * 24 reference fields in this schema point from something a child may read
+   * at something they may not — `vehicle.owner`, `relationship.fromPerson`,
+   * `appointment.person`, `education.person` and twenty more — so this was not
+   * an edge: a child's device put a broken-link diagnostic on the activity
+   * card on any sync that brought one of them, telling the household member
+   * least able to judge it that their records were damaged.
+   */
+  test('a reference the reader may not see is not called broken', async () => {
+    const db = await makeDb({ role: 'child', personId: 'per_kid' });
+    const vehicle = {
+      id: 'veh_1', rev: 1, origin: 'dev_b', createdAt: '2025-01-01T00:00:00.000Z',
+      createdBy: 'p1', updatedAt: '2025-01-02T00:00:00.000Z', updatedBy: 'p1',
+      deletedAt: null, schemaVersion: 1,
+      registration: 'KA01AB1234', make: 'Maruti', model: 'Swift', kind: 'car',
+      // A child may read `vehicle` and may not read `person`, so this row was
+      // never sent to them and its absence says nothing.
+      owner: 'per_owner',
+    };
+    const engine = new SyncEngine({ db, transport: pullOf({ vehicle: [vehicle] }) });
+
+    const result = await engine.pullOnce();
+
+    assert.equal(result.pulled, 1, 'the row was not applied, which is a different bug');
+    assert.equal(result.dangling, 0,
+      'a row the server withheld by role was reported as a broken link');
+    assert.length((await db.adapter.query('diagnostics', {}))
+      .filter((e) => e.kind === 'reference'), 0);
+  });
+
+  test('and the reader who would have received it is still told', async () => {
+    /*
+     * The half that decides whether the check above is worth having. Same
+     * rows, same missing person, an owner reading them: an owner's pull is
+     * filtered by nothing, so the absence really is news and silencing it
+     * would have turned the fix into a way of never reporting anything.
+     */
+    const db = await makeDb({ role: 'owner', personId: 'per_owner' });
+    const vehicle = {
+      id: 'veh_1', rev: 1, origin: 'dev_b', createdAt: '2025-01-01T00:00:00.000Z',
+      createdBy: 'p1', updatedAt: '2025-01-02T00:00:00.000Z', updatedBy: 'p1',
+      deletedAt: null, schemaVersion: 1,
+      registration: 'KA01AB1234', make: 'Maruti', model: 'Swift', kind: 'car',
+      owner: 'per_gone',
+    };
+    const engine = new SyncEngine({ db, transport: pullOf({ vehicle: [vehicle] }) });
+
+    const result = await engine.pullOnce();
+
+    assert.equal(result.dangling, 1, 'the owner stopped being told about a real breakage');
+    const noted = (await db.adapter.query('diagnostics', {}))
+      .find((e) => e.kind === 'reference');
+    assert.ok(noted, 'no reference diagnostic for the role that can act on one');
+    assert.equal(noted.entity, 'vehicle');
+    assert.equal(noted.code, 'owner');
+  });
+
+  /*
+   * Held, not dropped — and the reason dropping was never available.
+   *
+   * Measured before this was written: a transaction naming an account arrives
+   * in one pull and the account in the next, because the other device wrote it
+   * a moment after this pull read its cursor. Discarding at the end of the
+   * first pull loses the transaction for good, since the server's cursor has
+   * moved past it and no later pull brings it back.
+   */
+  test('a row naming something absent is kept, shown, and left out of totals', async () => {
+    const db = await makeDb();
+    const engine = new SyncEngine({ db, transport: pullOf({ transaction: [txn()] }) });
+
+    const result = await engine.pullOnce();
+    assert.equal(result.dangling, 1);
+
+    const rows = await db.repo('transaction').list();
+    assert.length(rows, 1, 'the row was dropped, which is the one thing this must not do');
+    assert.ok(rows[0].heldAt, 'the row was applied unmarked and would have joined a total');
+    assert.equal(totals(rows).expense, 0, 'a held row contributed to a figure nobody can trace');
+
+    /*
+     * And the zero above is the hold, not the row.
+     *
+     * Written after the first version of this test passed on a row `totals`
+     * ignored anyway — the shared `txn()` helper carried no `kind`, so
+     * `isSpending` was false and the expense was zero whether the row was held
+     * or not. The check could not have failed. The same rows unmarked have to
+     * come to something, or the assertion above is measuring nothing.
+     */
+    assert.equal(totals(rows.map(({ heldAt, ...rest }) => rest)).expense, 1000,
+      'these rows total nothing even unheld, so the zero above proves nothing');
+  });
+
+  test('and is released by the pull that brings what it names', async () => {
+    const db = await makeDb();
+    const account = {
+      id: 'acc_1', rev: 1, origin: 'dev_b', createdAt: '2025-01-01T00:00:00.000Z',
+      createdBy: 'p1', updatedAt: '2025-01-02T00:00:00.000Z', updatedBy: 'p1',
+      deletedAt: null, schemaVersion: 1, name: 'HDFC Savings', kind: 'savings',
+    };
+    let call = 0;
+    const engine = new SyncEngine({
+      db,
+      transport: {
+        schema: () => ({}),
+        push: () => ({ applied: [], rejected: [], conflicts: [] }),
+        audit: () => ({}),
+        pull: () => {
+          call += 1;
+          return call === 1
+            ? { records: { transaction: [txn({ account: 'acc_1' })] }, cursors: {}, more: false }
+            : { records: { account: [account] }, cursors: {}, more: false };
+        },
+      },
+    });
+
+    await engine.pullOnce();
+    assert.ok((await db.repo('transaction').list())[0].heldAt, 'nothing was held to release');
+
+    const second = await engine.pullOnce();
+    assert.equal(second.released, 1, 'the account arrived and the row stayed held');
+
+    const rows = await db.repo('transaction').list();
+    assert.not(rows[0].heldAt, 'the mark outlived the reason for it');
+    assert.equal(totals(rows).expense, 1000, 'a released row is still missing from the total');
+  });
+
+  test('and a released row is not held again by the pull that released it', async () => {
+    // The two halves run in one `pullOnce`, release first. Without that order a
+    // row satisfied by the same pull that was carrying its target would be
+    // released and immediately re-held, and the count would never reach zero.
+    const db = await makeDb();
+    const account = {
+      id: 'acc_1', rev: 1, origin: 'dev_b', createdAt: '2025-01-01T00:00:00.000Z',
+      createdBy: 'p1', updatedAt: '2025-01-02T00:00:00.000Z', updatedBy: 'p1',
+      deletedAt: null, schemaVersion: 1, name: 'HDFC Savings', kind: 'savings',
+    };
+    let call = 0;
+    const engine = new SyncEngine({
+      db,
+      transport: {
+        schema: () => ({}),
+        push: () => ({ applied: [], rejected: [], conflicts: [] }),
+        audit: () => ({}),
+        pull: () => {
+          call += 1;
+          return call === 1
+            ? { records: { transaction: [txn({ account: 'acc_1' })] }, cursors: {}, more: false }
+            : { records: { account: [account] }, cursors: {}, more: false };
+        },
+      },
+    });
+
+    await engine.pullOnce();
+    await engine.pullOnce();
+    const third = await engine.pullOnce();
+    assert.equal(third.released, 0, 'a released row was picked up and held a second time');
+    assert.not((await db.repo('transaction').list())[0].heldAt);
   });
 
   test('and a pull that brings nothing says nothing', async () => {

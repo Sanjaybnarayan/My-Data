@@ -126,11 +126,11 @@ export function badge(label, tone = '') {
  * @param {Child} label
  * @param {{pressed?: boolean, onClick?: Handler, iconName?: string}} [options]
  */
-export function chip(label, { pressed = false, onClick, iconName } = {}) {
+export function chip(label, { pressed, onClick, iconName } = {}) {
   return h('button', {
     type: 'button',
     class: 'chip',
-    'aria-pressed': String(Boolean(pressed)),
+    ...(pressed !== undefined ? { 'aria-pressed': String(Boolean(pressed)) } : {}),
     onClick,
   }, [iconName ? icon(iconName, { size: 16 }) : null, label]);
 }

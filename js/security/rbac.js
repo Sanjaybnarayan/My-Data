@@ -111,7 +111,16 @@ export function can(actor, action, entityName, record = null) {
   }
 
   // Not on the list, but it might be their own record.
+  // `person` is excluded from writes even though it is in OWN_RECORD_ENTITIES
+  // (and therefore readable). The server maps an email to a person id through
+  // the members list, which only the owner may change. If somebody could write
+  // their own `person` row through this rule they could edit the field the
+  // server uses to identify them, making the binding no longer owner-controlled.
+  // Reads still go through — a child can open and see their record — and this
+  // matches the server's generated OWN_RECORD table, which omits `person` on
+  // the same reasoning. See `docs/OWN_RECORDS.md`.
   if (record && OWN_RECORD_ENTITIES.has(entityName) && isAbout(actor, entityName, record)) {
+    if (action === 'write' && entityName === 'person') return false;
     return true;
   }
 
@@ -142,32 +151,56 @@ export function assertCan(actor, action, entityName, record = null) {
 }
 
 /**
+ * How much of an entity this actor may read: `all`, `own` or `none`.
+ *
+ * `rowFilter` is built from this rather than repeating it, and it is separate
+ * because *how much* is a different question from *which rows*, and something
+ * outside the query path needed to ask it.
+ *
+ * That something is the referential-integrity audit. It resolves a reference
+ * by reading the local store, so a row the server correctly withheld looks
+ * exactly like a row that does not exist — and the audit called it a broken
+ * link. Pulls are filtered by role server-side (`readableEntities` in
+ * `apps-script/Policy.gs` says so in as many words), and 24 reference fields
+ * in this schema point from something a child may read at a person, loan or
+ * vault item they may not. Measured against the real engine: a child's device
+ * pulling one vehicle reported *reference/vehicle/owner* and put a broken-link
+ * diagnostic on the activity card, every sync, for the role least able to
+ * judge whether their household's records are damaged.
+ *
+ * `own` is not `all`: a child may read the person row that is about them and
+ * no other, so a reference to somebody else's is missing for the same reason
+ * and is equally not evidence of anything.
+ */
+export function readScope(actor, entityName) {
+  if (!actor || !isRole(actor.role)) return 'none';
+  if (actor.role === 'guest') return GUEST_READABLE.has(entityName) ? 'all' : 'none';
+  if (actor.role === 'child' && OWN_RECORD_ENTITIES.has(entityName)) return 'own';
+  if (entity(entityName).acl.read.includes(actor.role)) return 'all';
+  if (OWN_RECORD_ENTITIES.has(entityName)) return 'own';
+  return 'none';
+}
+
+/**
  * A filter for list queries, so a restricted role's rows are excluded by the
  * query rather than fetched and then hidden.
  */
 export function rowFilter(actor, entityName) {
-  if (!actor) return () => false;
-  if (actor.role === 'guest') {
-    return GUEST_READABLE.has(entityName) ? () => true : () => false;
-  }
-  if (actor.role === 'child' && OWN_RECORD_ENTITIES.has(entityName)) {
-    return (record) => isAbout(actor, entityName, record);
-  }
-  const def = entity(entityName);
-  if (def.acl.read.includes(actor.role)) return () => true;
-  if (OWN_RECORD_ENTITIES.has(entityName)) {
-    return (record) => isAbout(actor, entityName, record);
-  }
-  return () => false;
+  const scope = readScope(actor, entityName);
+  if (scope === 'all') return () => true;
+  if (scope === 'none') return () => false;
+  return (record) => isAbout(actor, entityName, record);
 }
 
-/** Entities this actor may see at all — drives which nav items are rendered. */
+/**
+ * Entities this actor may see at all — drives which nav items are rendered.
+ *
+ * `readScope` again rather than a third copy of the rule. This function used
+ * to spell out the guest case and the own-record case itself, which is how a
+ * change to one of them reaches two places and lands in one.
+ */
 export function visibleEntities(actor) {
-  if (!actor || !isRole(actor.role)) return [];
-  return Object.keys(entities).filter((name) => {
-    if (actor.role === 'guest') return GUEST_READABLE.has(name);
-    return entities[name].acl.read.includes(actor.role) || OWN_RECORD_ENTITIES.has(name);
-  });
+  return Object.keys(entities).filter((name) => readScope(actor, name) !== 'none');
 }
 
 /** Modules with at least one visible entity, in schema order. */

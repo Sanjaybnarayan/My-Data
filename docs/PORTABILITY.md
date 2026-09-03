@@ -32,7 +32,7 @@ What it is not is a copy of your records that anything can put back.
 ## What it carries, measured
 
 There are 53<!--live:entities--> entities holding
-614<!--live:fields--> fields between them, and an export is one file per
+617<!--live:fields--> fields between them, and an export is one file per
 entity — so a complete one is forty-three files and eighty-six button presses.
 
 Of those fields:

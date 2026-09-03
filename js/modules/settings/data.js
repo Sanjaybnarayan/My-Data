@@ -10,6 +10,7 @@ import { download } from '../reports.js';
 import { entities, entity, entityNames } from '../../data/schema.js';
 import { formatDay } from '../../core/dates.js';
 import { h } from '../../ui/dom.js';
+import { t } from '../../core/locale.js';
 import { modal, confirm, prompt } from '../../ui/components/modal.js';
 import { open as openArchive, describeBody } from '../../domain/archive.js';
 import { toast } from '../../ui/components/toast.js';
@@ -25,48 +26,52 @@ export function dataCard(db, stats, usage) {
     .reduce((n, [, s]) => n + s.live, 0);
 
   return card({}, [
-    cardHeader('Data on this device', null, { iconName: 'grid' }),
+    cardHeader(t('settings.data.title'), null, { iconName: 'grid' }),
     h('div', { class: 'row', style: { gap: 'var(--space-5)' } }, [
       metric({ label: 'Records', value: String(totalRows), compact: true }),
       usage
         ? metric({
-          label: 'Storage used',
-          value: `${(usage.usage / 1024 / 1024).toFixed(1)} MB`,
+          label: t('settings.data.storageUsed'),
+          value: t('settings.data.megabytes', { n: (usage.usage / 1024 / 1024).toFixed(1) }),
           compact: true,
         })
         : null,
     ].filter(Boolean)),
 
-    usage ? progress(usage.usage, usage.quota, { label: 'Browser storage quota' }) : null,
+    usage ? progress(usage.usage, usage.quota, { label: t('settings.data.quota') }) : null,
 
     h('div', { class: 'row', style: { marginTop: 'var(--space-3)' } }, [
-      button('Rebuild the search index', {
+      button(t('settings.data.reindex'), {
         variant: 'subtle',
         onClick: async () => {
           const n = await db.reindex();
-          toast(`Reindexed ${n} record types`, { kind: 'success' });
+          toast(t('settings.data.reindexed', { n }), { kind: 'success' });
         },
       }),
-      button('Check for broken links', {
+      button(t('settings.data.checkLinks'), {
         variant: 'subtle',
         onClick: async () => {
           const broken = await db.danglingReferences();
           modal({
-            title: broken.length ? `${broken.length} broken references` : 'No broken references',
+            title: broken.length
+              ? t('settings.data.brokenCount', { n: broken.length })
+              : t('settings.data.noBroken'),
             body: broken.length
               // `label` is the field's own name — "Filed under" rather than
               // `person` — and `points` names what it cannot find. Both come
               // from the same audit the write path refuses a record by, so a
               // row listed here is a row a write would reject.
               ? h('div', { class: 'list' }, broken.slice(0, 100).map((row) => listItem({
-                title: `${entity(row.entity).labels.one} · ${row.label}`,
-                subtitle: `points at ${row.points.id}, which is deleted or missing`,
+                title: t('settings.data.brokenRow', {
+                  entity: entity(row.entity).labels.one, label: row.label,
+                }),
+                subtitle: t('settings.data.brokenPoints', { id: row.points.id }),
               })))
-              : h('p', {}, 'Every reference points at a record that exists.'),
+              : h('p', {}, t('settings.data.allRefsOk')),
           });
         },
       }),
-      button('Erase everything on this device', {
+      button(t('settings.data.eraseButton'), {
         variant: 'danger',
         onClick: () => eraseEverything(db),
       }),
@@ -74,24 +79,25 @@ export function dataCard(db, stats, usage) {
   ]);
 }
 
+/** The word typed to confirm, named once so the prompt and the check agree. */
+const ERASE_WORD = 'ERASE';
+
 async function eraseEverything(db) {
   const ok = await confirm({
-    title: 'Erase FamilyOS from this device?',
-    message: 'Every record, the encryption key and the queue are deleted from this browser. '
-      + 'Anything already synced stays in your Google Sheets and Drive; anything not yet '
-      + 'synced is gone for good. This cannot be undone.',
-    confirmLabel: 'Erase everything',
+    title: t('settings.data.eraseTitle'),
+    message: t('settings.data.eraseMessage'),
+    confirmLabel: t('settings.data.eraseConfirm'),
     danger: true,
   });
   if (!ok) return;
 
   const typed = await prompt({
-    title: 'Type ERASE to confirm',
-    label: 'This is deliberately awkward',
+    title: t('settings.data.eraseTypeTitle', { word: ERASE_WORD }),
+    label: t('settings.data.eraseTypeLabel'),
     confirmLabel: 'Erase',
   });
-  if (typed !== 'ERASE') {
-    toast('Not erased.');
+  if (typed !== ERASE_WORD) {
+    toast(t('settings.data.notErased'));
     return;
   }
 
@@ -105,11 +111,9 @@ async function eraseEverything(db) {
 
 export function deletedCard(db) {
   return card({}, [
-    cardHeader('Deleted items', null, { iconName: 'trash' }),
-    h('p', { class: 'small muted' },
-      'Nothing is ever hard-deleted — a deletion is a marker that replicates, so a '
-      + 'device that has been offline learns about it rather than bringing the record back.'),
-    button('Show deleted records', {
+    cardHeader(t('settings.data.deletedTitle'), null, { iconName: 'trash' }),
+    h('p', { class: 'small muted' }, t('settings.data.deletedBlurb')),
+    button(t('settings.data.showDeleted'), {
       variant: 'subtle',
       onClick: async () => {
         const rows = [];
@@ -120,12 +124,17 @@ export function deletedCard(db) {
         }
 
         modal({
-          title: `${rows.length} deleted record${rows.length === 1 ? '' : 's'}`,
+          title: rows.length === 1
+            ? t('settings.data.deletedCount.one')
+            : t('settings.data.deletedCount.many', { n: rows.length }),
           wide: true,
           body: rows.length
             ? h('div', { class: 'list' }, rows.slice(0, 200).map(({ name, record }) => listItem({
               title: String(entity(name).title(record) ?? record.id),
-              subtitle: `${entity(name).labels.one} · deleted ${formatDay(record.deletedAt.slice(0, 10))}`,
+              subtitle: t('settings.data.deletedRow', {
+                entity: entity(name).labels.one,
+                day: formatDay(record.deletedAt.slice(0, 10)),
+              }),
               trailing: button('Restore', {
                 class: 'btn--small',
                 variant: 'subtle',
@@ -135,7 +144,7 @@ export function deletedCard(db) {
                 },
               }),
             })))
-            : empty({ title: 'Nothing deleted', iconName: 'check' }),
+            : empty({ title: t('settings.data.nothingDeleted'), iconName: 'check' }),
         });
       },
     }),
@@ -147,16 +156,15 @@ export function deletedCard(db) {
 export function conflictsCard(db) {
   return card({}, [
     cardHeader('Conflicts', null, { iconName: 'swap' }),
-    h('p', { class: 'small muted' },
-      'When two devices change the same field, FamilyOS merges them and records what '
-      + 'it had to choose. Nothing here needs action — it is a record of decisions you '
-      + 'can reverse.'),
-    button('Show conflicts', {
+    h('p', { class: 'small muted' }, t('settings.data.conflictsBlurb')),
+    button(t('settings.data.showConflicts'), {
       variant: 'subtle',
       onClick: async () => {
         const conflicts = await db.adapter.query('conflicts', { limit: 200 });
         modal({
-          title: conflicts.length ? `${conflicts.length} resolved conflicts` : 'No conflicts',
+          title: conflicts.length
+            ? t('settings.data.conflictCount', { n: conflicts.length })
+            : t('settings.data.noConflicts'),
           wide: true,
           body: conflicts.length
             ? h('div', { class: 'stack' }, conflicts.map((conflict) => card({ variant: 'quiet' }, [
@@ -166,22 +174,25 @@ export function conflictsCard(db) {
               ]),
               h('div', { class: 'list' }, conflict.fields.map((field) => listItem({
                 title: field,
-                subtitle: `this device: ${conflict.localValues[field]} · other device: ${conflict.remoteValues[field]}`,
-                value: `kept: ${conflict.resolvedValues[field]}`,
+                subtitle: t('settings.data.conflictValues', {
+                  local: conflict.localValues[field],
+                  remote: conflict.remoteValues[field],
+                }),
+                value: t('settings.data.conflictKept', { value: conflict.resolvedValues[field] }),
               }))),
               h('div', { class: 'row row--end' }, [
-                button('Use this device’s version', {
+                button(t('settings.data.useThisDevice'), {
                   class: 'btn--small',
                   variant: 'subtle',
                   onClick: async () => {
                     await db.repo(conflict.store).update(conflict.recordId, conflict.localValues);
                     await db.adapter.write('conflicts', { ...conflict, reviewed: true });
-                    toast('Reverted to this device’s values', { kind: 'success' });
+                    toast(t('settings.data.reverted'), { kind: 'success' });
                   },
                 }),
               ]),
             ])))
-            : empty({ title: 'Nothing has conflicted', iconName: 'check' }),
+            : empty({ title: t('settings.data.nothingConflicted'), iconName: 'check' }),
         });
       },
     }),
@@ -216,20 +227,15 @@ export async function backupCard(db, repaint) {
   if (missing.length) {
     return card({}, [
       cardHeader('Backup', null, { iconName: 'download' }),
-      h('p', { class: 'small muted' },
-        'Only an owner can back up the household. Taken by anyone else it would '
-        + `be missing ${missing.length} of the ${entityNames().length} kinds of `
-        + 'record, and would not say so — which is worse than having no backup, '
-        + 'because you would have stopped worrying about it.'),
+      h('p', { class: 'small muted' }, t('settings.data.backupOwnerOnly', {
+        missing: missing.length, total: entityNames().length,
+      })),
     ]);
   }
 
   return card({}, [
     cardHeader('Backup', null, { iconName: 'download' }),
-    h('p', { class: 'small muted' },
-      'One encrypted file holding every record, every document and the keys that '
-      + 'open them. It is the only backup this device has if you are not syncing '
-      + 'to Google — see docs/PORTABILITY.md for what the CSV exports are and are not.'),
+    h('p', { class: 'small muted' }, t('settings.data.backupBlurb')),
 
     // A backup nobody remembers to take is close to a backup nobody has, so
     // the date is on the card rather than somewhere it has to be looked for.
@@ -238,18 +244,18 @@ export async function backupCard(db, repaint) {
     lastTakenLine(await archive.lastTaken()),
 
     h('div', { class: 'row', style: { gap: 'var(--space-2)', marginTop: 'var(--space-3)' } }, [
-      button('Take a backup', { variant: 'primary', onClick: () => take(db, archive, repaint) }),
-      button('Restore from a file', { variant: 'subtle', onClick: () => restore(db, archive, repaint) }),
+      button(t('settings.data.takeBackup'), { variant: 'primary', onClick: () => take(db, archive, repaint) }),
+      button(t('settings.data.restoreFromFile'), { variant: 'subtle', onClick: () => restore(db, archive, repaint) }),
     ]),
   ]);
 }
 
 async function take(db, archive, repaint) {
   const phrase = await prompt({
-    title: 'Take a backup',
-    label: 'Your recovery phrase — it is what encrypts the file, and what opens it again',
-    placeholder: 'the words you wrote down when you set this up',
-    confirmLabel: 'Take the backup',
+    title: t('settings.data.takeBackup'),
+    label: t('settings.data.phraseLabel'),
+    placeholder: t('settings.data.phrasePlaceholder'),
+    confirmLabel: t('settings.data.takeBackupConfirm'),
   });
   if (!phrase) return;
 
@@ -258,8 +264,7 @@ async function take(db, archive, repaint) {
     // can open, and nothing would say so until it mattered.
     await db.keyring.unlockWithRecoveryPhrase(phrase);
   } catch {
-    toast('That is not the recovery phrase for this household. Nothing was written.',
-      { kind: 'error', ms: 0 });
+    toast(t('settings.data.wrongPhrase'), { kind: 'error', ms: 0 });
     return;
   }
 
@@ -280,8 +285,7 @@ async function take(db, archive, repaint) {
     });
 
     const { records, documents } = taken.summary;
-    toast(`${records} records and ${documents} documents, encrypted and read back. `
-      + 'Keep it somewhere you control.', { kind: 'success', ms: 0 });
+    toast(t('settings.data.backupTaken', { records, documents }), { kind: 'success', ms: 0 });
     await db.logAudit(ACTIONS.export, { report: 'backup', format: 'archive', includeEncrypted: true });
     await repaint();
   } catch (err) {
@@ -316,9 +320,9 @@ async function restore(db, archive, repaint) {
   if (!chosen) return;
 
   const phrase = await prompt({
-    title: 'Restore a backup',
-    label: 'The recovery phrase this file was taken with',
-    confirmLabel: 'Open the file',
+    title: t('settings.data.restoreTitle'),
+    label: t('settings.data.restorePhraseLabel'),
+    confirmLabel: t('settings.data.openFile'),
   });
   if (!phrase) return;
 
@@ -331,17 +335,15 @@ async function restore(db, archive, repaint) {
     }
 
     const summary = describeBody(opened.body);
-    const taken = summary.createdAt ? summary.createdAt.slice(0, 10) : 'an unknown date';
+    const taken = summary.createdAt
+      ? summary.createdAt.slice(0, 10)
+      : t('settings.data.unknownDate');
 
     const go = await confirm({
-      title: 'Restore this backup?',
-      message: `Taken on ${taken}. It holds ${summary.records} records and `
-        + `${summary.documents} documents.\n\n`
-        + 'Everything in it will be written to this device, and the keys inside it '
-        + 'become this device\u2019s keys — so afterwards you unlock with the PIN and '
-        + 'phrase that were in use when the backup was taken, not the ones on this '
-        + 'device now.\n\n'
-        + 'FamilyOS will reload when it finishes.',
+      title: t('settings.data.restoreConfirmTitle'),
+      message: t('settings.data.restoreMessage', {
+        taken, records: summary.records, documents: summary.documents,
+      }),
       confirmLabel: 'Restore',
       danger: true,
     });
@@ -349,7 +351,7 @@ async function restore(db, archive, repaint) {
 
     const done = await archive.restore(opened.body);
     if (!done.ok) {
-      toast(done.why === undefined ? 'The restore was refused.' : done.why,
+      toast(done.why === undefined ? t('settings.data.restoreRefused') : done.why,
         { kind: 'error', ms: 0 });
       await repaint();
       return;
@@ -357,7 +359,7 @@ async function restore(db, archive, repaint) {
 
     // The session is holding a key that belongs to records this device no
     // longer has. There is no correct way to carry on in it.
-    toast(`Restored ${done.restored} records. Reloading…`, { kind: 'success' });
+    toast(t('settings.data.restored', { n: done.restored }), { kind: 'success' });
     setTimeout(() => globalThis.location.reload(), 1200);
   } catch (err) {
     toast(userMessage(err), { kind: 'error', ms: 0 });
@@ -370,8 +372,8 @@ function lastTakenLine(iso) {
     class: ['small', iso ? 'muted' : 'faint'],
     style: { marginTop: 'var(--space-2)' },
   }, iso
-    ? `Last backup: ${iso.slice(0, 10)}`
-    : 'No backup has ever been taken on this device.');
+    ? t('settings.data.lastBackup', { day: iso.slice(0, 10) })
+    : t('settings.data.neverBackedUp'));
 }
 
 /* -------------------------------------------------------------- example */

@@ -390,7 +390,7 @@ const WIDGETS = {
     }
 
     return h('section', { class: 'dash-section' }, [
-      h('h3', { class: 'dash-section-title' }, t('dash.wallet.title')),
+      h('h2', { class: 'dash-section-title' }, t('dash.wallet.title')),
       carousel(cards, { label: t('dash.wallet.cards') }),
     ]);
   },
@@ -512,7 +512,7 @@ const WIDGETS = {
       ? h('p', { class: 'small faint' }, [
         icon('info', { size: 14 }),
         ` ${data.net.staleValuations.length} item${data.net.staleValuations.length === 1 ? '' : 's'} `
-        + 'valued at cost or excluded — update the valuations for a truer figure.',
+        + 'resting on a valuation that is missing or out of date — update them for a truer figure.',
       ])
       : null,
   ]),

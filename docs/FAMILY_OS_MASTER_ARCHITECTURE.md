@@ -237,7 +237,7 @@ verification* means the deterministic path must stay the one that writes.
 
 ## Layer 4 — Data & Economic Events
 
-53<!--live:entities--> entities, 614<!--live:fields--> fields, declared once in `js/data/schema.js` and used to
+53<!--live:entities--> entities, 617<!--live:fields--> fields, declared once in `js/data/schema.js` and used to
 derive stores, indexes, validators, forms, columns, Sheets tabs, reminders and
 report fields.
 

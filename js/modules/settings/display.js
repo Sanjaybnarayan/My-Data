@@ -16,7 +16,7 @@ export function appearanceCard() {
   const current = storedTheme();
   return card({}, [
     cardHeader('Appearance', null, { iconName: 'sun' }),
-    h('div', { class: 'chip-row' }, THEMES.map((theme) => h('button', {
+    h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Theme' }, THEMES.map((theme) => h('button', {
       class: 'chip',
       type: 'button',
       'aria-pressed': String(theme === current),
@@ -63,7 +63,7 @@ export function languageCard() {
   const refused = missing(current);
   return card({}, [
     cardHeader(t('locale.title'), null, { iconName: 'globe' }),
-    h('div', { class: 'chip-row' }, available.map(({ tag, name, coverage }) => h('button', {
+    h('div', { class: 'chip-row', role: 'group', 'aria-label': t('locale.title') }, available.map(({ tag, name, coverage }) => h('button', {
       class: 'chip',
       type: 'button',
       'aria-pressed': String(tag === current),

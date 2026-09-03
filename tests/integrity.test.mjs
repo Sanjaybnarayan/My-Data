@@ -3,7 +3,7 @@ import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 import { RecordsService } from '../js/services/records.js';
 import { transact } from '../js/data/unit.js';
 import {
-  referenceFieldsOf, referencesIn, unresolved, dependents, blocking, danglingIn,
+  referenceFieldsOf, referencesIn, unresolved, dependents, blocking, danglingIn, settled,
 } from '../js/data/integrity.js';
 
 setSuite('integrity');
@@ -320,5 +320,51 @@ describe('what sync is allowed to bring in', () => {
     const found = await danglingIn(rowsOf, exists);
     assert.not(found.some((d) => d.id === 'trn_gone'),
       'a deleted record was listed as needing repair');
+  });
+});
+
+describe('one predicate for a row that may be counted', () => {
+  /*
+   * `settled()` replaced about twenty hand-written `!row.deletedAt` checks
+   * across the money modules. The point was not tidiness: `heldAt` is a second
+   * reason a row may not join a total, and adding it to twenty conditions by
+   * hand is how nineteen of them keep the old meaning.
+   *
+   * So the invariant is that a module which has adopted the predicate does not
+   * also spell the test out beside it. Derived rather than listed — a fourth
+   * module that adopts `settled` tomorrow is covered without anybody
+   * remembering to name it here.
+   */
+  test('a module that uses settled() does not also hand-write the deleted check', async () => {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const { join, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'js', 'domain');
+
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.js'));
+    const adopted = [];
+    const mixed = [];
+    for (const file of files) {
+      const src = await readFile(join(dir, file), 'utf8');
+      // The import, not the word. `settled` is also ordinary finance English —
+      // a settled trade, a settled instalment — and matching on the bare word
+      // named `estate.js`, `instalments.js` and `tradebook.js`, none of which
+      // had adopted anything. A check that reports three false faults is one
+      // somebody switches off.
+      if (!/import \{[^}]*\bsettled\b[^}]*\} from '[^']*integrity\.js'/.test(src)) continue;
+      adopted.push(file);
+      if (/deletedAt/.test(src)) mixed.push(file);
+    }
+
+    assert.ok(adopted.length >= 3,
+      `only ${adopted.length} modules use it, so this proves almost nothing`);
+    assert.deep(mixed, []);
+  });
+
+  test('and it refuses both a deleted row and a held one', () => {
+    assert.ok(settled({ id: 'a' }));
+    assert.not(settled({ id: 'a', deletedAt: '2025-01-01T00:00:00.000Z' }));
+    assert.not(settled({ id: 'a', heldAt: '2025-01-01T00:00:00.000Z' }));
+    assert.not(settled(null));
   });
 });

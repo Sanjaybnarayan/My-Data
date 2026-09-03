@@ -23,6 +23,36 @@ import { button } from './basics.js';
 const openDialogs = [];
 
 /**
+ * Ids for the parts of a dialog that another element has to point at.
+ *
+ * They cannot be constants, because this module stacks dialogs on purpose and
+ * an id is a promise to be the only one. `aria-labelledby="modal-title"`
+ * resolves through `getElementById`, which returns the **first** match in the
+ * document — so with two dialogs open the one on top was announced with the
+ * name of the one underneath it.
+ *
+ * Settings → Connection → *Changes that could not be sent* → **Discard**
+ * reaches it in three clicks: the confirmation asking whether to throw a
+ * pending change away announced itself as "Changes that could not be sent".
+ * A destructive confirmation is the worst thing in the application to
+ * mislabel, and nothing said so, because every check on these dialogs read
+ * their text and none asked what they are called.
+ *
+ * `prompt` had the same fault in `for="prompt-input"`, where two stacked
+ * prompts would put the label on the first one's field. No path reaches that
+ * today — every `prompt` in the tree is awaited before the next opens — so it
+ * is fixed as the same construction rather than as a demonstrated fault.
+ */
+let dialogSeq = 0;
+// The increment is a statement rather than part of the template because
+// `${dialogSeq += 1}` reads to `tools/strings.mjs` as a sentence — two words
+// and a space — and an id template is not English anybody can translate.
+function nextId(prefix) {
+  dialogSeq += 1;
+  return `${prefix}-${dialogSeq}`;
+}
+
+/**
  * `body` and `footer` take what `h()` takes: a node, or a list of them. Every
  * caller in the tree passes a list of buttons for the footer, and typing it as
  * a single node meant each of them carried a type finding for doing the
@@ -36,15 +66,38 @@ export function modal({
   title, body, footer, wide = false, onClose, dismissable = true,
 }) {
   const previouslyFocused = document.activeElement;
+  const titleId = nextId('modal-title');
 
   const dialog = h('div', {
     class: ['modal', wide && 'modal--wide'],
     role: 'dialog',
     'aria-modal': 'true',
-    'aria-labelledby': 'modal-title',
+    'aria-labelledby': titleId,
+    /*
+     * So the fallback below can actually land. `focus(firstField ?? dialog)`
+     * says plainly what it means to do when a dialog has no field in it, and
+     * a `div` with no `tabindex` is not focusable — `.focus()` on one is a
+     * silent no-op, so focus stayed on whatever was behind the dialog while
+     * an `aria-modal` element covered the page.
+     *
+     * Reachable wherever a dialog's only control is its own Close button,
+     * which the `firstField` selector excludes on purpose: Settings → Data →
+     * *Check for broken links* on a database with none, and every dialog
+     * whose body is an `empty()` — "Nothing stuck", "Nothing deleted",
+     * "Nothing has conflicted".
+     *
+     * `-1` rather than `0`: reachable by script, never a stop in the Tab
+     * order. `trapFocus` excludes `[tabindex="-1"]` from its cycle for the
+     * same reason.
+     *
+     * This is the router fault in `docs/KEYBOARD_NAVIGATION.md` with the
+     * halves swapped. There, `tabindex="-1"` was set and nothing ever focused
+     * it. Here, something focuses it and the attribute was never set.
+     */
+    tabindex: '-1',
   }, [
     h('div', { class: 'modal-header' }, [
-      h('h2', { id: 'modal-title' }, title),
+      h('h2', { id: titleId }, title),
       dismissable
         ? h('button', {
           type: 'button',
@@ -195,13 +248,14 @@ export function prompt({ title, label, value = '', placeholder = '', confirmLabe
       resolve(v);
     };
 
-    const input = h('input', { class: 'input', value, placeholder, id: 'prompt-input' });
+    const inputId = nextId('prompt-input');
+    const input = h('input', { class: 'input', value, placeholder, id: inputId });
     const submit = () => { finish(input.value.trim() || null); close(); };
 
     const { close } = modal({
       title,
       body: h('div', { class: 'field' }, [
-        h('label', { class: 'field-label', for: 'prompt-input' }, label),
+        h('label', { class: 'field-label', for: inputId }, label),
         input,
       ]),
       footer: [

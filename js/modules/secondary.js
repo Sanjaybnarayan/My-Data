@@ -89,7 +89,7 @@ export async function render(route) {
     await topCard(id, service),
 
     entities.length > 1
-      ? h('div', { class: 'chip-row', role: 'tablist' }, entities.map((one) => chip(
+      ? h('div', { class: 'chip-row', role: 'group', 'aria-label': moduleLabel(mod) }, entities.map((one) => chip(
         entityLabel(one, 'many'),
         {
           pressed: one.name === chosen,

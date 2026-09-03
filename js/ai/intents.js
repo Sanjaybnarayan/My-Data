@@ -25,6 +25,7 @@ import * as fin from '../domain/finance.js';
 import { netWorth } from '../domain/networth.js';
 import { portfolioSummary, allocation, holdingGain, xirr, cashFlows } from '../domain/portfolio.js';
 import { allReminders, datedEntities } from '../domain/reminders.js';
+import { householdIntents } from './intents-household.js';
 
 /** Phrases that name a time span, longest first so "last month" beats "month". */
 /** @type {[RegExp, string][]} */
@@ -68,7 +69,7 @@ export const intents = [
 
       const caveat = result.staleValuations.length
         ? ` ${result.staleValuations.length} item${result.staleValuations.length === 1 ? ' is' : 's are'} `
-          + 'valued at cost or missing a valuation, so the real figure may differ.'
+          + 'resting on a valuation that is missing or out of date, so the real figure may differ.'
         : '';
 
       return {
@@ -138,7 +139,15 @@ export const intents = [
 
       const hits = await ctx.search(term, { limit: 8 });
       if (!hits.length) {
-        return { text: `Nothing matching “${term}” is stored. Try a different word, or check the spelling.` };
+        // Soft: true, and the only one. This intent claims every sentence
+        // opening with "where", including ones a specific intent answers
+        // properly — so when the search comes back empty it stands aside and
+        // lets `answer` try them, rather than telling a household nothing
+        // matches "the safe zones" while `safe-zones` waits behind it.
+        return {
+          soft: true,
+          text: `Nothing matching “${term}” is stored. Try a different word, or check the spelling.`,
+        };
       }
 
       const first = hits[0];
@@ -382,7 +391,23 @@ export const intents = [
   {
     id: 'vehicle-compliance',
     examples: ['Is the car insurance valid?', 'When is the PUC due?'],
-    patterns: [/\b(puc|fastag|rc|vehicle|car|bike|scooter)\b/i],
+    /*
+     * The second pattern exists because "When is the PUC due?" — this
+     * intent's own example, on the help panel — was answered with a list of
+     * pending bills. `bills` matches `due` and this matched `PUC`, both three
+     * characters, and `matchIntent` breaks a tie on weight by declaration
+     * order, which puts `bills` first. Spanning from the part to the question
+     * about it makes the match longer than the word `due` alone, so the
+     * question reaches the intent that offers it.
+     */
+    patterns: [
+      /\b(puc|fastag|rc)\b[^.?!]{0,40}?\b(due|expir\w+|valid)\b/i,
+      // No bare `rc` here. "Where is the RC book?" is a document, and with
+      // `find-document` standing aside when it finds nothing this intent
+      // would be next in line to answer it with renewal dates. The first
+      // pattern still catches "Is the RC due?", the compliance question.
+      /\b(puc|fastag|vehicle|car|bike|scooter)\b/i,
+    ],
     async handle(ctx) {
       const vehicles = await ctx.load('vehicle');
       if (!vehicles.length) return { text: 'No vehicles are recorded.' };
@@ -404,6 +429,11 @@ export const intents = [
       return { text: lines.join('. ') + '.', records: { entity: 'vehicle', rows: vehicles } };
     },
   },
+
+  // The household's own records — people, vehicles, places, things. Same
+  // shape, kept in a second file so neither grows past what one screen of
+  // review can hold.
+  ...householdIntents,
 ];
 
 /** Everything the assistant can answer, for the help panel. */

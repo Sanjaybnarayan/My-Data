@@ -152,13 +152,17 @@ were valued on, budgets set below what the household actually spends on two of
 the four, a vault of deliberate nonsense, powers of attorney, certificates, KYC
 records, notes, diary events and a trip.
 
-**A warning found while writing this.** The holdings and properties carry
-`valuedOn`, and a comment here used to claim `domain/networth.js` would report
-those valuations as stale. It does not. `staleValuations` means *no
-`currentValue` at all*; `valuedOn` is never consulted. Measured: a property
-valued three years ago contributes its full figure and is flagged as nothing,
-while the same property with no valuation is flagged. The unknown is surfaced
-and the confidently-stale is silent.
+**A finding this seed produced.** The holdings and properties carry `valuedOn`,
+and a comment here once claimed `domain/networth.js` would report those
+valuations as stale. It did not: `staleValuations` meant *no `currentValue` at
+all*, and `valuedOn` was never consulted. Measured at the time: a property
+valued three years ago contributed its full figure and was flagged as nothing,
+while the same property with no valuation was flagged.
+
+That is fixed — see `docs/A_VALUATION_WITH_A_DATE_ON_IT.md`. The example
+household's two properties are valued 14 and 20 months back on purpose, so the
+demonstration shows the state a household most needs to see: a figure that is
+real, precise, and out of date.
 
 ## A side effect worth recording
 

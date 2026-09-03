@@ -24,6 +24,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { entityNames, entity, modules, systemStores } from '../js/data/schema.js';
+import { datedEntities, BY_NAME } from '../js/domain/reminders.js';
 import coverage from './field-coverage.json' with { type: 'json' };
 import budget from './architecture-budget.json' with { type: 'json' };
 import { survey } from './strings.mjs';
@@ -82,6 +83,44 @@ function observability() {
 
   return { catchSites: sites, recordedFailures: recorded };
 }
+
+/**
+ * How many of the schema's entity kinds the assistant can read.
+ *
+ * `docs/PHASE_STATUS.md` stated "the assistant reads 26 of 53 entity kinds" as
+ * a present-tense fact with nothing deriving it, and four new intents made it
+ * wrong the moment they landed. That is the drift this tool exists for, and
+ * `docs/LOCALISATION.md` had already written the rule it broke down: coverage
+ * is derived, not declared.
+ *
+ * The routes are the same three `tests/ai.test.mjs` enumerates when it checks
+ * that `smsMessage` and `vaultItem` reach none of them:
+ *
+ *   1. named literally in `js/ai/*` — a `load('x')` inside an intent;
+ *   2. `BY_NAME` in `domain/reminders.js`;
+ *   3. `datedEntities()`, derived from every field the schema marks `expiry`.
+ *
+ * Counting the union rather than the literals is the point. An entity becomes
+ * readable the moment somebody marks a date on it `expiry: true` — a schema
+ * edit that mentions neither the assistant nor this number — and that is
+ * exactly the change that would otherwise move coverage with nothing saying
+ * so. Names are intersected with the schema so a string that is not an entity
+ * cannot inflate the count.
+ */
+function assistantEntities() {
+  const known = new Set(entityNames());
+  const seen = new Set([...BY_NAME, ...datedEntities()].filter((name) => known.has(name)));
+
+  const dir = join(ROOT, 'js', 'ai');
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+    const src = readFileSync(join(dir, file), 'utf8');
+    for (const [, name] of src.matchAll(/\bload\(\s*'([A-Za-z]\w*)'\s*\)/g)) {
+      if (known.has(name)) seen.add(name);
+    }
+  }
+  return seen.size;
+}
+
 const DOCS = join(ROOT, 'docs');
 
 /** Everything the prose is allowed to state as a live number. */
@@ -130,6 +169,9 @@ export function measure() {
     // were 142. A number a document states about itself, with nothing deriving
     // it, is the fault this tool exists for — and it had one of its own.
     docs: readdirSync(join(ROOT, 'docs')).filter((f) => f.endsWith('.md')).length,
+    // What the assistant can be asked about, derived from the three routes an
+    // entity reaches it by rather than counted by hand in a phase table.
+    assistantEntities: assistantEntities(),
     ...observability(),
   };
 }

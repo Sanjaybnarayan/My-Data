@@ -52,6 +52,10 @@ const SHELL = [
   './js/locale/en-signin.js',
   './js/locale/en-tradebook.js',
   './js/locale/en-periods.js',
+  './js/locale/en-settings-data.js',
+  './js/locale/en-instalments.js',
+  './js/locale/en-finance-screen.js',
+  './js/locale/en-calendar.js',
   './js/locale/en-example.js',
   './js/locale/en.js',
   './js/core/native.js',
@@ -224,6 +228,7 @@ const SHELL = [
   './js/modules/dashboard.js',
   './js/modules/dashboard-widgets.js',
   './js/modules/finance.js',
+  './js/modules/finance-transfers.js',
   './js/modules/imports.js',
   './js/modules/investments.js',
   './js/modules/ledgers.js',
@@ -265,6 +270,8 @@ const SHELL = [
 
   './js/ai/assistant.js',
   './js/ai/intents.js',
+  './js/ai/intents-household.js',
+  './js/ai/coverage.js',
   './js/ai/mcp.js',
   './js/ai/summary.js',
 
