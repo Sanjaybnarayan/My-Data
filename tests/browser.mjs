@@ -2467,6 +2467,47 @@ async function main() {
       check('navigating puts focus on the new screen, not back at the body',
         landed.inOutlet && /^H[12]$/.test(landed.tag), `${landed.tag} "${landed.text}"`);
 
+
+      /*
+       * And the screen stops saying it is loading.
+       *
+       * `navigate` sets `aria-busy="true"` on the outlet and clears it in a
+       * `finally`, guarded by `!stale()` so a superseded navigation leaves
+       * the attribute to the newer one that owns it. `aria-busy` was the one
+       * ARIA attribute this application sets that nothing here read.
+       *
+       * Left on, it tells a screen reader the content region never finished
+       * loading — for the rest of the session, on every screen, because
+       * nothing else ever removes it.
+       *
+       * Checked after the rapid navigations below as well as a settled one,
+       * because the `!stale()` guard is the half that only a superseded
+       * navigation exercises: if the newer navigation did not clear it, no
+       * single-navigation check would notice.
+       *
+       * Mutation-proven before it was written. Dropping the `removeAttribute`
+       * leaves `aria-busy="true"` on all five screens tried and after the
+       * rapid case; the mutated module was confirmed to load first.
+       */
+      const settled = await page.evaluate(() =>
+        document.querySelector('.app-content')?.getAttribute('aria-busy') ?? null);
+      check('and the screen stops announcing itself as loading',
+        settled === null, `aria-busy is ${JSON.stringify(settled)} after navigating`);
+
+      // Three in the same tick: the second and third supersede the first, so
+      // two of the three take the `stale()` path out and only the last is
+      // entitled to clear the attribute.
+      await page.evaluate(() => {
+        globalThis.location.hash = '#/finance';
+        globalThis.location.hash = '#/people';
+        globalThis.location.hash = '#/settings';
+      });
+      await page.waitForTimeout(2000);
+      const afterRace = await page.evaluate(() =>
+        document.querySelector('.app-content')?.getAttribute('aria-busy') ?? null);
+      check('including when a navigation was overtaken before it finished',
+        afterRace === null, `aria-busy is ${JSON.stringify(afterRace)} after three navigations at once`);
+
       // The live region is what a screen reader reads. Checking it holds the
       // screen's name is a claim about the DOM; whether it is spoken is not
       // something this machine can establish, and is not claimed.
