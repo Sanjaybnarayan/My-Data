@@ -94,7 +94,7 @@ The scores alone do not say that, and a low one is not an invitation. This
 groups every phase by **what would have to change** for it to move, taken from
 its own gap cell rather than from anybody's memory.
 
-### Nothing in this repository will move these
+### Nothing in this repository will close these
 
 | Phase | % | What it waits on |
 | --- | --- | --- |
@@ -102,13 +102,25 @@ its own gap cell rather than from anybody's memory.
 | 25 Internationalisation | 48 | **Translators.** The routing works and the ratchet measures the rest; machine-translating Indian financial and legal vocabulary is what `docs/LOCALISATION.md` argues against. |
 | 8 Investments / broker | 58 | **A broker connector, which there will not be** — stated as a decision. A tradebook file closes the gap that mattered without an integration. |
 | 24 iOS companion | 58 | **Nothing. Descoped by the household**, 29 August 2026. The 58 is a historical reading, not a current claim. |
-| 18 AI family assistant | 62 | **A language model, refused by design** — the assistant is offline so medical and financial records are never sent anywhere to answer a question. |
-| 19 Advanced analytics | 70 | **ML.** Same cap, same reason; the forecasts are rule-based and say so. |
+| 18 AI family assistant | 85 | **A language model, refused by design** — the assistant is offline so medical and financial records are never sent anywhere to answer a question. |
+| 19 Advanced analytics | 74 | **ML.** Same cap, same reason; the forecasts are rule-based and say so. |
 | 14 Family chat / E2EE | 76 | **External cryptographic review.** Not a defect, and not something this repository can perform on itself. |
 
-Seven phases, and every one of them is capped by something outside the code.
-Raising any of these numbers would mean fabricating the thing the row refuses,
-which is the one failure the master brief names above all others.
+Seven phases, and every one of them is *capped* by something outside the code
+— which is not the same as frozen, and this section said frozen for a while.
+Every score here matched the table above when this was written. Phase 18 has
+since risen from 62 to 85 and Phase 19 from 70 to 74 on work that landed in
+this repository, and neither was copied down: the heading went on saying
+nothing would move them while the table above it showed that something had.
+
+What none of this work can do is close the gap the row names. No amount of
+offline intent routing produces a language model, and no rule-based forecast
+becomes ML. Reaching 100 on any of these rows would mean fabricating the thing
+it refuses, which is the one failure the master brief names above all others —
+so the ceiling is real, and it is a ceiling rather than a floor.
+
+The scores in this table are the scores in the table above it, and a test now
+holds them to that.
 
 ### These wait on the household, not on code
 
