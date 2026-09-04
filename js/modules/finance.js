@@ -63,6 +63,44 @@ const TABS = [
   { id: 'conflicts', label: 'Disagreements' },
 ];
 
+/**
+ * The seventeen sections above, in five groups.
+ *
+ * Seventeen chips in one row wrapped onto four lines on a phone, which is
+ * most of the screen spent on navigation before a single figure appears. The
+ * fix is not fewer sections — every one of them is a real place — but saying
+ * out loud which of them belong together, which the flat list never did.
+ *
+ * Grouped rather than hidden. `docs/UI_INFORMATION_ARCHITECTURE.md` draws the
+ * line at a module having nowhere to be reached from, and a section behind a
+ * "More" menu is two-thirds of the way there. Both rows are on the screen at
+ * once: the groups, and the sections of whichever group is open.
+ *
+ * Routes are untouched. Every section keeps its own URL, so a deep link, a
+ * bookmark and both reachability checks still land exactly where they did.
+ */
+const GROUPS = [
+  { id: 'money', label: 'Money', tabs: ['overview', 'position', 'transaction', 'account'] },
+  { id: 'incoming', label: 'Incoming', tabs: ['import', 'bankStatement', 'smsMessage'] },
+  { id: 'ledgers', label: 'Ledgers', tabs: ['shops', 'people', 'lending'] },
+  { id: 'planned', label: 'Planned', tabs: ['budget', 'recurringPayment', 'loan', 'goal'] },
+  { id: 'review', label: 'Review', tabs: ['insights', 'economicEvent', 'conflicts'] },
+];
+
+/** The group holding a section, so a deep link opens with its own group open. */
+function groupOf(tabId) {
+  return GROUPS.find((group) => group.tabs.includes(tabId)) ?? GROUPS[0];
+}
+
+const labelOf = (tabId) => {
+  const tab = TABS.find((one) => one.id === tabId);
+  return tab?.labelKey ? t(tab.labelKey) : (tab?.label ?? tabId);
+};
+
+const routeTo = (tabId) => (tabId === 'overview'
+  ? { module: 'finance' }
+  : { module: 'finance', entity: tabId });
+
 /** Screens that produce records rather than listing one entity. */
 // `smsMessage` is here because a message record comes from a message. Offering
 // a blank form for one would invite a household to type what a bank said,
@@ -94,16 +132,30 @@ export async function render(route) {
 
   const body = h('div', {});
 
-  const tabs = h('div', {
-    class: 'chip-row', role: 'group', 'aria-label': t('finance.title'), style: { marginBottom: 'var(--space-4)' },
-  }, TABS.map((tab) => chip(tab.labelKey ? t(tab.labelKey) : tab.label, {
-    pressed: tab.id === active,
-    onClick: () => app().router.navigate(
-      tab.id === 'overview'
-        ? { module: 'finance' }
-        : { module: 'finance', entity: tab.id },
-    ),
+  // Which group is open is read from the section being shown, not held as
+  // state: arriving at `#/finance/loan` from a bookmark has to open Planned
+  // with Loans marked, the same as tapping through to it would.
+  const openGroup = groupOf(active);
+
+  const groupRow = h('div', {
+    class: 'chip-row chip-row--scroll', role: 'group', 'aria-label': t('finance.title'),
+  }, GROUPS.map((group) => chip(group.label, {
+    pressed: group.id === openGroup.id,
+    // The group's first section, because a group is not itself a screen.
+    onClick: () => app().router.navigate(routeTo(group.tabs[0])),
   })));
+
+  const sectionRow = h('div', {
+    class: 'chip-row chip-row--sections',
+    role: 'group',
+    'aria-label': openGroup.label,
+    style: { marginBottom: 'var(--space-4)' },
+  }, openGroup.tabs.map((id) => chip(labelOf(id), {
+    pressed: id === active,
+    onClick: () => app().router.navigate(routeTo(id)),
+  })));
+
+  const tabs = h('div', {}, [groupRow, sectionRow]);
 
   replace(host, [
     pageHeader(t('finance.title'), {
