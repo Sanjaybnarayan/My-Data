@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SmsInboxPlugin.class);
         registerPlugin(BackgroundLocationPlugin.class);
         registerPlugin(ScreenTimePlugin.class);
+        registerPlugin(BiometricPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Android photographs the screen every time the app goes to the

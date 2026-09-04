@@ -16,7 +16,7 @@ import { config } from '../../core/config.js';
 import { googleUnlockAvailable, connectGoogleUnlock, linkExistingDevice, unlinkGoogleUnlock, GOOGLE_METHOD } from '../../auth/google-unlock.js';
 import { h } from '../../ui/dom.js';
 import { modal, confirm, prompt } from '../../ui/components/modal.js';
-import { platformAuthenticatorAvailable, enrolBiometric, biometricExplanation } from '../../auth/biometric.js';
+import { biometricUnavailableReason, enrolBiometric, biometricExplanation } from '../../auth/biometric.js';
 import { toast } from '../../ui/components/toast.js';
 import { userMessage } from '../../core/errors.js';
 import { CodeEscrow, CODE_METHOD } from '../../security/codeescrow.js';
@@ -313,9 +313,11 @@ export function securityCard(db, methods = [], repaint = () => {}) {
 }
 
 async function setUpBiometric(db) {
-  if (!(await platformAuthenticatorAvailable())) {
-    toast('This device has no fingerprint or face unlock available to the browser.',
-      { kind: 'error' });
+  // Not an error toast: nothing has gone wrong, and on most of these branches
+  // nothing the household does will change it. It states what this build can do.
+  const unavailable = await biometricUnavailableReason();
+  if (unavailable) {
+    toast(unavailable, { kind: 'info' });
     return;
   }
 
