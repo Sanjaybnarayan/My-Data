@@ -113,6 +113,54 @@ describe('XLSX', () => {
     rows: [{ date: '2025-06-10', payee: 'Reliance Fresh', amount: toMinor('1250.50') }],
   };
 
+  test('an amount nobody can read does not become an invalid numeric cell', () => {
+    /*
+     * `<v>` in a numeric cell has to hold a number. The currency branch wrote
+     * `toMajor(value)` into one without asking, and `toMajor` returns NaN for
+     * the hand-edited amount `domain/amounts.js` is written about — so one such
+     * row put the characters `NaN` into the sheet XML, and the export was
+     * malformed by the format's own rules.
+     *
+     * Its neighbour, the plain `number` branch, has always tested
+     * `Number.isFinite` and fallen through to text. This is currency doing what
+     * the branch beside it already did.
+     */
+    const body = text(toXlsx([{
+      name: 'Accounts',
+      columns: [
+        { key: 'name', label: 'Account', type: 'text' },
+        { key: 'balance', label: 'Balance', type: 'currency' },
+      ],
+      rows: [
+        { name: 'Savings', balance: 5_00_000_00 },
+        { name: 'Hand-edited', balance: 'twenty thousand' },
+      ],
+    }]));
+
+    assert.not(/<v>NaN<\/v>/.test(body), 'a numeric cell holding NaN is not a valid sheet');
+    assert.not(/NaN/.test(body), 'nor anywhere else in the archive');
+    // The readable figure is still a number, or this passes by exporting nothing.
+    assert.includes(body, '<v>500000</v>');
+    // And the household is told what is actually in their sheet.
+    assert.includes(body, 'twenty thousand');
+  });
+
+  test('and a negative amount stays a number, which is the CSV fault it does not have', () => {
+    // The formula guard that turned every debt into text in the CSV export
+    // never applied here: xlsx writes a typed numeric cell. Held so that a
+    // future guard cannot be added to this path without somebody noticing.
+    const body = text(toXlsx([{
+      name: 'Accounts',
+      columns: [
+        { key: 'name', label: 'Account', type: 'text' },
+        { key: 'balance', label: 'Balance', type: 'currency' },
+      ],
+      rows: [{ name: 'Credit card', balance: -32_58_000_00 }],
+    }]));
+    assert.includes(body, '<v>-3258000</v>');
+    assert.not(body.includes("'-3258000"), 'a debt written as text cannot be summed');
+  });
+
   test('the file is a ZIP with the parts Excel requires', () => {
     const bytes = toXlsx([sheet]);
     assert.equal(text(bytes.subarray(0, 2)), 'PK', 'a .xlsx that is not a ZIP opens nowhere');
