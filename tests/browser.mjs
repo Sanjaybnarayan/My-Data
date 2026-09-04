@@ -3302,6 +3302,264 @@ async function main() {
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 
+    /* ---------------------------- Finance's two nav rows, on a phone screen */
+
+    {
+      /*
+       * Two rows above every Finance screen, and they must not be the same
+       * object twice.
+       *
+       * They were: five group chips over a row of section chips, drawn
+       * identically. Nothing on screen said the first governed the second, so
+       * tapping a chip in the top row silently replaced the row beneath it,
+       * and a household had to learn that the top row was not a set of
+       * destinations before either row meant anything.
+       *
+       * The shape is the same and the drawing is not. The groups are tabs — a
+       * word with a rule under the open one, no border, no fill. The sections
+       * are pills — bordered, and filled when current. That difference is
+       * what this block measures, in computed style rather than by looking at
+       * a screenshot: if the two rows ever converge again, these checks fail.
+       *
+       * What must not be lost along the way is *reachability*, which is what
+       * the chip rows were for: every section one tap from the row, every
+       * group one tap from the row above.
+       */
+      const before = consoleErrors.length;
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await go(page, '#/finance');
+      await page.waitForTimeout(1100);
+
+      const nav = await page.evaluate(() => {
+        const seen = (one) => {
+          const style = getComputedStyle(one);
+          return {
+            label: one.textContent.trim(),
+            chosen: one.getAttribute('aria-pressed') === 'true'
+              || one.getAttribute('aria-current') === 'page',
+            color: style.color,
+            background: style.backgroundColor,
+            radius: parseFloat(style.borderTopLeftRadius),
+            underline: style.borderBottomColor,
+            underlineWidth: parseFloat(style.borderBottomWidth),
+          };
+        };
+        const row = (selector) => {
+          const el = document.querySelector(selector);
+          return el ? {
+            slides: getComputedStyle(el).overflowX,
+            label: el.getAttribute('aria-label'),
+          } : null;
+        };
+        return {
+          heading: document.querySelector('.app-content h1')?.textContent?.trim(),
+          groups: [...document.querySelectorAll('.finance-nav-group')].map(seen),
+          sections: [...document.querySelectorAll('.finance-nav-section')].map(seen),
+          groupRow: row('.finance-nav-groups'),
+          sectionRow: row('.finance-nav-sections'),
+          height: Math.round(
+            document.querySelector('.finance-nav')?.getBoundingClientRect().height ?? 0),
+          // Directly under the page header, not buried in the screen. The
+          // shape before this one put the map at the foot of the Overview,
+          // which is a fine place for a table of contents and the wrong
+          // place for navigation.
+          afterHeader: document.querySelector('.app-content .page-header')
+            ?.nextElementSibling?.className ?? null,
+          overflows: document.documentElement.scrollWidth
+            > document.documentElement.clientWidth,
+        };
+      });
+
+      check('the hub is the Overview, named as the module',
+        nav.heading === 'Finance', String(nav.heading));
+
+      check('the top row draws every group', nav.groups.length === 5,
+        JSON.stringify(nav.groups.map((one) => one.label)));
+
+      const openGroup = nav.groups.filter((one) => one.chosen);
+      check('exactly one group is open at a time',
+        openGroup.length === 1, JSON.stringify(nav.groups.map((one) => one.label)));
+
+      check('and the rest are faded rather than hidden',
+        nav.groups.filter((one) => !one.chosen)
+          .every((one) => one.color !== openGroup[0].color),
+        JSON.stringify(nav.groups.map((one) => [one.label, one.color])));
+
+      check('the second row draws that group’s sections and no others',
+        nav.sections.length === 4
+        && nav.sections.map((one) => one.label).join(', ')
+          === 'Overview, Position, Transactions, Accounts',
+        JSON.stringify(nav.sections.map((one) => one.label)));
+
+      /*
+       * The whole point, asserted rather than described.
+       *
+       * A group is a heading: transparent, square-cornered, marked by a rule
+       * beneath it. A section is a choice: rounded, and filled when it is the
+       * one you are on. Two objects, two drawings.
+       */
+      const transparent = (colour) => /^(transparent|rgba\(0, 0, 0, 0\))$/.test(colour);
+      const current = nav.sections.find((one) => one.chosen);
+
+      check('an open group is a rule under a word, not a filled shape',
+        transparent(openGroup[0].background) && openGroup[0].radius < 4
+        && openGroup[0].underlineWidth >= 2
+        && !transparent(openGroup[0].underline),
+        JSON.stringify(openGroup[0]));
+
+      check('the current section is a filled pill, not a rule',
+        !!current && !transparent(current.background) && current.radius >= 12,
+        JSON.stringify(current));
+
+      check('so the two rows are not drawn the same way',
+        !!current && current.background !== openGroup[0].background
+        && current.radius !== openGroup[0].radius,
+        `${JSON.stringify(openGroup[0])} vs ${JSON.stringify(current)}`);
+
+      /* Sliding, not wrapping: seventeen sections used to wrap onto four lines. */
+      check('both rows slide sideways instead of wrapping',
+        nav.groupRow?.slides === 'auto' && nav.sectionRow?.slides === 'auto',
+        `${nav.groupRow?.slides} / ${nav.sectionRow?.slides}`);
+
+      check('and neither takes the page with it',
+        nav.overflows === false, 'the page scrolls sideways at 390px');
+
+      // The pair cost a hundred and ten pixels as chips. Two rows still cost
+      // something; this is the ceiling it may not pass.
+      check('the pair fits inside a phone’s worth of header',
+        nav.height > 0 && nav.height < 130, `${nav.height}px`);
+
+      check('and stands directly under the page header',
+        nav.afterHeader === 'finance-nav', String(nav.afterHeader));
+
+      // Both rows are read out, since neither is a list of links a screen
+      // reader can name from its contents alone.
+      check('both rows name themselves for a screen reader',
+        nav.groupRow?.label === 'Parts of Finance'
+        && nav.sectionRow?.label === 'Sections',
+        `${nav.groupRow?.label} / ${nav.sectionRow?.label}`);
+
+      /*
+       * Reachability, driven rather than snapshotted.
+       *
+       * Only the open group's sections are in the DOM, so a single reading of
+       * the page sees four of seventeen — a check that looked once would pass
+       * while thirteen sections were unreachable. Counted off the schema, so a
+       * section added to Finance later cannot quietly go missing while this
+       * still passes.
+       */
+      const reachable = new Set();
+      for (let index = 0; index < nav.groups.length; index += 1) {
+        await page.locator('.finance-nav-group').nth(index).click();
+        await page.waitForTimeout(250);
+        for (const href of await page.evaluate(() => [...document.querySelectorAll(
+          '.finance-nav-section')].map((one) => (one.getAttribute('href') ?? '').split('?')[0]))) {
+          reachable.add(href);
+        }
+      }
+
+      const wanted = Object.values(SCHEMA_ENTITIES)
+        .filter((one) => one.module === 'finance')
+        .map((one) => `#/finance/${one.name}`);
+      const missing = wanted.filter((href) => !reachable.has(href));
+
+      check('every Finance entity is reachable by working the two rows',
+        missing.length === 0, `unreachable: ${missing.join(', ')}`);
+
+      check('and the rows cover more than the group they opened on',
+        reachable.size >= 15, `${reachable.size} reached`);
+
+      /*
+       * Arriving, not just tapping.
+       *
+       * A bookmark into a section in the last group has to open with that
+       * group underlined and that section on screen — not at a row scrolled
+       * to its start with the answer somewhere off to the right.
+       */
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/conflicts');
+      await page.waitForTimeout(900);
+
+      const arrived = await page.evaluate(() => {
+        const inside = (item, row) => {
+          if (!item || !row) return false;
+          const a = item.getBoundingClientRect();
+          const b = row.getBoundingClientRect();
+          return a.left >= b.left - 1 && a.right <= b.right + 1;
+        };
+        const groupRow = document.querySelector('.finance-nav-groups');
+        const sectionRow = document.querySelector('.finance-nav-sections');
+        const openTab = document.querySelector('.finance-nav-group[aria-pressed="true"]');
+        const mark = document.querySelector('.finance-nav-section[aria-current="page"]');
+        return {
+          heading: document.querySelector('.app-content h1')?.textContent?.trim(),
+          group: openTab?.textContent?.trim() ?? null,
+          marked: [...document.querySelectorAll('.finance-nav-section[aria-current="page"]')]
+            .map((one) => one.textContent.trim()),
+          groupInView: inside(openTab, groupRow),
+          sectionInView: inside(mark, sectionRow),
+          // Review is the last of five and does not fit across 390px, so the
+          // row has to have moved. Nought here is the bug this replaced.
+          groupScrolled: groupRow ? Math.round(groupRow.scrollLeft) : 0,
+          groupOverflows: groupRow
+            ? groupRow.scrollWidth > groupRow.clientWidth : false,
+        };
+      });
+
+      // The chips were what said where you were. The heading has to say it
+      // too, or a bookmark lands on a page called Finance showing conflicts
+      // with nothing explaining why.
+      check('a section names itself rather than the module',
+        arrived.heading === 'Disagreements', String(arrived.heading));
+
+      check('a deep link opens the group its section is in',
+        arrived.group === 'Review', String(arrived.group));
+
+      check('and marks that section, and only it',
+        arrived.marked.length === 1 && arrived.marked[0] === 'Disagreements',
+        JSON.stringify(arrived.marked));
+
+      /*
+       * Scrolled to, not merely marked.
+       *
+       * The first version of this measured the sections row, which for Review
+       * happens to fit — so it read zero and said nothing about the row that
+       * had actually failed. Review is the fifth of five groups and does not
+       * fit across 390px: arriving here must have moved the top row, or the
+       * open tab is the word "Rev" against the right edge.
+       */
+      check('the top row has to slide to show the group, and did',
+        arrived.groupOverflows && arrived.groupScrolled > 0 && arrived.groupInView,
+        `${arrived.groupScrolled}px, overflows: ${arrived.groupOverflows}, `
+        + `in view: ${arrived.groupInView}`);
+
+      check('and the marked section is inside its row, not off the edge',
+        arrived.sectionInView, String(arrived.sectionInView));
+
+      /* And the rows are on the section screen too, not only on the hub. */
+      check('the rows stand above a section screen as well as the hub',
+        await page.locator('.finance-nav .finance-nav-group').count() === 5
+        && await page.locator('.finance-nav .finance-nav-section').count() === 3,
+        `${await page.locator('.finance-nav-group').count()} groups, `
+        + `${await page.locator('.finance-nav-section').count()} sections`);
+
+      /* Tapping a section in the row goes there. */
+      await page.locator('.finance-nav-group', { hasText: 'Money' }).first().click();
+      await page.waitForTimeout(250);
+      await page.locator('.finance-nav-section', { hasText: 'Overview' }).first().click();
+      await page.waitForTimeout(900);
+      check('and tapping a section in the row goes there',
+        await page.evaluate(() => globalThis.location.hash) === '#/finance',
+        await page.evaluate(() => globalThis.location.hash));
+
+      check('the two rows render without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
     /* ------------------------------ sentences a phone can read, on screen */
 
     {

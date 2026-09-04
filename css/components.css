@@ -524,6 +524,131 @@
 .legend-row--link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .chart-caption { margin: var(--space-2) 0 0; }
 /*
+ * Finance's navigation: groups above, sections below.
+ *
+ * The pair was two rows of chips once, drawn identically — so nothing said
+ * the first governed the second, and tapping one silently replaced the other.
+ * The fix is not fewer rows. It is that a row of headings and a row of
+ * choices should not be the same object twice.
+ *
+ * The groups are tabs: a word, and a rule under the chosen one. No border, no
+ * fill, nothing that reads as pressable-in-place. The sections are pills:
+ * bordered, and filled when chosen. One is a heading you are under, the other
+ * is where you are.
+ *
+ * Both slide. Seventeen sections do not fit across 390px and never will, so
+ * each row scrolls sideways with snap points, hides its scrollbar, and is
+ * scrolled to the chosen item on arrival — see `reveal` in
+ * `js/modules/finance/sections.js`.
+ *
+ * `finance-` prefixed, and not shortened. These were `.nav-group` and
+ * `.nav-section` for an afternoon, which is already the class the *shell's
+ * sidebar* uses for its module list (`css/base.css`, `js/ui/shell.js`) — so
+ * this file, loaded after that one, was quietly giving every module link a
+ * 44px floor, a nowrap, and a 2px border it never asked for. Nothing failed;
+ * a screenshot at 1280px is what showed it.
+ */
+.finance-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.finance-nav-groups,
+.finance-nav-sections {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.finance-nav-groups::-webkit-scrollbar,
+.finance-nav-sections::-webkit-scrollbar { display: none; }
+.finance-nav-groups > *,
+.finance-nav-sections > * { scroll-snap-align: center; flex: 0 0 auto; }
+
+/* ------------------------------------------------------------ the groups */
+
+.finance-nav-groups {
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.finance-nav-group {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-weight: 500;
+  color: var(--text-faint);
+  cursor: pointer;
+  /* 44px is the tap target this repository measures rather than claims. */
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  margin-bottom: -1px;
+  white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease);
+}
+.finance-nav-group:hover { color: var(--text-muted); }
+.finance-nav-group[aria-pressed='true'] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.finance-nav-group:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ---------------------------------------------------------- the sections */
+
+.finance-nav-sections { gap: var(--space-2); }
+
+.finance-nav-section {
+  display: inline-flex;
+  align-items: center;
+  /* 44px, like every other tap target this repository measures rather than
+     claims — 40 was a guess, and `tests/browser.mjs` counts it as a miss. */
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease);
+}
+.finance-nav-section:hover { color: var(--text); border-color: var(--text-faint); }
+.finance-nav-section[aria-current='page'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  /* `--accent-contrast`, not white. The accent is a *light* blue in dark
+     mode, where white on it measures 2.23:1 against the 4.5 this repository
+     holds itself to — the token already carries the right foreground for
+     both themes, and inventing a second name for it was how I got that
+     wrong. */
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+.finance-nav-section:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The way into a section from the card that summarises it. */
+.section-link {
+  color: var(--accent-text);
+  text-decoration: none;
+  gap: var(--space-1);
+  white-space: nowrap;
+  min-height: 44px;
+}
+.section-link:hover { text-decoration: underline; }
+.section-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/*
  * The way back out of a screen opened from a chart.
  *
  * A category screen is reached by tapping a slice, and the tab bar above it
