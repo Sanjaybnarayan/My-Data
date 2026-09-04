@@ -31,7 +31,7 @@
  * number confidently.
  */
 
-import { h, replace, delegate } from '../ui/dom.js';
+import { h, replace, delegate, focus } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import {
   card, button, badge, chip, empty, metric, money, pageHeader,
@@ -205,7 +205,25 @@ export async function render() {
   function toggleRow(id) {
     if (open.has(id)) open.delete(id);
     else open.add(id);
+
+    /*
+     * `paint()` replaces the whole table, and the row that was focused is
+     * destroyed with it — so a keyboard user who opened a row was left on
+     * `<body>`, at the top of the document.
+     *
+     * The second press is what makes it plain. Enter opens the row and focus
+     * is gone; Enter again reaches nothing, because there is nothing focused
+     * to receive it. Closing the row again means tabbing back through the
+     * skip link, the header, the tab bar and up to a hundred rows.
+     *
+     * Only when the row itself had focus. A mouse click should not pull a
+     * focus ring onto the row, and `paint()` runs from filters and paging
+     * too, where the focused control is elsewhere and must stay there.
+     */
+    const row = document.activeElement?.closest?.('tr[data-open]');
+    const refocus = /** @type {any} */ (row)?.dataset?.open === id;
     paint();
+    if (refocus) focus(body.querySelector(`tr[data-open="${CSS.escape(id)}"]`));
   }
 
   /** Correct one row's category from the row itself, without a form. */

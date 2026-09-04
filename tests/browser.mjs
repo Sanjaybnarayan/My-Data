@@ -2604,6 +2604,63 @@ async function main() {
       await page.waitForTimeout(200);
     }
 
+    /* --------------------------------------------- a row that opens */
+
+    /*
+     * The ledger row is a disclosure: `tabindex="0"`, `aria-expanded`, and a
+     * keydown handler taking Enter and Space. Opening one re-renders the
+     * table, which destroys the row that was focused — so a keyboard user
+     * who opened a row was put on `<body>`, at the top of the document.
+     *
+     * The second press is what makes it plain, and what nothing had tried.
+     * Enter opened the row and focus was gone; Enter again reached nothing,
+     * because there was nothing focused to receive it. The row could be
+     * opened by keyboard and not closed by keyboard.
+     *
+     * Measured before the fix: `TR.ledger-row` → `BODY` on the first press,
+     * and the second press changed nothing at all. After it, focus stays on
+     * the row and the second press closes it.
+     *
+     * `aria-expanded` on this row was the last one in the tree that nothing
+     * read. Its value is checked at each step rather than only at the end,
+     * because a row stuck open and a row that never opened both end closed.
+     */
+    {
+      await go(page, '#/finance/transaction');
+      await page.waitForTimeout(1200);
+
+      const rowState = () => page.evaluate(() => {
+        const el = document.activeElement;
+        const rows = [...document.querySelectorAll('tr.ledger-row')];
+        return {
+          rows: rows.length,
+          open: rows.filter((r) => r.getAttribute('aria-expanded') === 'true').length,
+          onRow: el?.tagName === 'TR' && el.classList.contains('ledger-row'),
+        };
+      });
+
+      await page.locator('tr.ledger-row').first().focus();
+      const start = await rowState();
+
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(600);
+      const opened = await rowState();
+
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(600);
+      const closed = await rowState();
+
+      check('a ledger row opens from the keyboard and says that it is open',
+        start.rows > 1 && start.open === 0 && opened.open === 1,
+        `${start.rows} rows, open ${start.open} -> ${opened.open}`);
+      check('and keeps the focus that opened it, through the re-render',
+        opened.onRow, JSON.stringify(opened));
+      check('so the next press closes it, rather than landing on nothing',
+        closed.open === 0 && closed.onRow, JSON.stringify(closed));
+
+      await page.waitForTimeout(200);
+    }
+
     /* ------------------------------------------------------ the dialogs */
 
     /*
@@ -4540,8 +4597,38 @@ async function main() {
     /* ----------------------------------------------------------- calendar */
 
     await go(page, '#/calendar');
+
+    /*
+     * This check used to be a selector list: `[aria-current="date"], .card`,
+     * counted greater than zero. Every day cell is a `.card`, and so is every
+     * other card on the screen, so it asked whether the calendar screen had
+     * rendered anything at all.
+     *
+     * Measured: delete the whole `.month-grid` and two cards remain elsewhere,
+     * so the old check still passed. Strip every `aria-current="date"` and it
+     * still passed. It could not fail for the reason its own name gave.
+     *
+     * What it says now is what it reads: a grid, seven weekday headings, a
+     * plausible number of days for a month, and exactly one of them today.
+     * The day count is a range because a month is 28 to 31 days and pinning
+     * it to the month this happens to run in would be a check that fails in
+     * February.
+     */
+    const calendar = await page.evaluate(() => {
+      const content = document.querySelector('.app-content');
+      return {
+        grid: !!content?.querySelector('.month-grid'),
+        days: content?.querySelectorAll('.month-day:not(.month-day--blank)').length ?? 0,
+        weekdays: content?.querySelectorAll('.month-weekdays > *').length ?? 0,
+        today: content?.querySelectorAll('[aria-current="date"]').length ?? 0,
+      };
+    });
     check('the calendar shows a month grid',
-      (await page.locator('.app-content [aria-current="date"], .app-content .card').count()) > 0);
+      calendar.grid && calendar.weekdays === 7
+      && calendar.days >= 28 && calendar.days <= 31,
+      JSON.stringify(calendar));
+    check('and marks one day as today, not none and not several',
+      calendar.today === 1, `${calendar.today} days carry aria-current="date"`);
 
     /* ------------------------------------------------------- assistant */
 
