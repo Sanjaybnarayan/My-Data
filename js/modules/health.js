@@ -121,23 +121,31 @@ function questionsCard(rows) {
 
     h('p', { class: ['small', 'muted', 'attention-head'] }, t('health.questions.lead')),
 
-    h('div', { class: 'list' }, rows.map((one) => listItem({
-      title: t(`health.q.${one.question}`, {
-        subject: one.subject || t('health.q.unnamed'),
-      }),
-      subtitle: [
-        one.personName,
-        // Negative days, said as a length of time rather than as a number
-        // somebody has to work out the sign of.
-        Number.isFinite(one.days) && one.days < 0
-          ? t('health.q.since', { days: Math.abs(one.days) })
-          : null,
-      ].filter(Boolean).join(' · '),
-      // A badge as well as the position in the list, because ordering is not
-      // something a screen reader announces.
-      trailing: badge(t(`health.q.${one.question}.tag`), 'warning'),
+    // The question is the row, so it gets the card's width. As a list title
+    // between a badge and nothing else it had 233px of the 714px it needs, and
+    // was cut after `It is still marked` — losing the clause that says why it
+    // is being asked, which is the half worth reading.
+    h('div', { class: 'list' }, rows.map((one) => h('a', {
+      class: 'list-item sentence-row',
       href: Router.href({ module: 'health', entity: one.entity, id: one.id }),
-    }))),
+    }, [
+      h('div', { class: 'row row--between' }, [
+        h('span', { class: 'list-item-subtitle' }, [
+          one.personName,
+          // Negative days, said as a length of time rather than as a number
+          // somebody has to work out the sign of.
+          Number.isFinite(one.days) && one.days < 0
+            ? t('health.q.since', { days: Math.abs(one.days) })
+            : null,
+        ].filter(Boolean).join(' · ')),
+        // A badge as well as the position in the list, because ordering is not
+        // something a screen reader announces.
+        badge(t(`health.q.${one.question}.tag`), 'warning'),
+      ]),
+      h('p', { class: 'sentence-row-text' }, t(`health.q.${one.question}`, {
+        subject: one.subject || t('health.q.unnamed'),
+      })),
+    ]))),
   ]);
 }
 

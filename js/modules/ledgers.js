@@ -271,13 +271,13 @@ export async function render(view = 'people') {
            * measured with, so they go above it.
            */
           ? h('div', { class: 'list' }, notes.map((note) => h('div', {
-            class: 'list-item finding',
+            class: 'list-item sentence-row',
           }, [
             h('div', { class: 'row row--between' }, [
               badge(note.kind, tone(note.kind)),
               note.amount ? money(note.amount) : null,
             ]),
-            h('p', { class: 'finding-text' }, note.text),
+            h('p', { class: 'sentence-row-text' }, note.text),
           ])))
           : h('p', { class: 'muted' },
             'Nothing stands out — no overdrawn months, no unusual concentration, '
