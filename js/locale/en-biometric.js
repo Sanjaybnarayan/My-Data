@@ -24,6 +24,11 @@ export const biometricStrings = {
   'biometric.derivesKey': 'Your fingerprint will unlock FamilyOS on its own. The key is derived on this device and never leaves it.',
   'biometric.gestureOnly': 'This device cannot derive an encryption key from your fingerprint, so the fingerprint will confirm who you are but your PIN still unlocks the data. You will be asked for the PIN every time FamilyOS locks — this device cannot do better than that.',
 
+  'biometric.setUp': 'Set up fingerprint',
+  'biometric.remove': 'Remove fingerprint',
+  'biometric.removed': 'Fingerprint removed from this device',
+  'biometric.removeFailed': 'The fingerprint could not be removed.',
+
   // Android destroys the key when a fingerprint is added or removed. That is
   // the protection working, not a fault, and it reads as one unless said.
   'biometric.invalidated': 'A fingerprint was added or removed on this phone, so the saved key was destroyed. Unlock with your PIN and set the fingerprint up again.',

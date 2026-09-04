@@ -2,6 +2,7 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import { isNative, platform, plugin, forgetPlugins } from '../js/core/native.js';
 import {
   biometricUnavailableReason, enrolBiometric, unlockWithBiometric, biometricExplanation,
+  forgetBiometric,
 } from '../js/auth/biometric.js';
 import { precachedPaths, missingFrom, SHIPPED } from '../tools/webroot.mjs';
 import { readFile, readdir } from 'node:fs/promises';
@@ -948,6 +949,44 @@ describe('fingerprint unlock, and what it says when it cannot', () => {
       () => unlockWithBiometric('native').then(() => null, (err) => err));
 
     assert.equal(thrown?.code, 'cancelled', String(thrown?.code));
+  });
+
+  /*
+   * `clear()` existed in the Java from the first draft and nothing called it.
+   * A household could set a fingerprint up and never take it off — the
+   * Settings card had one button — so the Keystore key and the sealed bytes
+   * would outlive any decision to stop using them, with nothing in the app
+   * able to reach either.
+   */
+  test('removing the fingerprint reaches the plugin, not just the keyring', async () => {
+    let cleared = 0;
+    await withGlobals(
+      webView({
+        available: async () => ({ available: true, reason: '' }),
+        clear: async () => { cleared += 1; },
+      }),
+      () => forgetBiometric());
+    assert.equal(cleared, 1, `clear() called ${cleared} times`);
+  });
+
+  test('and a browser, with no plugin to call, simply returns', async () => {
+    // Not a throw and not a silent branch that never ran: the web path has to
+    // finish, because the keyring method is already gone by the time this is
+    // reached.
+    const settled = await withGlobals(
+      { Capacitor: undefined, PublicKeyCredential: undefined },
+      () => forgetBiometric().then(() => 'returned', () => 'threw'));
+    assert.equal(settled, 'returned');
+  });
+
+  test('a plugin that refuses to clear does not undo the removal', async () => {
+    const settled = await withGlobals(
+      webView({
+        available: async () => ({ available: true, reason: '' }),
+        clear: async () => { throw new Error('keystore said no'); },
+      }),
+      () => forgetBiometric().then(() => 'returned', () => 'threw'));
+    assert.equal(settled, 'returned', 'the keyring method is already gone; this must not throw');
   });
 
   /*

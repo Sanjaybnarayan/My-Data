@@ -182,6 +182,26 @@ export async function unlockWithBiometric(credentialId) {
 }
 
 /**
+ * Forget this device's enrolment.
+ *
+ * The Keystore key and the sealed bytes outlive the app's own record of them:
+ * dropping the keyring method alone would leave a key on the phone that
+ * nothing can use and nothing will ever clean up. The plugin's `clear` is
+ * what removes it, and until this existed nothing called it — a `clear`
+ * method in a security plugin that no path reached.
+ *
+ * Failure is swallowed on purpose. This runs after the keyring has already
+ * dropped the method, and refusing to finish because the native side
+ * complained would leave the app saying a fingerprint is enrolled when it is
+ * not. The stale Keystore entry is inert, and the next enrolment deletes it.
+ */
+export async function forgetBiometric() {
+  const native = nativeBiometric();
+  if (!native) return;
+  await native.clear().catch(() => {});
+}
+
+/**
  * Why it is not on offer, when it is not.
  *
  * Three different absences were reported with one sentence, and the sentence
