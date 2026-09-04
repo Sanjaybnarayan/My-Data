@@ -29,6 +29,55 @@ describe('CSV', () => {
     assert.not(csv.includes('₹'), 'a formatted string cannot be summed');
   });
 
+  test('and a negative one too, which is the half that was not summable', () => {
+    /*
+     * The test above passes `12500.50`, and a positive number is the one input
+     * that cannot show this fault.
+     *
+     * `escapeForSheet` guards anything starting with `= + - @`, which is right
+     * for a payee called `=HYPERLINK(...)` and caught every debt on the way
+     * past. `'-3258000` is *text* in a spreadsheet and `SUM()` skips text, so a
+     * household exporting their accounts to see where they stood got a total
+     * with the liabilities missing — no error, no blank cell, a plausible
+     * number that was too big.
+     *
+     * Measured on three accounts, one positive and two overdrawn: the column
+     * summed to the positive one alone.
+     */
+    const csv = toCsv(columns, [
+      { name: 'Savings', amount: 5_00_000_00 },
+      { name: 'Credit card', amount: -32_58_000_00 },
+    ], { bom: false });
+
+    assert.includes(csv, ',-3258000');
+    assert.not(csv.includes("'-"), `a debt exported as text: ${csv}`);
+
+    // The figures a spreadsheet would actually add, added.
+    const summed = csv.trim().split('\r\n').slice(1)
+      .map((line) => Number(line.split(',')[1]))
+      .reduce((a, b) => a + b, 0);
+    assert.equal(summed, 500000 - 3258000, 'the column has to add up to the truth');
+  });
+
+  test('but a formula in a money column is still guarded, because it is not a number', () => {
+    // The exemption is tested at the cell, not assumed from the column: a
+    // `currency` column carrying something that is not a number gets the guard
+    // exactly as a text column would.
+    const csv = toCsv(columns, [{ name: 'Odd', amount: '=1+1' }], { bom: false });
+    assert.includes(csv, "'=1+1");
+  });
+
+  test('an amount nobody can read leaves as what it says, not as NaN', () => {
+    /*
+     * `toMajor` returns NaN for the hand-edited cell `domain/amounts.js` is
+     * written about. `NaN` in a household's own export tells them nothing;
+     * the text that is actually in their sheet tells them what to go and fix.
+     */
+    const csv = toCsv(columns, [{ name: 'Hand-edited', amount: 'twenty thousand' }], { bom: false });
+    assert.includes(csv, 'twenty thousand');
+    assert.not(csv.includes('NaN'), csv);
+  });
+
   test('a byte-order mark is written so Excel reads UTF-8', () => {
     assert.ok(toCsv(columns, []).startsWith('﻿'));
   });
