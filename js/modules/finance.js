@@ -436,6 +436,32 @@ async function movementEvidence(record) {
   ]);
 }
 
+/**
+ * What to say under an account's name that the name has not said already.
+ *
+ * The subtitle was `{kind} · {institution}` unconditionally, and a household
+ * names its accounts after the bank. So every row on the overview read:
+ *
+ *     Harbour National Bank savings          <- the name
+ *     savings · Harbour National Bank        <- the subtitle
+ *
+ * Word for word the same, twice, and both truncated with an ellipsis because
+ * two long strings do not fit a phone. Seven rows of that on the example
+ * household: a line each spent repeating what the line above it said, and the
+ * repetition is what made the first line too narrow to finish.
+ *
+ * So each part is dropped when the name already carries it, and the row falls
+ * back to nothing rather than inventing filler — a second line that says
+ * nothing is worse than no second line.
+ */
+function accountSubtitle({ name, kind, institution }) {
+  const said = String(name ?? '').toLowerCase();
+  const parts = [kind, institution]
+    .filter(Boolean)
+    .filter((part) => !said.includes(String(part).toLowerCase()));
+  return parts.length ? parts.join(' · ') : null;
+}
+
 /* --------------------------------------------------------------- overview */
 
 
@@ -577,7 +603,7 @@ async function financeOverview() {
 
       card({}, [
         cardHeader(t('finance.overview.thisMonth')),
-        h('div', { class: 'row', style: { gap: 'var(--space-6)' } }, [
+        h('div', { class: 'metric-row' }, [
           metric({
             label: t('finance.overview.spent'),
             value: formatCompact(compare.current.expense),
@@ -673,11 +699,7 @@ async function financeOverview() {
           .slice(0, 8)
           .map((account) => listItem({
             title: account.name,
-            subtitle: account.institution
-              ? t('finance.overview.accountAt', {
-                kind: account.kind, institution: account.institution,
-              })
-              : account.kind,
+            subtitle: accountSubtitle(account),
             value: format(account.balance),
             tone: account.balance < 0 ? 'negative' : null,
             trailing: account.utilisation !== null && account.utilisation > 0.3

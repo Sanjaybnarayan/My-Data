@@ -441,6 +441,25 @@
 .chip-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
 /*
+ * A row of figures that shares its width instead of wrapping.
+ *
+ * Three metrics in a `.row` are three flex items with a wide gap, and on a
+ * 390px phone the third one wraps: Spent alone on the first line, Received
+ * and Net sharing the second, at two different widths. Nobody chose that
+ * shape — it is what `flex-wrap` did with the space left over, and it reads
+ * as though Net belongs to Received.
+ *
+ * `auto-fit` rather than a fixed three, so the same rule holds for cards with
+ * two figures and for a desktop column wide enough for more.
+ */
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/*
  * A chip row that scrolls rather than wraps.
  *
  * Finance groups its seventeen sections into five, and five chips do not fit
