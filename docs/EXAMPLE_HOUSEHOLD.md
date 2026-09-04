@@ -6,7 +6,7 @@ An empty screen looks the same whether it works or not.
 
 ## What it writes
 
-**253 records across 42 of the 53 kinds.**
+**272 records across 49 of the 53 kinds.**
 
 | | |
 | --- | --- |
@@ -75,12 +75,56 @@ a person does type in — `services/example.js` writes through `repo()` and neve
 through the adapter, so the example household is fed to the screens by exactly
 the code path a real one is.
 
+## What is still not invented
+
+Four kinds stay empty, and each for its own reason.
+
+`economicEvent` is derived, and the attempt to seed it honestly is what proved
+it. The two legs of one transfer were written as ordinary transactions so the
+application's own matcher would pair them and confirming the pair would write
+the movement — a derived row appearing because the app derived it. The
+repository refused them: *"A transfer needs a destination account."*
+`isLooseLeg` in `domain/events.js` wants a leg with no destination, which is
+what two banks each reporting their own side of one movement produces, and what
+a person entering a transfer by hand never produces. So loose legs reach this
+application only through an import or a sync, and the Movements tab stays empty
+in the example household — honestly, because the thing that fills it is an
+import artefact.
+
+`deviceKey`, `conversation` and `message` are end-to-end encrypted. Fabricating
+key material would make the security model look like something it is not: a
+demonstration of E2EE built from keys nobody holds. The chat screen stays empty
+and stays honest.
+
+The seven that were added were the ones whose exclusion turned out to be about
+provenance rather than the record. The schema keeps the two apart, and the
+fields that would assert a fetch are the fields left blank — `receipt.mailbox`
+and `messageId`, `bankStatement.fileName` — while `locationPing.source` is set
+to `manual`, a position somebody recorded rather than a trace a device left.
+
 ## The three promises
 
-**It is refused by a household that has people in it.** There is no merge, no
+**It is refused by a household that has anything in it.** There is no merge, no
 "skip duplicates" and no force flag. Invented records mixed into real ones
 cannot be told apart again by hand, and the first rule of the brief is that
 existing data stays usable. An occupied household gets a refusal and a count.
+
+The rule used to be *"a household that has people in it"*, and that made the
+feature impossible to use. `resolveActor` in `js/app.js` creates a person named
+*You* on the first unlock — "a family that has to fill in a form before seeing
+anything has already been asked too much" — so by the time anybody can reach
+Settings there is always exactly one person, and *Load example household*
+always answered with the refusal toast. Measured on the real screens: install
+returned `{loaded: false, people: 1}` immediately after enrolment, and all
+twenty-five sections stayed empty.
+
+The owner row is not a record a person put there; the application wrote it,
+unasked, so the first screen would have a subject. So occupancy now means more
+than that one row — matched **by id** against `auth.currentPerson`, because a
+household that has typed its own name over *You* has still not added a record.
+Everything else is a sweep of every entity: a household that had entered
+nothing but one vehicle would have passed a check that counted only people, and
+had an invented family written in beside their car.
 
 **Every record says so on itself.** Each one carries *"Part of the example
 household. Not a real record."* in its notes, so a row read in a list, in an

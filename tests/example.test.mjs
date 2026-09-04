@@ -75,6 +75,51 @@ describe('the example household', () => {
     assert.equal(await loadedExample(db), null, 'and nothing is recorded as loaded');
   });
 
+  test('loads onto a household that has only the row the app made itself', async () => {
+    /*
+     * The regression this feature could not survive.
+     *
+     * `resolveActor` in `js/app.js` creates a person named *You* on the first
+     * unlock, so by the time anybody reaches Settings there is exactly one
+     * person — and the old check refused any household with people at all.
+     * Measured on the real screens: install answered `{loaded: false,
+     * people: 1}` immediately after enrolment and every section stayed empty.
+     * 272 records that nobody could ever load.
+     */
+    const db = await makeDb({ personId: 'per_owner' });
+    const owner = await db.repo('person').create({
+      name: 'You', role: 'owner', relationship: 'self',
+    });
+    db.setActor({ personId: owner.id, role: 'owner' });
+
+    const out = await new ExampleService(db).install();
+    assert.ok(out.loaded, 'the owner row the app wrote is not a household with data in it');
+    assert.ok(out.count > 250, `only ${out.count} records were written`);
+    assert.ok((await db.repo('staff').list({ limit: 50 })).length > 0);
+  });
+
+  test('and still refuses when that row is somebody else, or has anything beside it', async () => {
+    // Two halves, because the id check and the sweep fail on different things.
+    const stranger = await makeDb({ personId: 'per_owner' });
+    await makePerson(stranger, { name: 'Somebody real' });
+    assert.not((await new ExampleService(stranger).install()).loaded,
+      'a person who is not this device owner is a household with data in it');
+
+    const withRecord = await makeDb({ personId: 'per_owner' });
+    const owner = await withRecord.repo('person').create({
+      name: 'You', role: 'owner', relationship: 'self',
+    });
+    withRecord.setActor({ personId: owner.id, role: 'owner' });
+    // One vehicle and nothing else — the shape a check that counted only
+    // people would have written an invented family in beside.
+    await withRecord.repo('vehicle').create({
+      name: 'Hatchback', kind: 'car', registration: 'KA01AB1234',
+    });
+    const out = await new ExampleService(withRecord).install();
+    assert.not(out.loaded, 'one typed-in record is enough to refuse');
+    assert.equal(await loadedExample(withRecord), null);
+  });
+
   test('comes out again, leaving nothing behind', async () => {
     const db = await makeDb();
     const service = new ExampleService(db);

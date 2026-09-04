@@ -25,6 +25,7 @@
 
 import { Service } from './service.js';
 import { META_KEY, plan } from '../domain/example.js';
+import { entityNames } from '../data/schema.js';
 
 export { META_KEY };
 
@@ -58,11 +59,8 @@ export class ExampleService extends Service {
     // that the failure mode is a *refusal*, not a loss — a second loader
     // arriving mid-write finds people and declines. The window can duplicate
     // nothing, because the only writer that proceeds is one that found none.
-    const existing = await this.repo('person').list({ limit: 1 });
-    if (existing.length) {
-      const all = await this.repo('person').list({ limit: 500 });
-      return { loaded: false, count: 0, people: all.length };
-    }
+    const occupied = await this.#occupied();
+    if (occupied) return { loaded: false, count: 0, people: occupied };
 
     /** @type {Record<string, string>} key from the plan → the id it was given */
     const ids = {};
@@ -90,6 +88,58 @@ export class ExampleService extends Service {
 
     await this.db.setMeta(META_KEY, { ids: written, at: new Date().toISOString() });
     return { loaded: true, count: written.length };
+  }
+
+  /**
+   * Whether this household holds anything a person put there.
+   *
+   * ## The refusal that refused everything
+   *
+   * This used to be "are there any people", and it made the feature
+   * unreachable. `resolveActor` in `js/app.js` creates a person named *You* on
+   * the first unlock — "a family that has to fill in a form before seeing
+   * anything has already been asked too much" — so by the time anybody can
+   * reach Settings there is always exactly one person, and *Load example
+   * household* always answered with the refusal toast.
+   *
+   * Measured on the real screens: install returned
+   * `{loaded: false, people: 1}` immediately after enrolment, and every
+   * section of the application stayed empty. 272 records nobody could load.
+   *
+   * The rule it was protecting is unchanged and is the right rule: invented
+   * records mixed into real ones cannot be told apart again by hand. What was
+   * wrong is that the owner row is not a record a person put there — the
+   * application wrote it, unasked, so that the first screen would have a
+   * subject. So occupancy now means what it always meant: **more than that one
+   * row.**
+   *
+   * Deliberately a sweep of every entity rather than a list of the likely
+   * ones. A household that had typed in nothing but a single vehicle would
+   * have passed a check that only counted people, and had an invented family
+   * written in beside their car.
+   *
+   * @returns {Promise<number>} how many records were found, or 0 for a
+   *   household that is empty apart from the row the app made itself.
+   */
+  async #occupied() {
+    const people = await this.repo('person').list({ limit: 500 }).catch(() => []);
+    if (people.length > 1) return people.length;
+
+    // Identified by id, not by name. `resolveActor` names the row it creates
+    // *You*, and a household that has since typed their own name over it has
+    // still not added a record — the row is the same row, and its id is the
+    // one `auth.currentPerson` points at. Matching on the name would refuse
+    // every household that had introduced itself.
+    const own = this.db.actor?.personId ?? '';
+    if (people.length === 1 && people[0].id !== own) return people.length;
+
+    for (const name of entityNames()) {
+      if (name === 'person') continue;
+      const rows = await this.repo(name).list({ limit: 1 }).catch(() => []);
+      if (rows.length) return people.length + rows.length;
+    }
+
+    return 0;
   }
 
   /**
