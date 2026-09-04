@@ -60,7 +60,7 @@ import { AppsScriptTransport } from '../sync/transport.js';
 import { GmailClient, MAIL_SCOPES } from '../sync/gmail.js';
 import { googleAuth } from '../auth/googleauth.js';
 import { today, addDays, addMonths, formatDay } from '../core/dates.js';
-import { format } from '../core/money.js';
+import { format, formatCompact } from '../core/money.js';
 import { userMessage } from '../core/errors.js';
 import { config } from '../core/config.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
@@ -632,7 +632,7 @@ export async function render() {
       h('p', { class: 'small muted', style: { marginTop: 'var(--space-3)' } },
         'This is the exact search that runs. It names senders and a date, and asks '
         + 'for nothing else:'),
-      h('pre', { class: 'mono small', style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' } },
+      h('pre', { class: 'mono small query-preview' },
         query || '— no shops chosen, so nothing would be searched —'),
     ]);
   }
@@ -837,7 +837,7 @@ export async function render() {
         subtitle: `${lastScan.runs.length} ${lastScan.runs.length === 1 ? 'mailbox' : 'mailboxes'}`,
         iconName: 'info',
       }),
-      h('div', { class: 'grid grid--tight' }, [
+      h('div', { class: 'metric-row' }, [
         metric({ label: 'Messages read', value: String(searched) }),
         metric({ label: 'Receipts recognised', value: String(recognised) }),
         metric({ label: 'New', value: String(lastScan.added) }),
@@ -893,12 +893,12 @@ export async function render() {
         subtitle: `${receipts.length} receipts across ${shown.length} shops`,
         iconName: 'chart',
       }),
-      h('div', { class: 'grid grid--tight' }, [
-        metric({ label: 'Spent', value: money(spent) }),
+      h('div', { class: 'metric-row' }, [
+        metric({ label: 'Spent', value: formatCompact(spent) }),
         metric({ label: 'Orders', value: String(orders) }),
         metric({
           label: 'Average order',
-          value: money(orders ? Math.round(spent / orders) : 0),
+          value: formatCompact(orders ? Math.round(spent / orders) : 0),
         }),
       ]),
       ...shown.map((entry) => listItem({
@@ -922,9 +922,9 @@ export async function render() {
         subtitle: 'What they cost a year, which is the number nobody adds up',
         iconName: 'repeat',
       }),
-      h('div', { class: 'grid grid--tight' }, [
-        metric({ label: 'A year, all of them', value: money(yearly) }),
-        metric({ label: 'A month', value: money(Math.round(yearly / 12)) }),
+      h('div', { class: 'metric-row' }, [
+        metric({ label: 'A year, all of them', value: formatCompact(yearly) }),
+        metric({ label: 'A month', value: formatCompact(Math.round(yearly / 12)) }),
       ]),
       ...subs.map((entry) => listItem({
         title: entry.merchant,

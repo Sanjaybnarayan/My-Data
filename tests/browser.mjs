@@ -3302,6 +3302,90 @@ async function main() {
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 
+    /* ----------------------------- the ledger's filters, folded, on screen */
+
+    {
+      /*
+       * Nine hundred pixels of controls above the first transaction.
+       *
+       * Two accounts, forty-six categories, three directions, five periods,
+       * two dates and two amounts — a screenful and a half on a 390px phone,
+       * before a single row of what somebody came to read.
+       *
+       * Folding them is only safe if a filter that is *on* still announces
+       * itself: a household seeing eleven rows where they expect a hundred has
+       * to be told the screen is narrowed. So the count is on the button, and
+       * arriving by a link that carries a filter opens the panel rather than
+       * hiding what the link did.
+       */
+      const before = consoleErrors.length;
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/transaction');
+      await page.waitForTimeout(900);
+
+      const read = () => page.evaluate(() => {
+        const panel = /** @type {HTMLElement | null} */ (
+          document.querySelector('.filter-panel'));
+        const toggle = [...document.querySelectorAll('.app-content button')]
+          .find((one) => /Filters/.test(one.textContent ?? ''));
+        return {
+          folded: panel ? panel.hidden : null,
+          drawn: panel ? panel.getClientRects().length > 0 : null,
+          toggle: toggle ? toggle.textContent.trim() : null,
+          // The search stays out where it can be read; it says what it is
+          // doing by having the words in it.
+          searchDrawn: [...(document.querySelector('.app-content')
+            ?.querySelectorAll('input[type="search"]') ?? [])]
+            .filter((one) => one.getClientRects().length > 0).length,
+          category: [...(document.querySelector('.filter-panel')
+            ?.querySelectorAll('select') ?? [])].map((one) => one.value).filter(Boolean),
+        };
+      });
+
+      const plain = await read();
+      check('the ledger draws a filter panel and a control for it',
+        plain.folded !== null && plain.toggle !== null, JSON.stringify(plain));
+
+      check('with nothing filtered it is folded away',
+        plain.folded === true && plain.drawn === false, JSON.stringify(plain));
+
+      check('and the search box is still out where it can be typed in',
+        plain.searchDrawn === 1, JSON.stringify(plain));
+
+      check('the control says only Filters when none are on',
+        plain.toggle === 'Filters', JSON.stringify(plain.toggle));
+
+      // The link the breakdown builds. What it applied has to be visible, or
+      // the ledger is narrowed by something with no visible cause.
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/transaction?category=groceries');
+      await page.waitForTimeout(900);
+      const linked = await read();
+
+      check('arriving with a filter opens the panel rather than hiding it',
+        linked.folded === false && linked.drawn === true, JSON.stringify(linked));
+
+      check('the control counts what is on',
+        /Filters · 1 on/.test(linked.toggle ?? ''), JSON.stringify(linked.toggle));
+
+      check('and the filter itself is showing in the screen\'s own control',
+        linked.category.includes('groceries'), JSON.stringify(linked.category));
+
+      // Folding is a control, not a state the screen decides alone.
+      await page.getByRole('button', { name: /Filters/ }).first().click();
+      await page.waitForTimeout(400);
+      const toggled = await read();
+      check('and it can be folded away again by hand',
+        toggled.folded === true, JSON.stringify(toggled));
+
+      check('the folded filters render without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
     /* ------------------------------- a list a phone can read, on screen */
 
     {

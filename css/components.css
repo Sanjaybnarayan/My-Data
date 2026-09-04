@@ -542,11 +542,30 @@
 .legend-value { display: flex; align-items: center; gap: var(--space-2); }
 .legend-go { color: var(--text-faint); flex: none; }
 
+/*
+ * Figures share a line; tiles do not.
+ *
+ * Eight cards across Finance laid their figures out with `.grid--tight`, which
+ * is `minmax(190px, 1fr)` — right for a card, and on a 366px phone exactly one
+ * column. So `Spent`, `Orders` and `Average order` stacked down the screen,
+ * each at full precision, three headlines and no headline. 92px is what a
+ * figure needs, which is what this is for.
+ */
 .metric-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
   gap: var(--space-4);
   align-items: start;
+}
+/*
+ * Four figures, two by two.
+ *
+ * `auto-fit` puts three across a 366px card and leaves the fourth alone on a
+ * line below, which reads as a figure that belongs to something else. A card
+ * with four of them says so.
+ */
+@media (max-width: 560px) {
+  .metric-row--pairs { grid-template-columns: repeat(2, 1fr); }
 }
 
 /*
@@ -816,6 +835,31 @@
  * neighbour is also wide enough to stretch the flex row past the card, which
  * put a horizontal scrollbar on the whole overview — so the spill is allowed
  * within the row and stops at its edge. */
+/*
+ * The mail query, printed in full and given a bounded height.
+ *
+ * Twenty-four shops make it six hundred pixels long, and it was folded into a
+ * disclosure to win that back. The browser suite refused, and it was right to:
+ * this query is the only thing bounding what the application reads out of a
+ * household's private mailbox, and the check guarding it says so — *if the
+ * query stops being printed, the only meaningful limit on what gets read stops
+ * being visible.*
+ *
+ * So it is still printed, still complete, still selectable, and it no longer
+ * takes a third of the screen to say so. Scrolled, not hidden: the difference
+ * matters, because nobody has to know to open anything.
+ */
+.query-preview {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 11rem;
+  overflow-y: auto;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+}
+
 .chart-axis-labels { overflow: hidden; }
 .chart-axis-labels > span { white-space: nowrap; overflow: visible; }
 /* The last label spills inward.

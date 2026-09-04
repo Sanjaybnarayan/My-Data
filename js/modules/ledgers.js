@@ -138,10 +138,10 @@ export async function render(view = 'people') {
         subtitle: `${ledger.length} people, netted over everything imported`,
         iconName: 'user',
       }),
-      h('div', { class: 'grid grid--tight' }, [
-        metric({ label: 'Sent', value: money(sent) }),
-        metric({ label: 'Received', value: money(received) }),
-        metric({ label: 'Net', value: money(received - sent, { signed: true }) }),
+      h('div', { class: 'metric-row metric-row--pairs' }, [
+        metric({ label: 'Sent', value: formatCompact(sent) }),
+        metric({ label: 'Received', value: formatCompact(received) }),
+        metric({ label: 'Net', value: formatCompact(received - sent) }),
         metric({ label: 'Both ways', value: String(reciprocal.length) }),
       ]),
 
@@ -195,10 +195,10 @@ export async function render(view = 'people') {
         subtitle: 'What came in, what has gone back, what is left',
         iconName: 'loan',
       }),
-      h('div', { class: 'grid grid--tight' }, [
+      h('div', { class: 'metric-row' }, [
         metric({ label: 'Lenders', value: String(institutions.length) }),
         metric({ label: 'People', value: String(persons.length) }),
-        metric({ label: 'Net with lenders', value: money(owed, { signed: true }) }),
+        metric({ label: 'Net with lenders', value: formatCompact(owed) }),
       ]),
 
       ...ledger.map((line) => h('div', {}, [
@@ -246,7 +246,7 @@ export async function render(view = 'people') {
         // width between them, and `formatCompact` is what every other summary
         // figure in this application uses; the exact amounts are below, in
         // `Where it goes` and in the ledger itself.
-        h('div', { class: 'metric-row' }, [
+        h('div', { class: 'metric-row metric-row--pairs' }, [
           metric({ label: 'In', value: formatCompact(summary.moneyIn) }),
           metric({ label: 'Out', value: formatCompact(summary.moneyOut) }),
           metric({ label: 'Spent', value: formatCompact(summary.spending) }),
