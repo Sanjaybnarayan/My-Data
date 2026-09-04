@@ -3302,6 +3302,81 @@ async function main() {
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 
+    /* ------------------------------ sentences a phone can read, on screen */
+
+    {
+      /*
+       * A row is not a place to cut a sentence off.
+       *
+       * Measured across seventy-two screens at 390px: seventeen were losing
+       * text to an ellipsis, and almost every one was a whole explanation
+       * shown as a fraction of itself. The worst was Safety, at 238px of the
+       * 1134px it needed —
+       *
+       *   "…the reading is too coarse to say whether they were inside it.
+       *    That is the last reading on this device, and it is old enough that
+       *    it says nothing about now."
+       *
+       * — so a household read the claim and not the doubt, on the one screen
+       * where the doubt is the point.
+       *
+       * Both directions are measured. A title clamps to two lines rather than
+       * one, which means a sentence in a title slot is cut *vertically* and
+       * `scrollWidth` alone cannot see it — the check that told me this was
+       * fixed when it was not.
+       */
+      const before = consoleErrors.length;
+
+      await page.setViewportSize({ width: 390, height: 844 });
+
+      const cutOn = async (hash) => {
+        await go(page, '#/dashboard');
+        await go(page, hash);
+        await page.waitForTimeout(900);
+        return page.evaluate(() => [...document.querySelectorAll(
+          '.app-content .list-item-title, .app-content .list-item-subtitle')]
+          .filter((el) => el.getClientRects().length > 0)
+          .filter((el) => el.scrollWidth > el.clientWidth + 2
+            || el.scrollHeight > el.clientHeight + 2)
+          .map((el) => `${Math.round(el.clientWidth)}px of ${el.scrollWidth}px: `
+            + `${el.textContent.trim().slice(0, 60)}`));
+      };
+
+      // Safety states a caveat about a location reading; Health asks a
+      // question and says why. Both are sentences the application wrote about
+      // its own uncertainty, which is the last thing it should be cutting.
+      for (const [hash, what] of [
+        ['#/safety', 'a safety caveat'],
+        ['#/health', 'a health question'],
+        ['#/identity', 'what a profile is missing'],
+        ['#/finance', 'the finance overview'],
+      ]) {
+        const cut = await cutOn(hash);
+        check(`${what} is not cut off`, cut.length === 0, JSON.stringify(cut));
+      }
+
+      // And the row that had no width left for its own name: a title, an
+      // amount and two badges cannot share 390px, and the body was the part
+      // that gave way — to twenty-six pixels.
+      await go(page, '#/dashboard');
+      await go(page, '#/investments');
+      await page.waitForTimeout(900);
+      const bodies = await page.evaluate(() => [...document.querySelectorAll(
+        '.app-content .list-item-body')]
+        .filter((el) => el.getClientRects().length > 0)
+        .map((el) => Math.round(el.getBoundingClientRect().width)));
+
+      check('a holding row was drawn to measure', bodies.length > 0, String(bodies.length));
+
+      check('and no row is squeezed below a width a name can be read in',
+        bodies.every((width) => width >= 100), JSON.stringify(bodies));
+
+      check('the sentence checks render without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
     /* ----------------------------- the ledger's filters, folded, on screen */
 
     {

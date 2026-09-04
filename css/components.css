@@ -659,27 +659,77 @@
 .list-item:last-child { border-bottom: 0; }
 .list-item:hover { background: var(--surface-hover); }
 .list-item-body { min-width: 0; flex: 1; }
+/*
+ * A row wide enough to read, and a subtitle allowed to be a sentence.
+ *
+ * Measured across seventy-two screens at 390px: seventeen were cutting text
+ * with an ellipsis, and almost every one was a whole explanation shown as a
+ * fraction of itself —
+ *
+ *   Safety      238px of 1134px  "…too coarse to say whether they were inside
+ *                                 it… says nothing about now."
+ *   Identity    232px of 1078px  "1 of 16 sections · waiting on Contact,
+ *                                 Identity, KYC, Documents, …"
+ *   Health      233px of  714px  "Did the appointment for Physiotherapy
+ *                                 review happen? …"
+ *   Investments  26px of  103px  "Nifty index fund"
+ *
+ * The truncation only ever fires on text long enough to be a sentence, and a
+ * sentence this application wrote to explain itself is the last thing it
+ * should be cutting. The last line is a different fault: a name, an amount and
+ * two badges cannot share 390px, and the body was the part that gave way — to
+ * twenty-six pixels.
+ *
+ * So the title still holds one line, because a title is a name; the subtitle
+ * wraps; and the row itself wraps when its parts will not fit, keeping the
+ * body at a readable width and letting the amount fall to the line below.
+ */
 .list-item-title {
   font-weight: 500;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* Two lines, then an ellipsis.
+   *
+   * One line cut `Harbour National Bank savings` to `Harbour National Bank
+   * saving…` — thirty pixels short of a name a household chose, and the
+   * second of two accounts at that bank is told apart by nothing else. But a
+   * title is a name, and a list whose every row runs to four lines is not a
+   * list, so it wraps twice and no further. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
-/* A finding: a badge and an amount, then the sentence they are about, across
-   the whole card. Squeezed into a list row's title column it wrapped down
-   eight lines beside two things with room to spare. */
-.finding { display: block; }
-.finding-text { margin: var(--space-2) 0 0; }
+/*
+ * A row whose content is a sentence.
+ *
+ * `listItem` gives its body whatever the value and the trailing badge leave —
+ * about a hundred and ten pixels on a phone. That is right for a name and
+ * wrong for a statement: an Insights finding wrapped down eight lines in that
+ * column, and a Health question was cut before the clause explaining why it
+ * was being asked. So the tags and figures take a line of their own and the
+ * sentence gets the width of the card.
+ */
+.sentence-row { display: block; }
+.sentence-row-text { margin: var(--space-2) 0 0; }
 .list-item-subtitle {
   font-size: var(--text-sm);
   color: var(--text-muted);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* Where the subtitle is the point of the row rather than a note beside it. */
-.list-item-subtitle--wrap {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
+.list-item-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-align: right;
+  /* Right, whether it sits beside the body or on the line under it. */
+  margin-left: auto;
 }
-.list-item-value { font-variant-numeric: tabular-nums; font-weight: 500; text-align: right; }
+
+@media (max-width: 560px) {
+  .list-item { flex-wrap: wrap; }
+  /* Enough that a name is readable before anything else gets a share. Rows
+     that already fit are untouched; only a row that would squeeze the body
+     below this spills its amount onto a second line. */
+  .list-item-body { flex: 1 1 9rem; }
+}
 
 /* ------------------------------------------------------------- feedback */
 
