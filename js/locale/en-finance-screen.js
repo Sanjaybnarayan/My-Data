@@ -126,4 +126,9 @@ export const financeScreenStrings = {
   'finance.category.empty': 'Nothing has been recorded under this category yet',
   'finance.category.budget': 'Budget',
   'finance.category.budgetUsed': '{spent} of {limit}',
+
+  /* The ledger's filters, which fill a phone before a row is reached. */
+  'finance.ledger.filters': 'Filters',
+  'finance.ledger.filtersOn': 'Filters · {n} on',
+  'finance.ledger.narrowedByLink': 'Opened with a filter already applied.',
 };

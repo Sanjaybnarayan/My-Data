@@ -30,7 +30,7 @@ import { toast } from '../ui/components/toast.js';
 import { confirm } from '../ui/components/modal.js';
 import { app } from '../context.js';
 import { importList, orphanedTransactions, planUndo } from '../domain/imports.js';
-import { format, addable } from '../core/money.js';
+import { format, formatCompact, addable } from '../core/money.js';
 import { formatDay } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
@@ -196,10 +196,10 @@ export async function render() {
         iconName: 'file',
       }),
 
-      h('div', { class: 'grid grid--tight' }, [
+      h('div', { class: 'metric-row metric-row--pairs' }, [
         metric({ label: 'Transactions', value: String(entry.count) }),
-        metric({ label: 'In', value: money(entry.moneyIn) }),
-        metric({ label: 'Out', value: money(entry.moneyOut) }),
+        metric({ label: 'In', value: formatCompact(entry.moneyIn) }),
+        metric({ label: 'Out', value: formatCompact(entry.moneyOut) }),
         metric({
           label: 'Period',
           value: entry.periodFrom ? formatDay(entry.periodFrom, { withYear: false }) : '—',

@@ -40,7 +40,7 @@ import { MessagesService } from '../services/sms.js';
 import { nativeStatus, CONNECTOR_STATUS } from '../domain/sms.js';
 import * as smsInbox from '../core/smsinbox.js';
 import { today } from '../core/dates.js';
-import { format } from '../core/money.js';
+import { format, formatCompact } from '../core/money.js';
 import { transact } from '../data/unit.js';
 import { userMessage } from '../core/errors.js';
 
@@ -582,7 +582,7 @@ export async function render() {
       cardHeader(`${plans.length} ${plans.length === 1 ? 'file' : 'files'}`, null, {
         subtitle: 'What importing these would do',
       }),
-      h('div', { class: 'grid grid--tight' }, [
+      h('div', { class: 'metric-row metric-row--pairs' }, [
         metric({ label: 'Transactions read', value: String(review.total) }),
         metric({ label: 'New', value: String(pending) }),
         metric({ label: 'Already here', value: String(review.duplicates) }),
@@ -757,11 +757,11 @@ export async function render() {
 
     return card({}, [
       cardHeader(`What was in ${plan.file}`, null, { subtitle: 'Now on the Finance overview too' }),
-      h('div', { class: 'grid grid--tight' }, [
-        metric({ label: 'In', value: money(summary.moneyIn) }),
-        metric({ label: 'Out', value: money(summary.moneyOut) }),
-        metric({ label: 'Spent', value: money(summary.spending) }),
-        metric({ label: 'To people', value: money(summary.transfersOut) }),
+      h('div', { class: 'metric-row metric-row--pairs' }, [
+        metric({ label: 'In', value: formatCompact(summary.moneyIn) }),
+        metric({ label: 'Out', value: formatCompact(summary.moneyOut) }),
+        metric({ label: 'Spent', value: formatCompact(summary.spending) }),
+        metric({ label: 'To people', value: formatCompact(summary.transfersOut) }),
       ]),
       ...spending.map((entry) => listItem({
         title: categoryLabel(entry.key),

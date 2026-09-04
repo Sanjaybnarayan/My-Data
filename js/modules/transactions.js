@@ -34,16 +34,17 @@
 import { h, replace, delegate, focus } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import {
-  card, button, badge, chip, empty, metric, money, pageHeader,
+  card, button, badge, chip, empty, metric, pageHeader,
 } from '../ui/components/basics.js';
 import { toast } from '../ui/components/toast.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { entity } from '../data/schema.js';
-import { format, addable } from '../core/money.js';
+import { format, formatCompact, addable } from '../core/money.js';
 import { formatDay, formatInstant, today, addMonths } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
+import { t } from '../core/locale.js';
 
 /** Periods worth one press. Anything finer is what the date boxes are for. */
 const PERIODS = [
@@ -307,10 +308,21 @@ export async function render(route = {}) {
       onChange: (event) => set({ [which]: event.target.value, period: 'all' }),
     }));
 
-    return card({ class: 'card--tight' }, [
+    /*
+     * Everything but the search folds away.
+     *
+     * Two accounts, forty-six categories, three directions, five periods, two
+     * dates and two amounts is nine hundred pixels of controls above the first
+     * transaction — on a 390px phone, a screenful and a half of things nobody
+     * has asked for yet, before a single row of what they came to read.
+     *
+     * The count is on the button because a folded filter that is *on* is worse
+     * than a visible one: a household seeing eleven rows where they expect a
+     * hundred has to be told the screen is narrowed, and by how much.
+     */
+    const narrowings = countNarrowings();
+    const panel = h('div', { class: 'filter-panel', hidden: narrowings === 0 }, [
       h('div', { class: 'filter-bar' }, [
-        h('div', { class: 'search-box search-box--grow' }, [icon('search', { size: 18 }), search]),
-
         select('Account', filter.account, [
           { value: '', label: 'All accounts' },
           ...accounts.map((a) => ({ value: a.id, label: a.name })),
@@ -356,6 +368,39 @@ export async function render(route = {}) {
         dirty() ? button('Clear', { variant: 'subtle', onClick: () => set(clean()) }) : null,
       ].filter(Boolean)),
     ]);
+
+    const toggle = button(
+      narrowings
+        ? t('finance.ledger.filtersOn', { n: narrowings })
+        : t('finance.ledger.filters'),
+      {
+        variant: narrowings ? 'primary' : 'subtle',
+        iconName: 'filter',
+        onClick: () => { panel.hidden = !panel.hidden; },
+      },
+    );
+
+    return card({ class: 'card--tight' }, [
+      h('div', { class: 'filter-bar' }, [
+        h('div', { class: 'search-box search-box--grow' }, [icon('search', { size: 18 }), search]),
+        toggle,
+      ]),
+      panel,
+    ]);
+  }
+
+  /**
+   * How many ways the list is narrowed, not counting the search.
+   *
+   * The search box is on the screen with its own text in it, so it says what
+   * it is doing. These are the ones that would be folded away and silent.
+   */
+  function countNarrowings() {
+    const fresh = clean();
+    return Object.keys(fresh)
+      .filter((key) => key !== 'text')
+      .filter((key) => filter[key] !== fresh[key])
+      .length;
   }
 
   function summary(sums, rows) {
@@ -363,13 +408,22 @@ export async function render(route = {}) {
       ? `${formatDay(rows.at(-1).date)} – ${formatDay(rows[0].date)}`
       : '';
 
+    // A row, and rounded. Four figures in `grid--tight` took a line each and
+    // kept every paisa — `₹20,24,000.00` above `₹6,35,550.00` above two more,
+    // which is four headlines and no headline. The exact amounts are in the
+    // rows immediately below.
     return card({ class: 'card--tight' }, [
-      h('div', { class: 'grid grid--tight' }, [
-        metric({ label: 'Shown', value: String(sums.count), hint: span }),
-        metric({ label: 'In', value: money(sums.moneyIn) }),
-        metric({ label: 'Out', value: money(sums.moneyOut) }),
-        metric({ label: 'Net', value: money(sums.net, { signed: true }) }),
+      // Four to a card pair up rather than sitting three-and-one, and the span
+      // of dates goes under all of them: as a `hint` on the first figure it
+      // made that one cell two lines taller than its neighbours and pushed
+      // `Net` onto a line of its own.
+      h('div', { class: 'metric-row metric-row--pairs' }, [
+        metric({ label: 'Shown', value: String(sums.count) }),
+        metric({ label: 'In', value: formatCompact(sums.moneyIn) }),
+        metric({ label: 'Out', value: formatCompact(sums.moneyOut) }),
+        metric({ label: 'Net', value: formatCompact(sums.net) }),
       ]),
+      span ? h('p', { class: 'small muted spacer' }, span) : null,
       sums.count !== records.length
         ? h('p', { class: 'small faint' },
           `Every figure above is of the ${sums.count} rows shown, not all ${records.length}.`)
