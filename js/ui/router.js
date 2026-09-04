@@ -20,6 +20,42 @@ import { bus, TOPIC } from '../core/bus.js';
 import { closeAllModals } from './components/modal.js';
 import { announce } from './dom.js';
 
+/**
+ * A path segment, escaped so the browser does not have to guess.
+ *
+ * The segments were written into the hash raw. Everything routed by this
+ * application until now was a module name, an entity name or a ULID, none of
+ * which contain a character that needs escaping — so it read as correct and
+ * was never exercised.
+ *
+ * Then a screen started routing on a category. Fourteen of the forty-six
+ * categories the schema offers contain a space — `food delivery`,
+ * `rental income`, `sent to person` — and assigning `location.hash` makes the
+ * browser percent-encode them on the way in. Nothing decoded on the way out,
+ * so the screen was handed `food%20delivery`, which matches no category, and
+ * showed "nothing recorded" for one a household spends in every week.
+ *
+ * `encodeURIComponent` and not `encodeURI`: a `/` inside a segment is data,
+ * not a separator, and `encodeURI` leaves it alone.
+ */
+const encodeSegment = (part) => encodeURIComponent(part);
+
+/**
+ * And back again.
+ *
+ * A hand-edited address can carry a malformed escape — `%zz` — on which
+ * `decodeURIComponent` throws. A route is not worth an exception: the segment
+ * is passed through as written and the screen it reaches shows its own empty
+ * state, which is what an address naming nothing should do.
+ */
+function decodeSegment(part) {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
+}
+
 export class Router {
   #routes = new Map();
   #fallback = null;
@@ -57,7 +93,7 @@ export class Router {
   static parse(hash) {
     const clean = String(hash ?? '').replace(/^#\/?/, '');
     const [pathPart, queryPart] = clean.split('?');
-    const segments = pathPart.split('/').filter(Boolean);
+    const segments = pathPart.split('/').filter(Boolean).map(decodeSegment);
     return {
       module: segments[0] ?? 'dashboard',
       entity: segments[1] ?? null,
@@ -69,7 +105,7 @@ export class Router {
   }
 
   static href({ module, entity, id, query } = {}) {
-    const parts = [module, entity, id].filter(Boolean);
+    const parts = [module, entity, id].filter(Boolean).map(encodeSegment);
     const search = query && Object.keys(query).length
       ? `?${new URLSearchParams(query)}`
       : '';
@@ -193,10 +229,23 @@ export class Router {
        * the document, so reaching anything on the new screen meant tabbing
        * past the skip link, the header and the whole tab bar again.
        *
-       * `preventScroll` because the line above has already put the scroll
+       * `preventScroll` because the lines above have already put the scroll
        * where it belongs, and focusing would otherwise fight it.
+       *
+       * Both the outlet and the window, because which of them scrolls depends
+       * on the width. `.app-content` is a scrolling column on a desktop and
+       * `overflow-y: visible` on a phone, where the document scrolls instead —
+       * so for the whole of this application's life on a phone, this line set
+       * a property on an element that does not scroll and nothing moved.
+       *
+       * Measured rather than reasoned about: tapping a category on the
+       * overview, 900px down, landed 446px into the screen it opened. Every
+       * navigation from a scrolled position did it; it went unnoticed because
+       * most screens are short enough for the browser to clamp the offset back
+       * to zero on its own.
        */
       this.#outlet.scrollTop = 0;
+      globalThis.scrollTo?.(0, 0);
       const heading = this.#outlet.querySelector('h1, h2');
       if (heading) {
         heading.setAttribute('tabindex', '-1');

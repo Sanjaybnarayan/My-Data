@@ -41,6 +41,7 @@ import { recurring as recurringCharges } from '../domain/categorise.js';
 import { today, range, withinRange } from '../core/dates.js';
 import { cashRunway } from '../domain/runway.js';
 import { isBillableCard } from '../domain/cards.js';
+import { categoryDetail } from '../domain/category.js';
 
 /**
  * Declared once, here, rather than inline in the screen.
@@ -63,6 +64,20 @@ export const FINANCE_OVERVIEW_LOAD = Object.freeze({
   // `transaction.person` — the form calls it "Spent by" — has been recorded on
   // every transaction since the schema was written, and read by nothing.
   people: ['person', { decrypt: false, limit: 500 }],
+});
+
+/**
+ * What one category's screen reads.
+ *
+ * A subset of the overview's load rather than the whole of it: this screen
+ * draws no accounts, no loans and no net position, and loading them would be
+ * work a household waits for and never sees.
+ */
+/** @type {Record<string, import('./service.js').Load>} */
+export const CATEGORY_LOAD = Object.freeze({
+  transactions: ['transaction', { decrypt: false, limit: TRANSACTION_LIMIT }],
+  recurring: ['recurringPayment', { decrypt: false }],
+  budgets: ['budget', { decrypt: false }],
 });
 
 /**
@@ -250,5 +265,21 @@ export class FinanceService extends Service {
     const data = await this.load(FINANCE_OVERVIEW_LOAD);
     const transfers = await new TransfersService(this.db).pending();
     return { ...assembleOverview(data, { clock }), transfers };
+  }
+
+  /**
+   * Everything one category is, for the screen opened from the breakdown.
+   *
+   * The same `TRANSACTION_LIMIT` as every other money figure in the
+   * application. A category screen reading the whole history while the
+   * overview reads the most recent N would show a total the slice it was
+   * opened from does not agree with — which is the disagreement the constant
+   * was introduced to end.
+   *
+   * @param {string} key the stored category, not a label
+   */
+  async category(key, { clock = Date.now } = {}) {
+    const data = await this.load(CATEGORY_LOAD);
+    return categoryDetail(key, { ...data, clock });
   }
 }
