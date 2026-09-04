@@ -3560,6 +3560,264 @@ async function main() {
       await page.setViewportSize({ width: 1280, height: 900 });
     }
 
+    /* ------------------------- the scrollbar, and the rows that hide theirs */
+
+    {
+      /*
+       * The one piece of the interface the browser used to draw.
+       *
+       * Nothing here had ever styled a scrollbar, so every scrolling surface —
+       * the sidebar, a modal body, a tall table, the chat thread, the page —
+       * carried the platform default: a trench with a square thumb and a
+       * track painted a different grey from the panel around it.
+       *
+       * **What this block can and cannot see.** Headless Chromium paints no
+       * scrollbar at all — an unstyled control container reserves the same
+       * zero pixels as a styled one — so nothing here is a screenshot of a
+       * bar. What is checkable is the declaration: that every surface which
+       * scrolls resolves `scrollbar-width` and `scrollbar-color` to the
+       * designed values, in both themes, and that the thumb is not the colour
+       * of the ground it sits on. That is the whole of what the stylesheet
+       * controls; the rendering belongs to the engine.
+       */
+      const before = consoleErrors.length;
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await go(page, '#/finance');
+      await page.waitForTimeout(900);
+
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((name) => {
+          document.documentElement.setAttribute('data-theme', name);
+        }, theme);
+        await page.waitForTimeout(200);
+
+        /*
+         * Every scroller on the screen, found rather than listed.
+         *
+         * Naming the elements that scroll is how half of them keep the
+         * default — the sidebar is easy to remember and `.query-preview` is
+         * not. So this walks the tree and asks each element whether it
+         * overflows on an axis it is allowed to scroll.
+         */
+        const walk = await page.evaluate(() => {
+          const rows = [];
+          for (const el of document.querySelectorAll('*')) {
+            const st = getComputedStyle(el);
+            const scrolls =
+              (el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(st.overflowY))
+              || (el.scrollWidth > el.clientWidth + 1 && /auto|scroll/.test(st.overflowX));
+            if (!scrolls) continue;
+            rows.push({
+              what: `${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]}`,
+              width: st.scrollbarWidth,
+              colour: st.scrollbarColor,
+              ground: st.backgroundColor,
+            });
+          }
+          const root = getComputedStyle(document.scrollingElement);
+          return {
+            // Counted apart from the page, which is always in the list — a
+            // walk that found nothing would otherwise still report one, and
+            // every check below it would pass over an empty screen.
+            found: rows.length,
+            rows: [...rows, {
+              what: 'the page', width: root.scrollbarWidth, colour: root.scrollbarColor,
+              ground: getComputedStyle(document.body).backgroundColor,
+            }],
+          };
+        });
+
+        check(`there are surfaces here whose bar is worth checking, in ${theme}`,
+          walk.found > 0, `${walk.found} scrolling elements besides the page`);
+
+        const seen = walk.rows;
+
+        // Either designed, or deliberately hidden. Nothing in between, and
+        // nothing left at `auto` — which is the default this replaced.
+        const undesigned = seen.filter((one) => !['thin', 'none'].includes(one.width));
+        check(`no scrolling surface keeps the default bar in ${theme}`,
+          undesigned.length === 0,
+          JSON.stringify(undesigned.map((one) => [one.what, one.width])));
+
+        /*
+         * A thumb and no track. The second colour is the track, and it is
+         * transparent so a panel keeps its own colour to its own edge — the
+         * default's second grey was the thing that read as a trench.
+         */
+        const tracked = seen.filter((one) => one.width === 'thin'
+          && !/rgba\(0, 0, 0, 0\)|transparent/.test(one.colour));
+        check(`the track is transparent on every thin bar in ${theme}`,
+          tracked.length === 0,
+          JSON.stringify(tracked.map((one) => [one.what, one.colour])));
+
+        /*
+         * Visible in both themes, which is the half a single palette gets
+         * wrong: a thumb dark enough to read on white is invisible on a
+         * near-black panel, and this application has both.
+         */
+        const thumbs = new Set(seen.filter((one) => one.width === 'thin')
+          .map((one) => one.colour.split(') ')[0] + ')'));
+        check(`the thumb is one colour across the app in ${theme}`,
+          thumbs.size === 1, JSON.stringify([...thumbs]));
+      }
+
+      /*
+       * Light and dark must not resolve to the same thumb. If they do, one of
+       * them is wrong — and a token that never changes is the way that gets
+       * shipped.
+       */
+      const thumbIn = async (theme) => {
+        await page.evaluate((name) => {
+          document.documentElement.setAttribute('data-theme', name);
+        }, theme);
+        await page.waitForTimeout(150);
+        return page.evaluate(() =>
+          getComputedStyle(document.scrollingElement).scrollbarColor.split(') ')[0] + ')');
+      };
+      const lightThumb = await thumbIn('light');
+      const darkThumb = await thumbIn('dark');
+      check('the thumb is a different colour in dark than in light',
+        lightThumb !== darkThumb, `${lightThumb} vs ${darkThumb}`);
+
+      /*
+       * The reserved gutter, on the element that actually scrolls.
+       *
+       * `scrollbar-gutter: stable` sat on `.app-content` for as long as it had
+       * existed, and did nothing there: the property applies to a scroll
+       * container, and `.app-content` is `overflow: visible`. The page is what
+       * scrolls. Asserted together — the property, and the container it needs
+       * to be on — because either one alone passes while the pair is broken.
+       */
+      const kept = await page.evaluate(() => {
+        const doc = document.scrollingElement;
+        const content = document.querySelector('.app-content');
+        return {
+          onScroller: getComputedStyle(doc).scrollbarGutter,
+          scrollerScrolls: doc.scrollHeight > doc.clientHeight + 1,
+          strandedOn: content ? getComputedStyle(content).scrollbarGutter : null,
+          contentScrolls: content
+            ? content.scrollHeight > content.clientHeight + 1 : null,
+        };
+      });
+
+      check('the gutter is reserved on the page, which is what scrolls',
+        kept.onScroller === 'stable' && kept.scrollerScrolls === true,
+        JSON.stringify(kept));
+
+      check('and not on a column that never scrolls, where it did nothing',
+        kept.strandedOn === 'auto' && kept.contentScrolls === false,
+        JSON.stringify(kept));
+
+      await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+
+      /* ------------------------------- and the rows that hide theirs */
+
+      /*
+       * A row that hides its bar has to say it slides some other way.
+       *
+       * Four rows do — the chip rows, the tab strip, and Finance's two nav
+       * rows. Hidden is right on a phone, where you swipe and a bar under a
+       * 44px row is noise; what it left on a desktop was a row simply *cut*,
+       * with a word chopped at the edge and nothing saying whether that was
+       * the end of the row or the middle of it.
+       *
+       * The fade is driven by the row's own scroll position, so this has to
+       * be driven too: one reading cannot tell a fade that follows the scroll
+       * from a gradient painted on and left there.
+       */
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await go(page, '#/finance');
+      await page.waitForTimeout(1100);
+
+      const fadeOf = (selector) => page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const st = getComputedStyle(el);
+        return {
+          overflows: el.scrollWidth > el.clientWidth + 1,
+          start: parseFloat(st.getPropertyValue('--fade-start')) || 0,
+          end: parseFloat(st.getPropertyValue('--fade-end')) || 0,
+        };
+      }, selector);
+
+      const atStart = await fadeOf('.finance-nav-groups');
+      check('a row against its start is hard on that edge and fades on the other',
+        atStart.overflows && atStart.start === 0 && atStart.end > 0,
+        JSON.stringify(atStart));
+
+      await page.evaluate(() => {
+        const row = document.querySelector('.finance-nav-groups');
+        row.scrollLeft = row.scrollWidth;
+      });
+      await page.waitForTimeout(400);
+
+      const atEnd = await fadeOf('.finance-nav-groups');
+      check('and the fade swaps ends when it is scrolled to the end',
+        atEnd.start > 0 && atEnd.end === 0, JSON.stringify(atEnd));
+
+      /*
+       * A row that fits shows neither. Not by a rule saying so — a scroll
+       * timeline with nothing to scroll never starts, so the two lengths stay
+       * at the `0px` the `@property` declarations give them. Checked on
+       * Planned, whose four sections fit exactly; the hub's four do not,
+       * which is how the first version of this check passed while measuring
+       * an overflowing row.
+       */
+      await go(page, '#/finance/loan');
+      await page.waitForTimeout(900);
+      const fits = await fadeOf('.finance-nav-sections');
+      check('and a row that fits is not faded at either end',
+        fits.overflows === false && fits.start === 0 && fits.end === 0,
+        JSON.stringify(fits));
+
+      /*
+       * The structural guard, which is the one that will still be here when
+       * somebody adds the fifth sliding row.
+       *
+       * The fade is applied by naming four selectors in `css/components.css`.
+       * A row added later gets a hidden scrollbar from its own class and no
+       * fade from anything, and would be a hard-clipped row that nothing
+       * complains about. So: any element that scrolls sideways with its bar
+       * hidden must carry a mask.
+       *
+       * `.carousel` is the one exception and is named as one — it sets
+       * `grid-auto-columns: 86%` so the next card always peeks past the edge,
+       * which is a better cue than a gradient and is the stated reason its
+       * own bar is hidden.
+       */
+      const unfaded = [];
+      for (const hash of ['#/finance', '#/health', '#/identity', '#/family',
+        '#/settings', '#/vault', '#/investments', '#/vehicles', '#/documents']) {
+        await go(page, hash);
+        await page.waitForTimeout(500);
+        for (const what of await page.evaluate(() => {
+          const out = [];
+          for (const el of document.querySelectorAll('*')) {
+            const st = getComputedStyle(el);
+            if (st.scrollbarWidth !== 'none') continue;
+            if (!/auto|scroll/.test(st.overflowX)) continue;
+            if (el.classList.contains('carousel')) continue;
+            if (st.maskImage === 'none' && st.webkitMaskImage === 'none') {
+              out.push(String(el.className));
+            }
+          }
+          return out;
+        })) {
+          unfaded.push(`${what} on ${hash}`);
+        }
+      }
+
+      check('every row that hides its scrollbar fades instead of cutting',
+        unfaded.length === 0, [...new Set(unfaded)].join(' | '));
+
+      check('the scrollbar checks run without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
     /* ------------------------------ sentences a phone can read, on screen */
 
     {

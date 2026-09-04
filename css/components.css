@@ -706,6 +706,64 @@
  * the larger text settings the layout is checked at, where any wrapped row
  * grows a line instead of a scroll.
  */
+/*
+ * A row that slides, saying so at the edge it slides from.
+ *
+ * Four rows in this file hide their scrollbar — the chip rows, the tab strip,
+ * and Finance's two nav rows. On a phone that is right: you swipe, and a bar
+ * under a 44px row is noise. On a desktop it left a row that is simply *cut*,
+ * with a word chopped at the edge and nothing saying whether that is the end
+ * of the row or the middle of it.
+ *
+ * So the cut becomes a fade, and only on the side there is actually more. The
+ * mask is driven by the row's own scroll position: at rest against the left,
+ * the left edge is hard and the right fades; scrolled to the end, the reverse.
+ * A row that fits shows neither, because a scroll timeline with nothing to
+ * scroll never starts and the two lengths stay at their initial `0px`.
+ *
+ * `.carousel` is deliberately not here. It sets `grid-auto-columns: 86%` so
+ * the next card always peeks past the edge, which is a better cue than a
+ * gradient and is already the reason its own bar is hidden.
+ *
+ * `@supports` because scroll-driven animation is not everywhere yet, and the
+ * honest fallback is the row exactly as it was: clipped, with no fade. A
+ * gradient that never moves would be worse than none — it would fade the
+ * first item while you are looking straight at it.
+ */
+@property --fade-start {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-end {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes edge-fade {
+  from      { --fade-start: 0px;         --fade-end: var(--fade-size); }
+  4%, 96%   { --fade-start: var(--fade-size); --fade-end: var(--fade-size); }
+  to        { --fade-start: var(--fade-size); --fade-end: 0px; }
+}
+
+@supports (animation-timeline: scroll(self inline)) {
+  .chip-row--scroll,
+  .tabs,
+  .finance-nav-groups,
+  .finance-nav-sections {
+    --fade-size: 2rem;
+    mask-image: linear-gradient(to right,
+      transparent 0,
+      #000 var(--fade-start),
+      #000 calc(100% - var(--fade-end)),
+      transparent 100%);
+    animation: edge-fade linear both;
+    animation-timeline: scroll(self inline);
+  }
+}
+
 .chip-row--scroll {
   flex-wrap: nowrap;
   overflow-x: auto;
