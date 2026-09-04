@@ -123,6 +123,34 @@ describe('the phase scorecard says what the rows say', () => {
     assert.equal(down, 1, 'the header says one phase is marked ↓');
   });
 
+  test('a phase capped from outside carries the same score the row above gives it', () => {
+    /*
+     * The same number, written twice in one document, with nothing comparing
+     * them. `docs/PHASE_STATUS.md` scores every phase in its main table, and
+     * a second table lists the seven capped by something outside the code —
+     * repeating each score in its own `%` column.
+     *
+     * Five agreed. Phase 18 said 85 above and 62 below, Phase 19 said 74 and
+     * 70: both raised by work that landed, neither copied down. The commit
+     * that wrote the second table is called "The scorecard, in order and
+     * checked against itself" and added three checks, none of which reads it.
+     * That is the fault this file exists for, in the file it exists for.
+     */
+    const section = status.split('### Nothing in this repository will close these')[1];
+    assert.ok(section, 'the capped-phase table has been renamed or removed');
+
+    const capped = [...section.matchAll(/^\| (\d+) ([^|]+?) *\| *(\d+) *\|/gm)]
+      .map(([, num, name, pct]) => ({ num, name: name.trim(), pct: Number(pct) }));
+    assert.equal(capped.length, 7, `${capped.length} capped rows parsed, the prose says seven`);
+
+    for (const cap of capped) {
+      const main = rows.find((r) => r.num === cap.num);
+      assert.ok(main, `phase ${cap.num} is capped but has no row in the scorecard`);
+      assert.equal(cap.pct, main.pct,
+        `phase ${cap.num}: the scorecard says ${main.pct}, the capped table says ${cap.pct}`);
+    }
+  });
+
   test('a line count quoted for a file is that file\'s line count', () => {
     // `categorise.js (927)` against a file of 972 — a digit transposition,
     // sitting in the scorecard unchecked.
