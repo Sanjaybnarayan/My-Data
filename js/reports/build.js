@@ -548,7 +548,16 @@ export function renderPdf(built, { title, subtitle }) {
 
 function formatForPdf(value, column) {
   if (value === null || value === undefined || value === '') return '';
-  if (column.type === 'currency') return format(value);
+  // The third export, and the same question as the other two. `format` on the
+  // hand-edited amount `domain/amounts.js` describes returns the string
+  // `'₹NaN'`, and a printed net worth statement with a line reading ₹NaN is
+  // the most visible of the three: the CSV and the sheet at least go somewhere
+  // a person can inspect, and this is what they hand to somebody.
+  //
+  // The text that is in their sheet, then, which is the thing to go and fix.
+  if (column.type === 'currency') {
+    return Number.isFinite(Number(value)) ? format(value) : String(value);
+  }
   if (column.type === 'date') return formatDay(value);
   if (Array.isArray(value)) return value.join(', ');
   if (typeof value === 'boolean') return value ? 'yes' : 'no';

@@ -7,6 +7,7 @@ import {
   reports, reportById, produce, gather, renderCsv, unreadableSummary,
 } from '../js/reports/build.js';
 import { toMinor } from '../js/core/money.js';
+import { ExampleService } from '../js/services/example.js';
 
 setSuite('reports');
 
@@ -377,6 +378,43 @@ describe('report definitions', () => {
     const recent = report.build(data, { period: { from: '2025-01-01', to: '2025-01-31' } });
     assert.not(recent.sections.some((s) => s.title === 'Transactions'),
       'an empty section should be dropped, not printed with no rows');
+  });
+});
+
+describe('one unreadable amount, in all three formats at once', () => {
+  /*
+   * This was found three separate times, and the third time proved the method
+   * wrong rather than the code.
+   *
+   * `toMajor` and `format` return NaN for the hand-edited cell
+   * `domain/amounts.js` is written about — a household typing "twenty
+   * thousand" into an amount column of their own Google Sheet, which
+   * `applyRemote` accepts because refusing would lose the row. Every export
+   * reached that value by a different route and each broke differently: the
+   * CSV printed `NaN`, the sheet wrote `<v>NaN</v>` and was malformed by the
+   * format's own rules, and the PDF printed `₹NaN` on the page somebody hands
+   * to an accountant.
+   *
+   * Two were fixed, the family was written up as "three, one root, three
+   * exports", and the PDF was the fourth. So this asks all three at once,
+   * through `produce` on a real household rather than a hand-built sheet —
+   * because the fault was never in one renderer, and a test per renderer is
+   * how the third one got missed.
+   */
+  test('reaches none of the three exports', async () => {
+    const db = await makeDb();
+    await new ExampleService(db).install();
+
+    const accounts = await db.repo('account').list({ limit: 5 });
+    assert.ok(accounts.length, 'the household has to have an account to spoil');
+    await db.adapter.write('account', { ...accounts[0], openingBalance: 'twenty thousand' });
+
+    for (const format of ['csv', 'xlsx', 'pdf']) {
+      const { blobParts } = await produce(db, 'net-worth', format, {});
+      const body = typeof blobParts === 'string' ? blobParts : text(blobParts);
+      assert.ok(body.length > 200, `${format} produced almost nothing: ${body.length} bytes`);
+      assert.not(/NaN/.test(body), `${format} exported NaN to the household`);
+    }
   });
 });
 
