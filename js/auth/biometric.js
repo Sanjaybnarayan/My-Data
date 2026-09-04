@@ -17,9 +17,29 @@
 
 import { AppError } from '../core/errors.js';
 import { randomBytes, toBase64, fromBase64 } from '../security/crypto.js';
+import { plugin } from '../core/native.js';
+import { t } from '../core/locale.js';
 
 const RP_NAME = 'FamilyOS';
 const PRF_SALT = new TextEncoder().encode('familyos:data-key:v1');
+
+/**
+ * The native fingerprint, where there is one.
+ *
+ * `null` in a browser, and in a build without the plugin — the same contract
+ * every other native capability has, so the WebAuthn path below is reached
+ * unchanged by everything that is not the Android app.
+ *
+ * It returns the *same shape* WebAuthn PRF does: 32 bytes, after the gesture,
+ * that wrap the data key through the keyring's ordinary `addMethod`. That is
+ * deliberate — the two paths differ in where the bytes come from and in
+ * nothing else, so `lock.js` and the keyring need to know about neither.
+ */
+function nativeBiometric() {
+  return plugin('Biometric');
+}
+
+const decode = (base64) => Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 
 export function webAuthnAvailable() {
   return Boolean(globalThis.PublicKeyCredential && globalThis.navigator?.credentials);
@@ -27,6 +47,14 @@ export function webAuthnAvailable() {
 
 /** Is there a fingerprint reader or face unlock on this device? */
 export async function platformAuthenticatorAvailable() {
+  const native = nativeBiometric();
+  if (native) {
+    try {
+      return Boolean((await native.available()).available);
+    } catch {
+      return false;
+    }
+  }
   if (!webAuthnAvailable()) return false;
   try {
     return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
@@ -51,6 +79,18 @@ export async function platformAuthenticatorAvailable() {
  * @param {{userId: string, userName: string, displayName?: string}} who
  */
 export async function enrolBiometric({ userId, userName, displayName }) {
+  const native = nativeBiometric();
+  if (native) {
+    // `prf: true` because this path derives a key too. The flag has never
+    // meant "WebAuthn said so" — it means the fingerprint produces bytes that
+    // unwrap the data key, which is the only thing any caller does with it.
+    const { rawKey } = await native.enrol().catch((err) => {
+      throw new AppError(err?.message ?? 'Enrolment failed.',
+        { code: err?.code === 'cancelled' ? 'cancelled' : 'biometric-failed' });
+    });
+    return { credentialId: 'native', rawKey: decode(rawKey), prf: true };
+  }
+
   if (!webAuthnAvailable()) {
     throw new AppError('This browser has no biometric support.', { code: 'no-webauthn' });
   }
@@ -101,6 +141,20 @@ export async function enrolBiometric({ userId, userName, displayName }) {
  *   itself succeeded, which is all the convenience path needs.
  */
 export async function unlockWithBiometric(credentialId) {
+  const native = nativeBiometric();
+  if (native) {
+    const { rawKey } = await native.unlock().catch((err) => {
+      // `invalidated` is not a fault: a fingerprint was added to the device,
+      // so Android destroyed the key on purpose. The PIN still works, and the
+      // household can enrol again.
+      const code = err?.code === 'cancelled' ? 'cancelled'
+        : err?.code === 'invalidated' ? 'biometric-invalidated'
+          : 'biometric-failed';
+      throw new AppError(err?.message ?? 'Unlock failed.', { code });
+    });
+    return { rawKey: decode(rawKey), verified: true };
+  }
+
   if (!webAuthnAvailable()) {
     throw new AppError('This browser has no biometric support.', { code: 'no-webauthn' });
   }
@@ -128,14 +182,64 @@ export async function unlockWithBiometric(credentialId) {
 }
 
 /**
+ * Forget this device's enrolment.
+ *
+ * The Keystore key and the sealed bytes outlive the app's own record of them:
+ * dropping the keyring method alone would leave a key on the phone that
+ * nothing can use and nothing will ever clean up. The plugin's `clear` is
+ * what removes it, and until this existed nothing called it — a `clear`
+ * method in a security plugin that no path reached.
+ *
+ * Failure is swallowed on purpose. This runs after the keyring has already
+ * dropped the method, and refusing to finish because the native side
+ * complained would leave the app saying a fingerprint is enrolled when it is
+ * not. The stale Keystore entry is inert, and the next enrolment deletes it.
+ */
+export async function forgetBiometric() {
+  const native = nativeBiometric();
+  if (!native) return;
+  await native.clear().catch(() => {});
+}
+
+/**
+ * Why it is not on offer, when it is not.
+ *
+ * Three different absences were reported with one sentence, and the sentence
+ * was wrong for the one a household actually met. Tapping *Set up
+ * fingerprint* in the Android app said "This device has no fingerprint or
+ * face unlock available to the browser" — on a phone with a reader on the
+ * back of it. The reader was there; WebAuthn was not, and blaming the
+ * hardware sent somebody to look in their phone's settings for a switch that
+ * was never the problem.
+ *
+ * @returns {Promise<string|null>} null when biometrics can be offered.
+ */
+export async function biometricUnavailableReason() {
+  const native = nativeBiometric();
+  if (native) {
+    try {
+      const { available, reason } = await native.available();
+      if (available) return null;
+      if (reason === 'no-fingerprint-enrolled') return t('biometric.noneEnrolled');
+      return t('biometric.noSensor');
+    } catch {
+      return t('biometric.serviceSilent');
+    }
+  }
+
+  if (!webAuthnAvailable()) {
+    return t('biometric.noBrowserSupport');
+  }
+  if (!(await platformAuthenticatorAvailable())) {
+    return t('biometric.noReaderForBrowser');
+  }
+  return null;
+}
+
+/**
  * What to tell the user before they enrol. The honest version, not the
  * marketing one.
  */
 export function biometricExplanation(prfSupported) {
-  return prfSupported
-    ? 'Your fingerprint will unlock FamilyOS on its own. The key is derived by '
-      + 'the security chip and never leaves this device.'
-    : 'This device cannot derive an encryption key from your fingerprint, so the '
-      + 'fingerprint will unlock the screen but your PIN still protects the data. '
-      + 'You will be asked for the PIN after the app has been fully closed.';
+  return prfSupported ? t('biometric.derivesKey') : t('biometric.gestureOnly');
 }

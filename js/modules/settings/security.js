@@ -16,7 +16,9 @@ import { config } from '../../core/config.js';
 import { googleUnlockAvailable, connectGoogleUnlock, linkExistingDevice, unlinkGoogleUnlock, GOOGLE_METHOD } from '../../auth/google-unlock.js';
 import { h } from '../../ui/dom.js';
 import { modal, confirm, prompt } from '../../ui/components/modal.js';
-import { platformAuthenticatorAvailable, enrolBiometric, biometricExplanation } from '../../auth/biometric.js';
+import {
+  biometricUnavailableReason, enrolBiometric, biometricExplanation, forgetBiometric,
+} from '../../auth/biometric.js';
 import { toast } from '../../ui/components/toast.js';
 import { userMessage } from '../../core/errors.js';
 import { CodeEscrow, CODE_METHOD } from '../../security/codeescrow.js';
@@ -294,11 +296,21 @@ export function securityCard(db, methods = [], repaint = () => {}) {
             }
           },
         }),
-        button('Set up fingerprint', {
-          variant: 'subtle',
-          iconName: 'fingerprint',
-          onClick: () => setUpBiometric(db),
-        }),
+        // Set up, or take away. There was only ever the first, so a household
+        // that enrolled a fingerprint had no way to un-enrol one — and on
+        // Android that leaves a Keystore key on the phone with nothing in the
+        // app able to reach it.
+        methods.some((m) => m.method === 'webauthn')
+          ? button(t('biometric.remove'), {
+            variant: 'subtle',
+            iconName: 'fingerprint',
+            onClick: () => removeBiometric(db, repaint),
+          })
+          : button(t('biometric.setUp'), {
+            variant: 'subtle',
+            iconName: 'fingerprint',
+            onClick: () => setUpBiometric(db, repaint),
+          }),
         button('Lock now', {
           variant: 'subtle',
           iconName: 'lock',
@@ -312,10 +324,12 @@ export function securityCard(db, methods = [], repaint = () => {}) {
   ]);
 }
 
-async function setUpBiometric(db) {
-  if (!(await platformAuthenticatorAvailable())) {
-    toast('This device has no fingerprint or face unlock available to the browser.',
-      { kind: 'error' });
+async function setUpBiometric(db, repaint = () => {}) {
+  // Not an error toast: nothing has gone wrong, and on most of these branches
+  // nothing the household does will change it. It states what this build can do.
+  const unavailable = await biometricUnavailableReason();
+  if (unavailable) {
+    toast(unavailable, { kind: 'info' });
     return;
   }
 
@@ -336,7 +350,32 @@ async function setUpBiometric(db) {
       title: 'Fingerprint set up',
       body: h('p', {}, biometricExplanation(Boolean(result.rawKey))),
     });
+    repaint();
   } catch (err) {
     if (err.code !== 'cancelled') toast(userMessage(err), { kind: 'error' });
+  }
+}
+
+/**
+ * Take the fingerprint off this device.
+ *
+ * `removeMethod` refuses to remove the last unlock method, so this cannot
+ * strand anybody: a household with only a fingerprint is told no, and the
+ * error says which rule stopped it.
+ *
+ * The order matters. The keyring first, because that is the thing that
+ * actually decides whether the app opens; the Keystore key second, and its
+ * failure ignored — see `forgetBiometric`.
+ */
+async function removeBiometric(db, repaint = () => {}) {
+  try {
+    await db.keyring.removeMethod('webauthn');
+    await db.setMeta('auth.webauthnCredentialId', null);
+    await db.setMeta('auth.webauthnDerivesKey', false);
+    await forgetBiometric();
+    toast(t('biometric.removed'), { kind: 'success' });
+    repaint();
+  } catch (err) {
+    toast(userMessage(err), { kind: 'error' });
   }
 }

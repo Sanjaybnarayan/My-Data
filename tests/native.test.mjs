@@ -1,5 +1,9 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { isNative, platform, plugin, forgetPlugins } from '../js/core/native.js';
+import {
+  biometricUnavailableReason, enrolBiometric, unlockWithBiometric, biometricExplanation,
+  forgetBiometric,
+} from '../js/auth/biometric.js';
 import { precachedPaths, missingFrom, SHIPPED } from '../tools/webroot.mjs';
 import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -501,7 +505,7 @@ setSuite('the two native projects agree');
  * different enough that a shared plugin would be a pretence. Naming them here
  * is what lets the parity checks below stay strict about everything else.
  */
-const FIRST_PARTY = new Set(['SmsInbox', 'BackgroundLocation', 'ScreenTime']);
+const FIRST_PARTY = new Set(['SmsInbox', 'BackgroundLocation', 'ScreenTime', 'Biometric']);
 
 /** Every plugin name the application asks for, read off the source. */
 async function pluginsCalled() {
@@ -529,7 +533,7 @@ describe('every plugin the app calls is wired into both platforms', () => {
     // Named so a new plugin arriving is a deliberate change to this line
     // rather than something the checks below silently absorb.
     assert.deep([...called].sort(),
-      ['App', 'BackgroundLocation', 'Browser', 'Filesystem', 'Geolocation',
+      ['App', 'BackgroundLocation', 'Biometric', 'Browser', 'Filesystem', 'Geolocation',
         'ScreenTime', 'Share', 'SmsInbox']);
   });
 
@@ -817,5 +821,185 @@ describe('what the soft keyboard does to the layout', () => {
     assert.ok(activity.length > 0, 'MainActivity not found — this test reads the wrong shape');
     assert.ok(/windowSoftInputMode/.test(activity),
       'declared on some other activity does nothing for the app window');
+  });
+});
+
+/* ------------------------------------------------------ fingerprint unlock */
+
+/*
+ * `docs/CAPACITOR_INTEGRATION_PLAN.md` said of biometrics: "Worth verifying
+ * rather than assuming, so a test asserts the degradation."
+ *
+ * No such test was ever written. The claim sat in a document with nothing
+ * checking it while the Settings screen went on offering *Set up fingerprint*
+ * in a WebView that cannot do it, and told anyone who tapped it that their
+ * phone had no fingerprint reader.
+ *
+ * These are the checks that sentence promised, plus the ones the native path
+ * needs now that there is one.
+ */
+describe('fingerprint unlock, and what it says when it cannot', () => {
+  const withGlobals = async (globals, run) => {
+    const saved = new Map();
+    for (const [key, value] of Object.entries(globals)) {
+      saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+      Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+    }
+    forgetPlugins();
+    try {
+      return await run();
+    } finally {
+      for (const [key, descriptor] of saved) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else delete globalThis[key];
+      }
+      forgetPlugins();
+    }
+  };
+
+  /** A WebView: a Capacitor bridge, and no WebAuthn at all. */
+  const webView = (impl) => ({
+    Capacitor: {
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      isPluginAvailable: (name) => name === 'Biometric' && Boolean(impl),
+      registerPlugin: () => impl,
+    },
+    PublicKeyCredential: undefined,
+  });
+
+  test('a browser with no WebAuthn is told which thing is missing, not that its phone is', async () => {
+    const reason = await withGlobals(
+      { Capacitor: undefined, PublicKeyCredential: undefined },
+      () => biometricUnavailableReason());
+    assert.ok(reason, 'a browser without WebAuthn must say something');
+    // The sentence this replaced. It named the device, and the device was fine.
+    assert.ok(!/this device has no fingerprint/i.test(reason), reason);
+    assert.ok(/browser/i.test(reason), reason);
+  });
+
+  test('and the app, where the plugin answers, offers it', async () => {
+    const reason = await withGlobals(
+      webView({ available: async () => ({ available: true, enrolled: false, reason: '' }) }),
+      () => biometricUnavailableReason());
+    assert.equal(reason, null, String(reason));
+  });
+
+  test('a phone with a reader but no finger enrolled is sent to the right settings', async () => {
+    const reason = await withGlobals(
+      webView({ available: async () => ({ available: false, reason: 'no-fingerprint-enrolled' }) }),
+      () => biometricUnavailableReason());
+    assert.ok(/set up on this phone|phone\u2019s own settings/i.test(reason ?? ''), String(reason));
+  });
+
+  /*
+   * The reason the native path exists at all. `Keyring.lock()` drops the data
+   * key and every lock path goes through it, so a plugin that only says "yes,
+   * that was them" cannot unlock anything — it is a step before the PIN.
+   *
+   * So the bytes are the whole point, and this asserts them: 32 of them, the
+   * same shape WebAuthn PRF returns, which is what `addMethod` wraps the data
+   * key under.
+   */
+  test('enrolling in the app returns key material, not a yes', async () => {
+    const secret = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
+    const out = await withGlobals(
+      webView({
+        available: async () => ({ available: true, reason: '' }),
+        enrol: async () => ({ rawKey: secret }),
+      }),
+      () => enrolBiometric({ userId: 'per_1', userName: 'Someone' }));
+
+    assert.equal(out.rawKey?.length, 32, `got ${out.rawKey?.length} bytes`);
+    assert.equal(out.prf, true, 'a key-deriving path must not report itself as gesture-only');
+    assert.equal(out.rawKey[0], 7);
+  });
+
+  test('and unlocking returns the same bytes back', async () => {
+    const secret = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
+    const out = await withGlobals(
+      webView({
+        available: async () => ({ available: true, reason: '' }),
+        unlock: async () => ({ rawKey: secret }),
+      }),
+      () => unlockWithBiometric('native'));
+
+    assert.equal(out.rawKey?.length, 32);
+    assert.equal(out.rawKey[9], 9);
+    assert.equal(out.verified, true);
+  });
+
+  test('a fingerprint added to the phone reads as its own thing, not a failure', async () => {
+    const thrown = await withGlobals(
+      webView({
+        available: async () => ({ available: true, reason: '' }),
+        unlock: async () => { throw Object.assign(new Error('key gone'), { code: 'invalidated' }); },
+      }),
+      () => unlockWithBiometric('native').then(() => null, (err) => err));
+
+    assert.equal(thrown?.code, 'biometric-invalidated', String(thrown?.code));
+  });
+
+  test('a cancelled gesture is silence, not an error to show', async () => {
+    const thrown = await withGlobals(
+      webView({
+        available: async () => ({ available: true, reason: '' }),
+        unlock: async () => { throw Object.assign(new Error('nope'), { code: 'cancelled' }); },
+      }),
+      () => unlockWithBiometric('native').then(() => null, (err) => err));
+
+    assert.equal(thrown?.code, 'cancelled', String(thrown?.code));
+  });
+
+  /*
+   * `clear()` existed in the Java from the first draft and nothing called it.
+   * A household could set a fingerprint up and never take it off — the
+   * Settings card had one button — so the Keystore key and the sealed bytes
+   * would outlive any decision to stop using them, with nothing in the app
+   * able to reach either.
+   */
+  test('removing the fingerprint reaches the plugin, not just the keyring', async () => {
+    let cleared = 0;
+    await withGlobals(
+      webView({
+        available: async () => ({ available: true, reason: '' }),
+        clear: async () => { cleared += 1; },
+      }),
+      () => forgetBiometric());
+    assert.equal(cleared, 1, `clear() called ${cleared} times`);
+  });
+
+  test('and a browser, with no plugin to call, simply returns', async () => {
+    // Not a throw and not a silent branch that never ran: the web path has to
+    // finish, because the keyring method is already gone by the time this is
+    // reached.
+    const settled = await withGlobals(
+      { Capacitor: undefined, PublicKeyCredential: undefined },
+      () => forgetBiometric().then(() => 'returned', () => 'threw'));
+    assert.equal(settled, 'returned');
+  });
+
+  test('a plugin that refuses to clear does not undo the removal', async () => {
+    const settled = await withGlobals(
+      webView({
+        available: async () => ({ available: true, reason: '' }),
+        clear: async () => { throw new Error('keystore said no'); },
+      }),
+      () => forgetBiometric().then(() => 'returned', () => 'threw'));
+    assert.equal(settled, 'returned', 'the keyring method is already gone; this must not throw');
+  });
+
+  /*
+   * The sentence that was false. It promised the PIN would be needed only
+   * "after the app has been fully closed", and there is no state in which the
+   * key survives a lock — `keyring.lock()` sets it to null and the idle
+   * timeout calls it. Somebody read that and expected their fingerprint to
+   * carry them past a lock screen it could never open.
+   */
+  test('the gesture-only wording does not promise a session it cannot keep', () => {
+    const said = biometricExplanation(false);
+    assert.ok(!/fully closed/i.test(said), said);
+    assert.ok(/every time/i.test(said), said);
+    assert.ok(/PIN/.test(said), said);
   });
 });

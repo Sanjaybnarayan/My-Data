@@ -27,6 +27,7 @@ import { settingsDataStrings } from './en-settings-data.js';
 import { instalmentStrings } from './en-instalments.js';
 import { financeScreenStrings } from './en-finance-screen.js';
 import { calendarStrings } from './en-calendar.js';
+import { biometricStrings } from './en-biometric.js';
 
 export const strings = {
   // A valuation that is real but old. `domain/networth.js` says why twelve
@@ -41,6 +42,7 @@ export const strings = {
   ...instalmentStrings,
   ...financeScreenStrings,
   ...calendarStrings,
+  ...biometricStrings,
 
   // Dates. Abbreviated month names, because a table column has no room for
   // the full ones and a household reading its own records knows which is which.
