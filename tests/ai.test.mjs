@@ -6,6 +6,7 @@ import { datedEntities, BY_NAME } from '../js/domain/reminders.js';
 import { NOT_ASKABLE } from '../js/ai/coverage.js';
 import { entityNames } from '../js/data/schema.js';
 import { summarise } from '../js/ai/summary.js';
+import { ExampleService } from '../js/services/example.js';
 import { comparePeriods } from '../js/domain/finance.js';
 import { toMinor } from '../js/core/money.js';
 import { PermissionError } from '../js/core/errors.js';
@@ -435,6 +436,61 @@ describe('what the assistant may never be handed', () => {
    * eight it omitted were guarded by nothing.
    */
   const FORBIDDEN = Object.keys(NOT_ASKABLE);
+
+  test('answers nothing out of one, asked everything on a full household', async () => {
+    /*
+     * The sweep below reads source. It proves the AI layer never *names* these
+     * entities, which is a real guarantee and not this one: a question could
+     * still reach a forbidden row through a helper that took an entity name as
+     * an argument, and the sweep would see nothing to object to.
+     *
+     * So this asks. The example household is the only fixture with rows in
+     * these tables — real SMS alerts, a vault, recorded positions, a will,
+     * nominations, a legal document and KYC records — and every question the
+     * assistant advertises is put to it.
+     *
+     * Asserted on the records an answer *carries*, not on its wording. Written
+     * as a substring search first, and it reported 782 leaks: the first
+     * version matched `createdBy: "per_owner"`, an envelope field on every row
+     * in the database. Narrowed to strings unique to a sealed table, it
+     * reported one — the word "imported", in the sentence *"2 statements
+     * imported, 67 rows written."* Both were the check being wrong. What the
+     * rule actually says is that no forbidden row may come back, and that is
+     * a thing to test directly.
+     *
+     * It earns its place against the sweep, and that was checked rather than
+     * assumed. Making an intent return `smsMessage` rows fails both — naming
+     * the entity is exactly what the sweep is for. Making it return
+     * `['sms', 'Message'].join('')` rows fails **only this one**: the literal
+     * never appears in `js/ai/`, so there is nothing for a reader of source to
+     * object to, and the rows come back all the same.
+     */
+    const db = await makeDb();
+    await new ExampleService(db).install({ clock });
+
+    const held = [];
+    for (const name of FORBIDDEN) {
+      const rows = await db.repo(name).list({ limit: 500 }).catch(() => []);
+      if (rows.length) held.push(`${name}(${rows.length})`);
+    }
+    assert.ok(held.length >= 5,
+      `only ${held.join(' ')} are populated, so this proves little`);
+
+    const asked = [...exampleQuestions(), 'What is in the vault?',
+      'What are our passwords?', 'Show me our messages', 'Where has everyone been?',
+      'What SMS did we get from the bank?', 'Who inherits what?', 'What does the will say?',
+      'What do the banks hold about us?', 'What legal documents are there?'];
+    assert.ok(asked.length >= 20, `only ${asked.length} questions were put`);
+
+    const assistant = new Assistant({ db, clock });
+    const carried = [];
+    for (const question of asked) {
+      const answer = await assistant.answer(question).catch(() => null);
+      const entity = answer?.records?.entity;
+      if (entity && FORBIDDEN.includes(entity)) carried.push(`${question} -> ${entity}`);
+    }
+    assert.deep(carried, []);
+  });
 
   test('is not named anywhere in the AI layer', async () => {
     const { readdir, readFile } = await import('node:fs/promises');
