@@ -9,7 +9,7 @@
  * All amounts in minor units.
  */
 
-import { sum, roundMoney } from '../core/money.js';
+import { sum, roundMoney, addable } from '../core/money.js';
 import { settled } from '../data/integrity.js';
 import { today, daysBetween, daysUntil } from '../core/dates.js';
 
@@ -26,7 +26,7 @@ export function holdingValue(holding) {
 }
 
 export function holdingGain(holding) {
-  const invested = holding.invested ?? 0;
+  const invested = addable(holding.invested);
   const value = holdingValue(holding);
   return {
     invested,
@@ -104,7 +104,7 @@ export function cashFlows(holding, transactions, { asOf = today(), value: closin
   const flows = transactions
     .filter((t) => t.holding === holding.id && settled(t))
     .map((t) => {
-      const amount = t.amount ?? 0;
+      const amount = addable(t.amount);
       const outward = t.kind === 'buy' || t.kind === 'contribution' || t.kind === 'charge';
       return { date: t.date, amount: outward ? -amount : amount };
     })

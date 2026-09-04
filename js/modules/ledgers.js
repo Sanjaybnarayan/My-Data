@@ -27,8 +27,9 @@ import { toast } from '../ui/components/toast.js';
 import { app } from '../context.js';
 import { fromRecords, confidence, overridesFrom } from '../domain/ledger.js';
 import {
-  CATEGORIES, categoryLabel, peopleLedger, lendingLedger, insights, summarise,
+  CATEGORIES, categoryLabel, peopleLedger, lendingLedger, summarise,
 } from '../domain/categorise.js';
+import { insights } from '../domain/insights.js';
 import { format } from '../core/money.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
 

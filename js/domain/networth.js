@@ -22,7 +22,7 @@
  * exists if somebody dies.
  */
 
-import { sum } from '../core/money.js';
+import { sum, addable } from '../core/money.js';
 import { settled } from '../data/integrity.js';
 import { accountBalances } from './finance.js';
 import { holdingValue } from './portfolio.js';
@@ -176,14 +176,14 @@ export function netWorthByPerson(data, people) {
     if (account.archived || account.includeInNetWorth === false) continue;
     const target = bucket(account.holder);
     if (account.kind === 'credit card') target.liabilities += Math.max(0, -account.balance);
-    else target.assets += account.balance;
+    else target.assets += addable(account.balance);
   }
 
   for (const holding of data.holdings.filter((h) => settled(h) && h.active !== false)) {
     bucket(holding.owner).assets += holdingValue(holding);
   }
   for (const property of data.properties.filter(settled)) {
-    bucket(property.owner).assets += property.currentValue || property.purchasePrice || 0;
+    bucket(property.owner).assets += addable(property.currentValue) || addable(property.purchasePrice);
   }
   for (const loan of data.loans.filter(settled)) {
     bucket(loan.borrower).liabilities += loan.outstanding ?? 0;

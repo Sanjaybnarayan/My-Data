@@ -28,7 +28,7 @@
  * which is worse than a parse that admits it failed.
  */
 
-import { toMinor } from '../core/money.js';
+import { toMinor, addable } from '../core/money.js';
 
 const MONTHS = {
   jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
@@ -638,9 +638,9 @@ export function readSummary(lines) {
  */
 export function reconcile({ transactions, openingBalance, closingBalance }) {
   const inflow = transactions.filter((t) => t.direction === 'in')
-    .reduce((total, t) => total + t.amount, 0);
+    .reduce((total, t) => total + addable(t.amount), 0);
   const outflow = transactions.filter((t) => t.direction === 'out')
-    .reduce((total, t) => total + t.amount, 0);
+    .reduce((total, t) => total + addable(t.amount), 0);
 
   const expected = (openingBalance ?? 0) + inflow - outflow;
   const difference = (closingBalance ?? expected) - expected;

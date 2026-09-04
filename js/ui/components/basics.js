@@ -197,6 +197,23 @@ export function metric({
  */
 export function money(minor, { currency = 'INR', signed = false, compact = false } = {}) {
   const value = minor ?? 0;
+
+  // An amount that is not a number is shown as what it says.
+  //
+  // `?? 0` covers a missing amount and does nothing for a hand-edited one:
+  // `format('twenty thousand')` returns the string `₹NaN`, and that is what
+  // the transaction list and the record showed. The three exports were fixed
+  // one at a time — CSV, sheet, PDF — and this is the same value reached by a
+  // fourth route, the one the household actually looks at.
+  //
+  // `cellFor` already shows an em dash for an amount that is absent. This is
+  // the other case: an amount that is present and unreadable, where the text
+  // in their sheet is the thing that tells them what to go and fix. Faint,
+  // because it is not a figure and must not be read as one.
+  if (!Number.isFinite(value)) {
+    return h('span', { class: 'numeric faint' }, String(minor));
+  }
+
   return h('span', {
     class: ['numeric', signed && (value < 0 ? 'money--negative' : 'money--positive')],
   }, compact ? formatCompact(value, currency) : format(value, currency, { sign: signed }));

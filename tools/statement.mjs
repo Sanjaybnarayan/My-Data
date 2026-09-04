@@ -21,8 +21,9 @@ import { read } from './pdf-text.mjs';
 import { parseStatement, reconcile } from '../js/domain/statement.js';
 import {
   categorise, resolveAliases, summarise, peopleLedger, recurring, lendingLedger,
-  businessLedger, insights, counterpartyKey,
+  businessLedger, counterpartyKey,
 } from '../js/domain/categorise.js';
+import { insights } from '../js/domain/insights.js';
 
 const args = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith('--') && !a.includes('=')));

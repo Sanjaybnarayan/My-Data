@@ -289,7 +289,7 @@ export function movementTotal(proposals) {
   const confident = (proposals ?? []).filter((p) => p.confidence === CONFIDENCE.PROBABLE);
   return {
     movements: confident.length,
-    moved: confident.reduce((sum, p) => sum + p.amount, 0),
+    moved: confident.reduce((sum, p) => sum + addable(p.amount), 0),
     /** Pairings a person still has to look at. Never folded into the total. */
     awaiting: (proposals ?? []).filter((p) => p.confidence === CONFIDENCE.POSSIBLE).length,
   };
@@ -490,7 +490,7 @@ export function multiLegTotal(proposals) {
   const confident = (proposals ?? []).filter((p) => p.confidence === CONFIDENCE.PROBABLE);
   return {
     movements: confident.length,
-    moved: confident.reduce((sum, p) => sum + p.amount, 0),
+    moved: confident.reduce((sum, p) => sum + addable(p.amount), 0),
     awaiting: (proposals ?? []).filter((p) => p.confidence === CONFIDENCE.POSSIBLE).length,
   };
 }

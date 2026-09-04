@@ -27,7 +27,7 @@
  * and a receipt with no such word yields no amount rather than a guess.
  */
 
-import { toMinor, divide } from '../core/money.js';
+import { toMinor, divide, addable } from '../core/money.js';
 import { recognise } from './merchants.js';
 import { readDate } from './extract.js';
 import { receiptKey } from './mailboxes.js';
@@ -130,10 +130,10 @@ export function byMerchant(receipts) {
       last: receipt.date,
     };
 
-    if (receipt.refund) bucket.refunded += receipt.amount;
+    if (receipt.refund) bucket.refunded += addable(receipt.amount);
     else {
       bucket.orders += 1;
-      bucket.spent += receipt.amount;
+      bucket.spent += addable(receipt.amount);
     }
     if (receipt.date && (!bucket.first || receipt.date < bucket.first)) bucket.first = receipt.date;
     if (receipt.date && (!bucket.last || receipt.date > bucket.last)) bucket.last = receipt.date;

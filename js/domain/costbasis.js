@@ -47,7 +47,7 @@
  */
 
 
-import { roundMoney } from '../core/money.js';
+import { roundMoney, addable } from '../core/money.js';
 import { settled } from '../data/integrity.js';
 /** Money going in: units acquired and cost incurred. */
 const INWARD = new Set(['buy', 'contribution']);
@@ -142,7 +142,7 @@ export function costBasis(holding, transactions = []) {
 
   for (const txn of rows) {
     const amount = amountOf(txn);
-    const fee = txn.charges ?? 0;
+    const fee = addable(txn.charges);
 
     if (INWARD.has(txn.kind)) {
       units += txn.units ?? 0;

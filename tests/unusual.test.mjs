@@ -14,7 +14,8 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   unusualSpending, categoryHistory, describeUnusual, UNUSUAL, FLOOR,
 } from '../js/domain/unusual.js';
-import { insights, summarise } from '../js/domain/categorise.js';
+import { summarise } from '../js/domain/categorise.js';
+import { insights } from '../js/domain/insights.js';
 
 setSuite('unusual');
 

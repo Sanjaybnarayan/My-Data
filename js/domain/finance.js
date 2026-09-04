@@ -192,7 +192,7 @@ export function accountBalances(accounts, transactions) {
     // screen as "this account has no balance" rather than "one row could not
     // be read". `unreadableAmounts` is what says the latter.
     if (t.amount !== undefined && t.amount !== null && !Number.isFinite(t.amount)) continue;
-    const amount = t.amount ?? 0;
+    const amount = addable(t.amount);
     if (t.kind === 'income') {
       balances.set(t.account, (balances.get(t.account) ?? 0) + amount);
     } else if (t.kind === 'expense') {
@@ -669,7 +669,7 @@ export function billsTotal(bills) {
   let unknown = 0;
   for (const bill of bills) {
     if (bill.amount === null || bill.amount === undefined) unknown += 1;
-    else total += bill.amount;
+    else total += addable(bill.amount);
   }
   return { total, unknown };
 }
@@ -722,7 +722,7 @@ export function advanceRecurring(recurring, from = today()) {
  */
 export function committedMonthlyOutflow(recurring, loans) {
   const perMonthAmount = (r) => {
-    const amount = r.amount ?? 0;
+    const amount = addable(r.amount);
     switch (r.frequency) {
       case 'weekly': return divide(amount * 52, 12);
       case 'quarterly': return divide(amount, 3);

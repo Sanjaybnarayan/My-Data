@@ -4,9 +4,10 @@ import {
 } from '../js/domain/statement.js';
 import {
   classify, categorise, channelOf, counterpartyOf, counterpartyKey, looksLikePerson,
-  resolveAliases, summarise, peopleLedger, recurring, lendingLedger, businessLedger, insights,
+  resolveAliases, summarise, peopleLedger, recurring, lendingLedger, businessLedger,
   categoryLabel, CATEGORIES,
 } from '../js/domain/categorise.js';
+import { insights } from '../js/domain/insights.js';
 
 setSuite('statement');
 

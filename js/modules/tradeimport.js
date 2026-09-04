@@ -33,7 +33,7 @@ import { parseDelimited } from '../domain/tabular.js';
 import {
   REQUIRED_COLUMNS, OPTIONAL_COLUMNS, planTrades, toInvestmentTransaction,
 } from '../domain/tradebook.js';
-import { format } from '../core/money.js';
+import { format, addable } from '../core/money.js';
 import { transact } from '../data/unit.js';
 import { userMessage } from '../core/errors.js';
 import { t } from '../core/locale.js';
@@ -248,7 +248,7 @@ export async function render() {
           ]),
           plan.planned.length
             ? h('p', { class: 'small' }, t('tradebook.totalValue', {
-              amount: format(plan.planned.reduce((sum, one) => sum + one.amount, 0)),
+              amount: format(plan.planned.reduce((sum, one) => sum + addable(one.amount), 0)),
             }))
             : null,
           plan.planned.some((one) => one.derivedAmount)

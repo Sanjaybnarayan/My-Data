@@ -3,9 +3,10 @@ import {
   fromRecords, confidence, overridesFrom, ENTERED_CATEGORIES,
 } from '../js/domain/ledger.js';
 import {
-  peopleLedger, lendingLedger, insights, summarise, CATEGORIES, categoryKind,
+  peopleLedger, lendingLedger, summarise, CATEGORIES, categoryKind,
   classify, RULES,
 } from '../js/domain/categorise.js';
+import { insights } from '../js/domain/insights.js';
 import { entity } from '../js/data/schema.js';
 
 setSuite('ledger');
@@ -171,6 +172,29 @@ describe('what the screens will show', () => {
       assert.ok(note.kind, 'an insight with no kind cannot be styled or tested');
       assert.ok(note.text.length > 10, note.text);
     }
+  });
+
+  test('including the one for payments nothing could categorise', () => {
+    /*
+     * Every other note in that list was reached by the fixture above. This one
+     * needs a row whose rule is `unmatched`, and no fixture had one, so the
+     * only branch in `insights` that calls the module's `total` helper was
+     * never run. Moving `insights` to its own file left that helper behind and
+     * the whole suite stayed green: a `ReferenceError` on the screen of any
+     * household with an uncategorised payment, which is most of them.
+     *
+     * The type checker caught it. This is what catches the next one.
+     */
+    const rows = [
+      { id: 'u1', rule: 'unmatched', direction: 'out', amount: 250000, date: '2026-08-02',
+        description: 'PAYTM 8829', categoryKind: 'spending', category: 'other-spend' },
+      { id: 'u2', rule: 'unmatched', direction: 'out', amount: 145000, date: '2026-08-04',
+        description: 'NEFT 41182', categoryKind: 'spending', category: 'other-spend' },
+    ];
+    const note = insights(rows, summarise(rows)).find((n) => n.kind === 'coverage');
+    assert.ok(note, 'two unmatched payments should produce a coverage note');
+    assert.equal(note.amount, 395000);
+    assert.ok(note.text.includes('2 payments'), note.text);
   });
 
   test('an empty history produces empty ledgers rather than throwing', () => {

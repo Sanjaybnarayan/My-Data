@@ -41,6 +41,8 @@
  * window, no name matching. It is the one link this file will assert.
  */
 
+import { addable } from '../core/money.js';
+
 /** `Paid by XXXXXXXX8177` / `Credited to XXXXXXXXXX84`. */
 const INSTRUMENT = /^\s*(paid by|credited to|debited from|refunded to)\s+(.+?)\s*$/i;
 
@@ -140,7 +142,7 @@ export function byInstrument(transactions = []) {
       masked: instrument.masked, digits: instrument.digits, rows: 0, out: 0, in: 0,
     };
     entry.rows += 1;
-    entry[row.direction === 'in' ? 'in' : 'out'] += row.amount ?? 0;
+    entry[row.direction === 'in' ? 'in' : 'out'] += addable(row.amount);
     // The longest mask wins as the label: `XXXXXXXX8963` says more than `8963`,
     // and the same account is written both ways in one file.
     if (instrument.masked.length > entry.masked.length) entry.masked = instrument.masked;

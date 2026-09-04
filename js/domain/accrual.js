@@ -47,7 +47,7 @@
  */
 
 
-import { roundMoney } from '../core/money.js';
+import { roundMoney, addable } from '../core/money.js';
 import { settled } from '../data/integrity.js';
 /**
  * How often each instrument compounds, by convention in India.
@@ -292,10 +292,11 @@ export function recurringValue(holding, transactions, asOf) {
     // An instalment dated after the end of the run has not earned anything
     // yet, and one with an unreadable date cannot be placed. Both are still
     // money that went in, so both count towards what was paid.
-    base += instalment.amount;
+    const paid = addable(instalment.amount);
+    base += paid;
     value += years !== null && years > 0
-      ? instalment.amount * rate ** (n * years)
-      : instalment.amount;
+      ? paid * rate ** (n * years)
+      : paid;
   }
 
   return {
