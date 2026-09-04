@@ -2730,6 +2730,67 @@ async function main() {
       await page.waitForTimeout(200);
     }
 
+    /* ------------------------------------------------- a refused form */
+
+    /*
+     * What a refused form does, beyond turning text red.
+     *
+     * `showIssues` makes two promises a screen reader depends on and one a
+     * keyboard does: every refused control gets `aria-invalid="true"`, the
+     * summary is a `role="alert"`, and focus goes to the first problem —
+     * "rather than making them hunt", as the comment there puts it.
+     *
+     * `aria-invalid` appeared nowhere in this suite, and nothing had ever
+     * submitted a form to see where focus went. Both are markup a check can
+     * read, and neither was being read: the shape every one of the six
+     * faults listed in `docs/UI_PHASE_STATUS.md` had.
+     *
+     * Written against failures already watched rather than predicted.
+     * Removing the `setAttribute` gives `aria-invalid=0` on all three forms
+     * tried; removing `focus(first)` leaves focus on the submit button. Both
+     * mutations were confirmed to parse first, so neither result was a
+     * module that had failed to load.
+     *
+     * An empty required form is the whole fixture: `entity/new` renders it
+     * as a dialog, so there is no record to be missing.
+     */
+    {
+      await go(page, '#/insurance/policy/new');
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.waitForTimeout(500);
+      await page.locator('.modal button[type="submit"]').first().click();
+      await page.waitForTimeout(600);
+
+      const refused = await page.evaluate(() => {
+        const dialog = document.querySelector('.modal');
+        if (!dialog) return { fieldErrors: 0, invalid: 0, alert: false, focused: null, firstErrored: null };
+        // The summary carries `.field-error` as well, so the per-field ones
+        // are those sitting inside a `[data-field]` wrapper.
+        const fieldErrors = [...dialog.querySelectorAll('.field-error:not([hidden])')]
+          .filter((el) => el.closest('[data-field]'));
+        const active = document.activeElement;
+        return {
+          fieldErrors: fieldErrors.length,
+          invalid: dialog.querySelectorAll('[aria-invalid="true"]').length,
+          alert: !!dialog.querySelector('.field-error[role="alert"]:not([hidden])'),
+          focused: /** @type {any} */ (active?.closest?.('[data-field]'))?.dataset?.field ?? null,
+          firstErrored: /** @type {any} */ (fieldErrors[0]?.closest('[data-field]'))?.dataset?.field ?? null,
+        };
+      });
+
+      check('a refused form marks every field it refused',
+        refused.fieldErrors > 1 && refused.invalid === refused.fieldErrors,
+        `${refused.fieldErrors} errors, ${refused.invalid} marked aria-invalid`);
+      check('and says so once at the top, where a screen reader is listening',
+        refused.alert === true, JSON.stringify(refused));
+      check('and takes the keyboard to the first problem, not left on Save',
+        refused.focused !== null && refused.focused === refused.firstErrored,
+        `focus on ${refused.focused}, first problem is ${refused.firstErrored}`);
+
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+    }
+
     /* -------------------------------------------------- the Undo offer */
 
     /*
