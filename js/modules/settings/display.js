@@ -22,8 +22,19 @@ export function appearanceCard() {
       'aria-pressed': String(theme === current),
       onClick: (event) => {
         applyTheme(theme);
-        for (const chip of event.target.parentElement.children) {
-          chip.setAttribute('aria-pressed', String(chip === event.target));
+        // `currentTarget`, not `target`: the chip the listener is on, rather
+        // than whatever inside it the click landed on. Today these chips hold
+        // a bare text node, and a text node is never an event target — the
+        // button is — so `target` happens to be right. Put an icon in one and
+        // every chip reads `aria-pressed="false"`, the pressed one included,
+        // with nothing on screen to show for it.
+        //
+        // `chat-settings/sections.js` toggles a chip row the same way and
+        // already uses `currentTarget`, because its chips carry a `<span>`.
+        // Both spellings were in the tree, and the safe one happened to be in
+        // the place that needed it.
+        for (const chip of event.currentTarget.parentElement.children) {
+          chip.setAttribute('aria-pressed', String(chip === event.currentTarget));
         }
       },
     }, theme === 'system' ? 'Follow the system' : theme))),
