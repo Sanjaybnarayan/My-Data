@@ -41,7 +41,20 @@ import { bus, TOPIC } from '../core/bus.js';
  */
 export function diagnosticKind(error) {
   if (error?.code === 'storage') return KIND.storage;
-  if (error?.name === 'ValidationError' || error?.code === 'forbidden') return KIND.refusal;
+  // `'permission'`, not `'forbidden'`. `PermissionError` in `core/errors.js`
+  // has always carried `code: 'permission'` and nothing in this application
+  // has ever produced `'forbidden'` — so this branch could not fire, and every
+  // permission refusal was filed as a fault instead.
+  //
+  // Measured: a staff member opening a colleague's record and then trying to
+  // enter a transaction wrote two diagnostics, both `kind=error`. `KIND.refusal`
+  // says of itself "a rule refused something. Not a fault" — which is exactly
+  // what those two were, on a shared family device where a child or an
+  // employee meets the access rules as a matter of routine.
+  //
+  // `assistant.js` and `reports/build.js` both test `code === 'permission'`
+  // and always have. Three places ask the same question; two had the answer.
+  if (error?.name === 'ValidationError' || error?.code === 'permission') return KIND.refusal;
   return KIND.error;
 }
 

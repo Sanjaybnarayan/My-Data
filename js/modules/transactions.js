@@ -40,7 +40,7 @@ import { toast } from '../ui/components/toast.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { entity } from '../data/schema.js';
-import { format } from '../core/money.js';
+import { format, addable } from '../core/money.js';
 import { formatDay, formatInstant, today, addMonths } from '../core/dates.js';
 import { userMessage } from '../core/errors.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
@@ -178,8 +178,8 @@ export async function render() {
     let moneyIn = 0;
     let moneyOut = 0;
     for (const row of rows) {
-      if (directionOf(row) === 'in') moneyIn += row.amount ?? 0;
-      else moneyOut += row.amount ?? 0;
+      if (directionOf(row) === 'in') moneyIn += addable(row.amount);
+      else moneyOut += addable(row.amount);
     }
     return { moneyIn, moneyOut, net: moneyIn - moneyOut, count: rows.length };
   }
@@ -423,8 +423,8 @@ export async function render() {
     const days = new Map();
     for (const record of all) {
       const entry = days.get(record.date) ?? { moneyIn: 0, moneyOut: 0, count: 0 };
-      if (directionOf(record) === 'in') entry.moneyIn += record.amount ?? 0;
-      else entry.moneyOut += record.amount ?? 0;
+      if (directionOf(record) === 'in') entry.moneyIn += addable(record.amount);
+      else entry.moneyOut += addable(record.amount);
       entry.count += 1;
       days.set(record.date, entry);
     }

@@ -195,6 +195,9 @@ export function allocate(minor, parts, weights = null) {
 export function formatCompact(minor, code = DEFAULT_CURRENCY) {
   const { symbol } = meta(code);
   const value = toMajor(minor, code);
+  // Same reason as `format`, and reached first: a dashboard tile abbreviates
+  // before it formats, so the guard below it would never have been asked.
+  if (!Number.isFinite(value)) return String(minor);
   const sign = value < 0 ? '-' : '';
   const n = Math.abs(value);
 
@@ -221,6 +224,25 @@ export function formatCompact(minor, code = DEFAULT_CURRENCY) {
 const formatters = new Map();
 
 export function format(minor, code = DEFAULT_CURRENCY, { decimals, sign = false } = {}) {
+  // An amount that is not a number is printed as what it says.
+  //
+  // `Intl.NumberFormat` renders NaN as the three characters `NaN`, so a row a
+  // household hand-edited to `twenty thousand` in their own sheet came back to
+  // them as `₹NaN` — worse than a wrong figure, because nothing on the screen
+  // says which row it was or that their sheet is where the fix is. The text
+  // they typed says both.
+  //
+  // This was fixed four times before it was fixed here: once for CSV, once for
+  // the spreadsheet cell, once for the PDF, once for the money component. Each
+  // of those is a route out of this function, and each guard was written where
+  // the bug was seen rather than where it came from.
+  //
+  // `toMajor` sends null and undefined to zero, deliberately and separately: a
+  // blank cell means zero. Only a value that is present and unreadable reaches
+  // this line, so `String(minor)` is always the household's own text.
+  const major = toMajor(minor, code);
+  if (!Number.isFinite(major)) return String(minor);
+
   const { locale, minor: digits } = meta(code);
   const places = decimals ?? digits;
   const key = `${code}:${places}:${sign}`;

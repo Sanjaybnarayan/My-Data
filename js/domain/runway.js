@@ -233,7 +233,7 @@ export function cashRunway(accounts, transactions, bills, {
     // assumptions instead, so the figure is short by a stated unknown rather
     // than by a silent zero.
     if (bill.amount === null || bill.amount === undefined) continue;
-    dated.set(on, (dated.get(on) ?? 0) + bill.amount);
+    dated.set(on, (dated.get(on) ?? 0) + addable(bill.amount));
   }
 
   // Per account, for the bills that say which one they leave from. A pooled
@@ -255,7 +255,7 @@ export function cashRunway(accounts, transactions, bills, {
     if (!account) continue;
     let running = account.balance ?? 0;
     for (const one of [...own].sort((a, b) => a.dueOn.localeCompare(b.dueOn))) {
-      running -= one.amount;
+      running -= addable(one.amount);
       if (running < 0) {
         accountShortfalls.push({
           account: accountId,

@@ -27,12 +27,44 @@ export function toCsv(columns, rows, { bom = true, delimiter = ',' } = {}) {
 
   for (const row of rows) {
     lines.push(columns
-      .map((column) => escapeCsv(formatCell(row[column.key], column)))
+      .map((column) => cell(row[column.key], column))
       .join(delimiter));
   }
 
   // CRLF: the line ending every spreadsheet application agrees on.
   return (bom ? BOM : '') + lines.join('\r\n') + '\r\n';
+}
+
+/** A value that is a number and nothing else — no sign of a formula in it. */
+const PLAIN_NUMBER = /^-?\d+(\.\d+)?$/;
+
+/**
+ * One cell, guarded unless it is a number.
+ *
+ * `escapeForSheet` prefixes an apostrophe onto anything starting with an
+ * equals, a plus, a minus or an at-sign — written out because a bare `@` in a
+ * JSDoc block is read as a tag and the type checker stops on it. That is what
+ * stops a payee called `=HYPERLINK(...)` becoming a live formula. It also caught every negative amount, and that quietly cost
+ * more than it protected: `'-3258000` is *text* in a spreadsheet, `SUM()`
+ * skips text, and a household exporting their accounts to see where they stood
+ * got a total with every debt missing from it. No error, no empty cell — a
+ * plausible number that was too big.
+ *
+ * Measured on three accounts, one positive and two overdrawn: the column
+ * summed to the positive one alone.
+ *
+ * So a column the schema types `currency` or `number` skips the guard — but
+ * only when the value really is one, tested here rather than assumed from the
+ * column. A leading minus in a number is a sign, not an operator, and there is
+ * no formula to be had from digits. Anything else in a numeric column, and
+ * every text column, is guarded exactly as before: that is where the attack
+ * lives, and this file's own reason for existing says the money must still add
+ * up when it gets there.
+ */
+function cell(value, column) {
+  const text = formatCell(value, column);
+  const numeric = column.type === 'currency' || column.type === 'number';
+  return numeric && PLAIN_NUMBER.test(text) ? text : escapeCsv(text);
 }
 
 function formatCell(value, column) {
@@ -41,7 +73,16 @@ function formatCell(value, column) {
   if (typeof value === 'boolean') return value ? 'yes' : 'no';
   // Money leaves as a plain decimal number, not a formatted string: a column
   // of "₹1,200.00" cannot be summed in the spreadsheet it lands in.
-  if (column.type === 'currency') return String(toMajor(value, column.currency ?? 'INR'));
+  //
+  // An amount that is not a number leaves as *itself*. `toMajor` returns NaN
+  // for the hand-edited cell `domain/amounts.js` is written about, and `NaN`
+  // in a household's export tells them nothing about what is in their sheet —
+  // where the actual text, "twenty thousand", tells them exactly what to go
+  // and fix. It gets the formula guard on the way out like any other text.
+  if (column.type === 'currency') {
+    const major = toMajor(value, column.currency ?? 'INR');
+    return Number.isFinite(major) ? String(major) : String(value);
+  }
   return String(value);
 }
 

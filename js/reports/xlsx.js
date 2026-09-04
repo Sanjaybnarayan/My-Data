@@ -147,7 +147,18 @@ function cellXml(reference, value, column) {
   }
 
   if (column.type === 'currency') {
-    return `<c r="${reference}" s="${style}"><v>${toMajor(value, column.currency ?? 'INR')}</v></c>`;
+    // A numeric cell whose `<v>` is not a number is not a valid sheet. The
+    // hand-edited amount `domain/amounts.js` is written about makes `toMajor`
+    // return NaN, and `<v>NaN</v>` was written straight into the archive —
+    // measured: one such row put `NaN` in the sheet XML of a 4,708-byte file.
+    //
+    // So it falls through to the text branch below, exactly as the CSV export
+    // does, and the household sees what is actually in their sheet instead of
+    // an export they cannot open.
+    const major = toMajor(value, column.currency ?? 'INR');
+    if (Number.isFinite(major)) {
+      return `<c r="${reference}" s="${style}"><v>${major}</v></c>`;
+    }
   }
   if (column.type === 'date') {
     const serial = excelSerialDate(value);

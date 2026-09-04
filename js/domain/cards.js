@@ -39,6 +39,7 @@
  * counts.
  */
 
+import { addable } from '../core/money.js';
 import { today } from '../core/dates.js';
 import { settled } from '../data/integrity.js';
 
@@ -110,7 +111,7 @@ export function statementBalance(account, transactions, statement) {
     if (!settled(txn)) continue;
     if (String(txn.date) > statement) continue;
 
-    const amount = txn.amount ?? 0;
+    const amount = addable(txn.amount);
     // Spending on the card adds to what is owed.
     if (txn.account === account.id) {
       owed += txn.direction === 'in' || txn.kind === 'income' ? -amount : amount;

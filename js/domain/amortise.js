@@ -264,10 +264,10 @@ export function emiBreakdown(loans, transactions, inPeriod) {
       // past its own term — a top-up, or a mis-matched payee. The money still
       // went out, so it is counted and not split.
       if (!row) {
-        loanTotal += payment.amount ?? 0;
+        loanTotal += addable(payment.amount);
         return;
       }
-      loanTotal += payment.amount ?? 0;
+      loanTotal += addable(payment.amount);
       loanInterest += row.interest;
       loanPrincipal += row.principal;
     });
@@ -307,7 +307,7 @@ export function describeEmi(breakdown, money = (n) => String(n)) {
   }
 
   const rest = breakdown.unprojected.length
-    ? ` A further ${money(breakdown.unprojected.reduce((n, u) => n + u.amount, 0))} could `
+    ? ` A further ${money(breakdown.unprojected.reduce((n, u) => n + addable(u.amount), 0))} could `
       + 'not be split, because those loans have incomplete terms.'
     : '';
 

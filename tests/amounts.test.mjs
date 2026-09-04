@@ -18,6 +18,7 @@ import {
 } from '../js/domain/amounts.js';
 import { summarise } from '../js/domain/categorise.js';
 import { totals, byCategory, accountBalances } from '../js/domain/finance.js';
+import { format, formatCompact } from '../js/core/money.js';
 
 setSuite('amounts');
 
@@ -130,15 +131,33 @@ describe('the totals themselves', () => {
 
   /*
    * Nineteen call sites were fixed and three of them are asserted above. This
-   * is what covers the other sixteen.
+   * is what covers the rest.
    *
    * It reads source, and says so: it cannot tell you a figure is right, only
    * that nobody has spelled the guard the old way again. `?? 0` is the exact
    * shape of the bug — it treats a missing amount as zero, which is correct,
-   * and a string amount as a string, which concatenates. The three behavioural
+   * and a string amount as a string, which concatenates. The behavioural
    * tests above are what prove the arithmetic; this is what stops it coming
    * back somewhere none of them look.
+   *
+   * The first version of this test matched one spelling, `+ (x.amount ?? 0)`,
+   * because that was the spelling of the nineteen. It read clean while
+   * fourteen more sites spelled the same bug `+= x.amount ?? 0` and the
+   * transaction screen totalled a month by concatenating it. A guard that
+   * only recognises the instance it was written for is a guard that passes
+   * for the wrong reason, so this one now matches by shape: any accumulation
+   * of a stored money field, in any of the spellings the codebase uses.
    */
+  /*
+   * The stored fields that hold money, and the names a running total goes by.
+   * Both lists are the reason this test can be specific enough to be quiet:
+   * `t.amount` is money and `t.date` is not, `total + x` is a sum and
+   * `first - second` is a comparison.
+   */
+  const FIELDS = 'amount|charges|balance|invested|currentValue'
+    + '|openingBalance|purchasePrice|monthlyRent';
+  const ACCUMULATORS = 'total|sum|running|acc|owed|spent|n|t|value|base|cost|income|realised';
+
   test('nothing adds an amount without asking whether it is one', async () => {
     const { readdir, readFile } = await import('node:fs/promises');
     const { join, dirname } = await import('node:path');
@@ -160,11 +179,25 @@ describe('the totals themselves', () => {
 
     const offenders = [];
     for (const file of files) {
-      const src = await readFile(file, 'utf8');
-      // Addition and absolute value only. `(x.amount ?? 0) > 0` is a
-      // comparison, not a total, and flagging it would make this noise.
-      const bad = src.match(/\+ \([A-Za-z_]+\.amount \?\? 0\)|Math\.abs\([A-Za-z_]+\.amount \?\? 0\)/g);
-      if (bad) offenders.push(`${file.slice(root.length + 1)} (${bad.length})`);
+      // Prose quotes the bug shape on purpose — this file's own docstring
+      // does. Comments are not arithmetic, so they are blanked before the
+      // match rather than excused after it.
+      const src = (await readFile(file, 'utf8'))
+        .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+        .replace(/(^|[^:])\/\/.*$/gm, (m, before) => before);
+
+      // Accumulation only. `(x.amount ?? 0) > 0` is a comparison and
+      // `b.balance - a.balance` is a sort; flagging either would make this
+      // noise, and noise is how a ratchet gets switched off.
+      const bad = src.match(new RegExp([
+        `\\+ \\([A-Za-z_]+\\.(?:${FIELDS}) \\?\\? 0\\)`,
+        `Math\\.abs\\([A-Za-z_]+\\.(?:${FIELDS}) \\?\\? 0\\)`,
+        `[-+]= *\\(?[A-Za-z_]+\\.(?:${FIELDS})\\b`,
+        `\\b(?:${ACCUMULATORS}) [-+] [A-Za-z_]+\\.(?:${FIELDS})\\b`,
+        `\\?\\? 0\\) \\+ [A-Za-z_]+\\.(?:${FIELDS})\\b`,
+        `\\bconst [A-Za-z_]+ = [A-Za-z_]+\\.(?:${FIELDS}) \\?\\? 0`,
+      ].join('|'), 'g'));
+      if (bad) offenders.push(`${file.slice(root.length + 1)}: ${bad.join(', ')}`);
     }
     assert.deep(offenders, []);
   });
@@ -175,6 +208,41 @@ describe('the totals themselves', () => {
     const accounts = [{ id: 'a1', name: 'HDFC', kind: 'savings', openingBalance: 500000 }];
     const rows = [money('a', 250000), money('b', 'twenty thousand')];
     assert.equal(accountBalances(accounts, rows)[0].balance, 250000);
+  });
+});
+
+describe('the last place an unreadable amount can still be printed as one', () => {
+  /*
+   * CSV, then the spreadsheet cell, then the PDF, then the money component —
+   * four fixes, each for one route out of the same function. `format` is that
+   * function, and until now it had never been asked the question: it hands
+   * whatever it is given to `Intl.NumberFormat`, which turns a string into the
+   * three characters `NaN` behind a rupee sign.
+   *
+   * `₹NaN` is worse than a wrong figure. It is unattributable — nothing on the
+   * screen says which row, or that the household's own sheet is where the fix
+   * is. The text they typed says both.
+   */
+  test('an amount that is not a number is printed as what it says', () => {
+    assert.equal(format('twenty thousand'), 'twenty thousand');
+    assert.equal(format(NaN), 'NaN');
+  });
+
+  test('and the compact form, which is the same value on a dashboard', () => {
+    assert.equal(formatCompact('twenty thousand'), 'twenty thousand');
+  });
+
+  test('while a missing amount stays zero, which is the older and separate decision', () => {
+    // `?? 0` in `toMajor`. A blank cell means zero here and has for every
+    // release; changing that is a different argument from this one.
+    assert.equal(format(null), format(0));
+    assert.equal(format(undefined), format(0));
+  });
+
+  test('and a real amount is untouched, in both directions and both forms', () => {
+    assert.equal(format(250000), '₹2,500.00');
+    assert.equal(format(-250000), '-₹2,500.00');
+    assert.equal(formatCompact(15000000), '₹1.5 L');
   });
 });
 

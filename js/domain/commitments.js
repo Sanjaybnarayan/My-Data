@@ -74,7 +74,7 @@
  */
 
 import { today } from '../core/dates.js';
-import { divide } from '../core/money.js';
+import { divide, addable } from '../core/money.js';
 
 /** A year of a thing, as a month of it. */
 const PER_MONTH = {
@@ -387,7 +387,7 @@ export function commitmentSummary({
     lapsing: subs.lapsing,
     total: base + subs.committed,
     duplicates,
-    duplicated: duplicates.reduce((t, d) => t + d.amount, 0),
+    duplicated: duplicates.reduce((t, d) => t + addable(d.amount), 0),
     rows: subs.rows,
     loans: loans.length,
     unaccounted: unrecorded.unaccountedPerMonth,

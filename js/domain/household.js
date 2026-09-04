@@ -39,6 +39,7 @@
  * "spent on".
  */
 
+import { addable } from '../core/money.js';
 import { settled } from '../data/integrity.js';
 
 /**
@@ -66,7 +67,7 @@ export function spendByMember(people, transactions, inPeriod = () => true) {
   const totals = new Map();
 
   for (const txn of spending) {
-    const amount = txn.amount ?? 0;
+    const amount = addable(txn.amount);
     // A person id nobody recognises is untagged, not a member. A deleted
     // household member's transactions should not invent a row.
     if (!txn.person || !byId.has(txn.person)) {

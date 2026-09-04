@@ -123,6 +123,7 @@ const SHELL = [
   './js/domain/breach.js',
   './js/domain/cards.js',
   './js/domain/categorise.js',
+  './js/domain/insights.js',
   './js/domain/costbasis.js',
   './js/domain/commitments.js',
   './js/domain/conflict.js',

@@ -28,6 +28,7 @@
  * remove was not the one they clicked.
  */
 
+import { addable } from '../core/money.js';
 import { wasCheckable } from './statement.js';
 
 /**
@@ -55,8 +56,8 @@ function summarise(statement, rows) {
   let moneyIn = 0;
   let moneyOut = 0;
   for (const row of rows) {
-    if (directionOf(row) === 'in') moneyIn += row.amount ?? 0;
-    else moneyOut += row.amount ?? 0;
+    if (directionOf(row) === 'in') moneyIn += addable(row.amount);
+    else moneyOut += addable(row.amount);
   }
 
   return {

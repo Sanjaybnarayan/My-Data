@@ -4,8 +4,8 @@
   "files": {
     "js/data/schema.js": 2072,
     "js/modules/receipts.js": 1008,
-    "js/domain/categorise.js": 973,
     "js/domain/extract.js": 859,
+    "js/domain/categorise.js": 858,
     "js/modules/statements.js": 827,
     "js/data/pdf-read.js": 817
   }

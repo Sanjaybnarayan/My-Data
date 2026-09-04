@@ -7,6 +7,7 @@ import {
   reports, reportById, produce, gather, renderCsv, unreadableSummary,
 } from '../js/reports/build.js';
 import { toMinor } from '../js/core/money.js';
+import { ExampleService } from '../js/services/example.js';
 
 setSuite('reports');
 
@@ -27,6 +28,55 @@ describe('CSV', () => {
     const csv = toCsv(columns, [{ name: 'Rent', amount: toMinor('12500.50') }], { bom: false });
     assert.includes(csv, '12500.5');
     assert.not(csv.includes('₹'), 'a formatted string cannot be summed');
+  });
+
+  test('and a negative one too, which is the half that was not summable', () => {
+    /*
+     * The test above passes `12500.50`, and a positive number is the one input
+     * that cannot show this fault.
+     *
+     * `escapeForSheet` guards anything starting with `= + - @`, which is right
+     * for a payee called `=HYPERLINK(...)` and caught every debt on the way
+     * past. `'-3258000` is *text* in a spreadsheet and `SUM()` skips text, so a
+     * household exporting their accounts to see where they stood got a total
+     * with the liabilities missing — no error, no blank cell, a plausible
+     * number that was too big.
+     *
+     * Measured on three accounts, one positive and two overdrawn: the column
+     * summed to the positive one alone.
+     */
+    const csv = toCsv(columns, [
+      { name: 'Savings', amount: 5_00_000_00 },
+      { name: 'Credit card', amount: -32_58_000_00 },
+    ], { bom: false });
+
+    assert.includes(csv, ',-3258000');
+    assert.not(csv.includes("'-"), `a debt exported as text: ${csv}`);
+
+    // The figures a spreadsheet would actually add, added.
+    const summed = csv.trim().split('\r\n').slice(1)
+      .map((line) => Number(line.split(',')[1]))
+      .reduce((a, b) => a + b, 0);
+    assert.equal(summed, 500000 - 3258000, 'the column has to add up to the truth');
+  });
+
+  test('but a formula in a money column is still guarded, because it is not a number', () => {
+    // The exemption is tested at the cell, not assumed from the column: a
+    // `currency` column carrying something that is not a number gets the guard
+    // exactly as a text column would.
+    const csv = toCsv(columns, [{ name: 'Odd', amount: '=1+1' }], { bom: false });
+    assert.includes(csv, "'=1+1");
+  });
+
+  test('an amount nobody can read leaves as what it says, not as NaN', () => {
+    /*
+     * `toMajor` returns NaN for the hand-edited cell `domain/amounts.js` is
+     * written about. `NaN` in a household's own export tells them nothing;
+     * the text that is actually in their sheet tells them what to go and fix.
+     */
+    const csv = toCsv(columns, [{ name: 'Hand-edited', amount: 'twenty thousand' }], { bom: false });
+    assert.includes(csv, 'twenty thousand');
+    assert.not(csv.includes('NaN'), csv);
   });
 
   test('a byte-order mark is written so Excel reads UTF-8', () => {
@@ -63,6 +113,54 @@ describe('XLSX', () => {
     ],
     rows: [{ date: '2025-06-10', payee: 'Reliance Fresh', amount: toMinor('1250.50') }],
   };
+
+  test('an amount nobody can read does not become an invalid numeric cell', () => {
+    /*
+     * `<v>` in a numeric cell has to hold a number. The currency branch wrote
+     * `toMajor(value)` into one without asking, and `toMajor` returns NaN for
+     * the hand-edited amount `domain/amounts.js` is written about — so one such
+     * row put the characters `NaN` into the sheet XML, and the export was
+     * malformed by the format's own rules.
+     *
+     * Its neighbour, the plain `number` branch, has always tested
+     * `Number.isFinite` and fallen through to text. This is currency doing what
+     * the branch beside it already did.
+     */
+    const body = text(toXlsx([{
+      name: 'Accounts',
+      columns: [
+        { key: 'name', label: 'Account', type: 'text' },
+        { key: 'balance', label: 'Balance', type: 'currency' },
+      ],
+      rows: [
+        { name: 'Savings', balance: 5_00_000_00 },
+        { name: 'Hand-edited', balance: 'twenty thousand' },
+      ],
+    }]));
+
+    assert.not(/<v>NaN<\/v>/.test(body), 'a numeric cell holding NaN is not a valid sheet');
+    assert.not(/NaN/.test(body), 'nor anywhere else in the archive');
+    // The readable figure is still a number, or this passes by exporting nothing.
+    assert.includes(body, '<v>500000</v>');
+    // And the household is told what is actually in their sheet.
+    assert.includes(body, 'twenty thousand');
+  });
+
+  test('and a negative amount stays a number, which is the CSV fault it does not have', () => {
+    // The formula guard that turned every debt into text in the CSV export
+    // never applied here: xlsx writes a typed numeric cell. Held so that a
+    // future guard cannot be added to this path without somebody noticing.
+    const body = text(toXlsx([{
+      name: 'Accounts',
+      columns: [
+        { key: 'name', label: 'Account', type: 'text' },
+        { key: 'balance', label: 'Balance', type: 'currency' },
+      ],
+      rows: [{ name: 'Credit card', balance: -32_58_000_00 }],
+    }]));
+    assert.includes(body, '<v>-3258000</v>');
+    assert.not(body.includes("'-3258000"), 'a debt written as text cannot be summed');
+  });
 
   test('the file is a ZIP with the parts Excel requires', () => {
     const bytes = toXlsx([sheet]);
@@ -280,6 +378,43 @@ describe('report definitions', () => {
     const recent = report.build(data, { period: { from: '2025-01-01', to: '2025-01-31' } });
     assert.not(recent.sections.some((s) => s.title === 'Transactions'),
       'an empty section should be dropped, not printed with no rows');
+  });
+});
+
+describe('one unreadable amount, in all three formats at once', () => {
+  /*
+   * This was found three separate times, and the third time proved the method
+   * wrong rather than the code.
+   *
+   * `toMajor` and `format` return NaN for the hand-edited cell
+   * `domain/amounts.js` is written about — a household typing "twenty
+   * thousand" into an amount column of their own Google Sheet, which
+   * `applyRemote` accepts because refusing would lose the row. Every export
+   * reached that value by a different route and each broke differently: the
+   * CSV printed `NaN`, the sheet wrote `<v>NaN</v>` and was malformed by the
+   * format's own rules, and the PDF printed `₹NaN` on the page somebody hands
+   * to an accountant.
+   *
+   * Two were fixed, the family was written up as "three, one root, three
+   * exports", and the PDF was the fourth. So this asks all three at once,
+   * through `produce` on a real household rather than a hand-built sheet —
+   * because the fault was never in one renderer, and a test per renderer is
+   * how the third one got missed.
+   */
+  test('reaches none of the three exports', async () => {
+    const db = await makeDb();
+    await new ExampleService(db).install();
+
+    const accounts = await db.repo('account').list({ limit: 5 });
+    assert.ok(accounts.length, 'the household has to have an account to spoil');
+    await db.adapter.write('account', { ...accounts[0], openingBalance: 'twenty thousand' });
+
+    for (const format of ['csv', 'xlsx', 'pdf']) {
+      const { blobParts } = await produce(db, 'net-worth', format, {});
+      const body = typeof blobParts === 'string' ? blobParts : text(blobParts);
+      assert.ok(body.length > 200, `${format} produced almost nothing: ${body.length} bytes`);
+      assert.not(/NaN/.test(body), `${format} exported NaN to the household`);
+    }
   });
 });
 
