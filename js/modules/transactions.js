@@ -63,7 +63,19 @@ const DIRECTIONS = [
   { id: 'out', label: 'Money out' },
 ];
 
-export async function render() {
+/**
+ * `route.query` seeds the filters.
+ *
+ * The screen has had a category filter since it was written, and it lived
+ * only in local state — so nothing could link to it. The breakdown on the
+ * overview named where the money went and led nowhere; a household read
+ * "groceries 39%" and then rebuilt that filter by hand here.
+ *
+ * Read from the route rather than pushed into it: the filters stay local
+ * afterwards, so this is a starting position, not two-way binding. What it
+ * buys is that `#/finance/transaction?category=groceries` is a real address.
+ */
+export async function render(route = {}) {
   const { db } = app();
 
   const host = h('div', {});
@@ -87,6 +99,12 @@ export async function render() {
   const filter = {
     text: '', period: 'all', from: '', to: '',
     account: '', category: '', direction: 'all', min: '', max: '',
+    // Only the keys the screen already has. An unknown one in the URL is
+    // ignored rather than stored, so a stale or hand-edited link cannot put
+    // this screen into a state its own controls cannot show or undo.
+    ...Object.fromEntries(Object.entries(route.query ?? {})
+      .filter(([key]) => ['text', 'period', 'from', 'to', 'account', 'category',
+        'direction', 'min', 'max'].includes(key))),
   };
 
   let sort = { key: 'date', descending: true };

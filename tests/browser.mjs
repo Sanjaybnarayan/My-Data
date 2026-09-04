@@ -3302,6 +3302,139 @@ async function main() {
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 
+    /* ------------------------- the breakdown opens what it names, on screen */
+
+    {
+      /*
+       * A donut that names where the money went and leads nowhere.
+       *
+       * `transactions.js` has had a category filter since it was written, and
+       * it lived only in local state — so the overview could say "groceries
+       * 49%" and the household's only way to see those rows was to rebuild
+       * that filter by hand on another screen.
+       *
+       * Driven rather than inspected, because every part of this can pass on
+       * its own and still not work: the anchor can carry a query the router
+       * drops, the router can parse a query the screen ignores, and the screen
+       * can seed a filter it never applies. The assertion is the rows.
+       */
+      const before = consoleErrors.length;
+
+      const seeded = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const db = app().db;
+        const account = await db.repo('account').create({
+          name: 'Breakdown current', kind: 'savings', openingBalance: 5000000,
+        });
+        // In this month, which is the window the overview totals over.
+        const now = new Date();
+        const day = new Date(now.getFullYear(), now.getMonth(), Math.min(2, now.getDate()))
+          .toISOString().slice(0, 10);
+        const rows = [
+          { category: 'groceries', amount: 320000, payee: 'Breakdown grocer' },
+          { category: 'groceries', amount: 145000, payee: 'Breakdown corner shop' },
+          { category: 'fuel', amount: 180000, payee: 'Breakdown fuel stop' },
+        ];
+        for (const row of rows) {
+          await db.repo('transaction').create({
+            date: day, kind: 'expense', account: account.id, method: 'UPI', ...row,
+          });
+        }
+        return { day, rows: rows.length };
+      }, IN_PAGE.context);
+
+      check('the breakdown fixture was seeded', seeded.rows === 3, JSON.stringify(seeded));
+
+      await go(page, '#/dashboard');
+      await go(page, '#/finance');
+      await page.waitForTimeout(900);
+
+      const legend = await page.evaluate(() => [...document.querySelectorAll('.legend-row')]
+        .map((row) => ({
+          linked: row.tagName === 'A',
+          href: row.getAttribute('href'),
+          label: row.textContent.trim().replace(/\s+/g, ' '),
+          height: Math.round(row.getBoundingClientRect().height),
+        })));
+
+      check('the category breakdown drew legend rows',
+        legend.length > 0, JSON.stringify(legend));
+
+      // `Other` is several categories added together. A link claiming to show
+      // it would show a filter nobody asked for, so it is the one row that
+      // must stay inert.
+      const linkable = legend.filter((row) => !/^Other/.test(row.label));
+      check('every named category is a link to its own rows',
+        linkable.length > 0 && linkable.every((row) => row.linked
+          && /^#\/finance\/transaction\?category=/.test(row.href ?? '')),
+        JSON.stringify(legend));
+
+      check('and the synthetic Other bucket is not one',
+        legend.filter((row) => /^Other/.test(row.label)).every((row) => !row.linked),
+        JSON.stringify(legend));
+
+      // The same 44px this suite measures everywhere else. A legend row that
+      // became tappable without becoming big enough to tap is worse than one
+      // that stayed a label. Measured over the rows that actually are links,
+      // and only counted when there is at least one — a tap-target check with
+      // nothing to measure is the shape of check this repository keeps finding
+      // green while the thing it names is gone.
+      const links = legend.filter((row) => row.linked);
+      check('a breakdown row is big enough to tap',
+        links.length > 0 && links.every((row) => row.height >= 44), JSON.stringify(legend));
+
+      await page.locator('.legend-row--link', { hasText: 'groceries' }).first().click();
+      await page.waitForTimeout(900);
+
+      const landed = await page.evaluate(() => {
+        const table = document.querySelector('.app-content table');
+        const rows = table ? [...table.querySelectorAll('tbody tr')] : [];
+        return {
+          hash: globalThis.location.hash,
+          text: rows.map((row) => row.textContent.replace(/\s+/g, ' ')).join(' | '),
+          // The screen's own control, so the household can see the filter and
+          // take it off again rather than being stuck in a state with no
+          // visible cause.
+          category: [...(document.querySelector('.app-content')
+            ?.querySelectorAll('select') ?? [])]
+            .map((one) => one.value).filter(Boolean),
+        };
+      });
+
+      check('clicking a slice opens the transactions it stands for',
+        landed.hash === '#/finance/transaction?category=groceries', landed.hash);
+
+      check('and the rows shown are that category and no other',
+        /Breakdown grocer/.test(landed.text)
+          && /Breakdown corner shop/.test(landed.text)
+          && !/Breakdown fuel stop/.test(landed.text),
+        landed.text.slice(0, 500));
+
+      check('the filter the link applied is visible in the screen\'s own control',
+        landed.category.includes('groceries'), JSON.stringify(landed.category));
+
+      // A link that outlives the screen it was copied from. An unknown key has
+      // to be dropped rather than stored, or a stale bookmark puts the ledger
+      // into a state its own controls cannot show or undo.
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/transaction?category=fuel&notAFilter=1');
+      await page.waitForTimeout(700);
+      const direct = await page.evaluate(() => {
+        const table = document.querySelector('.app-content table');
+        return [...(table ? table.querySelectorAll('tbody tr') : [])]
+          .map((row) => row.textContent.replace(/\s+/g, ' ')).join(' | ');
+      });
+
+      check('a bookmarked category link filters the ledger on its own',
+        /Breakdown fuel stop/.test(direct) && !/Breakdown grocer/.test(direct),
+        direct.slice(0, 500));
+
+      check('the breakdown drill-down renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      if (SHOTS) await shot(page, 'finance-breakdown-drilldown');
+    }
+
     /* --------------------------------- how long the money lasts, on screen */
 
     {

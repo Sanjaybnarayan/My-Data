@@ -12,12 +12,24 @@
  */
 
 import { h } from '../dom.js';
+import { icon } from '../icons.js';
 import { format, formatCompact } from '../../core/money.js';
 
 const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)',
   'var(--series-5)', 'var(--series-6)', 'var(--series-7)', 'var(--series-8)'];
 
 export const seriesColour = (i) => SERIES[i % SERIES.length];
+
+/**
+ * The sentence a chart already tells a screen reader, shown to the eye too.
+ *
+ * Every chart here takes a `label` that becomes its accessible name, and a
+ * card holding two of them — bars and a line, say — reads as two unexplained
+ * pictures to anyone looking at it. This puts the same words above the
+ * figure, `aria-hidden` so they are not announced twice.
+ */
+export const chartCaption = (text) =>
+  h('p', { class: 'chart-caption small muted', 'aria-hidden': 'true' }, text);
 
 /** Round a maximum up to something a human would put on an axis. */
 export function niceMax(value) {
@@ -143,7 +155,21 @@ export function lineChart(data, { height = 200, currency = 'INR', label = 'Trend
  * Segments below 1.5% are folded into "other" rather than drawn as slivers
  * nobody can see or click.
  */
-export function donutChart(data, { size = 180, currency = 'INR', label = 'Breakdown' } = {}) {
+/**
+ * `hrefFor` turns each legend row into a link.
+ *
+ * A breakdown that names where the money went and cannot be opened is a
+ * dead end: the household reads "groceries 39%" and has to go and rebuild
+ * that filter by hand somewhere else. Given a `hrefFor`, each row becomes an
+ * anchor to the rows behind it.
+ *
+ * It returns null for a slice that has no single thing behind it — the
+ * synthetic *Other* bucket is several categories added together, and a link
+ * claiming to show "Other" would show a filter nobody asked for.
+ */
+export function donutChart(data, {
+  size = 180, currency = 'INR', label = 'Breakdown', hrefFor = null,
+} = {}) {
   const total = data.reduce((t, d) => t + Math.abs(d.value), 0);
   if (!total) return h('div', { class: 'empty small' }, 'No data yet');
 
@@ -191,16 +217,27 @@ export function donutChart(data, { size = 180, currency = 'INR', label = 'Breakd
           style: { fontSize: '6px', fill: 'var(--text-faint)' },
         }, 'total'),
       ]),
-      h('div', { class: 'stack stack--tight spacer' }, slices.map((d, i) => h('div', {
-        class: 'row row--between small',
-      }, [
-        h('span', { class: 'legend-item' }, [
-          h('span', { class: 'legend-swatch', style: { background: seriesColour(i) } }),
-          d.label,
-        ]),
-        h('span', { class: 'numeric muted' },
-          `${Math.round((Math.abs(d.value) / total) * 100)}%`),
-      ]))),
+      h('div', { class: 'stack stack--tight spacer' }, slices.map((d, i) => {
+        // `Other` is `small` added together and is deliberately not linkable.
+        const href = hrefFor && d.label !== 'Other' ? hrefFor(d) : null;
+        const inside = [
+          h('span', { class: 'legend-item' }, [
+            h('span', { class: 'legend-swatch', style: { background: seriesColour(i) } }),
+            d.label,
+          ]),
+          h('span', { class: 'legend-value' }, [
+            h('span', { class: 'numeric muted' },
+              `${Math.round((Math.abs(d.value) / total) * 100)}%`),
+            // A phone has no hover, so the surface that appears under the
+            // pointer says nothing there. The chevron is what says at rest
+            // that the row opens — and it is drawn only where one does.
+            href ? icon('chevronRight', { size: 16, class: 'legend-go' }) : null,
+          ]),
+        ];
+        return href
+          ? h('a', { class: 'row row--between small legend-row legend-row--link', href }, inside)
+          : h('div', { class: 'row row--between small legend-row' }, inside);
+      })),
     ]),
   ], {
     label,

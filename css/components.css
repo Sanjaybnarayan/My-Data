@@ -452,6 +452,33 @@
  * `auto-fit` rather than a fixed three, so the same rule holds for cards with
  * two figures and for a desktop column wide enough for more.
  */
+/*
+ * A breakdown row that opens what it names.
+ *
+ * The link has to look like the row it replaced — a legend that suddenly grew
+ * blue underlined text would read as a different kind of thing — so it
+ * inherits colour and loses the underline, and says it is tappable by
+ * behaving like it: a surface on hover, a real focus ring for the keyboard.
+ */
+.legend-row {
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  margin: 0 calc(var(--space-2) * -1);
+}
+.legend-row--link {
+  color: inherit;
+  text-decoration: none;
+  /* 44px is the tap-target minimum this repository measures rather than
+     claims — see the sweep in `tests/browser.mjs`. */
+  min-height: 44px;
+  align-items: center;
+}
+.legend-row--link:hover { background: var(--surface-sunken); }
+.legend-row--link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chart-caption { margin: var(--space-2) 0 0; }
+.legend-value { display: flex; align-items: center; gap: var(--space-2); }
+.legend-go { color: var(--text-faint); flex: none; }
+
 .metric-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
