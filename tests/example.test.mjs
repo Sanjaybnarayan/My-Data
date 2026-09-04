@@ -13,8 +13,8 @@ import { ExampleService, loadedExample } from '../js/services/example.js';
 import { plan, META_KEY } from '../js/domain/example.js';
 import { entity } from '../js/data/schema.js';
 import { formats } from '../js/data/formats.js';
-import { expiryReminders } from '../js/domain/reminders.js';
 import { exampleStrings } from '../js/locale/en-example.js';
+import { expiryReminders } from '../js/domain/reminders.js';
 import { strings as english } from '../js/locale/en.js';
 
 setSuite('example');
@@ -118,6 +118,65 @@ describe('the example household', () => {
     const out = await new ExampleService(withRecord).install();
     assert.not(out.loaded, 'one typed-in record is enough to refuse');
     assert.equal(await loadedExample(withRecord), null);
+  });
+
+  test('the sentence offering it counts what the plan actually writes', () => {
+    /*
+     * The copy on the Settings card names four figures, and three of them had
+     * been right for as long as nobody changed the plan. Adding a cook and a
+     * driver made it say *"Six people"* about a household of eight — a number
+     * on a screen, describing invented records, that was itself wrong.
+     *
+     * `tools/self-description.mjs` already refuses a *document* whose numbers
+     * have gone stale. This is the same rule for the one piece of UI copy that
+     * makes counting claims, derived from the plan rather than typed here, so
+     * the next person to add a person is told rather than trusted.
+     */
+    const words = {
+      one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+      nine: 9, ten: 10, eleven: 11, twelve: 12,
+    };
+    const said = (word) => {
+      const n = words[word];
+      assert.ok(n !== undefined, `the copy says "${word}", which this test cannot count`);
+      return n;
+    };
+
+    const rows = (name) => plan().filter((step) => step.entity === name)
+      .reduce((n, step) => n + step.rows.length, 0);
+
+    const body = exampleStrings['example.load.body'];
+    const claimed = body.match(/^(\w+) people, (\w+) savings accounts, (\w+) cars, (\w+) /);
+    assert.ok(claimed, `the copy no longer has the shape this test reads: ${body.slice(0, 60)}`);
+
+    assert.equal(said(claimed[1].toLowerCase()), rows('person'), 'people');
+    assert.equal(said(claimed[2].toLowerCase()), rows('account'), 'savings accounts');
+    assert.equal(said(claimed[3].toLowerCase()), rows('vehicle'), 'cars');
+    assert.equal(said(claimed[4].toLowerCase()), rows('policy'), 'insurance policies');
+  });
+
+  test('a refusal counts records, because it is no longer counting only people', async () => {
+    /*
+     * The message used to read *"already has {count} people in it"*, and the
+     * check behind it only ever counted people. Now that occupancy is a sweep
+     * of every entity, one person and one vehicle refuse with a count of two —
+     * and there is one person. Saying "records" is what makes the number true.
+     */
+    const db = await makeDb({ personId: 'per_owner' });
+    const owner = await db.repo('person').create({
+      name: 'You', role: 'owner', relationship: 'self',
+    });
+    db.setActor({ personId: owner.id, role: 'owner' });
+    await db.repo('vehicle').create({
+      name: 'Hatchback', kind: 'car', registration: 'KA01AB1234',
+    });
+
+    const out = await new ExampleService(db).install();
+    assert.not(out.loaded);
+    assert.equal(out.people, 2, 'one person and one vehicle are two records');
+    assert.length(await db.repo('person').list({ limit: 50 }), 1, 'and only one is a person');
+    assert.not(/people/.test(exampleStrings['example.refused']),
+      'the sentence must not call that number a count of people');
   });
 
   test('comes out again, leaving nothing behind', async () => {

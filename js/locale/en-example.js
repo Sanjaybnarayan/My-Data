@@ -83,15 +83,17 @@ export const exampleStrings = {
 
   // The control, and what it says before and after.
   'example.load.title': 'Example household',
-  'example.load.body': 'Six people, twelve savings accounts, two cars, four '
+  'example.load.body': 'Eight people, twelve savings accounts, two cars, four '
     + 'insurance policies and their identity documents — all invented, so you '
-    + 'can see how the screens behave with records in them.',
+    + 'can see how the screens behave with records in them. They are written '
+    + 'like any other record, so if this device syncs they reach your sheet '
+    + 'too, and removing them takes them out of it again.',
   'example.load.action': 'Load the example household',
   'example.remove.action': 'Remove the example household',
   'example.loaded': 'Loaded: {count} records. Every one is marked as an '
     + 'example and can be removed together.',
   'example.removed': 'Removed {count} example records.',
-  'example.refused': 'This household already has {count} people in it, so the '
+  'example.refused': 'This household already has {count} records in it, so the '
     + 'example was not loaded. It is only offered on an empty household, '
     + 'because mixing invented records into real ones is not something that '
     + 'can be undone by hand.',
