@@ -32,6 +32,7 @@ import { describeSpendByMember, settleable } from '../../domain/household.js';
 import { describeCommitments } from '../../domain/commitments.js';
 import { describeRunway } from '../../domain/runway.js';
 import { TRANSACTION_LIMIT } from '../../services/service.js';
+import { categoryTitle } from '../../domain/category.js';
 import { t } from '../../core/locale.js';
 
 /**
@@ -207,13 +208,11 @@ export async function financeOverview() {
             value: formatCompact(compare.current.expense),
             delta: compare.expenseChange,
             goodWhen: 'down',
-            hint: fin.comparedWith(compare),
           }),
           metric({
             label: t('finance.overview.received'),
             value: formatCompact(compare.current.income),
             delta: compare.incomeChange,
-            hint: fin.comparedWith(compare),
           }),
           metric({
             label: t('finance.overview.net'),
@@ -221,6 +220,18 @@ export async function financeOverview() {
             compact: true,
           }),
         ]),
+        // What the two percentages are measured against, said once under both
+        // rather than repeated beside each.
+        //
+        // It was the `hint` on each metric, so a 110px column held "0% vs the
+        // same days last month" wrapped over two lines — twice, under two of
+        // the three figures, in a green that made a caption look like a
+        // reading. The sentence is the same sentence; what it qualifies is the
+        // row. It must still be said, and near the numbers: which days are
+        // being compared is what makes a percentage mean anything, and this
+        // application has already been caught letting a partial month read as
+        // thrift.
+        h('p', { class: 'small muted spacer' }, fin.comparedWith(compare)),
         // Said next to the number it is about, and it never changes the number
         // itself. A total that quietly shrank because a second file was
         // imported would be worse than the double count, because nobody would
@@ -331,14 +342,20 @@ export async function financeOverview() {
           // dates, but what that category *is*: the month against the last,
           // the year behind it, who it went to, the bills filed under it.
           //
-          // `label` is the category key itself — `byCategory` buckets on
-          // `t.category` — so the legend and the screen it opens cannot drift
-          // apart into two spellings of one thing.
-          donutChart(categories, {
+          // The key and the words are carried separately. `byCategory` buckets
+          // on `t.category`, so its `label` is the stored key — which the
+          // legend was printing: this card said `utilities` while the Insights
+          // screen said `Bills and utilities` about the same rupees, and the
+          // category screen the slice opens said it a third way until
+          // `categoryTitle` was written. `key` is what the link is built from,
+          // so the two cannot drift no matter how the words change.
+          donutChart(categories.map((slice) => ({
+            ...slice, key: slice.label, label: categoryTitle(slice.label),
+          })), {
             label: t('finance.overview.categoryChart'),
             size: 160,
             hrefFor: (slice) => Router.href({
-              module: 'finance', entity: 'category', id: slice.label,
+              module: 'finance', entity: 'category', id: slice.key,
             }),
           }),
         ])

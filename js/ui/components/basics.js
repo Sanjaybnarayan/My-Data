@@ -291,14 +291,26 @@ export function progress(value, max, { warnAt = 0.8, label } = {}) {
 /**
  * @param {{title?: Child, subtitle?: Child, value?: Child, leading?: Child,
  *          trailing?: Child, href?: string, onClick?: Handler,
- *          tone?: string}} [options]
+ *          tone?: string, wrap?: boolean}} [options]
  */
-export function listItem({ title, subtitle, value, leading, trailing, href, onClick, tone } = {}) {
+export function listItem({
+  title, subtitle, value, leading, trailing, href, onClick, tone, wrap = false,
+} = {}) {
   const children = [
     leading,
     h('div', { class: 'list-item-body' }, [
       h('div', { class: 'list-item-title' }, title),
-      subtitle ? h('div', { class: 'list-item-subtitle' }, subtitle) : null,
+      // `wrap` for a subtitle that is a sentence rather than a label.
+      //
+      // Subtitles are one line and end in an ellipsis, which is right for a
+      // name or a date. The Position screen's subtitle is its provenance —
+      // "loans outstanding and cards not yet settled" — and the card's own
+      // heading promises that every figure names where it came from. Cut at
+      // `loans outstanding and cards …`, the screen stopped keeping the
+      // promise it makes at the top of itself.
+      subtitle
+        ? h('div', { class: ['list-item-subtitle', wrap && 'list-item-subtitle--wrap'] }, subtitle)
+        : null,
     ]),
     value ? h('div', { class: ['list-item-value', tone && `money--${tone}`] }, value) : null,
     trailing,

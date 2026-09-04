@@ -388,6 +388,53 @@
     font-size: var(--text-sm);
   }
   .table--responsive .cell--numeric { text-align: left; }
+
+  /*
+   * The card gets a subject, a figure, and then its details.
+   *
+   * Every column had the same weight — a 40% label and the rest for the value
+   * — so the field that says *which record this is* was the same size as the
+   * field that says whether a flag is set, and truncated into the bargain.
+   * See `buildRow` in `ui/components/table.js` for the account rows that
+   * prompted this.
+   *
+   * The first column is the one a table puts its subject in, so on a phone it
+   * is the card's title: no label, full width, and allowed to wrap rather
+   * than end in an ellipsis a household cannot expand.
+   */
+  .table--responsive .cell--primary {
+    display: block;
+    font-size: var(--text-md);
+    font-weight: 600;
+    line-height: 1.3;
+    margin-bottom: var(--space-1);
+  }
+  .table--responsive .cell--primary::before { display: none; }
+  /* The value inside it was built for a table column, where one line and an
+     ellipsis is right. Here there is a whole card width to use. */
+  .table--responsive .cell--primary .truncate {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* The money is the second thing read, so it is not the same size as the
+     holder's name three lines below it. */
+  .table--responsive .cell--numeric { font-weight: 600; }
+
+  /* A flag that is not set is not news. The desktop table still shows the
+     column, and the record itself still carries the field — this is the same
+     choice the bills list already makes with `autoDebit`, which draws a badge
+     when it is on and nothing at all when it is off. */
+  .table--responsive .cell--flag-off { display: none; }
+
+  /* Nor is a detail the title has already given. See `saidAlready`. */
+  .table--responsive .cell--said-already { display: none; }
+
+  /* Nor an em dash. In a column it says this row has no value where the row
+     above does; with no column it is a field name beside a mark meaning
+     nothing. See `blank`. */
+  .table--responsive .cell--blank { display: none; }
 }
 
 .virtual-viewport { overflow-y: auto; position: relative; }
@@ -547,13 +594,29 @@
   color: var(--text-muted);
   display: flex; align-items: center; gap: var(--space-2);
 }
+/*
+ * A figure is read at a glance or it is not a figure.
+ *
+ * `.metric-row` gives three metrics about 110px each on a 390px phone, and at
+ * this size `₹8.25 K` did not fit: it broke after the digits and left the K
+ * alone on the line below, under a label that had wrapped to two lines of its
+ * own. `formatCompact` has already shortened the number as far as it goes, so
+ * the type gives way instead — and never the number, which is why the break is
+ * forbidden outright rather than left to the width to decide.
+ */
 .metric-value {
   font-size: var(--text-2xl);
   font-weight: 600;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .metric-value--sm { font-size: var(--text-xl); }
+
+@media (max-width: 430px) {
+  .metric-row .metric-value { font-size: var(--text-xl); }
+  .metric-row .metric-value--sm { font-size: var(--text-lg); }
+}
 .metric-delta { font-size: var(--text-sm); font-weight: 500; }
 .metric-delta--up { color: var(--positive); }
 .metric-delta--down { color: var(--danger); }
@@ -581,10 +644,21 @@
   font-weight: 500;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* A finding: a badge and an amount, then the sentence they are about, across
+   the whole card. Squeezed into a list row's title column it wrapped down
+   eight lines beside two things with room to spare. */
+.finding { display: block; }
+.finding-text { margin: var(--space-2) 0 0; }
 .list-item-subtitle {
   font-size: var(--text-sm);
   color: var(--text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Where the subtitle is the point of the row rather than a note beside it. */
+.list-item-subtitle--wrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 .list-item-value { font-variant-numeric: tabular-nums; font-weight: 500; text-align: right; }
 
@@ -735,6 +809,24 @@
 .chart-axis { stroke: var(--border); stroke-width: 1; }
 .chart-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.7; }
 .chart-label { fill: var(--text-faint); font-size: 11px; }
+/* Kept on one line and allowed past its own slot: see `thinLabels`. A month
+   cut to `J..` names three different months.
+ *
+ * The row itself still clips. A label wide enough to spill into an emptied
+ * neighbour is also wide enough to stretch the flex row past the card, which
+ * put a horizontal scrollbar on the whole overview — so the spill is allowed
+ * within the row and stops at its edge. */
+.chart-axis-labels { overflow: hidden; }
+.chart-axis-labels > span { white-space: nowrap; overflow: visible; }
+/* The last label spills inward.
+ *
+ * `text-align` does not decide which way an overflowing line escapes its box —
+ * it escapes to the right either way — so the last label was cut to `Se` by
+ * the row's clip. `direction` does decide, and the text inside is unaffected:
+ * a run of Latin characters is laid out left to right by the bidi algorithm
+ * whatever the surrounding direction, so `Sep so far` reads as itself and
+ * overflows leftward into the slot thinning has already emptied. */
+.chart-axis-labels > span:last-child { direction: rtl; }
 .chart-bar { transition: opacity var(--duration-fast) var(--ease); }
 .chart-bar:hover { opacity: 0.8; }
 .chart-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }

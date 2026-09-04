@@ -106,18 +106,19 @@ export function monthlySeries(transactions, monthsBack = 6, clock = Date.now) {
 }
 
 /**
- * A monthly series as chart bars, with the unfinished month named unfinished.
+ * A monthly series as chart bars, with the unfinished month marked unfinished.
  *
- * In the label rather than in the colour, because the master brief forbids
- * carrying meaning by colour alone and a bar chart's text axis is read by
- * everybody — `barChart` also builds its text equivalent from these labels, so
- * the qualification survives into the version a screen reader is given.
+ * Marked rather than renamed. The qualification used to be written into the
+ * label — `Sep so far` — which put a fifty-nine pixel string into a twenty-six
+ * pixel axis slot: it was cut to `Se`, and given room it sat on top of the
+ * month before it. `barChart` says it in a caption under the chart instead,
+ * and in the text equivalent it builds.
+ *
+ * Still never by colour alone, which the master brief forbids and which is why
+ * this carries a flag a chart can read rather than a tone it might paint.
  */
 export function spendingBars(series) {
-  return series.map((m) => ({
-    label: m.partial ? t('chart.monthSoFar', { month: m.label }) : m.label,
-    value: m.expense,
-  }));
+  return series.map((m) => ({ label: m.label, value: m.expense, partial: m.partial }));
 }
 
 /**

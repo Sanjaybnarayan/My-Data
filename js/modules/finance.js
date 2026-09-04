@@ -315,15 +315,18 @@ async function positionScreen() {
       cardHeader(t('finance.position.title'), null, {
         subtitle: t('finance.position.subtitle', { month: out.monthLabel }),
       }),
+      // Wrapped, because this card's heading promises that every figure names
+      // where it came from, and four of the nine had that naming cut off.
       h('div', { class: 'list' }, out.lines.map((row) => listItem({
         title: row.label,
         subtitle: describeLine(row, (n) => format(n)),
         trailing: row.why ? badge('—', 'warning') : null,
+        wrap: true,
       }))),
     ]),
 
     card({ class: 'card--quiet cfo-partial' }, [
-      cardHeader(t('finance.position.partial', { month: partial.month }), null, {
+      cardHeader(t('finance.position.partial', { month: partial.monthLabel }), null, {
         subtitle: t('finance.position.upTo', { day: formatDay(partial.upTo) }),
       }),
       h('p', { class: 'small' }, t('finance.position.flow', {
