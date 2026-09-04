@@ -167,7 +167,7 @@ async function paint(host) {
     pageHeader('Settings', { subtitle: `Device ${db.deviceId.slice(0, 12)}…` }),
 
     drawn.length > 1
-      ? h('div', { class: 'chip-row settings-jump', role: 'group', 'aria-label': 'Settings sections' }, drawn.map(({ title }) => chip(t(title), {
+      ? h('div', { class: 'chip-row chip-row--scroll settings-jump', role: 'group', 'aria-label': 'Settings sections' }, drawn.map(({ title }) => chip(t(title), {
         onClick: () => sections.get(title)?.scrollIntoView({ block: 'start' }),
       })))
       : null,
