@@ -19,7 +19,7 @@
  * single pass is preserved for everything else.
  */
 
-import { Service } from './service.js';
+import { Service, HOLDING_LIMIT } from './service.js';
 import {
   estate, bequestConflicts, willCoverage, willsInConflict, currentLegalDocuments,
 } from '../domain/estate.js';
@@ -28,16 +28,16 @@ import {
 export const ESTATE_LOAD = Object.freeze({
   // Decrypted deliberately — see above. The default is `decrypt: true`, and it
   // is written out here so that changing it is a decision rather than a typo.
-  accounts: ['account', { decrypt: true, limit: 500 }],
-  holdings: ['holding', { decrypt: true, limit: 1000 }],
+  accounts: ['account', { decrypt: true }],
+  holdings: ['holding', { decrypt: true, limit: HOLDING_LIMIT }],
   policies: ['policy', { decrypt: true, limit: 500 }],
   people: ['person', { decrypt: false, limit: 500 }],
   // Read only to be counted and named. Nothing here nominates a flat.
-  properties: ['property', { decrypt: false, limit: 200 }],
-  vehicles: ['vehicle', { decrypt: false, limit: 200 }],
-  loans: ['loan', { decrypt: false, limit: 200 }],
+  properties: ['property', { decrypt: false }],
+  vehicles: ['vehicle', { decrypt: false }],
+  loans: ['loan', { decrypt: false }],
   vaultItems: ['vaultItem', { decrypt: false, limit: 500 }],
-  digitalAssets: ['digitalAsset', { decrypt: false, limit: 500 }],
+  digitalAssets: ['digitalAsset', { decrypt: false }],
   // The three that let a bequest be read against a nomination.
   wills: ['will', { decrypt: false, limit: 200 }],
   beneficiaries: ['beneficiary', { decrypt: false, limit: 1000 }],

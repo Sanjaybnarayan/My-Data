@@ -12,7 +12,7 @@ import { mileage } from '../domain/fuel.js';
 
 /** @type {Record<string, import('./service.js').Load>} */
 export const VEHICLES_LOAD = Object.freeze({
-  vehicles: ['vehicle', { decrypt: false, limit: 200 }],
+  vehicles: ['vehicle', { decrypt: false }],
   fuelLogs: ['fuelLog', { decrypt: false, limit: 2000 }],
 });
 

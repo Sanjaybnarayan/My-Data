@@ -51,7 +51,7 @@ import { isBillableCard } from '../domain/cards.js';
  */
 /** @type {Record<string, import('./service.js').Load>} */
 export const FINANCE_OVERVIEW_LOAD = Object.freeze({
-  accounts: ['account', { decrypt: false, limit: 500 }],
+  accounts: ['account', { decrypt: false }],
   transactions: ['transaction', { decrypt: false, limit: TRANSACTION_LIMIT }],
   budgets: ['budget', { decrypt: false }],
   recurring: ['recurringPayment', { decrypt: false }],

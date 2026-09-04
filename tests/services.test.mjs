@@ -21,6 +21,7 @@ import {
   Service, NET_WORTH_LOAD, TRANSACTION_LIMIT, transactionsTruncated,
 } from '../js/services/service.js';
 import { PortfolioService } from '../js/services/portfolio.js';
+import { CfoService } from '../js/services/cfo.js';
 import { RecordsService } from '../js/services/records.js';
 import { FinanceService, assembleOverview } from '../js/services/finance.js';
 import { DocumentsService } from '../js/services/documents.js';
@@ -739,6 +740,65 @@ describe('one limit for every money figure', () => {
 
     assert.equal(offenders.join('\n'), '',
       'these read transactions with a hard-coded limit; use TRANSACTION_LIMIT');
+  });
+
+  /*
+   * The same fault, in the entity the guard above never looked at.
+   *
+   * That scan matches `repo('transaction')` reads, so holdings were free to
+   * drift — and had, into three limits: 500 for the CFO position and the goals
+   * review, 1,000 for the estate, 2,000 for the portfolio and net worth.
+   * Measured on 600 holdings of ₹1,000 each, the CFO said ₹5,00,000 and the
+   * portfolio said ₹6,00,000. The same household, the same day, a lakh apart,
+   * which is the table in `docs/ONE_LIMIT.md` written about a different noun.
+   *
+   * Scoped to the six entities net worth is assembled from. Every other entity
+   * is read at whatever suits the screen asking, and unifying those would be a
+   * rule about picker lists rather than about money.
+   */
+  test('no service invents its own limit for an entity net worth is made of', () => {
+    const base = new URL('../js/services/', import.meta.url).pathname;
+    const counted = ['account', 'transaction', 'holding', 'property', 'vehicle', 'loan'];
+    const limits = new Map(counted.map((name) => [name, new Map()]));
+
+    for (const file of readdirSync(base).filter((f) => f.endsWith('.js'))) {
+      const text = readFileSync(join(base, file), 'utf8');
+      for (const [, entity, options] of text.matchAll(/\['(\w+)',\s*\{([^}]*)\}\]/g)) {
+        if (!limits.has(entity)) continue;
+        const limit = options.match(/limit:\s*([A-Za-z0-9_]+)/)?.[1] ?? 'no limit';
+        limits.get(entity).set(limit, file);
+      }
+    }
+
+    // The fixture has to see the reads, or this passes by finding nothing.
+    assert.ok(limits.get('holding').size > 0, 'no holding read was found to check');
+    assert.ok(limits.get('transaction').size > 0, 'no transaction read was found to check');
+
+    const split = [...limits]
+      .filter(([, byLimit]) => byLimit.size > 1)
+      .map(([entity, byLimit]) => `${entity}: ${[...byLimit].map(([l, f]) => `${l} (${f})`).join(', ')}`);
+    assert.deep(split, []);
+  });
+
+  test('and two screens assembled from those entities agree on the figure', async () => {
+    // The behavioural half. The scan above reads source and would pass on a
+    // shared constant that was wrong; this reads the number off both screens.
+    const db = await makeDb();
+    for (let i = 0; i < 600; i += 1) {
+      await db.repo('holding').create({
+        name: `Fund ${i}`, kind: 'mutual fund', units: 1,
+        invested: 1000_00, currentValue: 1000_00, active: true,
+      });
+    }
+    const clock = () => Date.parse('2026-07-20T00:00:00Z');
+    const cfo = await new CfoService(db).position({ clock });
+    const portfolio = await new PortfolioService(db).overview({ asOf: '2026-07-20' });
+    const cfoNetWorth = cfo.lines.find((one) => one.id === 'netWorth')?.value;
+
+    assert.equal(portfolio.netWorth.total, 600 * 1000_00,
+      'the fixture does not build the figure this test claims to measure');
+    assert.equal(cfoNetWorth, portfolio.netWorth.total,
+      'two screens, one household, two net worths');
   });
 
   test('the overview reports whether its figures saw the whole history', () => {
