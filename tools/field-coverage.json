@@ -42,7 +42,6 @@
     "property.surveyNumber",
     "purchase.seller",
     "purchase.serialNumber",
-    "sosAlert.resolvedAt",
     "tenant.agreements",
     "tenant.depositReturnedOn",
     "trip.bookings",

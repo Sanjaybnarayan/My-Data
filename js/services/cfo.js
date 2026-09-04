@@ -7,20 +7,20 @@
  * through a browser.
  */
 
-import { Service, TRANSACTION_LIMIT } from './service.js';
+import { Service, TRANSACTION_LIMIT, HOLDING_LIMIT } from './service.js';
 import { position } from '../domain/cfo.js';
 
 /** @type {Record<string, import('./service.js').Load>} */
 export const CFO_LOAD = Object.freeze({
-  accounts: ['account', { decrypt: false, limit: 500 }],
+  accounts: ['account', { decrypt: false }],
   transactions: ['transaction', { decrypt: false, limit: TRANSACTION_LIMIT }],
-  holdings: ['holding', { decrypt: false, limit: 500 }],
-  properties: ['property', { decrypt: false, limit: 200 }],
-  vehicles: ['vehicle', { decrypt: false, limit: 200 }],
-  loans: ['loan', { decrypt: false, limit: 200 }],
-  recurring: ['recurringPayment', { decrypt: false, limit: 500 }],
-  subscriptions: ['subscription', { decrypt: false, limit: 500 }],
-  digitalAssets: ['digitalAsset', { decrypt: false, limit: 500 }],
+  holdings: ['holding', { decrypt: false, limit: HOLDING_LIMIT }],
+  properties: ['property', { decrypt: false }],
+  vehicles: ['vehicle', { decrypt: false }],
+  loans: ['loan', { decrypt: false }],
+  recurring: ['recurringPayment', { decrypt: false }],
+  subscriptions: ['subscription', { decrypt: false }],
+  digitalAssets: ['digitalAsset', { decrypt: false }],
   goals: ['goal', { decrypt: false, limit: 500 }],
 });
 

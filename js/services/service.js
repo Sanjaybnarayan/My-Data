@@ -125,6 +125,32 @@ export class Service {
 export const TRANSACTION_LIMIT = 50_000;
 
 /**
+ * How many holdings a money figure is computed from.
+ *
+ * ## The same fault as `TRANSACTION_LIMIT`, in a different entity
+ *
+ * `docs/ONE_LIMIT.md` records three screens giving three balances because each
+ * chose its own transaction limit, and a guard was added so it could not
+ * happen again. The guard scans `repo('transaction')` reads, so it never
+ * looked at holdings — and holdings were being read at **three** limits: 500
+ * by the CFO position and the goals review, 1,000 by the estate, 2,000 by the
+ * portfolio and by `NET_WORTH_LOAD`.
+ *
+ * Measured on 600 holdings of ₹1,000 each:
+ *
+ *     CFO position     ₹5,00,000   (500 of them)
+ *     Portfolio        ₹6,00,000   (all 600)
+ *
+ * The same household, the same day, two screens, a lakh apart — which is the
+ * table in `ONE_LIMIT.md` again, written about the entity nobody guarded.
+ *
+ * 2,000 for the same reason that document gives for choosing the largest: a
+ * figure computed from more rows is nearer the truth, and the cost is a read
+ * two screens already perform.
+ */
+export const HOLDING_LIMIT = 2000;
+
+/**
  * Whether a money figure was computed from everything, or from a slice.
  *
  * Returned rather than warned about: a screen showing a balance that is not the
@@ -145,7 +171,7 @@ export function transactionsTruncated(rows, limit = TRANSACTION_LIMIT) {
 export const NET_WORTH_LOAD = Object.freeze({
   accounts: ['account', { decrypt: false }],
   transactions: ['transaction', { decrypt: false, limit: TRANSACTION_LIMIT }],
-  holdings: ['holding', { decrypt: false, limit: 2000 }],
+  holdings: ['holding', { decrypt: false, limit: HOLDING_LIMIT }],
   properties: ['property', { decrypt: false }],
   vehicles: ['vehicle', { decrypt: false }],
   loans: ['loan', { decrypt: false }],

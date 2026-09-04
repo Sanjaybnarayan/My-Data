@@ -73,6 +73,7 @@ import { entity } from '../data/schema.js';
 import { today, addDays, addMonths } from '../core/dates.js';
 import * as life from './example-life.js';
 import * as own from './example-assets.js';
+import * as kept from './example-records.js';
 
 /**
  * An enum option, quoted from the schema rather than retyped here.
@@ -511,16 +512,22 @@ export function plan(clock = Date.now) {
   const day = life.everydayLife(clock);
   const papers = own.papers(clock);
   const diary = own.calendarAndTravel(clock);
+  const employed = kept.household(clock);
+  const seen = kept.whereabouts(clock);
 
   return [
-    { entity: 'person', rows: people(clock) },
+    { entity: 'person', rows: [...people(clock), ...employed.people] },
     { entity: 'relationship', rows: relationships(clock), refs: ['fromPerson', 'toPerson'] },
     { entity: 'account', rows: accounts(clock), refs: ['holder'] },
     { entity: 'vehicle', rows: vehicles(clock), refs: ['owner'] },
     { entity: 'policy', rows: policies(clock), refs: ['holder', 'vehicle'], multi: ['insured'] },
     { entity: 'identityDocument', rows: identityDocuments(clock), refs: ['person'] },
 
-    { entity: 'transaction', rows: life.transactions(clock), refs: ['account', 'toAccount'] },
+    {
+      entity: 'transaction',
+      rows: [...life.transactions(clock), ...kept.transfers(clock)],
+      refs: ['account', 'toAccount'],
+    },
     { entity: 'document', rows: life.documents(clock), refs: ['person'] },
 
     { entity: 'healthRecord', rows: life.healthRecords(clock), refs: ['person'] },
@@ -568,5 +575,15 @@ export function plan(clock = Date.now) {
 
     { entity: 'event', rows: diary.events },
     { entity: 'trip', rows: diary.trips, multi: ['travellers'] },
+
+    // The residue of ordinary life — see `example-records.js` for why these
+    // were left out before and what makes each of them honest now.
+    { entity: 'staff', rows: employed.staff, refs: ['person'] },
+    { entity: 'staffLeave', rows: employed.leave, refs: ['staff'] },
+    { entity: 'receipt', rows: kept.receipts(clock) },
+    { entity: 'bankStatement', rows: kept.statements(clock), refs: ['account'] },
+    { entity: 'smsMessage', rows: kept.alerts(clock) },
+    { entity: 'locationPing', rows: seen.pings, refs: ['person', 'zone'] },
+    { entity: 'sosAlert', rows: seen.alerts, refs: ['person'], multi: ['contacts'] },
   ];
 }

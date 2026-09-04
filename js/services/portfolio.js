@@ -20,7 +20,7 @@
  *     the figure.
  */
 
-import { Service, NET_WORTH_LOAD } from './service.js';
+import { Service, NET_WORTH_LOAD, HOLDING_LIMIT } from './service.js';
 import {
   portfolioSummary, allocation, holdingValue, xirr, cashFlows,
   maturingSoon, dividendIncome,
@@ -48,7 +48,7 @@ export class PortfolioService extends Service {
    */
   async forImport() {
     return this.load({
-      holdings: ['holding', { decrypt: false, limit: 2000 }],
+      holdings: ['holding', { decrypt: false, limit: HOLDING_LIMIT }],
       existing: ['investmentTransaction', { decrypt: false, limit: 20_000 }],
     });
   }

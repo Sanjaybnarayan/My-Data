@@ -56,15 +56,20 @@ leaving the list is worth a glance at what made it leave.
 
 ## What a finding does *not* mean
 
-**64<!--live:unreadFields--> of 617<!--live:fields--> fields are unread, and that is not 65 bugs.** A vehicle's chassis
+**63<!--live:unreadFields--> of 617<!--live:fields--> fields are unread, and that is not 63 bugs.** A vehicle's chassis
 number and a medication's dosage are reference data: you record them, you read
 them on screen, and nothing should compute with them.
 
-Thirteen of them stopped being unread when the example household was written,
+Fourteen of them stopped being unread when the example household was written,
 which says something about what "unread" was measuring. A chassis number, an
 employer, a TPA helpline and a premium frequency had no code that touched
 them — not because they were dead, but because nothing in this repository had
 ever filled one in. Writing a household that has them was enough.
+
+`sosAlert.resolvedAt` is the fourteenth, and it arrived the same way: seeding
+an alert that had been *resolved* was what made the field read. An alert with
+no resolution is the only kind the repository had ever held, so the code path
+that reads the resolution had nothing to run on.
 
 **This paragraph used to open with "a policy's nominee", and that example was
 wrong.** It stood here as the illustration of a field that is *correctly*

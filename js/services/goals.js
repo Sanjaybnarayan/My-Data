@@ -10,7 +10,7 @@
  * tested against a real in-memory database with no DOM near it.
  */
 
-import { Service, TRANSACTION_LIMIT } from './service.js';
+import { Service, TRANSACTION_LIMIT, HOLDING_LIMIT } from './service.js';
 import { reviewGoals } from '../domain/goals.js';
 import { accountBalances } from '../domain/finance.js';
 import { typicalDailySpend } from '../domain/runway.js';
@@ -19,9 +19,9 @@ import { holdingValue } from '../domain/portfolio.js';
 /** @type {Record<string, import('./service.js').Load>} */
 export const GOALS_LOAD = Object.freeze({
   goals: ['goal', { decrypt: false, limit: 500 }],
-  accounts: ['account', { decrypt: false, limit: 500 }],
+  accounts: ['account', { decrypt: false }],
   transactions: ['transaction', { decrypt: false, limit: TRANSACTION_LIMIT }],
-  holdings: ['holding', { decrypt: false, limit: 500 }],
+  holdings: ['holding', { decrypt: false, limit: HOLDING_LIMIT }],
 });
 
 /**

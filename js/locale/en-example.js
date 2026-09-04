@@ -191,4 +191,29 @@ export const exampleStrings = {
   'example.event.parentsDay': "Parents' day at school",
   'example.event.service': 'Car in for service',
   'example.trip': 'Coorg, for the long weekend',
+
+  'example.staff.cook.name': 'Sunita Rao',
+  'example.staff.cook.role': 'Cook',
+  'example.staff.driver.name': 'Ravi Kumar',
+  'example.staff.driver.role': 'Driver',
+
+  'example.receipt.pharmacy': 'Nandi Pharmacy',
+  'example.receipt.groceries': 'Green Basket Supermarket',
+  'example.receipt.restaurant': 'Udupi Grand',
+  'example.receipt.electronics': 'Circuit House Electronics',
+  'example.receipt.fuel': 'Bharat Fuels, Hosur Road',
+
+  'example.sms.sender.bank': 'AD-SPHBNK',
+  'example.sms.sender.card': 'AD-KVRCRD',
+  'example.sms.0': 'Rs.4318.00 debited from A/c XX3641 to GREEN BASKET. Avl Bal Rs.802182.00',
+  'example.sms.1': 'Rs.185000.00 credited to A/c XX3641 by NEFT SALARY. Avl Bal Rs.987182.00',
+  'example.sms.2': 'Rs.2650.00 debited from A/c XX3641 to UDUPI GRAND. Avl Bal Rs.799532.00',
+  'example.sms.3': 'Rs.18990.00 spent on Card XX7712 at CIRCUIT HOUSE.',
+  'example.sms.4': 'Rs.35000.00 debited from A/c XX3641 to HOME LOAN EMI. Avl Bal Rs.764532.00',
+  'example.sms.5': 'Rs.3100.00 debited from A/c XX3641 to BHARAT FUELS. Avl Bal Rs.761432.00',
+
+  'example.sos.reason': 'Bus did not arrive, waiting alone',
+  'example.sos.where': 'School gate, Hosur Road',
+
+  'example.transfer.payee': 'Own account',
 };

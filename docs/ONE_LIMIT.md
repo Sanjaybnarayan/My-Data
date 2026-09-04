@@ -52,6 +52,51 @@ It was verified by putting one back: the suite fails with
 `js/modules/reports.js: decrypt: false, limit: 20_000`. A guard that has never
 fired is a guard nobody should trust.
 
+## The same fault, in the entity the guard did not watch
+
+That scan matches `repo('transaction')` reads. Holdings were therefore free to
+drift, and had — into **three** limits:
+
+| Read by | Limit |
+| --- | --- |
+| CFO position, goals review | 500 |
+| Estate | 1,000 |
+| Portfolio, `NET_WORTH_LOAD` | 2,000 |
+
+Measured on 600 holdings of ₹1,000 each:
+
+| Screen | Net worth |
+| --- | --- |
+| CFO position | **₹5,00,000** |
+| Portfolio | **₹6,00,000** |
+
+The same household, the same day, a lakh apart — the table at the top of this
+document, written about a different noun. `HOLDING_LIMIT` is now 2,000 for the
+reason given above: a figure computed from more rows is nearer the truth.
+
+The other entities net worth is assembled from had the same split in a quieter
+form — `NET_WORTH_LOAD` read accounts, properties, vehicles and loans without a
+limit while `CFO_LOAD` and `ESTATE_LOAD` capped them at 500 or 200. No
+household reaches those thresholds, which is why nothing was measurable there;
+two answers to one question is still not a thing to keep, so they now read
+without a limit like the load they disagreed with.
+
+## Two guards, because they fail on different things
+
+The scan above reads source, so it cannot tell a shared constant from a
+*correct* one. Lowering `HOLDING_LIMIT` to 500 leaves one limit everywhere and
+the scan passes — the figure is simply wrong on every screen at once, which is
+what this document warns a shared number does not fix.
+
+So there is a second test that reads net worth off two screens built from 600
+holdings and insists they agree. Both were checked in both directions:
+splitting the limit fails both, lowering the shared constant fails only the
+behavioural one.
+
+Scoped to the six entities net worth is made of. Every other entity is read at
+whatever suits the screen asking — people at 200 here and 500 there — and
+unifying those would be a rule about picker lists rather than about money.
+
 ## Verification
 
 - `npm test` **1508**, browser **253**, typecheck **181/181**
