@@ -79,7 +79,7 @@ export async function render(route) {
     currentCard(current),
 
     entities.length > 1
-      ? h('div', { class: 'chip-row', role: 'group', 'aria-label': t('health.title') }, entities.map((one) => chip(
+      ? h('div', { class: 'chip-row chip-row--scroll', role: 'group', 'aria-label': t('health.title') }, entities.map((one) => chip(
         entityLabel(one, 'many'),
         {
           pressed: one.name === chosen,
