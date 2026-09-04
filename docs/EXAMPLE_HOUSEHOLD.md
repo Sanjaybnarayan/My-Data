@@ -135,6 +135,16 @@ the reader remembering what they clicked a month ago.
 so removal is derived from what was actually written rather than from a guess
 about which rows look invented. A guess would eventually delete something real.
 
+**And it reaches the household's sheet, because it is written like everything
+else.** Measured: installing queues 272 `put` operations in the outbox, and
+removing queues 272 `delete`s. That is the same write path this file spends its
+first section defending — a demonstration fed by records that skipped the
+outbox would be a demonstration of a code path the application does not have —
+but it means a household that loads this to look around gains 272 invented rows
+in their own Google Sheet on the next sync, and loses them again on the one
+after. The card says so now; it did not before, and the promise above was true
+about the device while saying nothing about the sheet.
+
 ## There is no Aadhaar, and that is the interesting part
 
 Every other identifier here sits in a series nobody is issued: PAN and Voter ID
