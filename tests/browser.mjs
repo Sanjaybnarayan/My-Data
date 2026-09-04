@@ -3302,6 +3302,209 @@ async function main() {
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 
+    /* ------------------------------- a list a phone can read, on screen */
+
+    {
+      /*
+       * The generic table becomes stacked cards below 720px, and every column
+       * had the same weight: a 40% label, then the value. So an account read
+       *
+       *     Name           Harbour National Ban…
+       *     Kind           savings
+       *     Bank/provider  Harbour National Bank
+       *     Holder         Anand Iyer
+       *     Archived       no
+       *
+       * — the one field saying which account this is, truncated, above a field
+       * spelling the same bank out in full, and a line per record saying a
+       * flag is not set.
+       *
+       * The rules are unit-checked in `tests/listlayout.test.mjs`. This is the
+       * half that can be right in the predicate and wrong on the page.
+       */
+      const before = consoleErrors.length;
+
+      await page.setViewportSize({ width: 390, height: 844 });
+
+      const seeded = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const db = app().db;
+        // Two accounts at one bank, told apart only by who holds them — the
+        // shape that made this unreadable.
+        for (const holder of ['Row Holder One', 'Row Holder Two']) {
+          await db.repo('account').create({
+            name: 'Rowcheck National Bank savings',
+            kind: 'savings',
+            institution: 'Rowcheck National Bank',
+            accountNumber: `9${holder.length}001234`,
+          });
+        }
+        return true;
+      }, IN_PAGE.context);
+
+      check('the row-layout fixture was seeded', seeded === true, String(seeded));
+
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/account');
+      await page.waitForTimeout(900);
+
+      const row = await page.evaluate(() => {
+        const cells = [...document.querySelectorAll('.table--responsive tbody tr')]
+          .map((tr) => [...tr.querySelectorAll('td')])
+          .find((tds) => (tds[0]?.textContent ?? '').includes('Rowcheck'));
+        if (!cells) return null;
+        const shown = (el) => el.getClientRects().length > 0;
+        const first = cells[0];
+        return {
+          // What the card's title actually says, and whether it fits.
+          title: first.textContent.trim(),
+          clipped: first.scrollWidth > first.clientWidth + 1,
+          // Every line the household is shown, label included.
+          lines: cells.filter(shown).map((td) => ({
+            label: td.getAttribute('data-label'),
+            text: td.textContent.trim(),
+          })),
+        };
+      });
+
+      check('an account row was found to measure', Boolean(row), JSON.stringify(row));
+
+      check('the name is shown in full rather than cut off',
+        row.title === 'Rowcheck National Bank savings', JSON.stringify(row.title));
+
+      check('and it is not clipped by its own box',
+        row.clipped === false, `${row.title} overflows its cell`);
+
+      // The bank and the kind are both inside the name. Repeating either is
+      // the duplication `accountSubtitle` already removes on the overview.
+      const repeated = row.lines
+        .filter((line) => line.label !== 'Name')
+        .filter((line) => row.title.toLowerCase().includes(line.text.toLowerCase()));
+      check('no line repeats what the name has already said',
+        repeated.length === 0, JSON.stringify(repeated));
+
+      // `archived` is false on every one of these, and a flag that is not set
+      // is not news — the record still carries it.
+      check('a flag that is not set costs no line',
+        !row.lines.some((line) => /archived/i.test(line.label ?? '')),
+        JSON.stringify(row.lines));
+
+      check('and neither does an empty field',
+        !row.lines.some((line) => line.text === '—'), JSON.stringify(row.lines));
+
+      /* ------------------------------------------------------- desktop */
+
+      // The columns are still columns where there is room for them: this is a
+      // phone layout, not a deletion.
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/account');
+      await page.waitForTimeout(800);
+
+      const wide = await page.evaluate(() => {
+        const tr = [...document.querySelectorAll('.table--responsive tbody tr')]
+          .find((one) => one.textContent.includes('Rowcheck'));
+        return tr
+          ? [...tr.querySelectorAll('td')]
+            .filter((td) => td.getClientRects().length > 0)
+            .map((td) => td.getAttribute('data-label'))
+          : [];
+      });
+
+      check('every column is still drawn on a desktop',
+        wide.includes('Archived') && wide.includes('Bank / provider'),
+        JSON.stringify(wide));
+
+      await page.setViewportSize({ width: 390, height: 844 });
+
+      check('the list layout renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
+    /* ------------------------------- figures and axes that fit, on screen */
+
+    {
+      /*
+       * Two things a screenshot caught and no assertion had.
+       *
+       * `₹8.25 K` broke after the digits, leaving the K alone on the line
+       * below — three metrics is one too many for a 390px phone, and a figure
+       * a household cannot read at a glance is not a figure.
+       *
+       * And the year's axis truncated twelve months to fit twenty-six pixels
+       * each: `O. N. D. J. F. M. A. M. J. J. A. S.`, three months beginning
+       * with J and two with M.
+       */
+      const before = consoleErrors.length;
+
+      await go(page, '#/dashboard');
+      await go(page, '#/finance');
+      await page.waitForTimeout(1200);
+
+      const figures = await page.evaluate(() => [...document.querySelectorAll('.metric-value')]
+        .map((el) => ({
+          text: el.textContent.trim(),
+          // One line, and inside its own box: the two ways a figure breaks.
+          lines: Math.round(el.getBoundingClientRect().height
+            / parseFloat(getComputedStyle(el).lineHeight || '1')),
+          overflows: el.scrollWidth > el.clientWidth + 1,
+        })));
+
+      check('the overview drew figures to measure', figures.length > 0, String(figures.length));
+
+      check('no figure is broken across two lines',
+        figures.every((one) => one.lines === 1), JSON.stringify(figures));
+
+      check('and none overflows the box it is given',
+        figures.every((one) => !one.overflows), JSON.stringify(figures));
+
+      const axis = await page.evaluate(() => {
+        const row = document.querySelector('.chart-axis-labels');
+        if (!row) return null;
+        const edge = row.getBoundingClientRect();
+        const labelled = [...row.children].filter((el) => el.textContent.trim());
+        return {
+          slots: row.children.length,
+          printed: labelled.map((el) => el.textContent.trim()),
+          // Nothing cut, and nothing hanging off the card.
+          clipped: labelled.some((el) => el.scrollWidth > el.clientWidth + 1
+            && (el.getBoundingClientRect().right > edge.right + 1
+              || el.getBoundingClientRect().left < edge.left - 1)),
+        };
+      });
+
+      check('the year chart drew an axis', Boolean(axis) && axis.slots === 12,
+        JSON.stringify(axis));
+
+      check('it prints fewer labels than it has months, rather than cutting them',
+        axis.printed.length < axis.slots && axis.printed.length > 2,
+        JSON.stringify(axis.printed));
+
+      check('every month it prints is a whole month name',
+        axis.printed.every((one) => /^[A-Z][a-z]{2}$/.test(one)),
+        JSON.stringify(axis.printed));
+
+      check('and none of them runs off the edge of the card',
+        axis.clipped === false, JSON.stringify(axis));
+
+      // The qualification moved out of the axis, and had to stay somewhere a
+      // person can read — never colour alone, which the brief forbids.
+      const said = await page.evaluate(() => (document.querySelector('.app-content')
+        ?.textContent ?? '').replace(/\s+/g, ' '));
+
+      check('the unfinished month is still named, in words',
+        /is not over — its bar is the month so far/.test(said),
+        said.slice(0, 300));
+
+      check('the figures and axis render without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      // Handed back the way it was found. The blocks after this one were
+      // written against the desktop width the suite runs at, and a ledger is
+      // a table there and a stack of cards at 390.
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
     /* ------------------------- the breakdown opens what it names, on screen */
 
     {
@@ -3339,6 +3542,12 @@ async function main() {
           // screen was handed `food%20delivery` and reported nothing recorded
           // under a category a household spends in every week.
           { category: 'food delivery', amount: 62000, payee: 'Breakdown takeaway' },
+          // Under 1.5% of the total, so the donut folds it into its synthetic
+          // *Other* slice. Without one of these the check below that the
+          // bucket is inert has no bucket to look at and passes on an empty
+          // list — which is exactly the shape of check this suite keeps
+          // finding green while the thing it names is absent.
+          { category: 'gifts', amount: 4000, payee: 'Breakdown trinket' },
         ];
         for (const row of rows) {
           await db.repo('transaction').create({
@@ -3358,7 +3567,7 @@ async function main() {
         return { day, rows: rows.length };
       }, IN_PAGE.context);
 
-      check('the breakdown fixture was seeded', seeded.rows === 4, JSON.stringify(seeded));
+      check('the breakdown fixture was seeded', seeded.rows === 5, JSON.stringify(seeded));
 
       await go(page, '#/dashboard');
       await go(page, '#/finance');
@@ -3370,6 +3579,8 @@ async function main() {
           href: row.getAttribute('href'),
           label: row.textContent.trim().replace(/\s+/g, ' '),
           height: Math.round(row.getBoundingClientRect().height),
+          // The chart marks its own folded bucket; nothing else carries this.
+          synthetic: row.hasAttribute('data-synthetic'),
         })));
 
       check('the category breakdown drew legend rows',
@@ -3378,15 +3589,33 @@ async function main() {
       // `Other` is several categories added together. A link claiming to show
       // it would show a filter nobody asked for, so it is the one row that
       // must stay inert.
-      const linkable = legend.filter((row) => !/^Other/.test(row.label));
+      // Told apart by whether the chart marked it synthetic, not by reading
+      // its name: the schema has a real category called `other`, and titled
+      // for the legend it reads `Other` too. Matching on the text would have
+      // quietly stopped the one category a household files its odds and ends
+      // under from opening.
+      const folded = legend.filter((row) => row.synthetic);
+      const named = legend.filter((row) => !row.synthetic);
+
       check('every named category is a link to its own screen',
-        linkable.length > 0 && linkable.every((row) => row.linked
+        named.length > 0 && named.every((row) => row.linked
           && /^#\/finance\/category\//.test(row.href ?? '')),
         JSON.stringify(legend));
 
-      check('and the synthetic Other bucket is not one',
-        legend.filter((row) => /^Other/.test(row.label)).every((row) => !row.linked),
-        JSON.stringify(legend));
+      // The fixture puts a category below the 1.5% the donut draws, so there
+      // is a bucket here to be inert. Asserted, so this cannot go back to
+      // passing on an empty list.
+      check('the small categories were folded into one slice',
+        folded.length === 1, JSON.stringify(legend));
+
+      check('and that slice is not a link, having no one thing behind it',
+        folded.every((row) => !row.linked), JSON.stringify(folded));
+
+      // The words, not the stored keys. This card said `utilities` while the
+      // Insights screen said `Bills and utilities` about the same rupees.
+      check('the legend names categories the way the rest of the application does',
+        named.some((row) => /^Groceries and provisions/.test(row.label)),
+        JSON.stringify(named.map((row) => row.label)));
 
       // The same 44px this suite measures everywhere else. A legend row that
       // became tappable without becoming big enough to tap is worse than one

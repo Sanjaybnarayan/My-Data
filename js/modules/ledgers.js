@@ -30,7 +30,7 @@ import {
   CATEGORIES, categoryLabel, peopleLedger, lendingLedger, summarise,
 } from '../domain/categorise.js';
 import { insights } from '../domain/insights.js';
-import { format } from '../core/money.js';
+import { format, formatCompact } from '../core/money.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
 
 /** Where corrections are kept. Shared with the statement importer. */
@@ -238,11 +238,19 @@ export async function render(view = 'people') {
           subtitle: `${rows.length} transactions across ${summary.byMonth.length} months`,
           iconName: 'chart',
         }),
-        h('div', { class: 'grid grid--tight' }, [
-          metric({ label: 'In', value: money(summary.moneyIn) }),
-          metric({ label: 'Out', value: money(summary.moneyOut) }),
-          metric({ label: 'Spent', value: money(summary.spending) }),
-          metric({ label: 'Net', value: money(summary.net, { signed: true }) }),
+        // A row rather than a stack, and rounded rather than exact.
+        //
+        // Four figures in `grid--tight` each took a line of their own and kept
+        // every paisa — `₹20,24,000.00` under `₹6,35,550.00` under two more,
+        // which is four headlines and no headline. `.metric-row` shares the
+        // width between them, and `formatCompact` is what every other summary
+        // figure in this application uses; the exact amounts are below, in
+        // `Where it goes` and in the ledger itself.
+        h('div', { class: 'metric-row' }, [
+          metric({ label: 'In', value: formatCompact(summary.moneyIn) }),
+          metric({ label: 'Out', value: formatCompact(summary.moneyOut) }),
+          metric({ label: 'Spent', value: formatCompact(summary.spending) }),
+          metric({ label: 'Net', value: formatCompact(summary.net) }),
         ]),
       ]),
 
@@ -252,11 +260,25 @@ export async function render(view = 'people') {
           iconName: 'sparkle',
         }),
         notes.length
-          ? h('div', {}, notes.map((note) => listItem({
-            title: note.text,
-            value: note.amount ? money(note.amount) : '',
-            leading: badge(note.kind, tone(note.kind)),
-          })))
+          /*
+           * A finding is a sentence, so it gets the width of the card.
+           *
+           * As a list row it was a title column between a badge and an amount
+           * — about a hundred and ten pixels on a phone. Cut, it read
+           * `7 payments r…`; wrapped, it fell down eight lines beside two
+           * things that had a line each to spare. What the row is *about* is
+           * the sentence; the kind and the amount are what it is tagged and
+           * measured with, so they go above it.
+           */
+          ? h('div', { class: 'list' }, notes.map((note) => h('div', {
+            class: 'list-item finding',
+          }, [
+            h('div', { class: 'row row--between' }, [
+              badge(note.kind, tone(note.kind)),
+              note.amount ? money(note.amount) : null,
+            ]),
+            h('p', { class: 'finding-text' }, note.text),
+          ])))
           : h('p', { class: 'muted' },
             'Nothing stands out — no overdrawn months, no unusual concentration, '
             + 'nothing repeating that should not be.'),

@@ -71,6 +71,56 @@ export function cellFor(field, record, { currency = 'INR', reveal = false } = {}
   }
 }
 
+/**
+ * Whether a cell has nothing in it.
+ *
+ * `cellFor` draws an em dash for an absent value, which is right in a table
+ * column — the column exists, and the dash says this row has no value where
+ * the row above does. On a phone there is no column, so the same dash becomes
+ * a labelled line that reads `Account —`: a field name and a mark meaning
+ * there is nothing to tell you.
+ *
+ * The subject is never blanked, so a row cannot disappear entirely, and the
+ * record itself still lists every field.
+ */
+export function blank(field, record) {
+  const value = field.type === 'ref' ? record[`${field.key}Label`] : record[field.key];
+  return value === null || value === undefined || value === '';
+}
+
+/**
+ * Whether a cell only repeats what the row's subject has already said.
+ *
+ * A household names its accounts after the bank, so the schema's own columns
+ * produced, on a phone:
+ *
+ *     Deccan Cooperative Bank savings     <- the name
+ *     Kind           savings              <- said
+ *     Bank/provider  Deccan Cooperative Bank   <- said
+ *     Holder         Lakshmi Iyer         <- the only thing that differs
+ *
+ * Five accounts at the same bank, and the one line telling them apart is the
+ * faintest and the last. This is the rule `accountSubtitle` already applies on
+ * the overview — drop a part the name carries — generalised, and driven by the
+ * data rather than by a list of field names kept somewhere else.
+ *
+ * Only where a repetition is possible: a date, an amount or a flag is never a
+ * restatement of a name, and comparing them would be looking for something
+ * that cannot be there. Three characters minimum, so a short code cannot match
+ * by accident inside a longer word.
+ */
+export function saidAlready(subject, field, record) {
+  // No guard for an empty subject: nothing of three characters or more is
+  // inside the empty string, so the length rule below already answers it. A
+  // branch no test can tell the presence of is a branch that is not there.
+  const said = field.type === 'ref'
+    ? record[`${field.key}Label`]
+    : (field.type === 'text' || field.type === 'enum' ? record[field.key] : null);
+
+  const text = String(said ?? '').trim().toLowerCase();
+  return text.length >= 3 && subject.includes(text);
+}
+
 /** Colour the few enum values where the meaning is unambiguous. */
 function toneForEnum(key, value) {
   const good = new Set(['done', 'active', 'attended', 'paid', 'income', 'scheduled']);
@@ -144,13 +194,44 @@ export function entityTable(entityName, rows, options = {}) {
     });
   }
 
+  /*
+   * Cells carry what they are, so the phone layout can lay them out as a row
+   * rather than as a column of equal parts.
+   *
+   * On a phone this table becomes stacked cards, and every column was given
+   * the same weight: a label taking 40% of the line and a value taking the
+   * rest. So an account read
+   *
+   *     Name           Harbour National Ban…
+   *     Kind           savings
+   *     Bank/provider  Harbour National Bank
+   *     Holder         Anand Iyer
+   *     Archived       no
+   *
+   * — the one field that says which account this is, truncated, above a field
+   * that spells the same bank out in full, and a line per record spent saying
+   * a flag is not set. Twelve accounts of that is unreadable.
+   *
+   * `cell--primary` is the leftmost column, which is the column a table puts
+   * its subject in. `cell--flag-off` is a boolean that is not set: shown on a
+   * desktop where a column costs nothing, omitted on a phone, which is what
+   * this application already does with `autoDebit` in the bills list — a flag
+   * that is not set is not news, and the record itself still carries it.
+   */
   function buildRow(record) {
+    const subject = String(record[fields[0].key] ?? '').toLowerCase();
     return h('tr', {
       dataset: { id: record.id, ...(onOpen ? { clickable: 'true' } : {}) },
       ...(onOpen ? { tabindex: '0', role: 'button' } : {}),
-    }, fields.map((field) => h('td', {
+    }, fields.map((field, index) => h('td', {
       'data-label': fieldLabel(def.name, field),
-      class: field.type === 'currency' || field.type === 'number' ? 'cell--numeric' : '',
+      class: [
+        field.type === 'currency' || field.type === 'number' ? 'cell--numeric' : '',
+        index === 0 ? 'cell--primary' : '',
+        field.type === 'boolean' && !record[field.key] ? 'cell--flag-off' : '',
+        index > 0 && saidAlready(subject, field, record) ? 'cell--said-already' : '',
+        index > 0 && blank(field, record) ? 'cell--blank' : '',
+      ].filter(Boolean).join(' '),
     }, cellFor(field, record, { currency }))));
   }
 

@@ -608,11 +608,16 @@ describe('a month in progress is not compared to a month that finished', () => {
     assert.ok(series.at(-1).partial, 'August is not over');
     assert.not(series.at(-2).partial, 'July is');
 
-    // Named in the label, so the cue is not colour alone — `barChart` builds
-    // its text equivalent from these, which is what a screen reader is given.
+    // Carried as a flag, so the cue is neither colour nor a fifty-nine pixel
+    // string in a twenty-six pixel axis slot. `barChart` turns it into a
+    // sentence under the chart and into the text equivalent a screen reader is
+    // given — which is checked where that rendering happens, in the browser
+    // suite, because it is a rendering.
     const bars = fin.spendingBars(series);
-    assert.includes(bars.at(-1).label, 'so far');
-    assert.not(bars.at(-2).label.includes('so far'));
+    assert.ok(bars.at(-1).partial, 'the last bar is the month in progress');
+    assert.not(bars.at(-2).partial);
+    // And the label stays a month, so the axis can print it.
+    assert.not(bars.at(-1).label.includes('so far'));
   });
 });
 

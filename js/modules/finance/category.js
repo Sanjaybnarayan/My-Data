@@ -147,13 +147,11 @@ export async function render(route) {
       it.count ? card({}, [
         cardHeader(t('finance.category.trend')),
         chartCaption(t('finance.category.trendChart', { category: label })),
-        // The unfinished month named in the label rather than in the colour,
-        // the same way `spendingBars` does it — a bar a fifth the height of
-        // its neighbours is not a fall, and the text axis is what a screen
-        // reader is given.
+        // `partial` passed through rather than written into the label: a bar a
+        // fifth the height of its neighbours is not a fall, and `barChart`
+        // says so in a caption under the chart and in its text equivalent.
         barChart(it.series.map((month) => ({
-          label: month.partial ? t('chart.monthSoFar', { month: month.label }) : month.label,
-          value: month.value,
+          label: month.label, value: month.value, partial: month.partial,
         })), {
           height: 150,
           label: t('finance.category.trendChart', { category: label }),

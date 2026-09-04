@@ -16,6 +16,7 @@ export const periodStrings = {
   // `{month}` arrives already abbreviated — "Aug", not "August" — because a
   // chart axis has one bar's width to fit it in.
   'chart.monthSoFar': '{month} so far',
+  'chart.partialMonth': '{month} is not over — its bar is the month so far.',
 
   'compare.vsLastMonth': 'vs last month',
   'compare.vsSameDays': 'vs the same days last month',

@@ -232,6 +232,9 @@ function partialMonth(transactions, clock) {
   const totals = fin.totals(rows);
   return {
     month,
+    // The month as a person says it. `month` stays `2026-09` because callers
+    // key on it; the screen was printing that key as its heading.
+    monthLabel: formatDay(`${month}-01`, { withYear: true }).replace(/^\d+\s/, ''),
     partial: true,
     upTo: now,
     ...totals,

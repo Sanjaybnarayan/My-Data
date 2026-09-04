@@ -14,6 +14,7 @@
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { format, formatCompact } from '../../core/money.js';
+import { t } from '../../core/locale.js';
 
 const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)',
   'var(--series-5)', 'var(--series-6)', 'var(--series-7)', 'var(--series-8)'];
@@ -50,10 +51,37 @@ function figure(children, { label, table }) {
 }
 
 /**
- * @param {Array<{label: string, value: number}>} data
- * @param {{height?: number, currency?: string, tone?: (d) => string, label: string}} options
+ * Which labels an axis has room to print.
+ *
+ * Twelve months across a 316px card gives each label about 26px, and the axis
+ * truncated to fit: `O. N. D. J. F. M. A. M. J. J. A. S.` — three months
+ * beginning with J, two with M, and no way to tell which is which. A label
+ * that cannot be read is not a label.
+ *
+ * So they thin rather than truncate. The kept ones are counted back from the
+ * end, because the last is the month a household is standing in and is the one
+ * that must never be the one dropped. The rest keep their slot as an empty
+ * span, so the labels stay under their own bars.
+ *
+ * Nothing is lost: `figure` builds a text equivalent naming every point and
+ * its value, which is what a screen reader is given either way.
  */
-export function barChart(data, { height = 200, currency = 'INR', tone, label = 'Chart' } = {}) {
+export function thinLabels(data, room) {
+  // No early return for a series that already fits: `step` is 1 for one, and
+  // every slot then keeps its label. A branch no test can tell the presence of
+  // is a branch that is not there.
+  const step = Math.ceil(data.length / room);
+  return data.map((d, i) => ((data.length - 1 - i) % step === 0 ? d.label : ''));
+}
+
+/**
+ * @param {Array<{label: string, value: number, partial?: boolean}>} data
+ * @param {{height?: number, currency?: string, tone?: (d) => string, label?: string,
+ *          maxLabels?: number}} [options]
+ */
+export function barChart(data, {
+  height = 200, currency = 'INR', tone, label = 'Chart', maxLabels = 7,
+} = {}) {
   if (!data.length) return h('div', { class: 'empty small' }, 'No data yet');
 
   const width = 100;
@@ -90,17 +118,50 @@ export function barChart(data, { height = 200, currency = 'INR', tone, label = '
     }),
   ]);
 
+  const shown = thinLabels(data, maxLabels);
   const axis = h('div', {
-    class: 'row small faint',
+    class: 'chart-axis-labels row small faint',
     style: { justifyContent: 'space-between', marginTop: 'var(--space-2)' },
-  }, data.map((d) => h('span', {
-    style: { flex: '1', textAlign: 'center', minWidth: 0 },
-    class: 'truncate',
-  }, d.label)));
+  }, data.map((d, i) => h('span', {
+    // Its own bar's slot, so it stays under what it names — but allowed to
+    // spill sideways rather than be cut. Thinning has already emptied the
+    // neighbours it spills into; with nothing thinned there are few enough
+    // labels that each has room of its own.
+    //
+    // The two ends align inward, because they have no neighbour on the outside
+    // to spill into: centred, `Sep so far` on the last bar hung off the edge of
+    // the card. Every label between them stays centred on its bar.
+    style: {
+      flex: '1',
+      textAlign: i === 0 ? 'left' : i === data.length - 1 ? 'right' : 'center',
+      minWidth: 0,
+    },
+  }, shown[i])));
 
-  return figure([svg, axis], {
+  /*
+   * The unfinished month, said in words under the chart.
+   *
+   * Not in the axis label, where `Sep so far` needed fifty-nine pixels of a
+   * twenty-six pixel slot and was either cut to `Se` or laid over the month
+   * before it. Not in the colour either, which the master brief forbids as a
+   * sole cue and which would say nothing to a screen reader.
+   *
+   * Here it is one sentence, visible to everyone, and carried into the text
+   * equivalent below — the same qualification `domain/finance.js` has always
+   * attached, in the one place on the card that has room for it.
+   */
+  const unfinished = data.find((d) => d.partial);
+  const note = unfinished
+    ? h('p', { class: 'small faint chart-note' },
+      t('chart.partialMonth', { month: unfinished.label }))
+    : null;
+
+  return figure([svg, axis, note].filter(Boolean), {
     label,
-    table: data.map((d) => `${d.label}: ${format(d.value, currency)}`).join('; '),
+    table: [
+      data.map((d) => `${d.label}: ${format(d.value, currency)}`).join('; '),
+      unfinished ? t('chart.partialMonth', { month: unfinished.label }) : '',
+    ].filter(Boolean).join('. '),
   });
 }
 
@@ -177,7 +238,17 @@ export function donutChart(data, {
   const big = data.filter((d) => Math.abs(d.value) >= threshold);
   const small = data.filter((d) => Math.abs(d.value) < threshold);
   const slices = small.length
-    ? [...big, { label: 'Other', value: small.reduce((t, d) => t + Math.abs(d.value), 0) }]
+    ? [...big, {
+      label: 'Other',
+      value: small.reduce((t, d) => t + Math.abs(d.value), 0),
+      // Marked, not named. This bucket used to be told apart by its label
+      // reading exactly `Other` — which held only while callers passed the
+      // stored key straight through. The overview now passes words, and the
+      // schema has a real category called `other`: titled, it reads `Other`
+      // too, and matching on the text would have quietly stopped the one
+      // category a household files its odds and ends under from opening.
+      synthetic: true,
+    }]
     : big;
 
   const radius = 42;
@@ -218,8 +289,9 @@ export function donutChart(data, {
         }, 'total'),
       ]),
       h('div', { class: 'stack stack--tight spacer' }, slices.map((d, i) => {
-        // `Other` is `small` added together and is deliberately not linkable.
-        const href = hrefFor && d.label !== 'Other' ? hrefFor(d) : null;
+        // The synthetic bucket is `small` added together and is deliberately
+        // not linkable: there is no one thing behind it to open.
+        const href = hrefFor && !d.synthetic ? hrefFor(d) : null;
         const inside = [
           h('span', { class: 'legend-item' }, [
             h('span', { class: 'legend-swatch', style: { background: seriesColour(i) } }),
@@ -234,9 +306,15 @@ export function donutChart(data, {
             href ? icon('chevronRight', { size: 16, class: 'legend-go' }) : null,
           ]),
         ];
+        // The folded bucket says so in the markup. A check reading its name
+        // instead cannot tell it from the schema's own `other` category, which
+        // is titled the same way for this legend.
+        const marks = d.synthetic ? { 'data-synthetic': '' } : {};
         return href
-          ? h('a', { class: 'row row--between small legend-row legend-row--link', href }, inside)
-          : h('div', { class: 'row row--between small legend-row' }, inside);
+          ? h('a', {
+            class: 'row row--between small legend-row legend-row--link', href, ...marks,
+          }, inside)
+          : h('div', { class: 'row row--between small legend-row', ...marks }, inside);
       })),
     ]),
   ], {
