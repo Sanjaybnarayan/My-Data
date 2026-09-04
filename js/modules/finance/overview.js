@@ -327,14 +327,18 @@ export async function financeOverview() {
       categories.length
         ? card({}, [
           cardHeader(t('finance.overview.categories')),
-          // Each slice opens the rows behind it. `label` is the category key
-          // itself — `byCategory` buckets on `t.category` — so the legend and
-          // the filter cannot drift apart into two spellings of one thing.
+          // Each slice opens the category behind it — not a filtered list of
+          // dates, but what that category *is*: the month against the last,
+          // the year behind it, who it went to, the bills filed under it.
+          //
+          // `label` is the category key itself — `byCategory` buckets on
+          // `t.category` — so the legend and the screen it opens cannot drift
+          // apart into two spellings of one thing.
           donutChart(categories, {
             label: t('finance.overview.categoryChart'),
             size: 160,
             hrefFor: (slice) => Router.href({
-              module: 'finance', entity: 'transaction', query: { category: slice.label },
+              module: 'finance', entity: 'category', id: slice.label,
             }),
           }),
         ])

@@ -109,6 +109,14 @@ const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights', 'tra
   'bankStatement', 'smsMessage', 'economicEvent', 'conflicts']);
 
 export async function render(route) {
+  // `category` is not an entity — there is no record called "groceries", only
+  // rows filed under that word — so it has to be caught before the generic
+  // detail route below tries to open one and finds nothing.
+  if (route.entity === 'category' && route.id) {
+    const screen = await (await import('./finance/category.js')).render(route);
+    return { node: screen.node, destroy: screen.destroy };
+  }
+
   if (route.id && route.id !== 'new' && route.entity) {
     return recordDetail(route.entity, route.id, route.entity === 'economicEvent'
       ? { extra: movementEvidence }

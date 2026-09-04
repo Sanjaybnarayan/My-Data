@@ -3334,16 +3334,31 @@ async function main() {
           { category: 'groceries', amount: 320000, payee: 'Breakdown grocer' },
           { category: 'groceries', amount: 145000, payee: 'Breakdown corner shop' },
           { category: 'fuel', amount: 180000, payee: 'Breakdown fuel stop' },
+          // A category whose key contains a space. Fourteen of the schema's
+          // forty-six do, and until the router escaped its path segments the
+          // screen was handed `food%20delivery` and reported nothing recorded
+          // under a category a household spends in every week.
+          { category: 'food delivery', amount: 62000, payee: 'Breakdown takeaway' },
         ];
         for (const row of rows) {
           await db.repo('transaction').create({
             date: day, kind: 'expense', account: account.id, method: 'UPI', ...row,
           });
         }
+        // A category that exists only as a commitment: insurance, before the
+        // first premium leaves. The screen has to describe an absence rather
+        // than draw a row of zeros around it.
+        await db.repo('recurringPayment').create({
+          name: 'Breakdown term cover', kind: 'premium', amount: 1_200_000,
+          frequency: 'yearly', category: 'insurance', account: account.id,
+          active: true,
+          nextDueOn: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 9)
+            .toISOString().slice(0, 10),
+        });
         return { day, rows: rows.length };
       }, IN_PAGE.context);
 
-      check('the breakdown fixture was seeded', seeded.rows === 3, JSON.stringify(seeded));
+      check('the breakdown fixture was seeded', seeded.rows === 4, JSON.stringify(seeded));
 
       await go(page, '#/dashboard');
       await go(page, '#/finance');
@@ -3364,9 +3379,9 @@ async function main() {
       // it would show a filter nobody asked for, so it is the one row that
       // must stay inert.
       const linkable = legend.filter((row) => !/^Other/.test(row.label));
-      check('every named category is a link to its own rows',
+      check('every named category is a link to its own screen',
         linkable.length > 0 && linkable.every((row) => row.linked
-          && /^#\/finance\/transaction\?category=/.test(row.href ?? '')),
+          && /^#\/finance\/category\//.test(row.href ?? '')),
         JSON.stringify(legend));
 
       check('and the synthetic Other bucket is not one',
@@ -3386,32 +3401,214 @@ async function main() {
       await page.locator('.legend-row--link', { hasText: 'groceries' }).first().click();
       await page.waitForTimeout(900);
 
-      const landed = await page.evaluate(() => {
+      const landed = await page.evaluate(() => ({
+        hash: globalThis.location.hash,
+        text: (document.querySelector('.app-content')?.textContent ?? '')
+          .replace(/\s+/g, ' '),
+      }));
+
+      check('clicking a slice opens the category it stands for',
+        landed.hash === '#/finance/category/groceries', landed.hash);
+
+      // Not a filtered list of dates. The question a household asks after
+      // reading a percentage is on what, to whom, is it always this much, is
+      // there a bill inside it — so each of those has to be answered here.
+      check('the category screen shows who the money went to',
+        /Breakdown grocer/.test(landed.text)
+          && /Breakdown corner shop/.test(landed.text),
+        landed.text.slice(0, 700));
+
+      check('and does not borrow another category\'s rows',
+        !/Breakdown fuel stop/.test(landed.text), landed.text.slice(0, 700));
+
+      check('it says how the month compares and how long the history is',
+        /so far this month/i.test(landed.text) && /recorded/i.test(landed.text),
+        landed.text.slice(0, 700));
+
+      // A month in progress against a whole month is the comparison this
+      // repository has already been caught inviting elsewhere.
+      check('and says the month it is comparing is not over',
+        /this month is not over/i.test(landed.text), landed.text.slice(0, 700));
+
+      check('the year behind the category is drawn and captioned',
+        /over twelve months/i.test(landed.text)
+          && /by month over a year/i.test(landed.text),
+        landed.text.slice(0, 700));
+
+      check('what is filed under the category has a section of its own',
+        /filed under this/i.test(landed.text), landed.text.slice(0, 900));
+
+      /*
+       * A payee row opens the rows that are its own.
+       *
+       * Both the name and the expectation are read off the row rather than
+       * written here. This block does not own the whole ledger — an earlier
+       * one enters a `Big Bazaar` grocery of its own, which outranks this
+       * fixture's largest and takes the top of the list — so a hard-coded
+       * payee asserts which *other* checks ran first, not what the link does.
+       *
+       * The invariant is the same whichever payee is first: the link names a
+       * payee, and following it leaves only that payee's rows.
+       */
+      const payee = await page.evaluate(() => {
+        const row = [...(document.querySelector('.app-content')
+          ?.querySelectorAll('a.list-item') ?? [])]
+          .find((one) => (one.getAttribute('href') ?? '').includes('text='));
+        return row
+          ? {
+            href: row.getAttribute('href'),
+            name: row.querySelector('.list-item-title')?.textContent?.trim() ?? '',
+          }
+          : null;
+      });
+
+      // Read back through `URLSearchParams` rather than compared as an
+      // encoded string: it and `encodeURIComponent` disagree about `!'()~`,
+      // so a payee with an apostrophe would fail an assertion about escaping
+      // while the link itself worked perfectly.
+      const payeeQuery = payee
+        ? Object.fromEntries(new URLSearchParams(payee.href.split('?')[1] ?? ''))
+        : {};
+
+      check('a payee inside the category links to rows of its own',
+        payeeQuery.category === 'groceries' && payeeQuery.text === payee?.name,
+        JSON.stringify({ payee, payeeQuery }));
+
+      await go(page, `#${String(payee?.href).slice(1)}`);
+      await page.waitForTimeout(900);
+      const onePayee = await page.evaluate(() => {
         const table = document.querySelector('.app-content table');
-        const rows = table ? [...table.querySelectorAll('tbody tr')] : [];
+        return [...(table ? table.querySelectorAll('tbody tr') : [])]
+          .map((row) => row.textContent.replace(/\s+/g, ' '))
+          // The ledger groups by day, so a `tbody` holds date headers as well
+          // as transactions. Only the rows that are transactions name a payee.
+          .filter((text) => text.startsWith('▸'));
+      });
+
+      check('following it leaves transactions, not an empty ledger',
+        onePayee.length > 0, JSON.stringify(onePayee));
+
+      check('and every one of them is that payee',
+        onePayee.every((text) => text.includes(payee.name)), JSON.stringify(onePayee));
+
+      // The other side of it: the category's other payees are gone. Named
+      // from this block's own fixture, which it does own.
+      check('while the rest of the category is filtered out',
+        !onePayee.some((text) => /Breakdown fuel stop/.test(text))
+          && (payee.name === 'Breakdown corner shop'
+            || !onePayee.some((text) => /Breakdown corner shop/.test(text))),
+        JSON.stringify(onePayee));
+
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/category/groceries');
+      await page.waitForTimeout(800);
+
+      // `categoryLabel` knows eighteen of the forty-six categories the schema
+      // offers and returns the stored key for the rest, which is right in a
+      // chart legend and wrong where a page title goes.
+      check('the heading is a name rather than the stored key',
+        /Groceries/.test(landed.text) && !/^\s*groceries/.test(landed.text),
+        landed.text.slice(0, 200));
+
+      // A category with a bill filed under it and nothing spent. Drawing the
+      // figures anyway gives a row of zeros, a year of empty bars and a note
+      // about comparing a month in progress — furniture around an absence it
+      // never names.
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/category/insurance');
+      await page.waitForTimeout(900);
+      const spentNothing = await page.evaluate(() => ({
+        text: (document.querySelector('.app-content')?.textContent ?? '')
+          .replace(/\s+/g, ' '),
+        charts: document.querySelectorAll('.app-content figure').length,
+      }));
+
+      check('a category with a bill and no spending says so in words',
+        /nothing has been spent/i.test(spentNothing.text), spentNothing.text.slice(0, 400));
+
+      check('and still lists the bill that is filed under it',
+        /Breakdown term cover/.test(spentNothing.text), spentNothing.text.slice(0, 400));
+
+      // Counted on both screens, so "no chart" is a difference this fixture
+      // actually produces rather than a selector that matches nothing.
+      const drawn = await page.evaluate(async () => {
+        globalThis.location.hash = '#/finance/category/groceries';
+        await new Promise((done) => { setTimeout(done, 1200); });
+        return document.querySelectorAll('.app-content figure').length;
+      });
+
+      check('a category with spending draws its year',
+        drawn > 0, String(drawn));
+
+      check('and one without does not draw a year of empty bars around the absence',
+        spentNothing.charts === 0, String(spentNothing.charts));
+
+      check('and without comparing a month that has nothing in it',
+        !/this month is not over/i.test(spentNothing.text), spentNothing.text.slice(0, 400));
+
+      // Reached by a hand-edited address, which has to land somewhere rather
+      // than try to open a record called "groceries".
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/category/not-a-real-category');
+      await page.waitForTimeout(800);
+      const nonsense = await page.evaluate(() => (document.querySelector('.app-content')
+        ?.textContent ?? '').replace(/\s+/g, ' '));
+
+      check('an address naming no real category lands on an empty state',
+        /nothing has been recorded/i.test(nonsense), nonsense.slice(0, 300));
+
+      // The whole reason the router escapes its path segments. Driven from
+      // the legend rather than typed, so what is exercised is the address the
+      // application itself builds.
+      await go(page, '#/dashboard');
+      await go(page, '#/finance');
+      await page.waitForTimeout(900);
+      const spaced = page.locator('.legend-row--link', { hasText: 'food delivery' }).first();
+      const spacedHref = await spaced.count() ? await spaced.getAttribute('href') : null;
+
+      check('a category whose name contains a space is escaped in its address',
+        spacedHref === '#/finance/category/food%20delivery', String(spacedHref));
+
+      await spaced.click();
+      await page.waitForTimeout(900);
+      const spacedText = await page.evaluate(() => (document.querySelector('.app-content')
+        ?.textContent ?? '').replace(/\s+/g, ' '));
+
+      check('and the screen it opens finds the category rather than reporting nothing',
+        /Breakdown takeaway/.test(spacedText)
+          && !/nothing has been recorded/i.test(spacedText),
+        spacedText.slice(0, 400));
+
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/category/groceries');
+      await page.waitForTimeout(800);
+
+      // The way back out. The tab bar above marks no section — nothing there
+      // is this screen — so without this the only way back is the browser's
+      // own control, which a home-screen app does not show.
+      const backs = await page.locator('.back-link').count();
+      check('there is a way back to the breakdown it was opened from',
+        backs > 0, String(backs));
+
+      // The ledger is still reachable, one step further in, and still the
+      // thing a bookmark can address.
+      await page.getByRole('button', { name: /See all/i }).first().click();
+      await page.waitForTimeout(900);
+      const ledger = await page.evaluate(() => {
+        const table = document.querySelector('.app-content table');
         return {
           hash: globalThis.location.hash,
-          text: rows.map((row) => row.textContent.replace(/\s+/g, ' ')).join(' | '),
-          // The screen's own control, so the household can see the filter and
-          // take it off again rather than being stuck in a state with no
-          // visible cause.
-          category: [...(document.querySelector('.app-content')
-            ?.querySelectorAll('select') ?? [])]
-            .map((one) => one.value).filter(Boolean),
+          text: [...(table ? table.querySelectorAll('tbody tr') : [])]
+            .map((row) => row.textContent.replace(/\s+/g, ' ')).join(' | '),
         };
       });
 
-      check('clicking a slice opens the transactions it stands for',
-        landed.hash === '#/finance/transaction?category=groceries', landed.hash);
+      check('the category screen leads on to the rows themselves',
+        ledger.hash === '#/finance/transaction?category=groceries', ledger.hash);
 
-      check('and the rows shown are that category and no other',
-        /Breakdown grocer/.test(landed.text)
-          && /Breakdown corner shop/.test(landed.text)
-          && !/Breakdown fuel stop/.test(landed.text),
-        landed.text.slice(0, 500));
-
-      check('the filter the link applied is visible in the screen\'s own control',
-        landed.category.includes('groceries'), JSON.stringify(landed.category));
+      check('and those rows are that category and no other',
+        /Breakdown grocer/.test(ledger.text) && !/Breakdown fuel stop/.test(ledger.text),
+        ledger.text.slice(0, 500));
 
       // A link that outlives the screen it was copied from. An unknown key has
       // to be dropped rather than stored, or a stale bookmark puts the ledger
@@ -3428,6 +3625,36 @@ async function main() {
       check('a bookmarked category link filters the ledger on its own',
         /Breakdown fuel stop/.test(direct) && !/Breakdown grocer/.test(direct),
         direct.slice(0, 500));
+
+      /*
+       * And it lands at the top of what it opened.
+       *
+       * The router has always set `outlet.scrollTop = 0` here, under a comment
+       * saying the scroll had been put where it belongs. `.app-content` is a
+       * scrolling column on a desktop and `overflow-y: visible` on a phone,
+       * where the document scrolls instead — so on a phone that line set a
+       * property on an element that does not scroll, and nothing moved.
+       *
+       * Tapping a category 900px down the overview landed 446px into the
+       * screen it opened. It went unnoticed because most screens are short
+       * enough that the browser clamps the offset back to zero by itself,
+       * which is why this is asserted from a deliberately deep position onto
+       * a screen with enough content to hold one.
+       */
+      await go(page, '#/finance');
+      await page.waitForTimeout(700);
+      await page.evaluate(() => globalThis.scrollTo(0, 900));
+      await page.waitForTimeout(250);
+      const from = await page.evaluate(() => Math.round(globalThis.scrollY));
+      await go(page, '#/finance/category/groceries');
+      await page.waitForTimeout(900);
+      const to = await page.evaluate(() => Math.round(globalThis.scrollY));
+
+      check('the fixture scrolled far enough for the check to mean anything',
+        from > 400, String(from));
+
+      check('and opening a category lands at the top of it, not part-way down',
+        to === 0, `${from} -> ${to}`);
 
       check('the breakdown drill-down renders without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
