@@ -63,7 +63,15 @@ KIND.storage    0
 `idb.js` raises `StorageError` with `code: 'storage'` on a quota failure. It
 reaches the repository's catch, which classified two ways only —
 `ValidationError`/`forbidden` → refusal, everything else → error — so a full
-disk was filed as a generic fault. `summarise` groups by kind, so the storage
+disk was filed as a generic fault.
+
+**And `forbidden` was a code nothing produced.** `PermissionError` carries
+`code: 'permission'`, so that half of the refusal branch could never fire and
+every permission refusal was an error too — a staff member meeting the access
+rules wrote `kind=error` twice over. The branch reads `'permission'` now, and
+the unit test that had asserted `diagnosticKind({ code: 'forbidden' })` — an
+object literal of a shape the application never constructs — passes a real
+`PermissionError` instead. `summarise` groups by kind, so the storage
 row was permanently empty and **a household out of room read as an application
 that was broken.** Different problems, different people, different fixes.
 

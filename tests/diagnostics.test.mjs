@@ -2,7 +2,7 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 import { SyncEngine } from '../js/sync/engine.js';
 import { diagnosticKind } from '../js/data/repository.js';
-import { StorageError, ValidationError } from '../js/core/errors.js';
+import { StorageError, ValidationError, PermissionError } from '../js/core/errors.js';
 import { FakeTransport } from '../js/sync/transport.js';
 import {
   redact, event, record, recent, summarise, KIND, LIMIT, STORE,
@@ -362,7 +362,49 @@ describe('which kind a failure is', () => {
       diagnosticKind(new ValidationError([{ field: 'kind', message: 'must be one of: transfer' }])),
       KIND.refusal,
     );
-    assert.equal(diagnosticKind({ code: 'forbidden' }), KIND.refusal);
+
+    /*
+     * This line read `diagnosticKind({ code: 'forbidden' })`, and it passed
+     * for as long as it existed while the thing it stood for did not work.
+     *
+     * `'forbidden'` is not a code this application produces. `PermissionError`
+     * in `core/errors.js` has always carried `code: 'permission'`, so the
+     * branch could never fire on a real error and every permission refusal was
+     * filed as a fault. The check was satisfied by an object literal written to
+     * satisfy it.
+     *
+     * The error type, then, not a shape typed out beside the assertion — the
+     * one thing a fabricated input cannot be wrong about.
+     */
+    assert.equal(diagnosticKind(new PermissionError('read', 'staff', 'staff')), KIND.refusal);
+  });
+
+  test('and a real refusal, through the real write path, lands as one', async () => {
+    /*
+     * The classifier above is asked directly. This is the same question put to
+     * the repository, because the fault it replaced lived in the gap between
+     * the two: the unit assertion passed on a fabricated object while every
+     * refusal a household could actually cause was filed as a fault.
+     *
+     * A staff member is the household member who meets the access rules most
+     * often — Phase 13 exists so that they see the record about them and
+     * nothing else — so a run of these is routine on a shared device, and
+     * routine is exactly what must not read as breakage.
+     */
+    const db = await makeDb({ personId: 'per_owner', role: 'owner' });
+    const cook = await makePerson(db, { name: 'Sunita Rao', role: 'staff' });
+    await db.repo('staff').create({ person: cook.id, role: 'Cook', monthlyPay: 900000 });
+    const before = (await db.adapter.query('diagnostics', {}) ?? []).length;
+
+    db.setActor({ personId: cook.id, role: 'staff' });
+    await db.repo('transaction').create({
+      date: '2026-09-01', amount: 10000, kind: 'expense',
+    }).catch(() => {});
+
+    const written = (await db.adapter.query('diagnostics', {}) ?? []).slice(before);
+    assert.length(written, 1, 'the refusal has to be recorded, or this proves nothing');
+    assert.equal(written[0].code, 'permission');
+    assert.equal(written[0].kind, KIND.refusal, 'a rule saying no is not the application breaking');
   });
 
   test('and anything else is an error', () => {
