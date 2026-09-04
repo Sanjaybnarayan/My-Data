@@ -2655,6 +2655,78 @@ async function main() {
       check('and closing it puts focus back where it came from',
         keyboard.restored, JSON.stringify(keyboard));
 
+      /*
+       * The fourth claim, and the one nothing had asked.
+       *
+       * Three of `modal.js`'s four are checked above. "Focus trapped while
+       * open" was not, and could not have been: in 731 checks this suite had
+       * never pressed Tab. Every keyboard claim it made was about Enter,
+       * Space or Escape — the keys that activate something — and none about
+       * the key a person actually moves with.
+       *
+       * `trapFocus` says what it is for: "Without it, tabbing walks out of
+       * the modal and into the page behind, which for a screen-reader user
+       * means the dialog silently ceases to exist." Measured with the trap
+       * disabled, that is exactly what happens — on the forty-eighth press
+       * focus reaches `body`, then the skip link, then Dashboard, then
+       * Notifications, while the dialog sits there `aria-modal` and covered.
+       *
+       * Driven on a real edit form rather than a built one, because the
+       * number of focusable controls is the point: twenty-eight of them, so
+       * a trap that only holds for a few presses would still fail here.
+       * Focus is recorded by a listener rather than read after each press —
+       * one round trip instead of ninety, and it catches a landing that a
+       * later press moves away from.
+       */
+      /*
+       * The route is the whole setup: `entity/new` renders the record form
+       * as a dialog, so this needs no fixture and cannot be skipped for want
+       * of one.
+       *
+       * The first version of this check opened a *saved* vehicle's edit form
+       * and guarded every step — `if (rows.count())`, `if (edit.count())`.
+       * It ran at a point in the suite where no vehicle exists, so both
+       * guards were false and the block did nothing. The suite reported
+       * 731/731: the same count as before the check was added, passing
+       * because it had quietly declined to run. A check that opts itself out
+       * when its fixture is missing is the fault this file keeps finding,
+       * and it got in here by being written defensively.
+       *
+       * `waitForSelector` now stands where those guards were. If the dialog
+       * does not open, this fails loudly instead of counting itself green.
+       */
+      await go(page, '#/vehicles/vehicle/new');
+      await page.waitForSelector('.modal', { timeout: 5000 });
+      await page.waitForTimeout(400);
+
+      const focusables = await page.evaluate(() => {
+        globalThis.__escaped = [];
+        document.addEventListener('focusin', () => {
+          const el = document.activeElement;
+          if (!el?.closest?.('.modal')) {
+            globalThis.__escaped.push(el === document.body ? 'BODY'
+              : `${el?.tagName}[${(el?.textContent || '').trim().slice(0, 18)}]`);
+          }
+        }, true);
+        return document.querySelectorAll('.modal a[href], .modal button:not([disabled]),'
+          + ' .modal input:not([disabled]), .modal select:not([disabled]),'
+          + ' .modal textarea:not([disabled])').length;
+      });
+
+      // Twice round plus a margin, then back the other way: the trap has to
+      // hold at both ends, and Shift+Tab off the first element is the half a
+      // forward-only sweep would never reach.
+      for (let i = 0; i < focusables * 2 + 4; i += 1) await page.keyboard.press('Tab');
+      for (let i = 0; i < focusables + 2; i += 1) await page.keyboard.press('Shift+Tab');
+
+      const escaped = await page.evaluate(() => globalThis.__escaped);
+      check('tabbing cannot walk out of an open dialog',
+        focusables > 5 && escaped.length === 0,
+        `${focusables} focusables, ${escaped.length} escapes${escaped.length ? `: ${escaped.slice(0, 3).join(', ')}` : ''}`);
+
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+
       await page.waitForTimeout(200);
     }
 
