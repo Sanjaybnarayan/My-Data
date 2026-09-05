@@ -788,3 +788,58 @@ describe('showing somebody what is held about them', () => {
     assert.length(held.held, 0);
   });
 });
+
+/**
+ * The audit log records that somebody opened a secret. `Repository#get` takes
+ * an option that suppresses that entry, and an option like this is worth
+ * exactly what the list of callers is worth — one careless `logRead: false`
+ * on a screen that really does show a vault item and the guarantee is gone
+ * with nothing failing.
+ *
+ * So the list is checked rather than trusted, and the check is a sweep of the
+ * source rather than a list written down beside it.
+ */
+describe('who may open a secret without saying so', () => {
+  /** Every `.js` under `js/`, as `path -> text`. */
+  async function sources() {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const out = new Map();
+    const walk = async (dir) => {
+      for (const item of await readdir(dir, { withFileTypes: true })) {
+        const full = join(dir, item.name);
+        if (item.isDirectory()) await walk(full);
+        else if (item.name.endsWith('.js')) out.set(full.slice(ROOT.length + 1), await readFile(full, 'utf8'));
+      }
+    };
+    await walk(join(ROOT, 'js'));
+    return out;
+  }
+
+  test('only the timeline names the option, and only to title a record', async () => {
+    const files = await sources();
+    // The sweep is worth what it read. An empty walk names nothing and would
+    // pass with the option scattered everywhere.
+    assert.ok(files.size >= 100, `only ${files.size} modules were swept`);
+    assert.ok(files.has('js/data/repository.js'), 'the file defining the option was not read');
+
+    const named = [...files]
+      .filter(([, text]) => /logRead/.test(text))
+      .map(([path]) => path)
+      .sort();
+
+    assert.deep(named, ['js/data/repository.js', 'js/services/timeline.js']);
+  });
+
+  test('and it is the title lookup that passes it, not a screen', async () => {
+    const files = await sources();
+    const timeline = files.get('js/services/timeline.js') ?? '';
+
+    assert.length(timeline.match(/logRead:\s*false/g) ?? [], 1,
+      'the timeline service silences exactly one lookup');
+    // In `#titles`, which resolves a record to what a person calls it — not in
+    // `recent` or `history`, which is where a screen would reach for one.
+    const inTitles = timeline.slice(timeline.indexOf('async #titles('));
+    assert.includes(inTitles, 'logRead: false',
+      'the suppressed read must be the one made to name a record');
+  });
+});

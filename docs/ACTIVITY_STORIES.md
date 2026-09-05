@@ -125,9 +125,23 @@ boundaries and failed on the word **Investments**. The `wired:` probe was given
 `\b` on both sides that same day, for exactly this reason, in
 `docs/MOVEMENTS_SCREEN.md`.
 
-## What is still not built
+## The screen that was still not built, and what it cost
 
-A **household timeline** as a screen of its own — this is the dashboard widget,
-eight stories deep. Nothing filters by person or by module, nothing spans more
-than the most recent 200 entries, and the knowledge-graph and universal-search
-half of Phase 17 is untouched.
+This section used to say a **household timeline** as a screen of its own did
+not exist — that this was the dashboard widget, eight stories deep, spanning
+the most recent 200 entries with nothing to filter it by.
+
+`js/modules/timeline.js` has since been built: `history()` rather than
+`recent()`, 500 entries, grouped by day, with a chip row offering only the
+entity types that actually appear.
+
+Giving `#titles` a screen that draws hundreds of stories is also what turned
+its one quiet defect into the loudest thing in the log. Resolving a record's
+title goes through the same `get` a household opening that record goes
+through, so for a vault item or an identity document the *naming* was written
+down as an *opening* — and those entries landed in the next render's window
+and were named in turn. **99.2% of the timeline became a record of the
+timeline being drawn.** See
+[A_HISTORY_MOSTLY_OF_ITSELF.md](A_HISTORY_MOSTLY_OF_ITSELF.md).
+
+The knowledge-graph and universal-search half of Phase 17 is still untouched.

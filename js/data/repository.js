@@ -92,8 +92,23 @@ export class Repository {
 
   /* ------------------------------------------------------------------ read */
 
-  /** @returns {Promise<object|null>} decrypted, or null when absent or deleted */
-  async get(id, { includeDeleted = false } = {}) {
+  /**
+   * @param {string} id
+   * @param {{includeDeleted?: boolean, logRead?: boolean}} [options]
+   * @returns {Promise<object|null>} decrypted, or null when absent or deleted
+   *
+   * `logRead: false` says **this is not a person opening the record**, and it
+   * is the only thing it says. Permission is still checked, decryption still
+   * happens, the caller still gets the whole record — what is withheld is the
+   * `read` entry in the audit log, because the log's claim is that somebody
+   * looked at a vault item, and a lookup made to put that item's *name* on a
+   * log line is not somebody looking at it.
+   *
+   * Left on by default and passed by exactly one caller, which a test pins.
+   * The guarantee "opening a secret is recorded" is only worth what the list
+   * of exceptions is worth, so the list is checked rather than trusted.
+   */
+  async get(id, { includeDeleted = false, logRead = true } = {}) {
     const raw = await this.#ctx.adapter.read(this.#name, id);
     if (!raw) return null;
     if (raw.deletedAt && !includeDeleted) return null;
@@ -102,7 +117,7 @@ export class Repository {
     const record = upgradeRecord(this.#name, raw);
     const out = await decryptRecord(this.#name, record, this.#ctx.keyring.key);
 
-    if (shouldLogRead(this.#name)) {
+    if (logRead && shouldLogRead(this.#name)) {
       await this.#writeAudit(auditEntry({
         action: ACTIONS.read, entity: this.#name, recordId: id,
         actor: this.#actor(), deviceId: this.#ctx.deviceId, at: this.#now(),
