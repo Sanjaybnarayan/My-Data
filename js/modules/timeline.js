@@ -103,15 +103,8 @@ function days(history) {
 
   const out = [];
   for (const [day, stories] of byDay) {
-    out.push(h('div', {
-      class: 'small faint',
-      style: {
-        padding: 'var(--space-4) var(--space-5) var(--space-2)',
-        position: 'sticky',
-        top: '0',
-        background: 'var(--surface)',
-      },
-    }, `${formatDay(day)} · ${relativeDays(day)}`));
+    out.push(h('div', { class: ['small', 'faint', 'timeline-day'] },
+      `${formatDay(day)} · ${relativeDays(day)}`));
 
     out.push(h('div', { class: 'list' }, stories.map((story) => listItem({
       title: history.describe(story),

@@ -19,8 +19,43 @@
   padding: var(--space-5);
 }
 
-.card--flush { padding: 0; overflow: hidden; }
+/*
+ * `clip`, not `hidden`, and the difference is a feature that silently did
+ * nothing.
+ *
+ * The clip is here so a list runs to the card's edges without square corners
+ * poking past its 22px radius, and both keywords do that identically. But
+ * `hidden` makes the card a *scroll container*, and `position: sticky` sticks
+ * to its nearest scroll container — so the timeline's day headings, written
+ * deliberately and commented ("`3 March` above a run of changes is how
+ * somebody reads a history"), stuck to a box that never scrolls and rode off
+ * the top of the screen with everything else. Measured at 3,673px above the
+ * viewport after scrolling 4,000px through the history: not late, not
+ * misplaced, simply absent.
+ *
+ * `clip` creates no scroll container, so a sticky descendant resolves against
+ * the page as intended. Thirty-eight cards carry this class and the clipping
+ * is unchanged for all of them.
+ */
+.card--flush { padding: 0; overflow: clip; }
 .card--quiet { box-shadow: none; background: var(--surface-sunken); }
+
+/*
+ * The timeline's day heading, which stays on screen through the run of
+ * changes underneath it.
+ *
+ * `top` is the app header's own height rather than zero: the header is itself
+ * sticky, so a day parked at zero sits behind it, which is the same as not
+ * having a heading at all. Written here rather than as an inline style
+ * because a `calc()` in a style object is an English string as far as
+ * `tools/strings.mjs` is concerned, and that ratchet may only fall.
+ */
+.timeline-day {
+  position: sticky;
+  top: calc(var(--header-height) + var(--inset-top));
+  padding: var(--space-4) var(--space-5) var(--space-2);
+  background: var(--surface);
+}
 
 .card--interactive {
   cursor: pointer;
@@ -188,7 +223,39 @@
 .btn--primary:hover:not(:disabled) { background: var(--accent-hover); box-shadow: var(--shadow-2); }
 
 .btn--outline { --btn-border: var(--border-strong); }
-.btn--subtle { --btn-bg: var(--surface-sunken); }
+/*
+ * A border, because the ground is not enough to see it by.
+ *
+ * `--btn-bg` here is `--surface-sunken` and `.card--quiet` sets its own
+ * background to `--surface-sunken` — the same token — so a subtle button on a
+ * quiet card was invisible by construction, not by accident. Measured on
+ * Insurance's "Open the estate review": surface contrast against its own
+ * ground **1:1**, border alpha **0**, in both themes. A 44px tap target with
+ * nothing to say it can be tapped, sitting in a paragraph.
+ *
+ * Ten rules in this file paint `--surface-sunken` and twenty-six subtle
+ * buttons ship, so the collision is not one screen's bad luck.
+ *
+ * The fix is the one this repository already argued for the navigation bar:
+ * *"colour alone is not a distinction — the filled ground and the bar above
+ * the icon are both shape, neither needs colour to be seen."* A button
+ * identifiable only by a ground colour that can equal its parent's is exactly
+ * colour alone. This gives it an edge instead.
+ *
+ * `--text-faint` and not `--border`, which is the obvious choice and does not
+ * work. An edge that cannot be seen is the same as no edge, and non-text
+ * parts of a control need 3:1 (WCAG 1.4.11). Measured against all three
+ * surfaces in both themes:
+ *
+ *     --border          1.14 – 1.36     no
+ *     --border-strong   1.54 – 1.94     no
+ *     --text-faint      4.58 – 6.46     yes
+ *
+ * `--border` is a divider between blocks and is right for that. It was tried
+ * here first and measured at 1.22:1, which is how this line came to be
+ * written twice.
+ */
+.btn--subtle { --btn-bg: var(--surface-sunken); --btn-border: var(--text-faint); }
 .btn--danger { --btn-fg: var(--danger); }
 .btn--danger:hover:not(:disabled) { background: var(--danger-subtle); }
 

@@ -121,13 +121,22 @@ export async function render(route) {
       // or has its participants changed, and none of that is worth
       // reimplementing to make a prettier list above it.
       /*
-       * Open when there is nothing yet.
+       * Closed, always — and the reason it used to open is worth keeping.
        *
-       * Folding the conversation list away is right once there are threads to
-       * read — but with none, this disclosure held the only way to make one,
-       * and the empty state above pointed at a control nobody could see.
+       * It opened when there were no threads because this disclosure once
+       * held the only way to make one, and the empty state above merely
+       * pointed at a control nobody could see. That was fixed by giving the
+       * empty state its own button, which calls `section.openForm()` — and
+       * `openForm` raises a **modal**, so it works whether this is open or
+       * shut. The `open` outlived its reason and nobody re-read it.
+       *
+       * What it cost: with nothing yet, the screen drew "No conversations
+       * yet" twice, 250px apart, same icon, same heading, above two buttons
+       * wording the same act differently — "Start a conversation" and "Add
+       * the first conversation". A household is being told the same absence
+       * twice and asked to choose between two doors to one room.
        */
-      h('details', { class: 'chat-manage', open: threads.length === 0 }, [
+      h('details', { class: 'chat-manage' }, [
         h('summary', {}, t('chat.manage')),
         section.node,
       ]),

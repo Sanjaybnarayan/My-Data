@@ -119,6 +119,25 @@ export function cashFlows(holding, transactions, { asOf = today(), value: closin
 }
 
 /**
+ * How many days the flows span, first to last.
+ *
+ * Exported because whether a rate may be *annualised* is a question about the
+ * flows rather than about the solver, and the caller is the one that knows
+ * what it is going to claim. Zero for fewer than two flows.
+ */
+export function spanDays(flows) {
+  if (flows.length < 2) return 0;
+  const dates = flows.map((f) => f.date).sort();
+  const first = Date.parse(dates[0]);
+  const last = Date.parse(dates[dates.length - 1]);
+  if (Number.isNaN(first) || Number.isNaN(last)) return 0;
+  return Math.round((last - first) / 86_400_000);
+}
+
+/** A year, as the shortest span a rate may honestly be annualised over. */
+export const YEAR = 365;
+
+/**
  * Internal rate of return for irregularly-timed flows, as an annual
  * percentage.
  *

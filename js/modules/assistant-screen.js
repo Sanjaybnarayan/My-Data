@@ -31,7 +31,21 @@ export async function render(route) {
   const input = h('input', {
     class: 'input',
     type: 'search',
-    placeholder: 'Ask about spending, net worth, renewals, bills…',
+    /*
+     * Short enough to be read whole on the narrowest phone this supports.
+     *
+     * It said "Ask about spending, net worth, renewals, bills…" — four
+     * examples naming what this understands, which is the right idea and
+     * needed **320px** to render. The field offers 182px at a 320px viewport
+     * and 252px at 390px, the icon inside it taking the rest, so it clipped
+     * at every phone width: "Ask about spending, net worth, rene". The half
+     * that survived promised two topics and the half that did not was the
+     * point.
+     *
+     * The examples are still offered, and better: six of them as chips
+     * directly below, each a whole question somebody can tap.
+     */
+    placeholder: 'Ask about your records…',
     'aria-label': 'Ask a question',
     autocomplete: 'off',
     onKeydown: (event) => {
