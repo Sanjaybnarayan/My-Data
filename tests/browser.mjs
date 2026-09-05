@@ -2455,6 +2455,86 @@ async function main() {
       await page.waitForTimeout(300);
 
       /*
+       * The navigation's own labels, measured against the tab rather than
+       * against themselves.
+       *
+       * The check above reads `scrollWidth > clientWidth`, which asks whether
+       * a label is cut off by its *own* box. Two ways of being unreadable
+       * get past that:
+       *
+       * A label that **wraps mid-word** is not clipped at all — it grows a
+       * line and the bar grows with it. "Dashboard" was 0.4px too wide for a
+       * tab at 390px and broke as "Dashboar / d"; "Notifications" was 2.6px
+       * too wide and broke as "Notification / s". A single orphaned letter,
+       * in the application's own navigation, on every screen in it, past 881
+       * browser checks. It was found by looking at a screenshot.
+       *
+       * A label clipped by its **parent** is invisible to it too: a
+       * `max-width: 100%` grid item may exceed that max-width when its
+       * min-content is wider, so the span measures as fitting while
+       * spilling out of a tab that is `overflow: hidden`. That is what
+       * `hyphens: auto` does here — 10.4px and 12.6px out at 320px, cut to
+       * "Dashboa" and "Notificatio" with no ellipsis.
+       *
+       * So: no label may spill outside its tab, at any width. And at 390px
+       * and above, where there is room for them, none may wrap.
+       */
+      for (const width of [320, 360, 390, 430]) {
+        await page.setViewportSize({ width, height: 844 });
+        await go(page, '#/dashboard');
+        await page.waitForTimeout(400);
+
+        const labels = await page.evaluate(() => [...document.querySelectorAll('.bottom-nav a')]
+          .map((a) => {
+            const span = [...a.children].find((el) => el.tagName === 'SPAN'
+              && !el.classList.contains('nav-badge')
+              && (el.textContent ?? '').trim().length > 1);
+            if (!span) return null;
+            const style = getComputedStyle(a);
+            const box = a.getBoundingClientRect();
+            const label = span.getBoundingClientRect();
+            // The tab's content box: what the label is allowed to occupy.
+            const left = box.left + parseFloat(style.paddingLeft)
+              + parseFloat(style.borderLeftWidth);
+            const right = box.right - parseFloat(style.paddingRight)
+              - parseFloat(style.borderRightWidth);
+            return {
+              text: (span.textContent ?? '').trim(),
+              spill: Math.round(Math.max(0, label.right - right, left - label.left) * 10) / 10,
+              lines: Math.round(label.height / parseFloat(getComputedStyle(span).lineHeight)),
+              tap: Math.round(Math.min(box.width, box.height)),
+            };
+          }).filter(Boolean));
+
+        // Without this, a selector that stopped matching would make every
+        // `every()` below true and the whole block would pass measuring
+        // nothing at all.
+        check(`the five navigation labels are found at ${width}px`,
+          labels.length === 5, `${labels.length}: ${labels.map((one) => one.text).join(', ')}`);
+
+        check(`no navigation label spills out of its tab at ${width}px`,
+          labels.every((one) => one.spill <= 0.5),
+          labels.filter((one) => one.spill > 0.5)
+            .map((one) => `${one.text} +${one.spill}px`).join(', '));
+
+        // The tab is a `1fr` grid column, so its width comes from the grid
+        // and the padding this fix took does not touch it. Measured, because
+        // "it cannot have changed" is how a tap target shrinks.
+        check(`and every tab is still a tap target at ${width}px`,
+          labels.every((one) => one.tap >= 44),
+          labels.map((one) => `${one.text} ${one.tap}px`).join(', '));
+
+        if (width >= 390) {
+          check(`and no label is broken across two lines at ${width}px`,
+            labels.every((one) => one.lines === 1),
+            labels.filter((one) => one.lines > 1).map((one) => one.text).join(', '));
+        }
+      }
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(200);
+
+      /*
        * Sideways. 844x390 is the same phone rotated, and the height is what
        * changes the problem: a fixed header and a fixed bottom bar eat a
        * fixed number of pixels out of a much shorter screen, and what is

@@ -464,7 +464,26 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
     display: grid;
     place-items: center;
     gap: 2px;
-    padding: var(--space-2) var(--space-1);
+    /*
+     * 2px, not `--space-1`, and the difference is four tenths of a pixel.
+     *
+     * A tab is a fifth of the bar. At 390px — the commonest phone width
+     * there is — that leaves a 61px label box, and "Dashboard" measures
+     * 61.6px. Four tenths of a pixel short, so it broke, and because the
+     * rule below breaks anywhere it broke as "Dashboar / d". A single
+     * orphaned letter, in the application's own navigation, on every
+     * screen. "Notifications" was 2.6px short and read "Notification / s".
+     *
+     * The horizontal padding is the only room there is to give: the tab is
+     * a `1fr` grid column, so its width — and its tap target — comes from
+     * the grid and does not change with this at all. Taking 4px to 2px
+     * gives the label 65px and both fit on one line, at 390px and above.
+     *
+     * Below that they still wrap, and still should: at 320px the box is
+     * 51px against 61.6px of word, and no padding exists that closes an
+     * eleven-pixel gap.
+     */
+    padding: var(--space-2) 2px;
     border-radius: var(--radius-lg);
     color: var(--text-muted);
     text-decoration: none;
@@ -491,6 +510,23 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
    * simply overflows instead of breaking. The bar grows to fit, and the
    * padding `.app-main` reserves grows with it because both come from
    * `--bottom-nav-height`.
+   *
+   * ## `hyphens: auto` does not work here, and fails silently
+   *
+   * The obvious improvement is to break at a syllable — "Dash-/board" reads
+   * where "Dashboar / d" does not. Tried, and measured: with
+   * `overflow-wrap: break-word; hyphens: auto` this Chromium hyphenates
+   * neither word. It leaves them on one line, spilling **10.4px** and
+   * **12.6px** out of the tab at 320px, where `overflow: hidden` above
+   * cuts them to "Dashboa" and "Notificatio" — no ellipsis, no hyphen, the
+   * exact truncation this rule exists to prevent, and worse than what it
+   * replaced.
+   *
+   * It is invisible to a line count, too: an overflowing word is still one
+   * line, and a `max-width: 100%` grid item is allowed to exceed that
+   * max-width when its min-content is wider, so the span's own box measures
+   * as fitting. Only comparing the label's box against the tab's content
+   * box shows it. The check in `tests/browser.mjs` compares those two.
    */
   .bottom-nav a > span {
     max-width: 100%;
