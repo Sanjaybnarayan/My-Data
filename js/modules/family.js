@@ -421,7 +421,26 @@ async function treeView() {
       href: Router.href({ module: 'identity', entity: 'person', id: person.id }),
       style: {
         padding: 'var(--space-3) var(--space-4)',
-        minWidth: '170px',
+        /*
+         * Grow to fill the line rather than sit at 170px with the rest of it
+         * empty.
+         *
+         * `minWidth: 170px` in a wrapping row meant two cards needed 352px and
+         * the row has less than that on a 390px phone, so exactly one person
+         * fitted per line and about 147px beside each one went unused — half
+         * the width of the screen this module is named after.
+         *
+         * A smaller basis is the obvious repair and it is the wrong one: at
+         * 150px the name has roughly 70px after the avatar and the padding,
+         * and "Lakshmi Iyer" needs about 86. The name carries `.truncate`, so
+         * it would not have overflowed — it would have quietly become
+         * "Lakshmi I…", and a person's own name is the last thing in this
+         * application that should be cut to save space.
+         *
+         * Growing costs nothing: one per line fills the width, and a wider
+         * screen fits two or three which then share it evenly.
+         */
+        flex: '1 1 170px',
         textDecoration: 'none',
         color: 'inherit',
         borderColor: isMe ? 'var(--accent)' : null,

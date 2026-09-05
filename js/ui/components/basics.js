@@ -132,7 +132,26 @@ export function chip(label, { pressed, onClick, iconName } = {}) {
     class: 'chip',
     ...(pressed !== undefined ? { 'aria-pressed': String(Boolean(pressed)) } : {}),
     onClick,
-  }, [iconName ? icon(iconName, { size: 16 }) : null, label]);
+  }, chipFace([iconName ? icon(iconName, { size: 16 }) : null, label]));
+}
+
+/**
+ * The visible half of a chip, separated from the control that receives the tap.
+ *
+ * A transform moves the measured box: `getBoundingClientRect` reports the
+ * *transformed* size, so a 44px control turned and set back by the wheel in a
+ * sliding row measures 36px and stops being a tap target — and this repository
+ * checks that floor rather than claiming it. Finance's two navigation rows
+ * solved this by splitting the control from its face; every sliding row does
+ * the same now, which is what makes one treatment possible across all of them.
+ *
+ * Outside a sliding row this is inert: `.chip` keeps its own pill and the face
+ * is a plain inline box, so a chip in an ordinary wrapping row is unchanged.
+ *
+ * @param {Child} inside
+ */
+export function chipFace(inside) {
+  return h('span', { class: 'chip-face' }, inside);
 }
 
 /**

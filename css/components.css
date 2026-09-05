@@ -52,6 +52,37 @@
   margin-bottom: var(--space-4);
 }
 .card-header h2, .card-header h3 { margin-right: auto; }
+
+/*
+ * The icon stays with the title it belongs to.
+ *
+ * `.spacer` is `flex: 1 1 auto`, and an `auto` basis means the flex base size
+ * is the title's **max-content** width. A header is `flex-wrap: wrap` so the
+ * badge beside a long title can drop to a second line — but wrapping is
+ * decided before shrinking, so a title wider than the room left beside an
+ * 18px icon took a whole line of its own and left the icon stranded above it,
+ * reading as a stray glyph rather than as part of the heading.
+ *
+ * Measured on eight cards across eight screens, worst at 148px of header on
+ * Reports for "Fill in a document template", and the same "Where the answer to
+ * this already is" card on four different screens.
+ *
+ * A zero basis makes the title shrink and wrap *inside* its own box instead,
+ * which is what should have been happening. The badge still wraps below when
+ * it has to, which is what the wrap was for.
+ *
+ * **Without `min-width: 0`**, deliberately. The first version added it, on the
+ * reasoning that a flex item's automatic minimum size holds it at min-content
+ * and would stop it shrinking. It does — and that is the point: released, the
+ * box can go narrower than its longest word, and at Android's largest text
+ * setting the suite caught two headings cut off, `Household` and `Recent
+ * activity`. A truncated heading is worse than a stranded icon, and this
+ * repository refuses it elsewhere in as many words. The zero basis alone
+ * fixes what was actually wrong, which was wrapping decided before shrinking.
+ */
+.card-header > .spacer { flex: 1 1 0; }
+/* And the icon keeps its size rather than being squashed to make room. */
+.card-header > svg { flex: none; }
 /* A card heading is an `h2` for the heading order and `--text-lg` for the eye.
    The tag carries the structure; the size stays what it looked like. */
 .card-header h2 { font-size: var(--text-lg); }
@@ -493,6 +524,22 @@
   font-weight: 600;
 }
 
+/*
+ * Inert by default. Outside a sliding row the pill lives on `.chip`, and this
+ * is a plain inline box that changes nothing — which is what lets the face be
+ * emitted unconditionally by `chip()` without touching the rows that wrap.
+ */
+.chip-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+  transition: color var(--duration) var(--ease),
+    background var(--duration) var(--ease),
+    border-color var(--duration) var(--ease);
+}
+
 .chip-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
 /*
@@ -903,9 +950,115 @@
   overflow-x: auto;
   scrollbar-width: none;
   padding-bottom: 2px;
+  /*
+   * The same wheel Finance's two navigation rows turn on, and for the same
+   * reason: these six rows all slide, all overflow, and were all drawn flat
+   * while Finance's turned. One treatment across every sliding row in the
+   * application is the whole point of it being here rather than there.
+   *
+   * `scroll-padding-inline` rather than the `padding-inline` gutter Finance
+   * uses. That gutter exists so the *first* item can reach the middle; these
+   * rows are not a hierarchy being read from the centre, they are filters
+   * sitting under a heading, and 4.5rem of blank before the first one would
+   * read as a missing control. `scroll-padding` moves where snapping lands
+   * without moving where the row starts.
+   */
+  scroll-snap-type: x proximity;
+  scroll-behavior: smooth;
+  perspective: 20rem;
 }
 .chip-row--scroll::-webkit-scrollbar { display: none; }
-.chip-row--scroll > .chip { flex: 0 0 auto; }
+.chip-row--scroll > .chip { flex: 0 0 auto; scroll-snap-align: center; }
+
+/*
+ * The control and its face, in a sliding row.
+ *
+ * Everywhere else `.chip` keeps its own pill and `.chip-face` is a plain
+ * inline box — an ordinary wrapping row of chips is untouched by any of this.
+ * Inside a row that slides, the two swap jobs: the button keeps an
+ * untransformed 44px box and does nothing but receive the tap, and the face
+ * carries the pill and the turn.
+ *
+ * That split is not decoration. `getBoundingClientRect` reports the
+ * *transformed* size, so a 44px control scaled to 0.82 measures 36px and is no
+ * longer a tap target — which this repository checks on twelve screens at
+ * 390px and at 320px rather than taking on trust.
+ */
+.chip-row--scroll > .chip {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  align-items: center;
+}
+.chip-row--scroll > .chip > .chip-face {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  /*
+   * `--text`, explicitly, and it is the whole readability of the row.
+   *
+   * A chip can be an anchor — Settings' section row is six of them — and
+   * `a { color: var(--accent-text) }` then gives an *unchosen* chip the link
+   * blue. The wheel fades unchosen faces to 0.72, and the contrast walk reads
+   * effective opacity, so that blue came out at **4.06:1 on light and 4.4:1
+   * on dark** against a floor of 4.5. Two failures, both in Settings, both
+   * from a colour nobody chose for this row.
+   *
+   * It is the same double-dip `docs/A_WHEEL_SEEN_EDGE_ON.md` records from the
+   * first wheel: fading a colour that has nothing left to give. There the
+   * culprit was `--text-faint`, already at the floor by design; here it is a
+   * link colour arriving by inheritance. `--text` is 17.19:1 on light and
+   * lands at 6.91:1 once faded, which is why Finance's faces take it too.
+   */
+  color: var(--text);
+}
+.chip-row--scroll > .chip[aria-current='page'] > .chip-face,
+.chip-row--scroll > .chip[aria-pressed='true'] > .chip-face {
+  background: var(--accent-subtle);
+  border-color: transparent;
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/*
+ * Only where the row actually slides.
+ *
+ * `view(inline)` maps an item's progress across the scrollport whether or not
+ * there is anything to scroll. On a row that fits — which these all do on a
+ * desktop, where the column is ~960px and the widest of them is 834px — that
+ * turns into arbitrary size by horizontal position: the leftmost chip is drawn
+ * at the start of the timeline, smallest and turned furthest away, and the
+ * leftmost chip is usually the selected one. Identity showed "People" chosen
+ * and shrunken while "Employment history" sat square-on beside it, which is
+ * the opposite of what the wheel is for.
+ *
+ * 900px is this application's own phone-and-desktop breakpoint, and it is the
+ * right line here for the reason it is the right line there: below it these
+ * rows overflow and slide, above it they fit and there is no wheel to turn.
+ *
+ * Finance's two rows are deliberately not gated — their centring gutter means
+ * they overflow at every width, so the wheel always has something to express.
+ */
+@media (max-width: 900px) {
+@supports (animation-timeline: view(inline)) {
+  .chip-row--scroll > .chip > .chip-face {
+    animation: nav-wheel linear both;
+    animation-timeline: view(inline);
+  }
+  /*
+   * The chosen chip turns but never dims — `--accent-text` on
+   * `--accent-subtle` has no headroom to give, exactly as Finance's chosen
+   * face has none, and the contrast walk reads effective opacity now.
+   */
+  .chip-row--scroll > .chip[aria-current='page'] > .chip-face,
+  .chip-row--scroll > .chip[aria-pressed='true'] > .chip-face {
+    animation-name: nav-wheel-chosen;
+  }
+}
+}
 
 .avatar {
   display: grid;
@@ -2161,6 +2314,21 @@ a.wallet-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 
 /* The one card that should catch the eye first, so it is the one with a rule
    down its edge — a shape, not only a colour. */
 .attention-card { border-left: 3px solid var(--danger); }
+
+/*
+ * And it takes the whole row it is on.
+ *
+ * The dashboard is a two-column grid on a desktop — 473px each at 1280px —
+ * and the attention card is drawn first, with the wallet section after it
+ * spanning both columns. So the card came out half width with **the other 473
+ * pixels of its row empty**, on the screen the application opens on, and the
+ * hole sat beside the one card the design puts first on purpose.
+ *
+ * Spanning it fills the row and matches the wallet directly below. Every other
+ * card on the screen pairs off correctly and is left alone; on a phone the
+ * grid is one column and this changes nothing at all.
+ */
+.attention-card { grid-column: 1 / -1; }
 
 .dash-section { grid-column: 1 / -1; }
 

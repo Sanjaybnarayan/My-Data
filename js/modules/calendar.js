@@ -15,7 +15,7 @@ import { h, replace } from '../ui/dom.js';
 import { t } from '../core/locale.js';
 import { icon } from '../ui/icons.js';
 import {
-  card, cardHeader, button, badge, pageHeader, empty, listItem,
+  card, cardHeader, button, badge, pageHeader, empty, listItem, chipFace,
 } from '../ui/components/basics.js';
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
@@ -175,10 +175,10 @@ export async function render(route) {
               if (hidden.has(source.id)) hidden.delete(source.id); else hidden.add(source.id);
               paint();
             },
-          }, [
+          }, chipFace([
             h('span', { class: 'legend-swatch', style: { background: source.colour } }),
             sourceLabel(source),
-          ]))),
+          ])))),
 
         // Said before the grid rather than after it, because it changes how
         // the empty squares below should be read.
