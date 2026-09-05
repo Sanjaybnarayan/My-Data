@@ -145,6 +145,10 @@ export async function listSection(entityName, {
   async function load() {
     rows = await db.repo(entityName).list({ limit: 5000 });
     if (fixedFilter) rows = rows.filter(fixedFilter);
+    // Every record, not the filtered set: the bar decides which controls can
+    // tell these records apart, and a search that narrows nine rows to two
+    // must not take its own box away with it.
+    bar.update(rows);
     await paint();
   }
 
@@ -179,7 +183,7 @@ export async function listSection(entityName, {
     });
   }
 
-  replace(host, [bar, bannerHost, table.node]);
+  replace(host, [bar.node, bannerHost, table.node]);
   await load();
   if (autoOpenNew) openForm();
 

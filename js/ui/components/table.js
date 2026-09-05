@@ -325,15 +325,39 @@ export function entityTable(entityName, rows, options = {}) {
 }
 
 /**
- * The filter bar above a list. Built from the entity's enum fields plus a
- * text box, because those are the filters that exist for every entity — a
- * module wanting something else adds it beside this, not instead of it.
+ * The filter bar above a list.
+ *
+ * Built from the **records**, not from the schema. That distinction is the
+ * whole of this function, and getting it wrong was measurable: built from the
+ * schema, the application drew 40 enum filters across 37 entities, of which
+ *
+ *   - 18 could not narrow anything, every record sharing one value or none
+ *   - and 185 options in total matched no record at all
+ *
+ * `legalDocument.kind` was the worst: eleven kinds offered over a single
+ * document. Ten of those eleven, chosen, empty the list — and an empty list
+ * does not read as "you have none of those". It reads as *your records are
+ * missing*, on the screen holding a household's will.
+ *
+ * So a filter has to earn its place twice over. It appears only when the
+ * records show two or more different values, because one value narrows
+ * nothing; and it offers only the values actually present, because an option
+ * that always empties the list is worse than an option that is not there.
+ *
+ * `docs/A_PICKER_NOBODY_WAS_LISTENING_TO.md` and the language card in
+ * Settings — which says "English only" rather than offering a menu of one —
+ * are the same rule already written down elsewhere.
  */
-export function filterBar(entityName, { onChange, extra } = {}) {
+/**
+ * @param {string} entityName
+ * @param {{onChange: (filter: (record: object) => boolean) => void,
+ *          extra?: unknown}} options
+ */
+export function filterBar(entityName, { onChange, extra }) {
   const def = entity(entityName);
   const state = { text: '', ...Object.create(null) };
 
-  const enumFields = def.fields
+  const candidates = def.fields
     .filter((f) => f.type === 'enum' && f.list && f.options.length <= 12)
     .slice(0, 2);
 
@@ -348,25 +372,22 @@ export function filterBar(entityName, { onChange, extra } = {}) {
     },
   });
 
-  const chips = enumFields.map((field) => h('div', { class: 'chip-row' }, [
-    h('select', {
-      class: 'select',
-      'aria-label': fieldLabel(def.name, field),
-      style: { width: 'auto', minWidth: '9rem' },
-      onChange: (e) => {
-        state[field.key] = e.target.value;
-        onChange(makeFilter());
-      },
-    }, [
-      h('option', { value: '' }, t('record.allOf', { many: noun(fieldLabel(def.name, field)) })),
-      ...field.options.map((o) => h('option', { value: o }, o)),
-    ]),
-  ]));
+  const searchBox = h('div', { class: 'search-box' }, [icon('search', { size: 18 }), search]);
+  // `record-filters`, not `filter-bar`. That name was already taken by the
+  // Transactions ledger's own panel (`js/modules/transactions.js`), which is a
+  // different component with different rules — and a stylesheet rule written
+  // here for one of them silently reached the other. The same collision as
+  // `.nav-group` and the shell's sidebar, found the same way: by a check that
+  // demanded the generic filters on a screen that deliberately replaces them.
+  const bar = h('div', { class: 'row record-filters' });
+
+  /** The enum fields that can currently tell these records apart. */
+  let live = [];
 
   function makeFilter() {
     const searchable = def.fields.filter((f) => f.search && !f.encrypted).map((f) => f.key);
     return (record) => {
-      for (const field of enumFields) {
+      for (const field of live) {
         if (state[field.key] && record[field.key] !== state[field.key]) return false;
       }
       if (!state.text) return true;
@@ -378,9 +399,62 @@ export function filterBar(entityName, { onChange, extra } = {}) {
     };
   }
 
-  return h('div', { class: 'row', style: { marginBottom: 'var(--space-4)' } }, [
-    h('div', { class: 'search-box' }, [icon('search', { size: 18 }), search]),
-    ...chips,
-    extra,
-  ]);
+  /**
+   * Redraw from what the records hold.
+   *
+   * Takes every record, never the filtered set: a search narrowing nine rows
+   * to two must not take the search box away with it.
+   */
+  function update(rows) {
+    let lost = false;
+    live = [];
+
+    for (const field of candidates) {
+      const present = [...new Set(rows
+        .map((row) => row[field.key])
+        .filter((v) => v !== undefined && v !== null && v !== '')
+        .map(String))];
+      // Two, not one. A column every record agrees about is a fact about
+      // these records, not a way of telling them apart.
+      if (present.length < 2) {
+        // A value chosen before the records changed under it would otherwise
+        // keep filtering from a control nobody can see any more.
+        if (state[field.key]) { state[field.key] = ''; lost = true; }
+        continue;
+      }
+      if (state[field.key] && !present.includes(state[field.key])) {
+        state[field.key] = '';
+        lost = true;
+      }
+      live.push({ ...field, present: field.options.filter((o) => present.includes(String(o))) });
+    }
+
+    replace(bar, [
+      // A search box over two records is slower than reading them. Eight is
+      // where a list stops fitting on a 390x844 phone under a header and a
+      // navigation row, which is the point at which finding beats looking.
+      rows.length >= 8 ? searchBox : null,
+      ...live.map((field) => h('div', { class: 'chip-row' }, [
+        h('select', {
+          class: 'select',
+          'aria-label': fieldLabel(def.name, field),
+          style: { width: 'auto', minWidth: '9rem' },
+          onChange: (e) => {
+            state[field.key] = e.target.value;
+            onChange(makeFilter());
+          },
+        }, [
+          h('option', { value: '' }, t('record.allOf', { many: noun(fieldLabel(def.name, field)) })),
+          ...field.present.map((o) => h('option',
+            { value: o, ...(state[field.key] === String(o) ? { selected: '' } : {}) }, o)),
+        ]),
+      ])),
+      extra,
+    ].filter(Boolean));
+
+    if (lost) onChange(makeFilter());
+  }
+
+  update([]);
+  return { node: bar, update };
 }

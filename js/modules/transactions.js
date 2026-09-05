@@ -323,9 +323,17 @@ export async function render(route = {}) {
     const narrowings = countNarrowings();
     const panel = h('div', { class: 'filter-panel', hidden: narrowings === 0 }, [
       h('div', { class: 'filter-bar' }, [
+        // The accounts these transactions are actually on, not every account
+        // the household holds. Twelve accounts and a statement imported for
+        // four of them left eight options that empty the ledger when chosen —
+        // and a ledger that goes blank reads as lost records, not as an
+        // account with nothing on it. The Category filter below has always
+        // been built this way; this one was not.
         select('Account', filter.account, [
           { value: '', label: 'All accounts' },
-          ...accounts.map((a) => ({ value: a.id, label: a.name })),
+          ...accounts
+            .filter((a) => records.some((record) => record.account === a.id))
+            .map((a) => ({ value: a.id, label: a.name })),
         ], (value) => set({ account: value })),
 
         select('Category', filter.category, [

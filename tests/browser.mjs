@@ -3818,6 +3818,342 @@ async function main() {
       await page.setViewportSize({ width: 1280, height: 900 });
     }
 
+    /* ------------------- filters built from the records, not from the schema */
+
+    {
+      /*
+       * An option that always empties the list is worse than no option.
+       *
+       * The filter bar used to be built from the schema, so it offered every
+       * value an enum field *could* hold whether or not any record held one.
+       * Measured across the seeded household: 40 enum filters over 37
+       * entities, 18 of which could not narrow anything because every record
+       * shared one value or none, and **185 options in total matching no
+       * record at all**.
+       *
+       * `legalDocument.kind` was the worst of them — eleven kinds offered
+       * above a single document. Ten of those eleven, chosen, empty the list.
+       * And an empty list does not read as "you have none of those". It reads
+       * as *your records are missing*, on the screen holding a will.
+       *
+       * So the bar is built from the records. This block drives every entity
+       * list in the schema and holds two properties over all of them at once,
+       * which is the only way a rule like this stays true for the module
+       * somebody adds next year.
+       */
+      const before = consoleErrors.length;
+
+      await page.setViewportSize({ width: 390, height: 844 });
+
+      const lists = [];
+      for (const mod of SCHEMA_MODULES) {
+        for (const one of Object.values(SCHEMA_ENTITIES)) {
+          if (one.module === mod.id) lists.push(`#/${mod.id}/${one.name}`);
+        }
+      }
+
+      const empty = [];
+      const dead = [];
+      const useless = [];
+      const searchOverFew = [];
+      const missing = [];
+      const missingSearch = [];
+      let optionsOffered = 0;
+
+      for (const hash of lists) {
+        await go(page, '#/dashboard');
+        await go(page, hash);
+        await page.waitForTimeout(420);
+
+        const seen = await page.evaluate(async ([entityName, ctx, schema, labels]) => {
+          const { app } = await import(ctx);
+          const { entity } = await import(schema);
+          const { fieldLabel } = await import(labels);
+          let rows = [];
+          try {
+            rows = await app().db.repo(entityName).list({ limit: 5000 });
+          } catch { rows = []; }
+
+          /*
+           * The same choice `filterBar` makes, made independently here from
+           * the records — so the check knows what the screen owes it rather
+           * than trusting whatever the screen drew.
+           */
+          const def = entity(entityName);
+          const qualifying = def.fields
+            .filter((f) => f.type === 'enum' && f.list && f.options.length <= 12)
+            .slice(0, 2)
+            .map((f) => ({
+              label: fieldLabel(def.name, f),
+              values: new Set(rows.map((r) => r[f.key])
+                .filter((v) => v !== undefined && v !== null && v !== '')
+                .map(String)).size,
+            }))
+            .filter((f) => f.values >= 2);
+
+          const bar = document.querySelector('.app-content .record-filters');
+          // Both kinds of bar, for the dead-option scan: `.filter-bar` is the
+          // Transactions ledger's own panel, and it had the identical bug.
+          // Visible ones only — the ledger's panel is `hidden` until a filter
+          // is on, and a control nobody can reach cannot mislead anybody.
+          const selects = [...document.querySelectorAll(
+            '.app-content .record-filters select, .app-content .filter-bar select')]
+            .filter((one) => one.getClientRects().length > 0);
+
+          return {
+            records: rows.length,
+            qualifying,
+            // Zero when the bar holds nothing: `:empty` has to take the
+            // margin with it, or the saving is a blank strip.
+            barPx: bar ? Math.round(bar.getBoundingClientRect().height) : 0,
+            hasBar: !!bar,
+            searches: document.querySelectorAll(
+              '.app-content .record-filters input[type=search]').length,
+            // Only a screen drawing the generic bar owes the generic filters.
+            // Transactions, Imported files and Shops replace it with a panel
+            // of their own, and demanding `Kind` on the ledger was this check
+            // insisting a bespoke screen behave like the schema's default.
+            generic: !!bar,
+            // For each filter: its options, and how many records carry each.
+            filters: selects.map((select) => {
+              const key = select.getAttribute('aria-label');
+              const options = [...select.querySelectorAll('option')]
+                .slice(1).map((o) => o.value);
+              const counts = options.map((value) => rows.filter((r) =>
+                Object.values(r).some((v) => String(v) === value)).length);
+              return { key, options, counts };
+            }),
+          };
+        }, [hash.split('/')[2], '/js/context.js', '/js/data/schema.js',
+          '/js/core/labels.js']);
+
+        // A bar holding nothing that still takes room — the failure. The
+        // first version of this collected the opposite and then asserted the
+        // list was empty, so it failed on every screen behaving correctly.
+        if (seen.hasBar && seen.searches === 0 && seen.filters.length === 0
+          && seen.barPx > 0) empty.push(`${hash} (${seen.barPx}px)`);
+
+        // What the records say this list *should* offer, worked out here
+        // rather than assumed. A count written down ("at least twelve bars")
+        // measures the fixture, not the behaviour: this suite seeds fewer
+        // records than the example household, and twelve was a number from
+        // the wrong dataset.
+        if (seen.generic) {
+          for (const field of seen.qualifying) {
+            if (!seen.filters.some((one) => one.key === field.label)) {
+              missing.push(`${hash} ${field.label} (${field.values} values)`);
+            }
+          }
+          if (seen.records >= 8 && seen.searches === 0) {
+            missingSearch.push(`${hash} (${seen.records} records)`);
+          }
+        }
+
+        for (const filter of seen.filters) {
+          optionsOffered += filter.options.length;
+          // Every option must match something. This is the 185.
+          const orphans = filter.options.filter((_, i) => filter.counts[i] === 0);
+          if (orphans.length) dead.push(`${hash} ${filter.key}: ${orphans.join(', ')}`);
+          // And a filter needs two values to be telling anything apart.
+          if (filter.options.length < 2) useless.push(`${hash} ${filter.key}`);
+        }
+
+        // A search box over a list you can see all of is slower than reading.
+        if (seen.searches && seen.records < 8) {
+          searchOverFew.push(`${hash} (${seen.records} records)`);
+        }
+      }
+
+      check('every entity list in the schema was driven',
+        lists.length >= 40, `${lists.length} lists`);
+
+      check('no filter offers a value that no record has',
+        dead.length === 0, dead.slice(0, 6).join(' | '));
+
+      check('and no filter is drawn that cannot tell two records apart',
+        useless.length === 0, useless.slice(0, 6).join(' | '));
+
+      check('no search box stands over a list short enough to read',
+        searchOverFew.length === 0, searchOverFew.slice(0, 6).join(' | '));
+
+      check('a bar holding nothing takes no room, margin included',
+        empty.length === 0, empty.slice(0, 6).join(' | '));
+
+      /*
+       * Not a claim that the bar is gone everywhere.
+       *
+       * Without these two, the whole block passes by deleting the feature —
+       * no filters at all satisfies every assertion above it. Both are
+       * derived from the records the screen is standing on, so they hold
+       * whatever this suite happens to have seeded.
+       */
+      check('every field whose records show two or more values gets its filter',
+        missing.length === 0, missing.slice(0, 6).join(' | '));
+
+      check('and every list too long to read keeps its search box',
+        missingSearch.length === 0, missingSearch.slice(0, 6).join(' | '));
+
+      check('some options are still offered, all of them real',
+        optionsOffered > 0, `${optionsOffered} options`);
+
+      /*
+       * The behaviour has to survive the trimming.
+       *
+       * Driven on whichever list this run actually seeded enough of, not on
+       * a screen named here. The first version picked Transactions because
+       * the example household has 105 of them — but this suite seeds its own
+       * records, the ledger draws `.ledger-row` rather than the generic
+       * table's `tr[data-id]`, and the check reported "0 transactions" about
+       * a screen that was fine. It was measuring the fixture and the wrong
+       * element at once.
+       */
+      const driveable = [];
+      for (const hash of lists) {
+        await go(page, '#/dashboard');
+        await go(page, hash);
+        await page.waitForTimeout(380);
+        const n = await page.evaluate(() => ({
+          filters: document.querySelectorAll('.app-content .record-filters select').length,
+          rows: document.querySelectorAll(
+            '.app-content tbody tr[data-id], .app-content .ledger-row').length,
+        }));
+        if (n.filters && n.rows > 1) driveable.push({ hash, ...n });
+      }
+
+      check('at least one list has both records and a filter to try',
+        driveable.length > 0, `${driveable.length} of ${lists.length} lists`);
+
+      if (driveable.length) {
+        // The one with the most rows, so narrowing has somewhere to go.
+        const target = driveable.sort((a, b) => b.rows - a.rows)[0];
+        await go(page, '#/dashboard');
+        await go(page, target.hash);
+        await page.waitForTimeout(700);
+
+        const rowsNow = () => page.evaluate(() => document.querySelectorAll(
+          '.app-content tbody tr[data-id], .app-content .ledger-row').length);
+
+        const all = await rowsNow();
+        check(`${target.hash} lists its records`, all > 1, String(all));
+
+        const select = page.locator('.app-content .record-filters select').first();
+        const value = await select.locator('option').nth(1).getAttribute('value');
+        await select.selectOption(value);
+        await page.waitForTimeout(700);
+        const narrowed = await rowsNow();
+
+        check('choosing a filter narrows the list',
+          narrowed > 0 && narrowed <= all, `${all} → ${narrowed} on "${value}"`);
+
+        // Every option came from a record, so no choice can empty the list.
+        // That is exactly the property the 185 dead options broke.
+        check('and never empties it, because the value came from the records',
+          narrowed > 0, `${narrowed} rows for "${value}"`);
+
+        await select.selectOption('');
+        await page.waitForTimeout(700);
+        check('clearing it puts them back',
+          (await rowsNow()) === all, `${await rowsNow()} vs ${all}`);
+      }
+
+      /*
+       * The trap this rebuild invites.
+       *
+       * The bar decides what to draw from how many records there are. Feed it
+       * the *filtered* set and a search narrowing a long list to nothing drops
+       * below the threshold and takes its own search box away mid-keystroke —
+       * the control vanishing under the cursor using it.
+       *
+       * Nothing this suite seeds is long enough to reach the threshold on a
+       * generic list: Transactions has a hundred of them and draws its own
+       * panel instead. So rather than skip the guard that matters most, this
+       * makes a list long enough, drives it, and puts the records back — and
+       * checks that it did, because a test that quietly leaves nine notes
+       * behind has changed every count after it.
+       */
+      const CTX = '/js/context.js';
+
+      const notesBefore = await page.evaluate(async (ctx) => {
+        const { app } = await import(ctx);
+        return (await app().db.repo('note').list({ limit: 5000 })).length;
+      }, CTX);
+
+      const made = await page.evaluate(async (ctx) => {
+        const { app } = await import(ctx);
+        const ids = [];
+        for (let n = 0; n < 9; n += 1) {
+          const one = await app().db.repo('note').create({
+            title: `Filter bar check ${n}`,
+            // Two of the kinds the schema actually declares, so a filter
+            // appears beside the search box and can be checked for surviving
+            // the same keystroke. `idea` and `list` were invented here and
+            // are not among them.
+            kind: n % 2 ? 'checklist' : 'text',
+          });
+          ids.push(one.id);
+        }
+        return ids;
+      }, CTX);
+
+      check('nine notes were made to take the list past the threshold',
+        made.length === 9, `${made.length} created`);
+
+      await go(page, '#/dashboard');
+      await go(page, '#/notes/note');
+      await page.waitForTimeout(900);
+
+      const boxes = () => page.locator('.app-content .record-filters input[type=search]').count();
+      const filters = () => page.locator('.app-content .record-filters select').count();
+
+      check('a list past the threshold carries a search box',
+        await boxes() === 1, `${await boxes()} boxes over ${notesBefore + 9} notes`);
+
+      const filtersBefore = await filters();
+
+      const box = page.locator('.app-content .record-filters input[type=search]').first();
+      await box.fill('zzzzzzzz');
+      await page.waitForTimeout(800);
+
+      check('a search that finds almost nothing keeps its own box',
+        await boxes() === 1, `${await boxes()} boxes while filtered to nothing`);
+
+      check('and the filters beside it stay too',
+        await filters() === filtersBefore,
+        `${await filters()} vs ${filtersBefore}`);
+
+      await box.fill('');
+      await page.waitForTimeout(600);
+
+      /*
+       * And the other way: taking the records back below the threshold has to
+       * take the box with them, or the rule only ever runs on first paint.
+       */
+      await page.evaluate(async ([ids, ctx]) => {
+        const { app } = await import(ctx);
+        for (const id of ids) await app().db.repo('note').remove(id);
+      }, [made, CTX]);
+
+      await go(page, '#/dashboard');
+      await go(page, '#/notes/note');
+      await page.waitForTimeout(900);
+
+      const notesAfter = await page.evaluate(async (ctx) => {
+        const { app } = await import(ctx);
+        return (await app().db.repo('note').list({ limit: 5000 })).length;
+      }, CTX);
+
+      check('the nine notes are gone again, leaving the suite as it was',
+        notesAfter === notesBefore, `${notesAfter} vs ${notesBefore}`);
+
+      check('and a list back under the threshold loses its search box',
+        await boxes() === 0, `${await boxes()} boxes over ${notesAfter} notes`);
+
+      check('the filter checks run without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
     /* ------------------------------ sentences a phone can read, on screen */
 
     {
