@@ -1818,6 +1818,105 @@ async function main() {
     }
 
     {
+      /*
+       * Drawing the history must not be written into the history.
+       *
+       * `vaultItem` and `identityDocument` log a `read` when they are opened,
+       * and `TimelineService#titles` loads a record to put its name on a log
+       * line — so naming a vault item was recorded as opening it, and the row
+       * it wrote landed inside the next render's window and was named again.
+       * On the example household 3,557 of 3,831 entries were reads, 3,440 of
+       * them before anybody had opened anything.
+       *
+       * Nothing about the screen looks wrong while this happens. Every row is
+       * a true sentence about a real log entry; the log is the thing that is
+       * false. So this counts entries rather than reading the screen.
+       */
+      const before = consoleErrors.length;
+
+      // This suite seeds its own records and holds neither kind. Without
+      // them there is nothing whose read would be logged, and a count of
+      // zero would be true of a household that could not produce one.
+      const secrets = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const [person] = await app().db.repo('person').list({ decrypt: false, limit: 1 });
+        if (!person) return { item: '', doc: '', why: 'the household has no person' };
+        const item = await app().db.repo('vaultItem').create({
+          name: 'Bank locker combination', kind: 'secure note',
+        });
+        const doc = await app().db.repo('identityDocument').create({
+          person: person.id, kind: 'Passport', number: 'Z1234567',
+        });
+        return { item: item.id, doc: doc.id, why: '' };
+      }, IN_PAGE.context);
+
+      const reads = () => page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const rows = await app().db.activity({ limit: 2000 });
+        return rows.filter((entry) => entry.action === 'read')
+          .map((entry) => `${entry.entity}:${entry.recordId}`);
+      }, IN_PAGE.context);
+
+      check('the household holds records whose reads are logged',
+        Boolean(secrets.item && secrets.doc), JSON.stringify(secrets));
+      check('and nothing has opened one yet', (await reads()).length === 0);
+
+      for (let i = 0; i < 3; i += 1) {
+        await go(page, '#/dashboard');
+        await go(page, '#/timeline');
+      }
+
+      await page.waitForTimeout(500);
+      const named = await page.evaluate(() => [...document.querySelectorAll('.app-content .list-item')]
+        .map((row) => row.textContent ?? '').join(' '));
+      // The screens have to have *reached* those two records, or they never
+      // asked for a title and the count below is measuring a walk that
+      // touched nothing.
+      check('the timeline names the records it would have to load',
+        /Bank locker combination/.test(named) && /Passport/.test(named),
+        named.slice(0, 300));
+
+      const afterDrawing = await reads();
+      check('drawing the dashboard and timeline six times logs no reads',
+        afterDrawing.length === 0, `${afterDrawing.length}: ${afterDrawing.slice(0, 5).join(', ')}`);
+
+      // The other half. Silencing the log entirely would pass every check
+      // above, so the genuine read has to be shown to still arrive.
+      await go(page, `#/vault/vaultItem/${secrets.item}`);
+      await page.waitForTimeout(500);
+      const afterOpening = await reads();
+      check('but a household opening the vault item is recorded',
+        afterOpening.length === 1 && afterOpening[0] === `vaultItem:${secrets.item}`,
+        afterOpening.join(', '));
+
+      await go(page, '#/timeline');
+      const shown = await page.locator('.app-content').innerText();
+      check('and the timeline says so in words',
+        /opened Bank locker combination/.test(shown),
+        shown.slice(0, 300));
+      check('and saying so does not record another one',
+        (await reads()).length === 1, (await reads()).join(', '));
+
+      // `remove`, not `delete`. Written as `delete` first, which threw and
+      // took the rest of the run with it — the eight checks above had already
+      // passed, so the failure was mine and not the application's.
+      const cleaned = await page.evaluate(async (arg) => {
+        const { app } = await import(arg.spec);
+        await app().db.repo('vaultItem').remove(arg.item);
+        await app().db.repo('identityDocument').remove(arg.doc);
+        return (await app().db.repo('vaultItem').get(arg.item)) === null;
+      }, { spec: IN_PAGE.context, item: secrets.item, doc: secrets.doc });
+      check('the two seeded secrets are removed again', cleaned);
+      // `get` returns null on a deleted record before it reaches the audit
+      // write, so asking for one that is gone is not an open either.
+      check('and asking for a deleted secret records nothing',
+        (await reads()).length === 1, (await reads()).join(', '));
+
+      check('the read-logging walk left no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
+
+    {
       // The two sentences that must be above the conversations, not below and
       // not in a document nobody opens. A padlock and the word "encrypted" are
       // the easiest false claim in this application to make.

@@ -6,7 +6,7 @@ import { formats, verhoeff } from '../js/data/formats.js';
 import { MemoryAdapter, compareKeys, inRange } from '../js/data/storage.js';
 import { describeStores, upgradeRecord, recordMigrations, needsUpgrade } from '../js/data/migrations.js';
 import { tokenize, prefixes } from '../js/data/search.js';
-import { changedFields } from '../js/data/audit.js';
+import { changedFields, shouldLogRead } from '../js/data/audit.js';
 import { isEncrypted } from '../js/security/crypto.js';
 import { sortBy } from '../js/data/repository.js';
 import { withoutComments } from '../tools/field-coverage.mjs';
@@ -461,6 +461,48 @@ describe('audit', () => {
   test('an array change is detected', () => {
     assert.deep(changedFields({ tags: ['a'] }, { tags: ['a', 'b'] }), ['tags']);
     assert.length(changedFields({ tags: ['a'] }, { tags: ['a'] }), 0);
+  });
+
+  /*
+   * Opening a secret is recorded, and naming one is not.
+   *
+   * `TimelineService` loads a record to put its title on a log line — for a
+   * vault item that lookup was itself logged as an open, and the entry it
+   * wrote landed in the window the next render titled. On the example
+   * household 3,557 of 3,831 entries were reads, all of them written by that
+   * one method, 3,440 before anybody had opened anything.
+   *
+   * The two tests below have to be read together. Either alone passes on a
+   * broken build: drop the logging entirely and the first still holds; drop
+   * the option and the second still holds.
+   */
+  test('opening a vault item is written to the log', async () => {
+    const db = await makeDb();
+    const item = await db.repo('vaultItem').create({ name: 'Bank locker', kind: 'login' });
+
+    await db.repo('vaultItem').get(item.id);
+
+    const reads = (await auditLog(db)).filter((entry) => entry.action === 'read');
+    assert.length(reads, 1, 'a read of a secret must reach the log');
+    assert.equal(reads[0].recordId, item.id);
+  });
+
+  test('and looking one up to name it is not', async () => {
+    const db = await makeDb();
+    const item = await db.repo('vaultItem').create({ name: 'Bank locker', kind: 'login' });
+
+    const named = await db.repo('vaultItem').get(item.id, { logRead: false });
+
+    assert.equal(named.name, 'Bank locker', 'the caller still gets the record');
+    assert.length((await auditLog(db)).filter((entry) => entry.action === 'read'), 0);
+  });
+
+  test('the entities whose reads are logged are the two that hold secrets', () => {
+    assert.ok(shouldLogRead('vaultItem'));
+    assert.ok(shouldLogRead('identityDocument'));
+    // Without this the two tests above would also pass on an entity that
+    // never logged reads in the first place, which is most of them.
+    assert.not(shouldLogRead('account'));
   });
 });
 

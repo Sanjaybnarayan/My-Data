@@ -108,6 +108,25 @@ export class TimelineService extends Service {
    * One read per distinct record rather than one per entry, and a record the
    * household has since deleted simply has no title — the entity's own label
    * stands in, because "an account" is still true.
+   *
+   * ## Why these reads are not logged
+   *
+   * `vaultItem` and `identityDocument` log a `read` when they are opened, and
+   * this loads records of whatever entity a story names — so naming a vault
+   * item on a log line was itself written to the log as *"You opened Home
+   * wifi"*. Those rows then land inside the next render's window, get titled
+   * in turn, and are written again.
+   *
+   * Measured on the example household, before this: **3,557 of 3,831 entries
+   * were reads, every one of them written from this method, and 3,440 of them
+   * before anybody had opened anything** — the dashboard repaints as seeding
+   * runs, and each repaint titled the reads the last one wrote. A household
+   * that used the application for a year would find its history was almost
+   * entirely a record of the history screen being drawn.
+   *
+   * The log's claim is that somebody looked at a secret. Resolving that
+   * secret's name for a sentence about it is not somebody looking at it, so
+   * this asks for the record without asserting that it was opened.
    */
   async #titles(grouped) {
     const wanted = new Map();
@@ -118,7 +137,8 @@ export class TimelineService extends Service {
 
     const titles = new Map();
     for (const [key, story] of wanted) {
-      const record = await this.repo(story.entity).get(story.recordId).catch(() => null);
+      const record = await this.repo(story.entity)
+        .get(story.recordId, { logRead: false }).catch(() => null);
       if (!record) continue;
       const title = entityDef(story.entity).title(record);
       if (title) titles.set(key, String(title));
