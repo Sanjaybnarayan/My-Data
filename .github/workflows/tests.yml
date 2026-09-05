@@ -111,9 +111,28 @@ jobs:
   # A separate job because it downloads a browser, which is minutes rather than
   # seconds. Keeping it apart means the fast suite still reports quickly and a
   # failure here is attributable to the browser rather than to logic.
+  #
+  # Fifteen minutes was the ceiling until this suite was measured against it.
+  # Instrumenting all 87 sections put a passing run at 785 seconds — 13
+  # minutes — on a machine faster than this runner, and the cost is spread
+  # across the whole file rather than sitting in one place: the six most
+  # expensive sections are 79s, 68s, 64s, 53s, 48s and 47s, and no single one
+  # is more than a tenth of the total.
+  #
+  # So the job was not slow because of one bad check. It had been within a
+  # minute or two of the ceiling for some time, and the next block added —
+  # whichever it turned out to be — was always going to tip it. It did: a
+  # cancelled run reads as a red cross with no failing assertion behind it,
+  # which is the least useful failure a suite can produce.
+  #
+  # Twenty-five, then, with the newest and most expensive section trimmed to
+  # a third of its cost in the same change. Not skipping a check to fit, and
+  # not a number picked to be comfortably out of reach — enough that a run
+  # which finishes is reported on what it found, and little enough that one
+  # which hangs is still cut off.
   browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 

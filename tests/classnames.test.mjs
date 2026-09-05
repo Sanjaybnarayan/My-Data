@@ -43,8 +43,14 @@ describe('what is measured', () => {
   });
 
   test('the recorded budget matches the tree', () => {
+    // As a set, not in frequency order. `shared()` sorts by how many files
+    // write each name, which reshuffles when an already-shared name gains
+    // another user — ordinary reuse, and not something this budget measures.
+    // Comparing the ordered lists failed on Calendar picking up
+    // `.chip-row--scroll`, which is exactly the change the ratchet is supposed
+    // to wave through.
     assert.equal(budget().count, now.length);
-    assert.deep(budget().names, now.map((one) => one.name));
+    assert.deep(budget().names, now.map((one) => one.name).sort());
   });
 });
 

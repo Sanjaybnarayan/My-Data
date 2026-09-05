@@ -38,14 +38,27 @@ import {
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+/*
+ * `labelKey`, not `label`, for the one that is translated.
+ *
+ * `t()` here runs once when the module loads and keeps whatever language was
+ * active at that moment — so switching language left "Money due" in the old
+ * one until a reload. `js/modules/finance.js` names this same trap over its
+ * own tab list; this is the second place it was sitting.
+ *
+ * The rest are English written here, which is the separate debt that file
+ * also names.
+ */
 const SOURCES = [
   { id: 'event', label: 'Events', colour: 'var(--series-1)' },
   { id: 'task', label: 'Tasks', colour: 'var(--series-2)' },
   { id: 'appointment', label: 'Appointments', colour: 'var(--series-3)' },
-  { id: 'money', label: t('calendar.moneyDue'), colour: 'var(--series-6)' },
+  { id: 'money', labelKey: 'calendar.moneyDue', colour: 'var(--series-6)' },
   { id: 'expiry', label: 'Renewals', colour: 'var(--series-5)' },
   { id: 'date', label: 'Birthdays', colour: 'var(--series-4)' },
 ];
+
+const sourceLabel = (source) => (source.labelKey ? t(source.labelKey) : source.label);
 
 export async function render(route) {
   if (route.id && route.id !== 'new' && route.entity) {
@@ -120,6 +133,22 @@ export async function render(route) {
               class: 'btn btn--icon', type: 'button', 'aria-label': t('calendar.prevMonth'),
               onClick: () => { month = addMonths(month, -1); paint(); },
             }, icon('chevronLeft')),
+            /*
+             * Left alone, deliberately.
+             *
+             * At 390px this row wraps and Today takes a line of its own,
+             * which costs about sixty pixels. Three attempts to reclaim them
+             * each cost more than they saved: `flex: 1` with `min-width: 0`
+             * let the title overflow its box so the next-month chevron landed
+             * on "2026"; sizing to content made the inner group wrap instead;
+             * and `nowrap` on both rows pushed the whole page into sideways
+             * scrolling at 390px, which is a hard failure.
+             *
+             * The row simply holds more than 366px of controls. Sixty pixels
+             * are not worth a truncated month name or a shortened "Sep", and
+             * the hundred the legend gave back are where the room actually
+             * was.
+             */
             h('h2', { style: { minWidth: '11rem', textAlign: 'center' } }, monthName(month)),
             h('button', {
               class: 'btn btn--icon', type: 'button', 'aria-label': t('calendar.nextMonth'),
@@ -132,7 +161,12 @@ export async function render(route) {
           }),
         ]),
 
-        h('div', { class: 'chip-row', role: 'group', 'aria-label': t('calendar.sources'), style: { marginBottom: 'var(--space-4)' } },
+        // Six sources wrapped onto three lines — a hundred and forty-eight
+        // pixels of legend above a grid that started below the fold on a
+        // phone. It scrolls sideways instead, which is what every other
+        // crowded row in this application does, and carries the edge fade
+        // that says so.
+        h('div', { class: 'chip-row chip-row--scroll', role: 'group', 'aria-label': t('calendar.sources'), style: { marginBottom: 'var(--space-4)' } },
           SOURCES.map((source) => h('button', {
             class: 'chip',
             type: 'button',
@@ -143,7 +177,7 @@ export async function render(route) {
             },
           }, [
             h('span', { class: 'legend-swatch', style: { background: source.colour } }),
-            source.label,
+            sourceLabel(source),
           ]))),
 
         // Said before the grid rather than after it, because it changes how

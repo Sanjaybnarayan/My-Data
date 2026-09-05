@@ -3852,6 +3852,7 @@ async function main() {
         }
       }
 
+      const seenByList = [];
       const empty = [];
       const dead = [];
       const useless = [];
@@ -3860,10 +3861,21 @@ async function main() {
       const missingSearch = [];
       let optionsOffered = 0;
 
+      /*
+       * One navigation per list, not three.
+       *
+       * This bounced through `#/dashboard` before each list, which is the
+       * idiom used elsewhere in this file to force a re-render when the hash
+       * would otherwise be unchanged. Here the hash is different every time,
+       * so the bounce only ever cost a page load — 53 of them, plus their
+       * settles, in the most expensive section of the whole suite.
+       *
+       * Measured: this block was 79s of a 785s run, the largest single
+       * section. It is also the newest, so it is the one that should pay its
+       * way.
+       */
       for (const hash of lists) {
-        await go(page, '#/dashboard');
         await go(page, hash);
-        await page.waitForTimeout(420);
 
         const seen = await page.evaluate(async ([entityName, ctx, schema, labels]) => {
           const { app } = await import(ctx);
@@ -3914,6 +3926,14 @@ async function main() {
             // of their own, and demanding `Kind` on the ledger was this check
             // insisting a bespoke screen behave like the schema's default.
             generic: !!bar,
+            // What the behaviour test needs, gathered on this pass rather
+            // than by walking all fifty-three lists a second time. That
+            // second walk was two hundred navigations across the block and
+            // took the CI job past its fifteen-minute ceiling, where it was
+            // cancelled — which is not a pass, however it reads.
+            drawnRows: document.querySelectorAll(
+              '.app-content tbody tr[data-id], .app-content .ledger-row').length,
+            visibleSelects: selects.length,
             // For each filter: its options, and how many records carry each.
             filters: selects.map((select) => {
               const key = select.getAttribute('aria-label');
@@ -3938,6 +3958,8 @@ async function main() {
         // measures the fixture, not the behaviour: this suite seeds fewer
         // records than the example household, and twelve was a number from
         // the wrong dataset.
+        seenByList.push({ hash, ...seen });
+
         if (seen.generic) {
           for (const field of seen.qualifying) {
             if (!seen.filters.some((one) => one.key === field.label)) {
@@ -4007,18 +4029,9 @@ async function main() {
        * a screen that was fine. It was measuring the fixture and the wrong
        * element at once.
        */
-      const driveable = [];
-      for (const hash of lists) {
-        await go(page, '#/dashboard');
-        await go(page, hash);
-        await page.waitForTimeout(380);
-        const n = await page.evaluate(() => ({
-          filters: document.querySelectorAll('.app-content .record-filters select').length,
-          rows: document.querySelectorAll(
-            '.app-content tbody tr[data-id], .app-content .ledger-row').length,
-        }));
-        if (n.filters && n.rows > 1) driveable.push({ hash, ...n });
-      }
+      const driveable = seenByList
+        .filter((one) => one.visibleSelects && one.drawnRows > 1)
+        .map((one) => ({ hash: one.hash, rows: one.drawnRows }));
 
       check('at least one list has both records and a filter to try',
         driveable.length > 0, `${driveable.length} of ${lists.length} lists`);

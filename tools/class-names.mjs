@@ -124,7 +124,11 @@ if (process.argv.includes('--list')) {
     note: 'Class names written by more than one file. This may only fall. '
       + 'tools/class-names.mjs says why.',
     count: now.length,
-    names: now.map((one) => one.name),
+    // Alphabetical, not by how many files write each. Frequency order shifts
+    // whenever an already-shared name gains another user, which is ordinary
+    // reuse and not what this measures — the budget would then churn on
+    // changes it is meant to ignore.
+    names: now.map((one) => one.name).sort(),
   }, null, 2)}\n`);
   console.log(`recorded ${now.length} shared class names`);
 } else {
