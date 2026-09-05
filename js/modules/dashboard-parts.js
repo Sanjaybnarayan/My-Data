@@ -90,6 +90,6 @@ export function stakeFooter(valueUnknown, atStake) {
 export function moreFooter(total, href) {
   return h('div', { class: 'attention-foot' }, [
     h('a', { class: 'btn btn--subtle btn--small', href },
-      total > ROWS ? t('dash.seeAll', { n: total }) : t('dash.seeAllOpen')),
+      total > ROWS ? t('list.seeAll', { n: total }) : t('dash.seeAllOpen')),
   ]);
 }

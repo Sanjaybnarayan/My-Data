@@ -10,8 +10,17 @@
 import { h, replace } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import {
-  card, cardHeader, money, badge, button, pageHeader, listItem, empty,
+  card, cardHeader, money, badge, button, pageHeader, listItem, empty, restOfList,
 } from '../ui/components/basics.js';
+
+/*
+ * How many unexplained events the review card names.
+ *
+ * Its header badge carries the real total, so the card stated a number and
+ * then showed eight rows with nothing about the rest. No link: the rows each
+ * lead to their own event, and there is no list of only these.
+ */
+const PROBLEMS = 8;
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
@@ -385,11 +394,12 @@ async function explainBanner() {
     cards.push(card({ class: 'explain-problems' }, [
       cardHeader(t('finance.explain.problems'),
         badge(String(review.problems.length), 'warning'), { iconName: 'alert' }),
-      h('div', { class: 'list' }, review.problems.slice(0, 8).map((row) => listItem({
+      h('div', { class: 'list' }, review.problems.slice(0, PROBLEMS).map((row) => listItem({
         title: row.title,
         subtitle: `${row.problem[0].toUpperCase()}${row.problem.slice(1)}.`,
         href: Router.href({ module: 'finance', entity: 'economicEvent', id: row.event }),
       }))),
+      restOfList(review.problems.length, PROBLEMS),
       h('p', { class: 'small faint' }, t('finance.explain.unchanged')),
     ]));
   }

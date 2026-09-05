@@ -34,7 +34,7 @@
 
 import { h, replace } from '../ui/dom.js';
 import {
-  card, cardHeader, badge, listItem, button, pageHeader, chip,
+  card, cardHeader, badge, listItem, button, pageHeader, chip, restOfList,
 } from '../ui/components/basics.js';
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
@@ -45,6 +45,16 @@ import { entityLabel } from '../core/labels.js';
 import { can } from '../security/rbac.js';
 import { HealthService } from '../services/health.js';
 import { CANNOT_SHOW } from '../domain/health.js';
+
+/*
+ * How much of the Current card is drawn.
+ *
+ * Named rather than written into the slice because `restOfList` below needs
+ * the same number, and a cap that disagrees with the footer counting against
+ * it is the exact fault this footer exists to fix.
+ */
+const MEDICATIONS = 8;
+const APPOINTMENTS = 5;
 
 export async function render(route) {
   const entities = entitiesOfModule('health');
@@ -164,21 +174,25 @@ function currentCard({ medications, appointments }) {
       cardHeader(t('health.current.title'), null, { iconName: 'pill' })),
 
     medications.length
-      ? h('div', { class: 'list' }, medications.slice(0, 8).map((one) => listItem({
+      ? h('div', { class: 'list' }, medications.slice(0, MEDICATIONS).map((one) => listItem({
         title: one.name,
         subtitle: [one.dosage, one.frequency].filter(Boolean).join(' · '),
         href: Router.href({ module: 'health', entity: 'medication', id: one.id }),
       })))
       : null,
+    restOfList(medications.length, MEDICATIONS,
+      { href: Router.href({ module: 'health', entity: 'medication' }) }),
 
     appointments.length
-      ? h('div', { class: 'list' }, appointments.slice(0, 5).map((one) => listItem({
+      ? h('div', { class: 'list' }, appointments.slice(0, APPOINTMENTS).map((one) => listItem({
         title: one.title,
         subtitle: [one.date, one.time, one.doctor].filter(Boolean).join(' · '),
         trailing: badge(t('health.current.ahead'), 'accent'),
         href: Router.href({ module: 'health', entity: 'appointment', id: one.id }),
       })))
       : null,
+    restOfList(appointments.length, APPOINTMENTS,
+      { href: Router.href({ module: 'health', entity: 'appointment' }) }),
 
     h('p', { class: ['small', 'faint', 'attention-foot'] }, t('health.current.derived')),
   ].filter(Boolean));

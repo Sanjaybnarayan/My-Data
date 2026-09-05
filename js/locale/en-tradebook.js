@@ -44,7 +44,6 @@ export const tradebookStrings = {
   'tradebook.rowNumber': 'Row {n}',
   'tradebook.unknownSymbol': '{symbol} matches no holding on record. Add the holding first, then import again.',
   'tradebook.ambiguous': '{symbol} matches more than one holding, so this cannot say which position it belongs to.',
-  'tradebook.andMore': 'and {n} more.',
   'tradebook.refused.date': 'the date could not be read',
   'tradebook.refused.amount': 'the amount could not be read, and nothing in the row could work it out',
   'tradebook.refused.kind': 'this row does not say whether it is a buy or a sell',

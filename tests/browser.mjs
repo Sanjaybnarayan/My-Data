@@ -51,6 +51,7 @@ const IN_PAGE = Object.freeze({
   dom: './js/ui/dom.js',
   wellbeing: './js/modules/wellbeing.js',
   dashboard: './js/modules/dashboard.js',
+  health: './js/services/health.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -987,11 +988,34 @@ async function main() {
       await page.setViewportSize({ width: 390, height: 844 });
 
       const orphaned = [];
+      const underlined = [];
       let headersSeen = 0;
+      let buttonsSeen = 0;
       for (const id of ['health', 'family', 'investments', 'insurance',
         'education', 'notes', 'digital', 'reports']) {
         await go(page, `#/${id}`);
         await page.waitForTimeout(600);
+
+        /*
+         * A button that is an anchor is still a button.
+         *
+         * `base.css` underlines links and `.btn` never said it was not one,
+         * so every `<a class="btn">` — eleven of them, the dashboard's "See
+         * all 9" footers among them — drew a pill with underlined text in
+         * it. Read from the computed style rather than looked at, because an
+         * underline inside a small pill reads as emphasis, which is why it
+         * survived every screenshot taken of the dashboard this week.
+         */
+        const buttons = await page.evaluate(() =>
+          [...document.querySelectorAll('.app-content a.btn')].map((one) => ({
+            label: one.textContent.trim().slice(0, 30),
+            line: getComputedStyle(one).textDecorationLine,
+          })));
+        buttonsSeen += buttons.length;
+        for (const one of buttons) {
+          if (one.line !== 'none') underlined.push(`${id}: ${one.label} (${one.line})`);
+        }
+
         const found = await page.evaluate(() =>
           [...document.querySelectorAll('.app-content .card-header')].map((head) => {
             const glyph = head.querySelector('svg');
@@ -1017,8 +1041,107 @@ async function main() {
       check('no card icon is stranded on a line above its own heading',
         orphaned.length === 0, orphaned.join(' | '));
 
+      check('the anchors styled as buttons are found at all',
+        buttonsSeen > 0, `${buttonsSeen} anchors carrying .btn`);
+
+      check('and none of them is underlined like a link',
+        underlined.length === 0, underlined.join(' | '));
+
       check('those screens draw without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(200);
+    }
+
+    /* ------------------------------------ a capped list says what it hides */
+
+    {
+      /*
+       * Nearly every list in this application draws a `slice`, and a sweep of
+       * all twenty-four found five that said how many they were hiding and
+       * nineteen that said nothing. `js/modules/crud.js` had already settled
+       * the question for its history card and written down why — *"how many
+       * there are in total, is what a person reads"* — so `restOfList` is
+       * that decision made once.
+       *
+       * Health is measured here because it was the one that mattered: the
+       * Current card capped medications at eight with no total, no badge and
+       * no footer, so a household on eleven saw eight and nothing saying so.
+       *
+       * Seeded past the cap on purpose. The example household has fewer than
+       * eight current medications, so a check written against it would find
+       * no footer and assert nothing — the fault the dashboard block below
+       * was rewritten to avoid. The count is read from the footer's own text
+       * and compared against what the database holds, not against a number
+       * written into this file.
+       */
+      const before = consoleErrors.length;
+      await page.setViewportSize({ width: 390, height: 844 });
+
+      const seeded = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const db = app().db;
+        const person = await db.repo('person').create({ name: 'Capped Person' });
+        const ids = [];
+        for (let i = 0; i < 11; i += 1) {
+          const row = await db.repo('medication').create({
+            person: person.id, name: `Medicine ${i + 1}`, ongoing: true, dosage: '1 a day',
+          });
+          ids.push(row.id);
+        }
+        return ids;
+      }, IN_PAGE.context);
+
+      /*
+       * The real total, read from the same domain function the card reads.
+       *
+       * Not `repo('medication').count()`: the card lists what is *current*,
+       * which `HealthService#current` decides from each record's dates, so a
+       * raw row count would disagree with the screen for an honest reason and
+       * this check would fail on a fault that is not there. Not the card's own
+       * slice either — that is the number the bug produced, and a check that
+       * reads it is a check that agrees with whatever the screen does.
+       */
+      const trueTotal = await page.evaluate(async ({ ctx, health }) => {
+        const { app } = await import(ctx);
+        const { HealthService } = await import(health);
+        return (await new HealthService(app().db).current()).medications.length;
+      }, { ctx: IN_PAGE.context, health: IN_PAGE.health });
+
+      await go(page, '#/health');
+      await page.waitForTimeout(800);
+
+      const capped = await page.evaluate(() => {
+        const rows = document.querySelectorAll('.app-content .card .list-item').length;
+        const foot = [...document.querySelectorAll('.app-content .attention-foot a')]
+          .map((one) => ({ text: one.textContent.trim(), href: one.getAttribute('href') }))
+          .find((one) => /^See all /.test(one.text));
+        return { rows, foot: foot ?? null };
+      });
+
+      check('a list capped below what the household has offers the rest',
+        capped.foot !== null, JSON.stringify(capped));
+
+      // The number in the footer is the real one, not the count of what was
+      // drawn — the exact slip this repository shipped on the dashboard.
+      check('and names the number there really are, not the number shown',
+        capped.foot !== null
+          && Number(capped.foot.text.replace(/\D+/g, '')) === trueTotal,
+        `${capped.foot?.text} against ${trueTotal} the service reports`);
+
+      check('and leads to the list that holds them',
+        capped.foot?.href === '#/health/medication', capped.foot?.href);
+
+      check('the capped screen draws without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      for (const id of seeded) {
+        await page.evaluate(async ({ spec, one }) => {
+          const { app } = await import(spec);
+          await app().db.repo('medication').remove(one);
+        }, { spec: IN_PAGE.context, one: id });
+      }
 
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.waitForTimeout(200);
@@ -9016,6 +9139,36 @@ async function main() {
       await shell.getByRole('button', { name: 'Done' }).click();
 
       await shell.waitForSelector('text=Your recovery phrase', { timeout: 20_000 });
+
+      /*
+       * The acknowledgement's own line boxes.
+       *
+       * The lock card centres its text and the checkbox label inherited it, so
+       * the box sat at the row's left edge with each line of its label centred
+       * independently — a second line that starts nowhere near the first. A
+       * line count cannot see that and neither can the element's width: both
+       * are identical either way. The left edge of each line box is the only
+       * thing that differs, so that is what this reads.
+       *
+       * `lines >= 2` is a guard, not an assumption. This label wraps at phone
+       * width, and if it ever stops, this check has nothing left to measure
+       * and should say so rather than pass on one line that is trivially
+       * flush with itself.
+       */
+      const ackLines = await shell.evaluate(() => {
+        const span = document.querySelector('label[for="kit-ack"] span');
+        if (!span) return null;
+        const range = document.createRange();
+        range.selectNodeContents(span);
+        return [...range.getClientRects()]
+          .filter((r) => r.width > 1)
+          .map((r) => Math.round(r.left));
+      });
+      check('the recovery acknowledgement wraps to a straight left edge',
+        ackLines !== null && ackLines.length >= 2
+          && Math.max(...ackLines) - Math.min(...ackLines) <= 1,
+        JSON.stringify(ackLines));
+
       await shell.locator('#kit-ack').check();
       await shell.getByRole('button', { name: 'I have written it down' }).click();
       // The bar, not the rail: this context is a phone, where the rail is not drawn.

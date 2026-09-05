@@ -24,7 +24,18 @@
  */
 
 import { h, replace } from '../ui/dom.js';
-import { card, cardHeader, button, badge, empty, listItem, metric } from '../ui/components/basics.js';
+import {
+  card, cardHeader, button, badge, empty, listItem, metric, restOfList,
+} from '../ui/components/basics.js';
+
+/*
+ * How many refused rows each bucket names before it counts the rest.
+ *
+ * This card already said what it was hiding, in its own string, before
+ * `restOfList` existed — it is converted here so there is one sentence for
+ * this rather than two that can drift apart.
+ */
+const REJECTED = 20;
 import { toast } from '../ui/components/toast.js';
 import { confirm } from '../ui/components/modal.js';
 import { app } from '../context.js';
@@ -192,13 +203,11 @@ export async function render() {
     if (!rows.length) return null;
     return card({ class: 'card--quiet' }, [
       cardHeader(title, badge(String(rows.length), 'danger')),
-      h('div', { class: 'list' }, rows.slice(0, 20).map((one) => listItem({
+      h('div', { class: 'list' }, rows.slice(0, REJECTED).map((one) => listItem({
         title: t('tradebook.rowNumber', { n: one.row }),
         subtitle: describe(one),
       }))),
-      rows.length > 20
-        ? h('p', { class: ['small', 'muted'] }, t('tradebook.andMore', { n: rows.length - 20 }))
-        : null,
+      restOfList(rows.length, REJECTED),
     ].filter(Boolean));
   }
 
