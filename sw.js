@@ -230,6 +230,7 @@ const SHELL = [
   './js/modules/family.js',
   './js/modules/identity.js',
   './js/modules/dashboard.js',
+  './js/modules/dashboard-parts.js',
   './js/modules/dashboard-widgets.js',
   './js/modules/finance.js',
   './js/modules/finance/overview.js',

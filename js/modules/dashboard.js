@@ -36,6 +36,7 @@ import { TRANSACTION_LIMIT, transactionsTruncated } from '../services/service.js
 import { EstateService } from '../services/estate.js';
 import { syncCard, syncNow } from '../ui/components/syncstatus.js';
 import { customise } from './dashboard-widgets.js';
+import { ROWS, billHref, billsFooter, moreFooter, stakeFooter } from './dashboard-parts.js';
 
 const WIDGET_KEY = 'dashboard.widgets';
 
@@ -256,35 +257,7 @@ async function loadAll(db) {
  * open nothing — the account, or the subscription, is the record they came
  * from. Subscriptions live under Digital, not Finance.
  */
-const DIGITAL = new Set(['subscription', 'digitalAsset']);
-
-/** Where each nominated entity's record lives, so a gap opens the thing itself. */
 const MODULE_OF = { account: 'finance', holding: 'investments', policy: 'insurance' };
-
-function billHref(bill) {
-  return Router.href({
-    module: DIGITAL.has(bill.entity) ? 'digital' : 'finance',
-    entity: bill.entity,
-    id: bill.recordId,
-  });
-}
-
-/**
- * The total under a bill list, saying so when a bill was left out of it.
- *
- * A card with no statement day has a date and no amount. Adding it in as zero
- * would print a total that is quietly short with nothing on screen to explain
- * why, which is worse than the missing figure itself.
- */
-function billsFooter({ total, unknown }) {
-  return h('div', { class: 'card-footer', style: { padding: 'var(--space-3) var(--space-5)' } }, [
-    h('span', { class: 'small muted' }, unknown
-      ? `Total due · ${unknown} without an amount`
-      : 'Total due'),
-    h('span', { class: 'spacer' }),
-    money(total),
-  ]);
-}
 
 const WIDGETS = {
   /*
@@ -450,9 +423,10 @@ const WIDGETS = {
   documents: (data) => {
     const PAPERS = new Set(['identityDocument', 'document', 'policy', 'certificate',
       'vehicle', 'warranty', 'education']);
-    const rows = data.attention.items
-      .filter((one) => PAPERS.has(one.entity))
-      .slice(0, 5);
+    // `all` before `rows`, and the badge counts `all`. It counted the sliced
+    // array, so nine papers running out were badged as 5.
+    const all = data.attention.items.filter((one) => PAPERS.has(one.entity));
+    const rows = all.slice(0, ROWS);
 
     if (!rows.length) {
       return card({ class: 'card--quiet' }, [
@@ -464,7 +438,7 @@ const WIDGETS = {
 
     return card({ class: 'card--flush' }, [
       h('div', { class: 'attention-head' },
-        cardHeader(t('dash.papers.running'), badge(String(rows.length)), { iconName: 'file' })),
+        cardHeader(t('dash.papers.running'), badge(String(all.length)), { iconName: 'file' })),
       h('div', { class: 'list' }, rows.map((one) => listItem({
         title: one.title,
         subtitle: `${one.label} · ${formatDay(one.date)}`,
@@ -475,10 +449,7 @@ const WIDGETS = {
         trailing: dueBadge(one.date, { leadDays: one.lead }),
         href: Router.href({ module: one.module, entity: one.entity, id: one.recordId }),
       }))),
-      h('div', { class: 'attention-foot' }, [
-        h('a', { class: 'btn btn--subtle btn--small', href: Router.href({ module: 'documents' }) },
-          t('dash.papers.open')),
-      ]),
+      moreFooter(all.length, Router.href({ module: 'documents' })),
     ]);
   },
 
@@ -559,10 +530,13 @@ const WIDGETS = {
   },
 
   reminders: (data) => {
-    const rows = data.reminders.filter((r) => r.group === 'expiry').slice(0, 8);
+    // The badge counted the sliced array here too — fifteen expiring things
+    // were badged as 8.
+    const all = data.reminders.filter((r) => r.group === 'expiry');
+    const rows = all.slice(0, ROWS);
     return card({ class: 'card--flush' }, [
       h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
-        cardHeader('Expiring & due', badge(String(rows.length), rows.some((r) => r.days < 0) ? 'danger' : ''), { iconName: 'alert' })),
+        cardHeader('Expiring & due', badge(String(all.length), all.some((r) => r.days < 0) ? 'danger' : ''), { iconName: 'alert' })),
       rows.length
         ? h('div', { class: 'list' }, rows.map((r) => listItem({
           title: r.title,
@@ -571,6 +545,7 @@ const WIDGETS = {
           href: Router.href({ module: r.module, entity: r.entity, id: r.recordId }),
         })))
         : empty({ title: 'Nothing expiring', message: 'Everything is in date.', iconName: 'check' }),
+      all.length ? moreFooter(all.length, Router.href({ module: 'notifications' })) : null,
     ]);
   },
 
@@ -578,7 +553,7 @@ const WIDGETS = {
     h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
       cardHeader('Bills in the next 30 days', null, { iconName: 'repeat' })),
     data.bills.length
-      ? h('div', { class: 'list' }, data.bills.slice(0, 8).map((bill) => listItem({
+      ? h('div', { class: 'list' }, data.bills.slice(0, ROWS).map((bill) => listItem({
         title: bill.name,
         // A subscription that does not renew itself lapses on that date. It is
         // not auto-debit and it is not silence either.
@@ -591,8 +566,14 @@ const WIDGETS = {
         href: billHref(bill),
       })))
       : empty({ title: 'No bills due', iconName: 'check' }),
+    // The total is of every bill, not of the three drawn — it always was, and
+    // that is why the list needed a way through to the rest rather than a
+    // shorter total.
     data.bills.length
       ? billsFooter(fin.billsTotal(data.bills))
+      : null,
+    data.bills.length
+      ? moreFooter(data.bills.length, Router.href({ module: 'finance' }))
       : null,
   ]),
 
@@ -650,7 +631,7 @@ const WIDGETS = {
 
       h('p', { class: 'small muted', style: { padding: '0 var(--space-5)' } }, notice),
 
-      h('div', { class: 'list' }, gaps.slice(0, 8).map((gap) => listItem({
+      h('div', { class: 'list' }, gaps.slice(0, ROWS).map((gap) => listItem({
         title: gap.name,
         subtitle: gap.where,
         // Never a zero. A record whose value this screen does not know shows a
@@ -659,13 +640,12 @@ const WIDGETS = {
         href: Router.href({ module: MODULE_OF[gap.entity], entity: gap.entity, id: gap.id }),
       }))),
 
-      h('div', { class: 'card-footer', style: { padding: 'var(--space-3) var(--space-5)' } }, [
-        h('span', { class: 'small muted' }, valueUnknown
-          ? `Known value at stake · ${valueUnknown} without one recorded`
-          : 'Value at stake'),
-        h('span', { class: 'spacer' }),
-        money(atStake),
-      ]),
+      stakeFooter(valueUnknown, atStake),
+
+      // The badge here always said the true number; the list under it simply
+      // stopped, with nowhere to go. The value at stake above is of every gap,
+      // so the footer and the rows disagreed about how much was being shown.
+      gaps.length ? moreFooter(gaps.length, Router.href({ module: 'finance' })) : null,
 
       // A bug report, not a finding. It means this widget was handed records it
       // could not read, and saying nothing would look like good news.
@@ -678,7 +658,8 @@ const WIDGETS = {
   },
 
   dates: (data) => {
-    const rows = data.reminders.filter((r) => r.group === 'date').slice(0, 6);
+    const all = data.reminders.filter((r) => r.group === 'date');
+    const rows = all.slice(0, ROWS);
     if (!rows.length) return null;
     return card({ class: 'card--flush' }, [
       h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
@@ -689,14 +670,18 @@ const WIDGETS = {
         subtitle: `${formatDay(d.date)} · ${relativeDays(d.date)}`,
         trailing: d.turning ? badge(`turns ${d.turning}`) : null,
       }))),
+      // The last list on this screen still drawing six of them, and the last
+      // without a way to the rest. A birthday nobody can scroll to is a
+      // birthday missed.
+      all.length ? moreFooter(all.length, Router.href({ module: 'calendar' })) : null,
     ]);
   },
 
   tasks: (data) => {
-    const open = data.task
+    const openAll = data.task
       .filter((t) => t.status !== 'done')
-      .sort((a, b) => (a.dueOn || '9999').localeCompare(b.dueOn || '9999'))
-      .slice(0, 6);
+      .sort((a, b) => (a.dueOn || '9999').localeCompare(b.dueOn || '9999'));
+    const open = openAll.slice(0, ROWS);
     return card({ class: 'card--flush' }, [
       h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
         cardHeader('Tasks', h('a', {
@@ -730,7 +715,7 @@ const WIDGETS = {
         h('a', { class: 'btn btn--subtle btn--small', href: '#/timeline' }, 'Show everything'),
         { iconName: 'clock' })),
     data.timeline.stories.length
-      ? h('div', { class: 'list' }, data.timeline.stories.slice(0, 8).map((story) => listItem({
+      ? h('div', { class: 'list' }, data.timeline.stories.slice(0, ROWS).map((story) => listItem({
         title: data.timeline.describe(story),
         subtitle: relativeDays(String(story.at).slice(0, 10)),
         href: story.entity && story.recordId

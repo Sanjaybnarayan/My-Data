@@ -50,6 +50,7 @@ const IN_PAGE = Object.freeze({
   toast: './js/ui/components/toast.js',
   dom: './js/ui/dom.js',
   wellbeing: './js/modules/wellbeing.js',
+  dashboard: './js/modules/dashboard.js',
 });
 
 const SHOTS = process.argv.includes('--shots');
@@ -960,12 +961,200 @@ async function main() {
 
     /* ------------------------------------------------------------ privacy */
 
+    /* ------------------------------- the dashboard's cards, and their counts */
+
+    {
+      /*
+       * A warning badge that counted the rows it drew.
+       *
+       * "Papers running out" sliced its list to five and then badged
+       * `rows.length` — so a household with nine papers running out was told
+       * **5**, on the screen it lands on, by a card whose whole job is to
+       * raise the alarm. `reminders` did the same at eight against a true
+       * fifteen. The attention card directly above them counts the real total
+       * and always did, which is what makes this a slip rather than a policy.
+       *
+       * And three lists — bills, expiring, nominations — had no link out at
+       * all, so the rows past the cut could not be reached from here. The
+       * activity card's own comment had already named that as a fault in
+       * itself and fixed it only for itself.
+       *
+       * The truth is computed with `loadAll`, the same function the screen
+       * uses, rather than by counting rows: counting what is drawn is exactly
+       * the mistake being checked for.
+       */
+      const before = consoleErrors.length;
+      await page.setViewportSize({ width: 390, height: 844 });
+
+      /*
+       * Its own fixture, seeded here.
+       *
+       * The first version of this block was calibrated against the example
+       * household — nine papers running out — and this suite does not install
+       * it: the run reached here with nothing expiring at all, so both cards
+       * drew their "nothing to see" variants and every assertion below was
+       * about `undefined`. The two guards caught it, which is the only reason
+       * this is a note rather than a block that passed while measuring
+       * nothing.
+       *
+       * Five documents, because the cut is three: two already past, so
+       * something is *pressing* and the attention card draws its counting
+       * form rather than the quiet one. `document` needs a title and nothing
+       * else — no owner, no reference — so the fixture cannot fail on a
+       * required field the way an `identityDocument` would.
+       */
+      const papers = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const day = (n) => {
+          const d = new Date();
+          d.setDate(d.getDate() + n);
+          return d.toISOString().slice(0, 10);
+        };
+        const ids = [];
+        for (const [i, when] of [-9, -2, 12, 25, 40].entries()) {
+          const row = await app().db.repo('document').create({
+            title: `Counting probe ${i + 1}`, category: 'other', expiresOn: day(when),
+          });
+          ids.push(row.id);
+        }
+        return ids;
+      }, IN_PAGE.context);
+
+      // Every widget on, so the ones that are off by default are measured too
+      // rather than assumed. `reminders` is one of them, and it carried the
+      // same fault.
+      await page.evaluate(async ([ctx, dash]) => {
+        const { app } = await import(ctx);
+        const { ALL_WIDGETS, WIDGET_KEY } = await import(dash);
+        await app().db.setMeta(WIDGET_KEY, ALL_WIDGETS);
+      }, [IN_PAGE.context, IN_PAGE.dashboard]);
+
+      await go(page, '#/finance');
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(1200);
+
+      const truth = await page.evaluate(async ([ctx, dash]) => {
+        const { loadAll } = await import(dash);
+        const { app } = await import(ctx);
+        const data = await loadAll(app().db);
+        const PAPERS = new Set(['identityDocument', 'document', 'policy', 'certificate',
+          'vehicle', 'warranty', 'education']);
+        return {
+          papers: data.attention.items.filter((one) => PAPERS.has(one.entity)).length,
+          expiring: data.reminders.filter((r) => r.group === 'expiry').length,
+          attention: data.attention.pressing,
+        };
+      }, [IN_PAGE.context, IN_PAGE.dashboard]);
+
+      const cards = await page.evaluate(() => {
+        const find = (re) => [...document.querySelectorAll('.app-content .card')]
+          .find((c) => re.test(c.querySelector('h2, h3')?.textContent ?? ''));
+        const read = (c) => (c ? {
+          badge: (c.querySelector('.badge')?.textContent ?? '').trim(),
+          rows: c.querySelectorAll('.list > *').length,
+          out: [...c.querySelectorAll('a')].some((a) => /see all|show everything|^all$|open/i
+            .test((a.textContent ?? '').trim())),
+        } : null);
+        return {
+          papers: read(find(/running out/i)),
+          expiring: read(find(/Expiring/i)),
+          attention: read(find(/need your attention/i)),
+          bills: read(find(/Bills in the next/i)),
+          nominations: read(find(/Nobody nominated/i)),
+        };
+      });
+
+      // Without this the four `=== truth` checks below would all hold on
+      // `undefined === undefined` the day a heading is reworded.
+      check('the counting cards are all on the dashboard',
+        ['papers', 'expiring', 'attention', 'bills', 'nominations']
+          .every((one) => cards[one] !== null),
+        JSON.stringify(Object.entries(cards).filter(([, v]) => v === null).map(([k]) => k)));
+
+      // The fixture has to actually exceed the cut, or a badge that counts
+      // rows and a badge that counts records agree and the check proves
+      // nothing.
+      check('and this run has more of them than a card can show',
+        truth.papers > 3 && truth.expiring > 3,
+        `papers ${truth.papers}, expiring ${truth.expiring}, seeded ${papers.length}`);
+
+      check('the papers badge counts the papers, not the rows drawn',
+        cards.papers?.badge === String(truth.papers),
+        `badge ${cards.papers?.badge} against ${truth.papers} papers, ${cards.papers?.rows} rows`);
+      check('and the expiring badge counts the records, not the rows drawn',
+        cards.expiring?.badge === String(truth.expiring),
+        `badge ${cards.expiring?.badge} against ${truth.expiring}, ${cards.expiring?.rows} rows`);
+      check('and the attention badge still counts what is pressing',
+        cards.attention?.badge === String(truth.attention),
+        `badge ${cards.attention?.badge} against ${truth.attention}`);
+
+      // Three rows, which is what the attention card had already settled on.
+      check('no dashboard list draws more than three rows',
+        Object.values(cards).every((one) => !one || one.rows <= 3),
+        JSON.stringify(Object.entries(cards).map(([k, v]) => [k, v?.rows])));
+
+      /*
+       * A shortened list nobody can get past is a list with rows missing.
+       *
+       * Asserted of the cards that *are* shortened, not of all five: this run
+       * seeds papers and expiring past the cut but has no say over how many
+       * bills or nominations the suite happens to hold, and demanding a
+       * footer from a card showing everything it has was a check about the
+       * fixture rather than about the screen. The guard under it keeps that
+       * from becoming a way to assert nothing.
+       */
+      const atCap = Object.entries(cards).filter(([, one]) => one && one.rows >= 3);
+      check('some card on this run is actually shortened',
+        atCap.length > 0, JSON.stringify(Object.entries(cards).map(([k, v]) => [k, v?.rows])));
+      check('and every shortened list offers a way to the rest',
+        atCap.every(([, one]) => one.out),
+        JSON.stringify(atCap.map(([k, v]) => [k, v.out])));
+
+      const tall = await page.evaluate(() =>
+        Math.round(document.querySelector('.app-content')?.scrollHeight ?? 0));
+      check('the dashboard renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      // Put the screen back: the arrangement to what a household sees rather
+      // than every widget switched on, and the five probe documents removed,
+      // because a later check asserts this copy has nothing expiring in it.
+      // An object rather than a mixed array: `[string, string, string[]]`
+      // infers as a union and `import()` then refuses the specifier.
+      await page.evaluate(async ({ ctx, dash, ids }) => {
+        const { app } = await import(ctx);
+        const { WIDGET_KEY } = await import(dash);
+        await app().db.setMeta(WIDGET_KEY, null);
+        for (const id of ids) await app().db.repo('document').remove(id);
+      }, { ctx: IN_PAGE.context, dash: IN_PAGE.dashboard, ids: papers });
+      await go(page, '#/finance');
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(900);
+
+      const normal = await page.evaluate(() =>
+        Math.round(document.querySelector('.app-content')?.scrollHeight ?? 0));
+
+      /*
+       * The height, bounded rather than admired.
+       *
+       * It was 5,680px — six and a half screens on this phone, eleven of
+       * thirteen cards below the fold — and capping the lists took it to
+       * 4,678px. The bound is the old number: the landing screen may not go
+       * back to what it was, and a widget that starts listing everything
+       * again trips this before anybody has to notice it by scrolling.
+       */
+      check('the dashboard is shorter than it was',
+        normal < 5000, `${normal}px, with every widget on it was ${tall}px`);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(200);
+    }
+
     /* ------------------------------------------------------- timeline */
 
     {
       const before = consoleErrors.length;
 
-      // The dashboard's card shows eight of them and the service was building
+      // The dashboard's card shows three of them and the service was building
       // every story in the window. The link is the only way to reach the rest.
       await go(page, '#/dashboard');
       await page.waitForTimeout(400);
@@ -979,8 +1168,8 @@ async function main() {
       check('the timeline screen renders', /Family timeline/.test(timeline), timeline.slice(0, 300));
       check('and says what happened in words rather than as rows',
         !/^\s*(create|update|delete)\s*$/m.test(timeline), timeline.slice(0, 600));
-      check('and shows more than the eight the dashboard card does',
-        (await page.locator('.list-item').count()) > 8,
+      check('and shows more than the three the dashboard card does',
+        (await page.locator('.list-item').count()) > 3,
         `${await page.locator('.list-item').count()} entries`);
       check('the timeline draws without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
