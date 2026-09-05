@@ -1117,6 +1117,152 @@ async function main() {
       await page.waitForTimeout(200);
     }
 
+    /* ---------------------------------------- what right-to-left does here */
+
+    {
+      /*
+       * `docs/LOCALISATION.md` said the stylesheet had never been audited for
+       * right-to-left, and that claiming otherwise without testing it would be
+       * the same failure that document is about. This is the test.
+       *
+       * Two faults, and neither is a layout fault — every screen measured
+       * `scrollWidth === clientWidth` under `dir="rtl"` before any fix, which
+       * is why an overflow check would have reported the page perfect.
+       *
+       *   - `.attention-card` drew its rule with `border-left`. The screen
+       *     mirrors and the rule did not, so the mark meant to catch the eye
+       *     first sat where the eye arrives last.
+       *   - **Thirty-four leaves rendered in the wrong order.** A string
+       *     beginning with a digit has weak directionality, so the paragraph
+       *     claims it and throws it to the visual end: "5 Sep 2026" became
+       *     "Sep 2026 5", "1 to settle" became "to settle 1". Dates, money and
+       *     counts are most of what this application says.
+       *
+       * Read per character rather than per element: a Range on the first and
+       * last character of a run, comparing their boxes. Nothing about the box
+       * model is wrong, so only the glyphs can say it.
+       */
+      const before = consoleErrors.length;
+      await page.setViewportSize({ width: 390, height: 844 });
+
+      /*
+       * The attention card draws only when something needs attention, and the
+       * household this suite builds has nothing overdue. Written first without
+       * this, the two rule checks read `null` in both directions and failed —
+       * the guard doing its job on the check rather than on the application.
+       */
+      const overdue = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const day = (n) => {
+          const d = new Date();
+          d.setDate(d.getDate() + n);
+          return d.toISOString().slice(0, 10);
+        };
+        const ids = [];
+        for (const [i, when] of [-11, -4].entries()) {
+          const row = await app().db.repo('document').create({
+            title: `Mirror probe ${i + 1}`, category: 'other', expiresOn: day(when),
+          });
+          ids.push(row.id);
+        }
+        return ids;
+      }, IN_PAGE.context);
+
+      const reordered = () => page.evaluate(() => {
+        const out = [];
+        let looked = 0;
+        for (const el of document.querySelectorAll('.app-content *')) {
+          if (el.children.length) continue;
+          const text = (el.textContent ?? '').trim();
+          if (text.length < 3 || !/^\d/.test(text)) continue;
+          const node = [...el.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+          if (!node) continue;
+          const raw = node.textContent;
+          const first = raw.search(/\S/);
+          const last = raw.length - 1 - [...raw].reverse().join('').search(/\S/);
+          const range = document.createRange();
+          range.setStart(node, first); range.setEnd(node, first + 1);
+          const a2 = range.getBoundingClientRect();
+          range.setStart(node, last); range.setEnd(node, last + 1);
+          const b2 = range.getBoundingClientRect();
+          if (a2.width === 0 || b2.width === 0) continue;
+          // One line only: a wrapped run legitimately ends left of where it began.
+          if (Math.abs(a2.top - b2.top) > 2) continue;
+          looked += 1;
+          if (a2.left > b2.left) out.push(text.slice(0, 30));
+        }
+        return { looked, wrong: out };
+      });
+
+      const rule = () => page.evaluate(() => {
+        const card = document.querySelector('.app-content .attention-card');
+        if (!card) return null;
+        const cs = getComputedStyle(card);
+        return {
+          left: Math.round(parseFloat(cs.borderLeftWidth)),
+          right: Math.round(parseFloat(cs.borderRightWidth)),
+        };
+      });
+
+      const walk = ['dashboard', 'finance', 'health', 'documents'];
+      const seen = { ltr: { looked: 0, wrong: [] }, rtl: { looked: 0, wrong: [] } };
+      let ltrRule = null;
+      let rtlRule = null;
+
+      for (const dir of ['ltr', 'rtl']) {
+        await page.evaluate((d) => { document.documentElement.setAttribute('dir', d); }, dir);
+        for (const id of walk) {
+          await go(page, `#/${id}`);
+          await page.waitForTimeout(600);
+          const found = await reordered();
+          seen[dir].looked += found.looked;
+          seen[dir].wrong.push(...found.wrong);
+          if (id === 'dashboard') {
+            if (dir === 'ltr') ltrRule = await rule();
+            else rtlRule = await rule();
+          }
+        }
+      }
+      await page.evaluate(() => { document.documentElement.setAttribute('dir', 'ltr'); });
+
+      /*
+       * The guard, and it is the whole check. If nothing on these screens
+       * begins with a digit there is nothing to reorder, and both readings
+       * below are true of a walk that measured air.
+       */
+      check('there are runs on these screens that could reorder',
+        seen.rtl.looked >= 8 && seen.ltr.looked >= 8,
+        `${seen.ltr.looked} measured in ltr, ${seen.rtl.looked} in rtl`);
+
+      check('no run reads backwards in left-to-right',
+        seen.ltr.wrong.length === 0, seen.ltr.wrong.slice(0, 4).join(' | '));
+
+      check('and none reads backwards in right-to-left either',
+        seen.rtl.wrong.length === 0, seen.rtl.wrong.slice(0, 4).join(' | '));
+
+      // The rule is on the reading edge, whichever edge that is.
+      check("the attention card's rule is found in both directions",
+        ltrRule !== null && rtlRule !== null, JSON.stringify({ ltrRule, rtlRule }));
+
+      check('and it moves to the other edge when the page mirrors',
+        ltrRule?.left === 3 && ltrRule?.right !== 3
+          && rtlRule?.right === 3 && rtlRule?.left !== 3,
+        JSON.stringify({ ltrRule, rtlRule }));
+
+      check('neither direction raises a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      for (const id of overdue) {
+        await page.evaluate(async ({ spec, one }) => {
+          const { app } = await import(spec);
+          await app().db.repo('document').remove(one);
+        }, { spec: IN_PAGE.context, one: id });
+      }
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(200);
+    }
+
     /* ------------------------------ a placeholder that fits its own field */
 
     {

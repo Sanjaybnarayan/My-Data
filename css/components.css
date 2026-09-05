@@ -86,7 +86,7 @@
   gap: var(--space-3);
   margin-bottom: var(--space-4);
 }
-.card-header h2, .card-header h3 { margin-right: auto; }
+.card-header h2, .card-header h3 { margin-inline-end: auto; }
 
 /*
  * The icon stays with the title it belongs to.
@@ -301,7 +301,7 @@
   font-weight: 500;
   color: var(--text-muted);
 }
-.field-label .required { color: var(--danger); margin-left: 2px; }
+.field-label .required { color: var(--danger); margin-inline-start: 2px; }
 
 .input, .select, .textarea {
   width: 100%;
@@ -327,7 +327,7 @@
 
 .textarea { min-height: 92px; resize: vertical; line-height: var(--leading); }
 
-.input--numeric { font-variant-numeric: tabular-nums; text-align: right; }
+.input--numeric { font-variant-numeric: tabular-nums; text-align: end; }
 
 .field-error {
   font-size: var(--text-sm);
@@ -469,7 +469,7 @@
 .table tbody tr:hover { background: var(--surface-hover); }
 .table tbody tr[data-clickable] { cursor: pointer; }
 
-.cell--numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.cell--numeric { text-align: end; font-variant-numeric: tabular-nums; }
 .cell--muted { color: var(--text-muted); }
 .cell--wrap { white-space: normal; min-width: 12rem; }
 
@@ -501,7 +501,7 @@
     color: var(--text-faint);
     font-size: var(--text-sm);
   }
-  .table--responsive .cell--numeric { text-align: left; }
+  .table--responsive .cell--numeric { text-align: start; }
 
   /*
    * The card gets a subject, a figure, and then its details.
@@ -1271,9 +1271,9 @@
 .list-item-value {
   font-variant-numeric: tabular-nums;
   font-weight: 500;
-  text-align: right;
-  /* Right, whether it sits beside the body or on the line under it. */
-  margin-left: auto;
+  text-align: end;
+  /* The end of the line, whether it sits beside the body or under it. */
+  margin-inline-start: auto;
 }
 
 @media (max-width: 560px) {
@@ -1401,7 +1401,7 @@
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border);
 }
-.modal-header h2 { margin-right: auto; font-size: var(--text-lg); }
+.modal-header h2 { margin-inline-end: auto; font-size: var(--text-lg); }
 .modal-body { padding: var(--space-5); overflow-y: auto; flex: 1; }
 .modal-footer {
   display: flex;
@@ -1572,7 +1572,7 @@ details.card > .card-summary {
 details.card > .card-summary h2 {
   font-size: var(--text-lg);
   margin: 0;
-  margin-right: auto;
+  margin-inline-end: auto;
 }
 details.card > .card-summary:focus-visible {
   outline: 2px solid var(--accent);
@@ -1644,13 +1644,13 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
 .search-box { position: relative; flex: 1; max-width: 520px; min-width: 0; }
 .search-box .icon {
   position: absolute;
-  left: var(--space-3);
+  inset-inline-start: var(--space-3);
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-faint);
   pointer-events: none;
 }
-.search-box .input { padding-left: 2.5rem; border-radius: var(--radius-pill); }
+.search-box .input { padding-inline-start: 2.5rem; border-radius: var(--radius-pill); }
 
 .search-results {
   position: absolute;
@@ -1843,7 +1843,7 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
 }
 
 .ledger-day-count {
-  margin-left: var(--space-3);
+  margin-inline-start: var(--space-3);
   font-weight: 400;
   color: var(--text-faint);
 }
@@ -2026,7 +2026,7 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
 
   /* Both money columns land in the same place, so a card shows one figure
      wherever the money went — and the colour says which way. */
-  .table--ledger .col--amount { grid-column: 2; order: 2; text-align: right; font-weight: 600; }
+  .table--ledger .col--amount { grid-column: 2; order: 2; text-align: end; font-weight: 600; }
   .table--ledger .col--amount:empty { display: none; }
 
   /* The heading spans the card list rather than pretending to have columns. */
@@ -2411,9 +2411,17 @@ a.wallet-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 
 .attention-head .card-header { margin-bottom: var(--space-2); }
 .attention-foot { padding: var(--space-3) var(--space-5) var(--space-5); }
 
-/* The one card that should catch the eye first, so it is the one with a rule
-   down its edge — a shape, not only a colour. */
-.attention-card { border-left: 3px solid var(--danger); }
+/*
+ * The one card that should catch the eye first, so it is the one with a rule
+ * down its edge — a shape, not only a colour.
+ *
+ * `border-inline-start`, not `border-left`. Under `dir="rtl"` the whole screen
+ * mirrors and this rule stayed on the left, which is the trailing edge there —
+ * a mark meant to catch the eye first, sitting where the eye arrives last.
+ * Found by rendering the dashboard at `dir="rtl"` and looking at it, which
+ * `docs/LOCALISATION.md` says had never been done.
+ */
+.attention-card { border-inline-start: 3px solid var(--danger); }
 
 /*
  * And it takes the whole row it is on.

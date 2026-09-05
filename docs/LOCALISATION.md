@@ -177,9 +177,15 @@ being empty.
    `.toLowerCase()` at the call site, which is nine copies of an assumption
    about English buried in the UI layer.
 4. `dir: 'rtl'` where it applies. The layer sets `lang` and `dir` on the root
-   element; the stylesheet has **not** been audited for right-to-left, and
-   claiming otherwise without testing it would be the same failure this
-   document is about.
+   element, and the stylesheet **has now been audited** — see
+   `docs/WHAT_RIGHT_TO_LEFT_FOUND.md`. Two faults, neither of them a layout
+   fault: `.attention-card` drew its rule with `border-left` so the mark meant
+   to be seen first sat on the trailing edge, and **thirty-four text runs on
+   six screens rendered in the wrong order** because a string beginning with a
+   digit is claimed by the paragraph's direction. Both are fixed and both are
+   checked. What still cannot be claimed is that a *translated* catalogue
+   reads well in a mirrored layout, because there is no translated catalogue
+   — the audit tested the stylesheet, which is what it says.
 
 ## What none of this can tell you
 

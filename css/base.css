@@ -69,7 +69,38 @@ button, input, select, textarea {
 
 img, svg { display: block; max-width: 100%; }
 
-ul, ol { margin: 0; padding-left: 1.25rem; }
+ul, ol { margin: 0; padding-inline-start: 1.25rem; }
+
+/*
+ * Each run of text takes its direction from its own first strong character.
+ *
+ * Under `dir="rtl"`, **thirty-four leaves on six screens rendered in the wrong
+ * order** — measured with a Range on the first and last character of each and
+ * comparing their boxes, because nothing about the layout is wrong and no
+ * overflow check can see it:
+ *
+ *     5 Sep 2026              ->  Sep 2026 5
+ *     9.4% · EMI ₹13,600.00   ->  EMI ₹13,600.00 · 9.4%
+ *     1 to settle             ->  to settle 1
+ *
+ * A string that begins with a digit has weak directionality there, so the
+ * paragraph's own direction claims it and throws it to the visual end. Dates,
+ * money and counts are most of what this application says.
+ *
+ * `plaintext` resolves each run against its content rather than against the
+ * page, which is the honest reading while the catalogue is English and
+ * `docs/LOCALISATION.md` counts 3,031 strings that no translator can reach:
+ * page direction and content direction are not the same fact yet. A Latin run
+ * lays out left-to-right inside an RTL page; an Arabic one would lay out
+ * right-to-left inside it. In LTR nothing moves, which is checked rather than
+ * assumed.
+ *
+ * Set per element because `unicode-bidi` does not inherit. Revisit when a
+ * second catalogue exists — at that point most of these leaves carry
+ * translated text and take the page's direction from their own content
+ * anyway, which is the same rule reaching a different answer.
+ */
+.app-content, .app-content * { unicode-bidi: plaintext; }
 
 /*
  * The scrollbar, designed rather than inherited.
@@ -277,7 +308,7 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
   overflow-y: auto;
   padding: var(--space-4) var(--space-3);
   background: var(--surface-raised);
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   overscroll-behavior: contain;
 }
 
@@ -358,7 +389,7 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
   font-weight: 600;
 }
 
-.nav-item .badge { margin-left: auto; }
+.nav-item .badge { margin-inline-start: auto; }
 
 .app[data-nav='compact'] .nav-item { justify-content: center; padding: var(--space-3); }
 .app[data-nav='compact'] .nav-item span,
