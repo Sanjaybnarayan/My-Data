@@ -3302,6 +3302,522 @@ async function main() {
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
     }
 
+    /* ---------------------------- Finance's two nav rows, on a phone screen */
+
+    {
+      /*
+       * Two rows above every Finance screen, and they must not be the same
+       * object twice.
+       *
+       * They were: five group chips over a row of section chips, drawn
+       * identically. Nothing on screen said the first governed the second, so
+       * tapping a chip in the top row silently replaced the row beneath it,
+       * and a household had to learn that the top row was not a set of
+       * destinations before either row meant anything.
+       *
+       * The shape is the same and the drawing is not. The groups are tabs — a
+       * word with a rule under the open one, no border, no fill. The sections
+       * are pills — bordered, and filled when current. That difference is
+       * what this block measures, in computed style rather than by looking at
+       * a screenshot: if the two rows ever converge again, these checks fail.
+       *
+       * What must not be lost along the way is *reachability*, which is what
+       * the chip rows were for: every section one tap from the row, every
+       * group one tap from the row above.
+       */
+      const before = consoleErrors.length;
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await go(page, '#/finance');
+      await page.waitForTimeout(1100);
+
+      const nav = await page.evaluate(() => {
+        const seen = (one) => {
+          const style = getComputedStyle(one);
+          return {
+            label: one.textContent.trim(),
+            chosen: one.getAttribute('aria-pressed') === 'true'
+              || one.getAttribute('aria-current') === 'page',
+            color: style.color,
+            background: style.backgroundColor,
+            radius: parseFloat(style.borderTopLeftRadius),
+            underline: style.borderBottomColor,
+            underlineWidth: parseFloat(style.borderBottomWidth),
+          };
+        };
+        const row = (selector) => {
+          const el = document.querySelector(selector);
+          return el ? {
+            slides: getComputedStyle(el).overflowX,
+            label: el.getAttribute('aria-label'),
+          } : null;
+        };
+        return {
+          heading: document.querySelector('.app-content h1')?.textContent?.trim(),
+          groups: [...document.querySelectorAll('.finance-nav-group')].map(seen),
+          sections: [...document.querySelectorAll('.finance-nav-section')].map(seen),
+          groupRow: row('.finance-nav-groups'),
+          sectionRow: row('.finance-nav-sections'),
+          height: Math.round(
+            document.querySelector('.finance-nav')?.getBoundingClientRect().height ?? 0),
+          // Directly under the page header, not buried in the screen. The
+          // shape before this one put the map at the foot of the Overview,
+          // which is a fine place for a table of contents and the wrong
+          // place for navigation.
+          afterHeader: document.querySelector('.app-content .page-header')
+            ?.nextElementSibling?.className ?? null,
+          overflows: document.documentElement.scrollWidth
+            > document.documentElement.clientWidth,
+        };
+      });
+
+      check('the hub is the Overview, named as the module',
+        nav.heading === 'Finance', String(nav.heading));
+
+      check('the top row draws every group', nav.groups.length === 5,
+        JSON.stringify(nav.groups.map((one) => one.label)));
+
+      const openGroup = nav.groups.filter((one) => one.chosen);
+      check('exactly one group is open at a time',
+        openGroup.length === 1, JSON.stringify(nav.groups.map((one) => one.label)));
+
+      check('and the rest are faded rather than hidden',
+        nav.groups.filter((one) => !one.chosen)
+          .every((one) => one.color !== openGroup[0].color),
+        JSON.stringify(nav.groups.map((one) => [one.label, one.color])));
+
+      check('the second row draws that group’s sections and no others',
+        nav.sections.length === 4
+        && nav.sections.map((one) => one.label).join(', ')
+          === 'Overview, Position, Transactions, Accounts',
+        JSON.stringify(nav.sections.map((one) => one.label)));
+
+      /*
+       * The whole point, asserted rather than described.
+       *
+       * A group is a heading: transparent, square-cornered, marked by a rule
+       * beneath it. A section is a choice: rounded, and filled when it is the
+       * one you are on. Two objects, two drawings.
+       */
+      const transparent = (colour) => /^(transparent|rgba\(0, 0, 0, 0\))$/.test(colour);
+      const current = nav.sections.find((one) => one.chosen);
+
+      check('an open group is a rule under a word, not a filled shape',
+        transparent(openGroup[0].background) && openGroup[0].radius < 4
+        && openGroup[0].underlineWidth >= 2
+        && !transparent(openGroup[0].underline),
+        JSON.stringify(openGroup[0]));
+
+      check('the current section is a filled pill, not a rule',
+        !!current && !transparent(current.background) && current.radius >= 12,
+        JSON.stringify(current));
+
+      check('so the two rows are not drawn the same way',
+        !!current && current.background !== openGroup[0].background
+        && current.radius !== openGroup[0].radius,
+        `${JSON.stringify(openGroup[0])} vs ${JSON.stringify(current)}`);
+
+      /* Sliding, not wrapping: seventeen sections used to wrap onto four lines. */
+      check('both rows slide sideways instead of wrapping',
+        nav.groupRow?.slides === 'auto' && nav.sectionRow?.slides === 'auto',
+        `${nav.groupRow?.slides} / ${nav.sectionRow?.slides}`);
+
+      check('and neither takes the page with it',
+        nav.overflows === false, 'the page scrolls sideways at 390px');
+
+      // The pair cost a hundred and ten pixels as chips. Two rows still cost
+      // something; this is the ceiling it may not pass.
+      check('the pair fits inside a phone’s worth of header',
+        nav.height > 0 && nav.height < 130, `${nav.height}px`);
+
+      check('and stands directly under the page header',
+        nav.afterHeader === 'finance-nav', String(nav.afterHeader));
+
+      // Both rows are read out, since neither is a list of links a screen
+      // reader can name from its contents alone.
+      check('both rows name themselves for a screen reader',
+        nav.groupRow?.label === 'Parts of Finance'
+        && nav.sectionRow?.label === 'Sections',
+        `${nav.groupRow?.label} / ${nav.sectionRow?.label}`);
+
+      /*
+       * Reachability, driven rather than snapshotted.
+       *
+       * Only the open group's sections are in the DOM, so a single reading of
+       * the page sees four of seventeen — a check that looked once would pass
+       * while thirteen sections were unreachable. Counted off the schema, so a
+       * section added to Finance later cannot quietly go missing while this
+       * still passes.
+       */
+      const reachable = new Set();
+      for (let index = 0; index < nav.groups.length; index += 1) {
+        await page.locator('.finance-nav-group').nth(index).click();
+        await page.waitForTimeout(250);
+        for (const href of await page.evaluate(() => [...document.querySelectorAll(
+          '.finance-nav-section')].map((one) => (one.getAttribute('href') ?? '').split('?')[0]))) {
+          reachable.add(href);
+        }
+      }
+
+      const wanted = Object.values(SCHEMA_ENTITIES)
+        .filter((one) => one.module === 'finance')
+        .map((one) => `#/finance/${one.name}`);
+      const missing = wanted.filter((href) => !reachable.has(href));
+
+      check('every Finance entity is reachable by working the two rows',
+        missing.length === 0, `unreachable: ${missing.join(', ')}`);
+
+      check('and the rows cover more than the group they opened on',
+        reachable.size >= 15, `${reachable.size} reached`);
+
+      /*
+       * Arriving, not just tapping.
+       *
+       * A bookmark into a section in the last group has to open with that
+       * group underlined and that section on screen — not at a row scrolled
+       * to its start with the answer somewhere off to the right.
+       */
+      await go(page, '#/dashboard');
+      await go(page, '#/finance/conflicts');
+      await page.waitForTimeout(900);
+
+      const arrived = await page.evaluate(() => {
+        const inside = (item, row) => {
+          if (!item || !row) return false;
+          const a = item.getBoundingClientRect();
+          const b = row.getBoundingClientRect();
+          return a.left >= b.left - 1 && a.right <= b.right + 1;
+        };
+        const groupRow = document.querySelector('.finance-nav-groups');
+        const sectionRow = document.querySelector('.finance-nav-sections');
+        const openTab = document.querySelector('.finance-nav-group[aria-pressed="true"]');
+        const mark = document.querySelector('.finance-nav-section[aria-current="page"]');
+        return {
+          heading: document.querySelector('.app-content h1')?.textContent?.trim(),
+          group: openTab?.textContent?.trim() ?? null,
+          marked: [...document.querySelectorAll('.finance-nav-section[aria-current="page"]')]
+            .map((one) => one.textContent.trim()),
+          groupInView: inside(openTab, groupRow),
+          sectionInView: inside(mark, sectionRow),
+          // Review is the last of five and does not fit across 390px, so the
+          // row has to have moved. Nought here is the bug this replaced.
+          groupScrolled: groupRow ? Math.round(groupRow.scrollLeft) : 0,
+          groupOverflows: groupRow
+            ? groupRow.scrollWidth > groupRow.clientWidth : false,
+        };
+      });
+
+      // The chips were what said where you were. The heading has to say it
+      // too, or a bookmark lands on a page called Finance showing conflicts
+      // with nothing explaining why.
+      check('a section names itself rather than the module',
+        arrived.heading === 'Disagreements', String(arrived.heading));
+
+      check('a deep link opens the group its section is in',
+        arrived.group === 'Review', String(arrived.group));
+
+      check('and marks that section, and only it',
+        arrived.marked.length === 1 && arrived.marked[0] === 'Disagreements',
+        JSON.stringify(arrived.marked));
+
+      /*
+       * Scrolled to, not merely marked.
+       *
+       * The first version of this measured the sections row, which for Review
+       * happens to fit — so it read zero and said nothing about the row that
+       * had actually failed. Review is the fifth of five groups and does not
+       * fit across 390px: arriving here must have moved the top row, or the
+       * open tab is the word "Rev" against the right edge.
+       */
+      check('the top row has to slide to show the group, and did',
+        arrived.groupOverflows && arrived.groupScrolled > 0 && arrived.groupInView,
+        `${arrived.groupScrolled}px, overflows: ${arrived.groupOverflows}, `
+        + `in view: ${arrived.groupInView}`);
+
+      check('and the marked section is inside its row, not off the edge',
+        arrived.sectionInView, String(arrived.sectionInView));
+
+      /* And the rows are on the section screen too, not only on the hub. */
+      check('the rows stand above a section screen as well as the hub',
+        await page.locator('.finance-nav .finance-nav-group').count() === 5
+        && await page.locator('.finance-nav .finance-nav-section').count() === 3,
+        `${await page.locator('.finance-nav-group').count()} groups, `
+        + `${await page.locator('.finance-nav-section').count()} sections`);
+
+      /* Tapping a section in the row goes there. */
+      await page.locator('.finance-nav-group', { hasText: 'Money' }).first().click();
+      await page.waitForTimeout(250);
+      await page.locator('.finance-nav-section', { hasText: 'Overview' }).first().click();
+      await page.waitForTimeout(900);
+      check('and tapping a section in the row goes there',
+        await page.evaluate(() => globalThis.location.hash) === '#/finance',
+        await page.evaluate(() => globalThis.location.hash));
+
+      check('the two rows render without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
+    /* ------------------------- the scrollbar, and the rows that hide theirs */
+
+    {
+      /*
+       * The one piece of the interface the browser used to draw.
+       *
+       * Nothing here had ever styled a scrollbar, so every scrolling surface —
+       * the sidebar, a modal body, a tall table, the chat thread, the page —
+       * carried the platform default: a trench with a square thumb and a
+       * track painted a different grey from the panel around it.
+       *
+       * **What this block can and cannot see.** Headless Chromium paints no
+       * scrollbar at all — an unstyled control container reserves the same
+       * zero pixels as a styled one — so nothing here is a screenshot of a
+       * bar. What is checkable is the declaration: that every surface which
+       * scrolls resolves `scrollbar-width` and `scrollbar-color` to the
+       * designed values, in both themes, and that the thumb is not the colour
+       * of the ground it sits on. That is the whole of what the stylesheet
+       * controls; the rendering belongs to the engine.
+       */
+      const before = consoleErrors.length;
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await go(page, '#/finance');
+      await page.waitForTimeout(900);
+
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((name) => {
+          document.documentElement.setAttribute('data-theme', name);
+        }, theme);
+        await page.waitForTimeout(200);
+
+        /*
+         * Every scroller on the screen, found rather than listed.
+         *
+         * Naming the elements that scroll is how half of them keep the
+         * default — the sidebar is easy to remember and `.query-preview` is
+         * not. So this walks the tree and asks each element whether it
+         * overflows on an axis it is allowed to scroll.
+         */
+        const walk = await page.evaluate(() => {
+          const rows = [];
+          for (const el of document.querySelectorAll('*')) {
+            const st = getComputedStyle(el);
+            const scrolls =
+              (el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(st.overflowY))
+              || (el.scrollWidth > el.clientWidth + 1 && /auto|scroll/.test(st.overflowX));
+            if (!scrolls) continue;
+            rows.push({
+              what: `${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]}`,
+              width: st.scrollbarWidth,
+              colour: st.scrollbarColor,
+              ground: st.backgroundColor,
+            });
+          }
+          const root = getComputedStyle(document.scrollingElement);
+          return {
+            // Counted apart from the page, which is always in the list — a
+            // walk that found nothing would otherwise still report one, and
+            // every check below it would pass over an empty screen.
+            found: rows.length,
+            rows: [...rows, {
+              what: 'the page', width: root.scrollbarWidth, colour: root.scrollbarColor,
+              ground: getComputedStyle(document.body).backgroundColor,
+            }],
+          };
+        });
+
+        check(`there are surfaces here whose bar is worth checking, in ${theme}`,
+          walk.found > 0, `${walk.found} scrolling elements besides the page`);
+
+        const seen = walk.rows;
+
+        // Either designed, or deliberately hidden. Nothing in between, and
+        // nothing left at `auto` — which is the default this replaced.
+        const undesigned = seen.filter((one) => !['thin', 'none'].includes(one.width));
+        check(`no scrolling surface keeps the default bar in ${theme}`,
+          undesigned.length === 0,
+          JSON.stringify(undesigned.map((one) => [one.what, one.width])));
+
+        /*
+         * A thumb and no track. The second colour is the track, and it is
+         * transparent so a panel keeps its own colour to its own edge — the
+         * default's second grey was the thing that read as a trench.
+         */
+        const tracked = seen.filter((one) => one.width === 'thin'
+          && !/rgba\(0, 0, 0, 0\)|transparent/.test(one.colour));
+        check(`the track is transparent on every thin bar in ${theme}`,
+          tracked.length === 0,
+          JSON.stringify(tracked.map((one) => [one.what, one.colour])));
+
+        /*
+         * Visible in both themes, which is the half a single palette gets
+         * wrong: a thumb dark enough to read on white is invisible on a
+         * near-black panel, and this application has both.
+         */
+        const thumbs = new Set(seen.filter((one) => one.width === 'thin')
+          .map((one) => one.colour.split(') ')[0] + ')'));
+        check(`the thumb is one colour across the app in ${theme}`,
+          thumbs.size === 1, JSON.stringify([...thumbs]));
+      }
+
+      /*
+       * Light and dark must not resolve to the same thumb. If they do, one of
+       * them is wrong — and a token that never changes is the way that gets
+       * shipped.
+       */
+      const thumbIn = async (theme) => {
+        await page.evaluate((name) => {
+          document.documentElement.setAttribute('data-theme', name);
+        }, theme);
+        await page.waitForTimeout(150);
+        return page.evaluate(() =>
+          getComputedStyle(document.scrollingElement).scrollbarColor.split(') ')[0] + ')');
+      };
+      const lightThumb = await thumbIn('light');
+      const darkThumb = await thumbIn('dark');
+      check('the thumb is a different colour in dark than in light',
+        lightThumb !== darkThumb, `${lightThumb} vs ${darkThumb}`);
+
+      /*
+       * The reserved gutter, on the element that actually scrolls.
+       *
+       * `scrollbar-gutter: stable` sat on `.app-content` for as long as it had
+       * existed, and did nothing there: the property applies to a scroll
+       * container, and `.app-content` is `overflow: visible`. The page is what
+       * scrolls. Asserted together — the property, and the container it needs
+       * to be on — because either one alone passes while the pair is broken.
+       */
+      const kept = await page.evaluate(() => {
+        const doc = document.scrollingElement;
+        const content = document.querySelector('.app-content');
+        return {
+          onScroller: getComputedStyle(doc).scrollbarGutter,
+          scrollerScrolls: doc.scrollHeight > doc.clientHeight + 1,
+          strandedOn: content ? getComputedStyle(content).scrollbarGutter : null,
+          contentScrolls: content
+            ? content.scrollHeight > content.clientHeight + 1 : null,
+        };
+      });
+
+      check('the gutter is reserved on the page, which is what scrolls',
+        kept.onScroller === 'stable' && kept.scrollerScrolls === true,
+        JSON.stringify(kept));
+
+      check('and not on a column that never scrolls, where it did nothing',
+        kept.strandedOn === 'auto' && kept.contentScrolls === false,
+        JSON.stringify(kept));
+
+      await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+
+      /* ------------------------------- and the rows that hide theirs */
+
+      /*
+       * A row that hides its bar has to say it slides some other way.
+       *
+       * Four rows do — the chip rows, the tab strip, and Finance's two nav
+       * rows. Hidden is right on a phone, where you swipe and a bar under a
+       * 44px row is noise; what it left on a desktop was a row simply *cut*,
+       * with a word chopped at the edge and nothing saying whether that was
+       * the end of the row or the middle of it.
+       *
+       * The fade is driven by the row's own scroll position, so this has to
+       * be driven too: one reading cannot tell a fade that follows the scroll
+       * from a gradient painted on and left there.
+       */
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/dashboard');
+      await go(page, '#/finance');
+      await page.waitForTimeout(1100);
+
+      const fadeOf = (selector) => page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const st = getComputedStyle(el);
+        return {
+          overflows: el.scrollWidth > el.clientWidth + 1,
+          start: parseFloat(st.getPropertyValue('--fade-start')) || 0,
+          end: parseFloat(st.getPropertyValue('--fade-end')) || 0,
+        };
+      }, selector);
+
+      const atStart = await fadeOf('.finance-nav-groups');
+      check('a row against its start is hard on that edge and fades on the other',
+        atStart.overflows && atStart.start === 0 && atStart.end > 0,
+        JSON.stringify(atStart));
+
+      await page.evaluate(() => {
+        const row = document.querySelector('.finance-nav-groups');
+        row.scrollLeft = row.scrollWidth;
+      });
+      await page.waitForTimeout(400);
+
+      const atEnd = await fadeOf('.finance-nav-groups');
+      check('and the fade swaps ends when it is scrolled to the end',
+        atEnd.start > 0 && atEnd.end === 0, JSON.stringify(atEnd));
+
+      /*
+       * A row that fits shows neither. Not by a rule saying so — a scroll
+       * timeline with nothing to scroll never starts, so the two lengths stay
+       * at the `0px` the `@property` declarations give them. Checked on
+       * Planned, whose four sections fit exactly; the hub's four do not,
+       * which is how the first version of this check passed while measuring
+       * an overflowing row.
+       */
+      await go(page, '#/finance/loan');
+      await page.waitForTimeout(900);
+      const fits = await fadeOf('.finance-nav-sections');
+      check('and a row that fits is not faded at either end',
+        fits.overflows === false && fits.start === 0 && fits.end === 0,
+        JSON.stringify(fits));
+
+      /*
+       * The structural guard, which is the one that will still be here when
+       * somebody adds the fifth sliding row.
+       *
+       * The fade is applied by naming four selectors in `css/components.css`.
+       * A row added later gets a hidden scrollbar from its own class and no
+       * fade from anything, and would be a hard-clipped row that nothing
+       * complains about. So: any element that scrolls sideways with its bar
+       * hidden must carry a mask.
+       *
+       * `.carousel` is the one exception and is named as one — it sets
+       * `grid-auto-columns: 86%` so the next card always peeks past the edge,
+       * which is a better cue than a gradient and is the stated reason its
+       * own bar is hidden.
+       */
+      const unfaded = [];
+      for (const hash of ['#/finance', '#/health', '#/identity', '#/family',
+        '#/settings', '#/vault', '#/investments', '#/vehicles', '#/documents']) {
+        await go(page, hash);
+        await page.waitForTimeout(500);
+        for (const what of await page.evaluate(() => {
+          const out = [];
+          for (const el of document.querySelectorAll('*')) {
+            const st = getComputedStyle(el);
+            if (st.scrollbarWidth !== 'none') continue;
+            if (!/auto|scroll/.test(st.overflowX)) continue;
+            if (el.classList.contains('carousel')) continue;
+            if (st.maskImage === 'none' && st.webkitMaskImage === 'none') {
+              out.push(String(el.className));
+            }
+          }
+          return out;
+        })) {
+          unfaded.push(`${what} on ${hash}`);
+        }
+      }
+
+      check('every row that hides its scrollbar fades instead of cutting',
+        unfaded.length === 0, [...new Set(unfaded)].join(' | '));
+
+      check('the scrollbar checks run without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
     /* ------------------------------ sentences a phone can read, on screen */
 
     {

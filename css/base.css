@@ -13,6 +13,20 @@ html {
   -webkit-text-size-adjust: 100%;
   /* Respect a user's larger default font instead of overriding it with px. */
   font-size: 100%;
+  /*
+   * Two navigations away and back should not creep the content column.
+   *
+   * This lived on `.app-content` and did nothing there: `scrollbar-gutter`
+   * applies to a scroll container, and `.app-content` is `overflow: visible`.
+   * The element that scrolls is the page, so a short screen released the
+   * gutter and the column jumped by the width of a scrollbar on the way to a
+   * long one — which is the exact thing the rule had been written to stop,
+   * sitting one element away from where it could.
+   *
+   * Inert where the platform draws overlay scrollbars, which reserve no room
+   * to keep — so a phone loses nothing to it.
+   */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -56,6 +70,99 @@ button, input, select, textarea {
 img, svg { display: block; max-width: 100%; }
 
 ul, ol { margin: 0; padding-left: 1.25rem; }
+
+/*
+ * The scrollbar, designed rather than inherited.
+ *
+ * Nothing in this repository had ever styled one. Every scrolling surface —
+ * the sidebar, a modal body, a tall table, the chat thread, a wide table on a
+ * phone, the page itself — drew the browser's default: a trench with a square
+ * thumb and a track painted a different grey from the panel around it. On a
+ * screen where the spacing, the radii and the greys are all chosen, that was
+ * the one piece left to whoever wrote the browser.
+ *
+ * A thumb, and no track. `scrollbar-color` takes the two in that order, and
+ * the second is `transparent`: the track *is* the surface it sits on, so a
+ * panel keeps its own colour to its own edge and the thumb floats over the
+ * content the way a modern scrollbar does. `thin` is the narrow bar rather
+ * than the platform's full-width one.
+ *
+ * **The standard properties, not `::-webkit-scrollbar`.** The first version of
+ * this shipped both — and the pair is not additive: once `scrollbar-width` or
+ * `scrollbar-color` is anything but `auto`, Chromium ignores every
+ * `::-webkit-scrollbar` rule on that element. Fifty lines of pseudo-element
+ * styling would have sat here doing nothing in every browser this application
+ * runs in, and looking for all the world like the thing doing the work. It is
+ * kept only where the standard property is not understood, which is what the
+ * `@supports not` below says out loud.
+ *
+ * The cost of the standard property is that it has no hover state: a thumb
+ * cannot darken under the pointer. So the colour is chosen to be legible at
+ * rest rather than to be found by hovering — `--grey-400` on light, and
+ * lighter than the ground on dark, because on a near-black surface a dark
+ * thumb is not a subtle scrollbar, it is an invisible one.
+ *
+ * The universal selector is deliberate. A scrollbar appears on anything that
+ * overflows, and listing the elements that do is how half of them keep the
+ * default. The four rows that hide their bar outright — `.chip-row--scroll`,
+ * `.tabs`, and Finance's two nav rows — still do: a class beats `*`, and each
+ * says why where it is.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/*
+ * Older engines, and only them. Here the pseudo-elements are the whole
+ * mechanism, so this is also where the hover the standard property cannot
+ * express gets to exist.
+ *
+ * `border: 4px solid transparent` with `background-clip: content-box` paints
+ * the thumb down the middle of a 14px track, which is how a bar you can catch
+ * with a mouse carries a 6px pill. Setting `width: 6px` instead would give a
+ * 6px hit target, and a scrollbar you cannot grab is worse than a plain one.
+ */
+@supports not (scrollbar-width: thin) {
+  ::-webkit-scrollbar {
+    width: 14px;
+    height: 14px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    background-clip: content-box;
+    border: 4px solid transparent;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+    background-clip: content-box;
+  }
+}
+
+/*
+ * A touch screen draws an overlay bar that fades on its own and reserves no
+ * room, which is better than anything this file can specify for a finger. So
+ * where there is no fine pointer the whole thing goes back — the width *and*
+ * the colour. Handing back one and keeping the other would be claiming to
+ * defer to the platform while still painting its bar.
+ *
+ * The phone is not left with nothing: the edge fade on the sliding rows is
+ * where a touch screen actually needed the help, and that applies here too.
+ */
+@media (hover: none) and (pointer: coarse) {
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+}
 
 /* A visible focus ring on every interactive thing, and never removed —
    `:focus-visible` already hides it from mouse users. */
@@ -184,9 +291,6 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
 .app-content {
   max-width: var(--content-max);
   margin: 0 auto;
-  /* Two navigations away and back should not creep the width; a stable
-     scrollbar gutter keeps the content column still. */
-  scrollbar-gutter: stable;
 }
 
 .brand {

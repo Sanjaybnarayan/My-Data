@@ -127,6 +127,10 @@ export const financeScreenStrings = {
   'finance.category.budget': 'Budget',
   'finance.category.budgetUsed': '{spent} of {limit}',
 
+  /* The two rows above every Finance screen. Read out, not drawn. */
+  'finance.nav.groups': 'Parts of Finance',
+  'finance.nav.sections': 'Sections',
+
   /* The ledger's filters, which fill a phone before a row is reached. */
   'finance.ledger.filters': 'Filters',
   'finance.ledger.filtersOn': 'Filters · {n} on',

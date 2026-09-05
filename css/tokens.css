@@ -76,6 +76,22 @@
   --tint-on-dark:     rgb(255 255 255 / 14%);
   --border:           var(--grey-200);
   --border-strong:    var(--grey-300);
+  /*
+   * The scrollbar, which had never been a role at all.
+   *
+   * Every scrolling surface in the application — the sidebar, a modal body, a
+   * tall table, the chat thread, a wide table on a phone — drew the browser's
+   * default bar: a 15px grey trench with a square thumb and a track that is a
+   * different colour from the panel it sits in. It is the one piece of the
+   * interface that had no design, on a screen where everything else does.
+   *
+   * A thumb and no track. The track is the surface it is on, so it is
+   * transparent and the thumb floats over the content the way a modern
+   * scrollbar does; the thumb is a border-radius pill quiet enough to ignore
+   * and dark enough to grab. Hover is the only state that strengthens.
+   */
+  --scrollbar-thumb:       var(--grey-400);
+  --scrollbar-thumb-hover: var(--grey-500);
   --text:             var(--grey-900);
   --text-muted:       var(--grey-600);
   /*
@@ -252,6 +268,10 @@
   --overlay:          rgb(0 0 0 / 65%);
   --border:           var(--grey-800);
   --border-strong:    var(--grey-700);
+  /* Lighter than the ground rather than darker: on a near-black surface a
+     dark thumb is not subtle, it is invisible. */
+  --scrollbar-thumb:       var(--grey-600);
+  --scrollbar-thumb-hover: var(--grey-500);
   --text:             var(--grey-50);
   --text-muted:       var(--grey-400);
   /* Was `--grey-500`: 3.73:1 on `--surface-raised`. See the light block. */
@@ -306,6 +326,8 @@
     --overlay:        rgb(0 0 0 / 65%);
     --border:         var(--grey-800);
     --border-strong:  var(--grey-700);
+    --scrollbar-thumb:       var(--grey-600);
+    --scrollbar-thumb-hover: var(--grey-500);
     --text:           var(--grey-50);
     --text-muted:     var(--grey-400);
     /* Was `--grey-500`: 3.73:1 on `--surface-raised`. See the light block. */

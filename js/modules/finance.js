@@ -8,8 +8,9 @@
  */
 
 import { h, replace } from '../ui/dom.js';
+import { icon } from '../ui/icons.js';
 import {
-  card, cardHeader, money, badge, button, pageHeader, listItem, chip, empty,
+  card, cardHeader, money, badge, button, pageHeader, listItem, empty,
 } from '../ui/components/basics.js';
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
@@ -18,6 +19,7 @@ import { format } from '../core/money.js';
 import { formatDay } from '../core/dates.js';
 import { entitiesOfModule } from '../data/schema.js';
 import { financeOverview } from './finance/overview.js';
+import { sectionTabs } from './finance/sections.js';
 import { GoalsService } from '../services/goals.js';
 import { CfoService } from '../services/cfo.js';
 import { describeLine } from '../domain/cfo.js';
@@ -40,6 +42,10 @@ const TABS = [
   // these labels are English written here, which is a separate debt.
   { id: 'bankStatement', labelKey: 'finance.tab.imported' },
   { id: 'shops', label: 'Shops' },
+  // A full entity with its own screen at `#/finance/receipt`, which no
+  // navigation had ever reached: neither row of chips carried it, so it was a
+  // list you could only arrive at by typing its address.
+  { id: 'receipt', label: 'Receipts' },
   { id: 'people', label: 'People' },
   { id: 'lending', label: 'Lending' },
   { id: 'insights', label: 'Insights' },
@@ -53,17 +59,15 @@ const TABS = [
 ];
 
 /**
- * The seventeen sections above, in five groups.
+ * The sections above, in five groups.
  *
- * Seventeen chips in one row wrapped onto four lines on a phone, which is
- * most of the screen spent on navigation before a single figure appears. The
- * fix is not fewer sections — every one of them is a real place — but saying
- * out loud which of them belong together, which the flat list never did.
+ * The grouping is the navigation, not a filing note about it: `sectionTabs`
+ * draws the group names as a row of tabs and the open group's sections as a
+ * row of pills beneath, above every screen in the module.
  *
- * Grouped rather than hidden. `docs/UI_INFORMATION_ARCHITECTURE.md` draws the
- * line at a module having nowhere to be reached from, and a section behind a
- * "More" menu is two-thirds of the way there. Both rows are on the screen at
- * once: the groups, and the sections of whichever group is open.
+ * `docs/UI_INFORMATION_ARCHITECTURE.md` draws the line at a module having
+ * nowhere to be reached from. Every section is named in the top row's own
+ * group, so every one of the seventeen is two taps from any other.
  *
  * Routes are untouched. Every section keeps its own URL, so a deep link, a
  * bookmark and both reachability checks still land exactly where they did.
@@ -71,15 +75,10 @@ const TABS = [
 const GROUPS = [
   { id: 'money', label: 'Money', tabs: ['overview', 'position', 'transaction', 'account'] },
   { id: 'incoming', label: 'Incoming', tabs: ['import', 'bankStatement', 'smsMessage'] },
-  { id: 'ledgers', label: 'Ledgers', tabs: ['shops', 'people', 'lending'] },
+  { id: 'ledgers', label: 'Ledgers', tabs: ['shops', 'receipt', 'people', 'lending'] },
   { id: 'planned', label: 'Planned', tabs: ['budget', 'recurringPayment', 'loan', 'goal'] },
   { id: 'review', label: 'Review', tabs: ['insights', 'economicEvent', 'conflicts'] },
 ];
-
-/** The group holding a section, so a deep link opens with its own group open. */
-function groupOf(tabId) {
-  return GROUPS.find((group) => group.tabs.includes(tabId)) ?? GROUPS[0];
-}
 
 const labelOf = (tabId) => {
   const tab = TABS.find((one) => one.id === tabId);
@@ -105,6 +104,29 @@ const routeTo = (tabId) => (tabId === 'overview'
 // disagreement is derived from the records that disagree; a form offering to
 // add one would be offering to write down that two things do not match,
 // which is not a record a household has.
+/**
+ * The way into a section from the card that summarises it.
+ *
+ * A card already says what a section is about — `Cash & accounts` over the
+ * balances, `Due in the next 30 days` over the bills. The rows above the
+ * screen are the map; this is the shorter way, from the summary you are
+ * already reading straight into the thing it summarises.
+ */
+export const sectionLink = (id) => h('a', {
+  class: 'row section-link small',
+  href: Router.href(routeTo(id)),
+}, [labelOf(id), icon('chevronRight', { size: 16 })]);
+
+/** Every section, grouped, for the two rows above every screen. */
+export const sectionIndex = () => GROUPS.map((group) => ({
+  id: group.id,
+  label: group.label,
+  // Every section, `overview` included. The row marks the one you are on
+  // rather than leaving it out — a row that hides your own position is worse
+  // than one carrying a pill you have no reason to press.
+  tabs: group.tabs.map((id) => ({ id, label: labelOf(id), href: Router.href(routeTo(id)) })),
+}));
+
 const NO_ADD = new Set(['import', 'shops', 'people', 'lending', 'insights', 'transaction',
   'bankStatement', 'smsMessage', 'economicEvent', 'conflicts']);
 
@@ -129,36 +151,29 @@ export async function render(route) {
 
   const body = h('div', {});
 
-  // Which group is open is read from the section being shown, not held as
-  // state: arriving at `#/finance/loan` from a bookmark has to open Planned
-  // with Loans marked, the same as tapping through to it would.
-  const openGroup = groupOf(active);
-
-  const groupRow = h('div', {
-    class: 'chip-row chip-row--scroll', role: 'group', 'aria-label': t('finance.title'),
-  }, GROUPS.map((group) => chip(group.label, {
-    pressed: group.id === openGroup.id,
-    // The group's first section, because a group is not itself a screen.
-    onClick: () => app().router.navigate(routeTo(group.tabs[0])),
-  })));
-
-  const sectionRow = h('div', {
-    class: 'chip-row chip-row--sections',
-    role: 'group',
-    'aria-label': openGroup.label,
-    style: { marginBottom: 'var(--space-4)' },
-  }, openGroup.tabs.map((id) => chip(labelOf(id), {
-    pressed: id === active,
-    onClick: () => app().router.navigate(routeTo(id)),
-  })));
-
-  const tabs = h('div', {}, [groupRow, sectionRow]);
+  /*
+   * Two rows above the screen: the parts of Finance, and the sections of the
+   * part you are in.
+   *
+   * These were two rows of chips, drawn identically — so nothing said the
+   * first governed the second, and tapping a chip in the top row silently
+   * replaced the row beneath it. They are now two different objects: the
+   * groups are tabs with a rule under the open one, the sections are pills
+   * with the current one filled. Both slide sideways, and both are scrolled
+   * to what is chosen on arrival, so a bookmark into Conflicts opens with
+   * Review underlined and Conflicts on screen.
+   *
+   * Navigation is drawn once, here, rather than by each of the seventeen
+   * screens below — which is why this sits between the header and `body`
+   * instead of inside either.
+   */
+  const onHub = active === 'overview';
 
   replace(host, [
-    pageHeader(t('finance.title'), {
-      subtitle: t('finance.subtitle'),
+    pageHeader(onHub ? t('finance.title') : labelOf(active), {
+      subtitle: onHub ? t('finance.subtitle') : null,
       actions: NO_ADD.has(active) ? []
-        : active !== 'overview'
+        : !onHub
         ? [button(t('crud.add'), { variant: 'primary', iconName: 'plus', onClick: () => section?.openForm() })]
         : [button(t('finance.addTransaction'), {
           variant: 'primary',
@@ -166,11 +181,11 @@ export async function render(route) {
           onClick: () => app().router.navigate({ module: 'finance', entity: 'transaction', id: 'new' }),
         })],
     }),
-    tabs,
+    sectionTabs(active, sectionIndex()),
     body,
   ]);
 
-  if (active === 'overview') {
+  if (onHub) {
     const overview = await financeOverview();
     replace(body, overview.node);
     return { node: host, destroy: overview.destroy };

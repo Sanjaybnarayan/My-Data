@@ -33,6 +33,7 @@ import { describeCommitments } from '../../domain/commitments.js';
 import { describeRunway } from '../../domain/runway.js';
 import { TRANSACTION_LIMIT } from '../../services/service.js';
 import { categoryTitle } from '../../domain/category.js';
+import { sectionLink } from '../finance.js';
 import { t } from '../../core/locale.js';
 
 /**
@@ -201,7 +202,7 @@ export async function financeOverview() {
       memberCard(byMember),
 
       card({}, [
-        cardHeader(t('finance.overview.thisMonth')),
+        cardHeader(t('finance.overview.thisMonth'), sectionLink('transaction')),
         h('div', { class: 'metric-row' }, [
           metric({
             label: t('finance.overview.spent'),
@@ -287,7 +288,7 @@ export async function financeOverview() {
       loansCard(loans, transactions, loansHeld),
 
       card({}, [
-        cardHeader(t('finance.overview.cash')),
+        cardHeader(t('finance.overview.cash'), sectionLink('account')),
 
         // Said where the balances are, not in a log. A balance summed from the
         // most recent rows is not the account's balance once there are more of
@@ -324,7 +325,7 @@ export async function financeOverview() {
       // Two charts under one heading, and nothing on screen said which was
       // which. Captioned from the same string each already carries.
       card({}, [
-        cardHeader(t('finance.overview.year')),
+        cardHeader(t('finance.overview.year'), sectionLink('position')),
         chartCaption(t('finance.overview.yearChart')),
         barChart(fin.spendingBars(series), {
           height: 140,
@@ -337,7 +338,7 @@ export async function financeOverview() {
 
       categories.length
         ? card({}, [
-          cardHeader(t('finance.overview.categories')),
+          cardHeader(t('finance.overview.categories'), sectionLink('insights')),
           // Each slice opens the category behind it — not a filtered list of
           // dates, but what that category *is*: the month against the last,
           // the year behind it, who it went to, the bills filed under it.
@@ -363,12 +364,15 @@ export async function financeOverview() {
 
       budgetRows.length
         ? card({}, [
-          cardHeader(t('finance.overview.budgets'), badge(
-            t('finance.overview.overBudget', {
-              n: budgetRows.filter((b) => b.state === 'over').length,
-            }),
-            budgetRows.some((b) => b.state === 'over') ? 'danger' : 'positive',
-          )),
+          cardHeader(t('finance.overview.budgets'), h('div', { class: 'row' }, [
+            badge(
+              t('finance.overview.overBudget', {
+                n: budgetRows.filter((b) => b.state === 'over').length,
+              }),
+              budgetRows.some((b) => b.state === 'over') ? 'danger' : 'positive',
+            ),
+            sectionLink('budget'),
+          ])),
           h('div', { class: 'stack' }, budgetRows.map((b) => h('div', { class: 'stack stack--tight' }, [
             h('div', { class: 'row row--between small' }, [
               h('span', {}, b.category),
@@ -384,7 +388,7 @@ export async function financeOverview() {
 
       card({ class: 'card--flush' }, [
         h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } }, [
-          cardHeader(t('finance.overview.due')),
+          cardHeader(t('finance.overview.due'), sectionLink('recurringPayment')),
 
           // A card bill short a held purchase is the one figure here where
           // being wrong is expensive, so it says so rather than presenting a

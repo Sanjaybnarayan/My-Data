@@ -234,6 +234,7 @@ const SHELL = [
   './js/modules/finance.js',
   './js/modules/finance/overview.js',
   './js/modules/finance/category.js',
+  './js/modules/finance/sections.js',
   './js/modules/finance-transfers.js',
   './js/modules/imports.js',
   './js/modules/investments.js',
