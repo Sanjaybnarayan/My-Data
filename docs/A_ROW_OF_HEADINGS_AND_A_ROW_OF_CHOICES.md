@@ -131,3 +131,39 @@ In `tests/browser.mjs`, at 390px:
   the schema. A section added later cannot go quietly unreachable.
 - Arriving by deep link opens the right group, marks the right section, and
   has scrolled the top row to show it.
+
+---
+
+## Reversed, later the same day
+
+The argument above — that the two rows must not be the same object twice — was
+acted on, shipped, and then **reversed on the household's own judgement**:
+
+> "both the rows should be designed in same style…here second row looks
+> different as buttons…redesign and rewound make it identical as first row"
+
+So the sections are drawn exactly as the groups are: a word, faded when it is
+not the one you are on, with an accent rule under it when it is. Every value in
+the two CSS blocks is the same value, and the blocks are kept adjacent so a
+change made to one and not the other shows up in the diff.
+
+**The concern this document raises has not gone away, and was put before the
+change was made.** Two rows drawn identically is exactly the shape that once
+said nothing about which governed which. What answers it now is not the
+drawing but the arrangement: the rows are stacked, one above the other, and
+only the lower one changes when the upper is touched. That relationship is
+checked — the reachability walk drives every group and reads the sections that
+appear — and it is now carrying the whole of the distinction, where before it
+had the drawing to lean on.
+
+The counter-argument, which is a fair one: a row of pills under a row of tabs
+reads as two unrelated controls stuck together, which is a different way of
+failing at the same thing. Consistency between them is worth something the
+earlier reasoning did not price in.
+
+The checks were inverted rather than deleted. `tests/browser.mjs` now asserts
+that a chosen section is drawn *exactly* as a chosen group, and an unchosen one
+likewise — because "identical" is a contract, and an untested contract is how
+the two drifted apart to begin with. The half of the old rule that survived is
+that neither row is a filled shape: both are a word under a rule, which is what
+keeps the pair from becoming two rows of buttons again.

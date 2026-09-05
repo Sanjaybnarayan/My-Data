@@ -555,18 +555,132 @@
   margin-bottom: var(--space-4);
 }
 
+/*
+ * Both rows are a wheel seen edge-on.
+ *
+ * The item in the middle faces you square and full size; the ones either side
+ * are turned away from you and stand back a little, further the closer they
+ * get to the edge. Sliding the row turns the wheel.
+ *
+ * The turn is a `rotateY` under a shallow `perspective`, driven by each item's
+ * own position in the scrollport — `animation-timeline: view(inline)` runs a
+ * keyframe from the moment an item enters the row's viewport to the moment it
+ * leaves, so its midpoint is the middle of the row. No script, no scroll
+ * handler, and nothing to keep in step by hand.
+ *
+ * `@supports` because scroll-driven animation is not everywhere. The fallback
+ * is a flat row that still centres and still marks what is chosen, which is
+ * the design one dimension down rather than a broken version of it.
+ */
 .finance-nav-groups,
 .finance-nav-sections {
   display: flex;
   overflow-x: auto;
-  scroll-snap-type: x proximity;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  /*
+   * A gutter, not half the row.
+   *
+   * `padding-inline: 50%` is the literal reading of "the selection sits in the
+   * middle", and it works — measured at dead centre on every screen. It also
+   * leaves the whole left half of the row blank when the *first* item is
+   * chosen, and Money is what Finance opens on, so the commonest view of the
+   * screen looked half missing. These rows barely overflow to begin with:
+   * five groups across 366px have 47px of travel between them.
+   *
+   * At 4.5rem a middle choice lands within about ten pixels of centre and the
+   * two ends come half way, with no void at either edge.
+   */
+  padding-inline: 4.5rem;
+  perspective: 20rem;
 }
 .finance-nav-groups::-webkit-scrollbar,
 .finance-nav-sections::-webkit-scrollbar { display: none; }
-.finance-nav-groups > *,
-.finance-nav-sections > * { scroll-snap-align: center; flex: 0 0 auto; }
+
+/*
+ * The control and its face are two different things.
+ *
+ * Everything visible — the pill, the rule beneath a group, the turn — belongs
+ * to the face. The button keeps its own untransformed box and does nothing but
+ * receive the tap, because `getBoundingClientRect` reports the transformed
+ * size and a 44px control scaled to 0.85 stops being a 44px control.
+ */
+.finance-nav-group,
+.finance-nav-section {
+  scroll-snap-align: center;
+  flex: 0 0 auto;
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  /* 44px is the tap target this repository measures rather than claims. */
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  text-decoration: none;
+  font: inherit;
+}
+
+.finance-nav-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  transition: color var(--duration) var(--ease),
+    background var(--duration) var(--ease),
+    border-color var(--duration) var(--ease);
+}
+
+@supports (animation-timeline: view(inline)) {
+  .finance-nav-face {
+    animation: nav-wheel linear both;
+    animation-timeline: view(inline);
+  }
+  .finance-nav-group[aria-pressed='true'] .finance-nav-face,
+  .finance-nav-section[aria-current='page'] .finance-nav-face {
+    animation-name: nav-wheel-chosen;
+  }
+}
+
+/*
+ * How far the wheel turns, and how far it is allowed to fade.
+ *
+ * The turn and the setback are free to be dramatic — they cost nothing but
+ * geometry. The opacity is not: these are words, and this application checks
+ * every text pair on every screen against 4.5:1 in both themes. That check
+ * could not see `opacity` at all until this change — it read the alpha inside
+ * `color` and nothing else — so a fade to a quarter would have passed while
+ * being unreadable. It reads effective opacity now, which is exactly why the
+ * floor here is 0.72 and not the 0.3 that would look more dramatic.
+ *
+ * What sits below that floor is the mask on the row, which fades the last two
+ * rems to nothing. That is a fade to the background rather than a dimming of
+ * ink, and it lands on items already half outside the row — the ones nobody
+ * reads, because they scroll them in first.
+ */
+@keyframes nav-wheel {
+  from { transform: rotateY(46deg)  scale(0.82); opacity: 0.72; }
+  50%  { transform: rotateY(0)       scale(1);    opacity: 1; }
+  to   { transform: rotateY(-46deg)  scale(0.82); opacity: 0.72; }
+}
+
+/*
+ * The chosen one turns with the wheel but never dims.
+ *
+ * It is the thing being read, and it is the only face here whose colours have
+ * no headroom left: white on `--accent` measures 4.51:1, which is the floor
+ * itself, so a single percent of fade puts the selection under the bar. The
+ * unchosen faces carry the fade instead — which is what was asked for anyway:
+ * *the selected one highlighted, the others faded.*
+ */
+@keyframes nav-wheel-chosen {
+  from { transform: rotateY(46deg)  scale(0.82); }
+  50%  { transform: rotateY(0)       scale(1); }
+  to   { transform: rotateY(-46deg)  scale(0.82); }
+}
 
 /* ------------------------------------------------------------ the groups */
 
@@ -575,25 +689,31 @@
   border-bottom: 1px solid var(--border);
 }
 
-.finance-nav-group {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  font: inherit;
+/*
+ * `--text`, not `--text-faint`, and the fade does the rest.
+ *
+ * Written the obvious way — a faint colour *and* the wheel's fade — this
+ * measured 2.84:1 on a light ground and 3.87:1 on a dark one, against the
+ * 4.5:1 this application holds itself to. `--text-faint` is 4.83:1 at full
+ * strength: it is already at the floor, by design, and there is nothing left
+ * to fade out of it. Layering the two was taking a token chosen to be barely
+ * readable and making it less so.
+ *
+ * From `--text` the same fade lands at 6.91:1 on light and 9.08:1 on dark. The
+ * de-emphasis is real and it is entirely the wheel's, which is the honest way
+ * round: one effect, measured, rather than two stacked past the point either
+ * was checked for.
+ */
+.finance-nav-group .finance-nav-face {
   font-weight: 500;
-  color: var(--text-faint);
-  cursor: pointer;
-  /* 44px is the tap target this repository measures rather than claims. */
-  min-height: 44px;
+  color: var(--text);
+  min-height: 42px;
   padding: 0 var(--space-3);
+  border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  white-space: nowrap;
-  transition: color var(--duration-fast) var(--ease),
-    border-color var(--duration-fast) var(--ease);
 }
-.finance-nav-group:hover { color: var(--text-muted); }
-.finance-nav-group[aria-pressed='true'] {
+.finance-nav-group:hover .finance-nav-face { color: var(--text-muted); }
+.finance-nav-group[aria-pressed='true'] .finance-nav-face {
   color: var(--text);
   font-weight: 600;
   border-bottom-color: var(--accent);
@@ -602,40 +722,46 @@
 
 /* ---------------------------------------------------------- the sections */
 
-.finance-nav-sections { gap: var(--space-2); }
+/*
+ * Drawn exactly as the groups are.
+ *
+ * These were pills — bordered, rounded, filled with the accent when current —
+ * against the groups' tabs, and that difference was deliberate: two rows drawn
+ * identically had once said nothing about which governed which, and the pill
+ * was how the second row read as a choice inside the first rather than a
+ * second set of destinations. `docs/A_ROW_OF_HEADINGS_AND_A_ROW_OF_CHOICES.md`
+ * makes that argument at length.
+ *
+ * It is reversed here, on the judgement that a row of pills under a row of
+ * tabs reads as two unrelated controls stuck together — which is a different
+ * way of failing at the same thing. What now separates them is not their
+ * shape but their place: the first row is above, the second below it, and
+ * only one of the two changes when you touch the other.
+ *
+ * Identical means identical. Every value below is the groups' value, and the
+ * two blocks are kept adjacent so a change to one that is not made to the
+ * other is visible in the diff.
+ */
+.finance-nav-sections {
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
 
-.finance-nav-section {
-  display: inline-flex;
-  align-items: center;
-  /* 44px, like every other tap target this repository measures rather than
-     claims — 40 was a guess, and `tests/browser.mjs` counts it as a miss. */
-  min-height: 44px;
-  padding: 0 var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
+.finance-nav-section .finance-nav-face {
   font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background var(--duration-fast) var(--ease),
-    color var(--duration-fast) var(--ease),
-    border-color var(--duration-fast) var(--ease);
+  color: var(--text);
+  min-height: 42px;
+  padding: 0 var(--space-3);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
 }
-.finance-nav-section:hover { color: var(--text); border-color: var(--text-faint); }
-.finance-nav-section[aria-current='page'] {
-  background: var(--accent);
-  border-color: var(--accent);
-  /* `--accent-contrast`, not white. The accent is a *light* blue in dark
-     mode, where white on it measures 2.23:1 against the 4.5 this repository
-     holds itself to — the token already carries the right foreground for
-     both themes, and inventing a second name for it was how I got that
-     wrong. */
-  color: var(--accent-contrast);
+.finance-nav-section:hover .finance-nav-face { color: var(--text-muted); }
+.finance-nav-section[aria-current='page'] .finance-nav-face {
+  color: var(--text);
   font-weight: 600;
+  border-bottom-color: var(--accent);
 }
-.finance-nav-section:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.finance-nav-section:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 /* The way into a section from the card that summarises it. */
 .section-link {

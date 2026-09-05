@@ -72,6 +72,22 @@ function reveal(row, item) {
 }
 
 /**
+ * The label, in a box of its own that can be turned without shrinking the
+ * control around it.
+ *
+ * Both rows sit on a wheel: the item in the middle faces you and the ones
+ * either side turn away and recede. That is a `rotateY` and a scale, and put
+ * on the button itself it would take the *tap target* with it —
+ * `getBoundingClientRect` reports the transformed box, so a 44px control
+ * scaled to 0.85 measures 37px and is no longer one. The repository checks
+ * that floor at 390px and 320px and would have caught it.
+ *
+ * So the button keeps its full size and does nothing but receive the tap; the
+ * face inside it carries every visible thing — the pill, the rule, the turn.
+ */
+const face = (label) => h('span', { class: 'finance-nav-face' }, label);
+
+/**
  * @param {string} active the section being shown
  * @param {Array<{id: string, label: string,
  *          tabs: Array<{id: string, label: string, href: string}>}>} groups
@@ -98,7 +114,7 @@ export function sectionTabs(active, groups) {
     class: 'finance-nav-group',
     'aria-pressed': String(group.id === open.id),
     onClick: () => { open = group; paint(); },
-  }, group.label)));
+  }, face(group.label))));
 
   function paint() {
     for (const [index, button] of [...tabs.children].entries()) {
@@ -112,7 +128,7 @@ export function sectionTabs(active, groups) {
       class: 'finance-nav-section',
       href: one.href,
       ...(one.id === active ? { 'aria-current': 'page' } : {}),
-    }, one.label)));
+    }, face(one.label))));
 
     reveal(tabs, tabs.children[groups.indexOf(open)]);
     reveal(sections, sections.querySelector('[aria-current="page"]'));

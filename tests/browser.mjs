@@ -3333,8 +3333,21 @@ async function main() {
       await page.waitForTimeout(1100);
 
       const nav = await page.evaluate(() => {
+        /*
+         * Read off the face, not the control.
+         *
+         * Both rows sit on a wheel now, and the turn is a transform. Put on
+         * the control it would take the tap target with it —
+         * `getBoundingClientRect` reports the transformed box — so the button
+         * keeps its own untouched 44px box and an inner `.finance-nav-face`
+         * carries every visible thing: the pill, the rule, the turn, the fade.
+         * A check reading the control would find a transparent, borderless
+         * nothing and be describing the hit area rather than the design.
+         */
         const seen = (one) => {
-          const style = getComputedStyle(one);
+          const paint = one.querySelector('.finance-nav-face') ?? one;
+          const style = getComputedStyle(paint);
+          const box = one.getBoundingClientRect();
           return {
             label: one.textContent.trim(),
             chosen: one.getAttribute('aria-pressed') === 'true'
@@ -3344,6 +3357,10 @@ async function main() {
             radius: parseFloat(style.borderTopLeftRadius),
             underline: style.borderBottomColor,
             underlineWidth: parseFloat(style.borderBottomWidth),
+            // The control's own box, which the wheel must never shrink.
+            tapHeight: Math.round(box.height),
+            opacity: +style.opacity,
+            turned: style.transform !== 'none',
           };
         };
         const row = (selector) => {
@@ -3382,10 +3399,26 @@ async function main() {
       check('exactly one group is open at a time',
         openGroup.length === 1, JSON.stringify(nav.groups.map((one) => one.label)));
 
+      /*
+       * Faded, not hidden — and faded by the wheel rather than by colour.
+       *
+       * This compared the chosen group's `color` against the others, which
+       * worked while the unchosen ones were `--text-faint`. They are `--text`
+       * now: a faint colour *and* the wheel's fade measured 2.84:1 against the
+       * 4.5:1 this application holds itself to, because `--text-faint` sits at
+       * the floor already and has nothing left to fade out of. The
+       * de-emphasis is the wheel's alone, so opacity is what says it.
+       */
       check('and the rest are faded rather than hidden',
         nav.groups.filter((one) => !one.chosen)
-          .every((one) => one.color !== openGroup[0].color),
-        JSON.stringify(nav.groups.map((one) => [one.label, one.color])));
+          .every((one) => one.opacity < openGroup[0].opacity && one.opacity > 0),
+        JSON.stringify(nav.groups.map((one) => [one.label, one.opacity])));
+
+      check('the chosen one never dims, having no contrast to spare',
+        openGroup[0].opacity === 1
+        && nav.sections.filter((one) => one.chosen).every((one) => one.opacity === 1),
+        JSON.stringify([...nav.groups, ...nav.sections]
+          .filter((one) => one.chosen).map((one) => [one.label, one.opacity])));
 
       check('the second row draws that group’s sections and no others',
         nav.sections.length === 4
@@ -3394,29 +3427,114 @@ async function main() {
         JSON.stringify(nav.sections.map((one) => one.label)));
 
       /*
-       * The whole point, asserted rather than described.
+       * The two rows are drawn as one thing, and this is what says so.
        *
-       * A group is a heading: transparent, square-cornered, marked by a rule
-       * beneath it. A section is a choice: rounded, and filled when it is the
-       * one you are on. Two objects, two drawings.
+       * These checks asserted the opposite for most of their life: a group was
+       * a heading — transparent, square, ruled — and a section was a choice —
+       * rounded and filled. That difference was deliberate, and
+       * `docs/A_ROW_OF_HEADINGS_AND_A_ROW_OF_CHOICES.md` argues for it at
+       * length: two rows drawn identically had once said nothing about which
+       * governed which.
+       *
+       * It was reversed on the judgement that a row of pills under a row of
+       * tabs reads as two unrelated controls stuck together — a different way
+       * of failing at the same thing. The checks are inverted with it rather
+       * than dropped, because "identical" is now the contract and an untested
+       * contract is how the two drifted apart in the first place.
+       *
+       * What still separates the rows is their place, not their shape: one is
+       * above the other, and only the lower changes when the upper is touched.
+       * Those are checked further down, and they are now the whole of the
+       * distinction.
        */
       const transparent = (colour) => /^(transparent|rgba\(0, 0, 0, 0\))$/.test(colour);
       const current = nav.sections.find((one) => one.chosen);
 
-      check('an open group is a rule under a word, not a filled shape',
-        transparent(openGroup[0].background) && openGroup[0].radius < 4
-        && openGroup[0].underlineWidth >= 2
-        && !transparent(openGroup[0].underline),
-        JSON.stringify(openGroup[0]));
+      const shape = (one) => JSON.stringify([
+        one.background, one.radius, one.underlineWidth,
+      ]);
 
-      check('the current section is a filled pill, not a rule',
-        !!current && !transparent(current.background) && current.radius >= 12,
-        JSON.stringify(current));
+      check('a chosen section is drawn exactly as a chosen group is',
+        !!current && shape(current) === shape(openGroup[0]),
+        `${shape(openGroup[0])} vs ${shape(current)}`);
 
-      check('so the two rows are not drawn the same way',
-        !!current && current.background !== openGroup[0].background
-        && current.radius !== openGroup[0].radius,
-        `${JSON.stringify(openGroup[0])} vs ${JSON.stringify(current)}`);
+      const restingGroup = nav.groups.find((one) => !one.chosen);
+      const restingSection = nav.sections.find((one) => !one.chosen);
+      check('and an unchosen one likewise',
+        !!restingGroup && !!restingSection
+        && shape(restingGroup) === shape(restingSection),
+        `${shape(restingGroup)} vs ${shape(restingSection)}`);
+
+      /*
+       * Both are a word under a rule, not a filled shape — which is the half
+       * of the old contract that survived the reversal, and the half that
+       * keeps the pair from becoming two rows of buttons again.
+       *
+       * Written out twice rather than looped over `[['group', a], ['section',
+       * b]]`: that pairing makes the array `(string | reading)[]`, so every
+       * field read off it is a type error, four of them. A loop that costs
+       * more than it saves is not a loop.
+       */
+      const ruled = (one) => !!one && transparent(one.background) && one.radius < 4
+        && one.underlineWidth >= 2 && !transparent(one.underline);
+
+      check('the chosen group is a rule under a word, not a filled shape',
+        ruled(openGroup[0]), JSON.stringify(openGroup[0]));
+
+      check('and the chosen section likewise',
+        ruled(current), JSON.stringify(current));
+
+      /*
+       * The wheel, and the thing it must not cost.
+       *
+       * Both rows are a wheel seen edge-on: the item in the middle faces you,
+       * the ones either side are turned away and stand back, further toward
+       * the edges. The turn is a `rotateY` driven by each item's own position
+       * in the scrollport.
+       *
+       * The trap is that a transform moves the *measured box*. Put the turn on
+       * the control and a 44px button scaled to 0.82 measures 36px and is no
+       * longer a tap target — which the 44px check at 390px and 320px would
+       * catch, but only after it shipped past a reviewer. So the control keeps
+       * its box and the face inside it turns, and this is the check that says
+       * the split is still there.
+       */
+      const allTaps = [...nav.groups, ...nav.sections];
+      check('the wheel never shrinks a tap target below 44px',
+        allTaps.every((one) => one.tapHeight >= 44),
+        JSON.stringify(allTaps.filter((one) => one.tapHeight < 44)
+          .map((one) => [one.label, one.tapHeight])));
+
+      check('and every face is actually turned by it',
+        allTaps.every((one) => one.turned),
+        JSON.stringify(allTaps.filter((one) => !one.turned).map((one) => one.label)));
+
+      /*
+       * Receding, not merely dimmed once.
+       *
+       * "The others fade" written as a single alternative state gives two
+       * values and a flat row. A wheel gives a gradient — each item a little
+       * further back than the one before it — so what this asserts is that the
+       * row holds more than two distinct opacities.
+       */
+      const shades = new Set(allTaps.map((one) => one.opacity.toFixed(2)));
+      check('the fade is a gradient across the row, not one flat step',
+        shades.size >= 3, JSON.stringify([...shades]));
+
+      /*
+       * And the floor is where the text is still readable.
+       *
+       * The contrast walk further down this file now reads effective opacity,
+       * which it did not until this change — it took the alpha inside `color`
+       * and ignored the property entirely, so a fade to a quarter would have
+       * passed while being unreadable. That fix is what makes this number
+       * mean anything: nothing in either row may fade past the point the
+       * contrast check will accept.
+       */
+      check('nothing fades past the readable floor',
+        allTaps.every((one) => one.opacity >= 0.7),
+        JSON.stringify(allTaps.map((one) => [one.label, one.opacity.toFixed(2)])
+          .filter(([, o]) => +o < 0.7)));
 
       /* Sliding, not wrapping: seventeen sections used to wrap onto four lines. */
       check('both rows slide sideways instead of wrapping',
@@ -3758,19 +3876,56 @@ async function main() {
         atEnd.start > 0 && atEnd.end === 0, JSON.stringify(atEnd));
 
       /*
-       * A row that fits shows neither. Not by a rule saying so — a scroll
-       * timeline with nothing to scroll never starts, so the two lengths stay
-       * at the `0px` the `@property` declarations give them. Checked on
-       * Planned, whose four sections fit exactly; the hub's four do not,
-       * which is how the first version of this check passed while measuring
-       * an overflowing row.
+       * A row that fits shows neither fade.
+       *
+       * Not by a rule saying so — a scroll timeline with nothing to scroll
+       * never starts, so the two lengths stay at the `0px` their `@property`
+       * declarations give them.
+       *
+       * Finding a row to prove it on took two goes. It first read
+       * `.finance-nav-sections` on Planned, whose four sections used to fit
+       * exactly — until Finance's rows became a wheel with a gutter either
+       * side, after which they always overflow. It then looked for a
+       * `.chip-row--scroll` that fits, and a guard added with it reported that
+       * **none of the six in the application does**. That is not an accident:
+       * `--scroll` is only ever put on a row that needs it.
+       *
+       * So the condition is made rather than hunted for. The same row at
+       * desktop width has room to spare, and that is where the property is
+       * checked — one row, two widths, faded at the one where it overflows and
+       * not at the one where it does not. Which is a better test than the
+       * original anyway: it holds the row still and changes only the thing
+       * that matters.
        */
-      await go(page, '#/finance/loan');
-      await page.waitForTimeout(900);
-      const fits = await fadeOf('.finance-nav-sections');
-      check('and a row that fits is not faded at either end',
-        fits.overflows === false && fits.start === 0 && fits.end === 0,
-        JSON.stringify(fits));
+      await go(page, '#/dashboard');
+      await go(page, '#/identity');
+      await page.waitForTimeout(600);
+
+      const rowFade = () => page.evaluate(() => {
+        const row = document.querySelector('.app-content .chip-row--scroll');
+        if (!row) return null;
+        const st = getComputedStyle(row);
+        return {
+          overflows: row.scrollWidth > row.clientWidth + 1,
+          start: parseFloat(st.getPropertyValue('--fade-start')) || 0,
+          end: parseFloat(st.getPropertyValue('--fade-end')) || 0,
+        };
+      });
+
+      const narrow = await rowFade();
+      check('the chip row overflows on a phone, and is faded for it',
+        narrow && narrow.overflows && narrow.end > 0, JSON.stringify(narrow));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(500);
+      const wide = await rowFade();
+
+      check('and the same row given room to fit is faded at neither end',
+        wide && wide.overflows === false && wide.start === 0 && wide.end === 0,
+        JSON.stringify(wide));
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(300);
 
       /*
        * The structural guard, which is the one that will still be here when
@@ -7806,12 +7961,41 @@ async function main() {
 
           const style = getComputedStyle(el);
           if (style.visibility === 'hidden' || style.display === 'none') continue;
-          if (+style.opacity === 0) continue;
           const box = el.getBoundingClientRect();
           if (box.width === 0 || box.height === 0) continue;
 
-          const foreground = parse(style.color);
-          if (!foreground || foreground.a === 0) continue;
+          /*
+           * Opacity counts, and did not.
+           *
+           * This read the alpha inside `color` and skipped only a flat
+           * `opacity: 0`, so text faded with the `opacity` property was
+           * measured at its unfaded contrast and passed while being half as
+           * readable as the number claimed. A check that cannot see the thing
+           * it is checking is worse than no check, because it is quoted.
+           *
+           * Effective opacity multiplies down the tree — a 0.5 row holding a
+           * 0.5 chip renders at 0.25 — so it is gathered from every ancestor
+           * rather than read off the element.
+           */
+          let opacity = 1;
+          for (let node = el; node && node !== document.documentElement;
+            node = node.parentElement) {
+            opacity *= +getComputedStyle(node).opacity;
+          }
+          if (opacity === 0) continue;
+
+          /*
+           * A disabled control is exempt, which is WCAG's own rule (1.4.3
+           * excludes inactive components) and not a convenience: `.btn:disabled`
+           * is `opacity: 0.45` here, and a button nobody can press does not
+           * owe a reading contrast.
+           */
+          if (el.closest(':disabled, [aria-disabled="true"]')) continue;
+
+          const raw = parse(style.color);
+          if (!raw || raw.a === 0) continue;
+          const foreground = { ...raw, a: raw.a * opacity };
+          if (foreground.a === 0) continue;
 
           const size = parseFloat(style.fontSize);
           const bold = +style.fontWeight >= 700;
