@@ -14,6 +14,7 @@ import { h, replace } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import {
   card, cardHeader, button, badge, pageHeader, empty, avatar, chip, listItem,
+  restOfList,
 } from '../ui/components/basics.js';
 import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
@@ -27,6 +28,19 @@ import { upcomingDates } from '../domain/reminders.js';
 import { formatDay, ageOn, today, relativeDays } from '../core/dates.js';
 import { format as formatMoney, addable } from '../core/money.js';
 import { reconcile, disagreements } from '../domain/staffpay.js';
+
+/*
+ * How much of each staff card is drawn.
+ *
+ * Their documents and their payments both carried a badge with the real
+ * total above a list that stopped without saying so, and the months that
+ * disagree stated their count in the sentence introducing the list. None of
+ * the three links anywhere: this is the fullest view of a staff member the
+ * application has.
+ */
+const THEIR_DOCUMENTS = 10;
+const MONTHS = 6;
+const PAYMENTS = 6;
 
 const TABS = [
   { id: 'tree', label: 'Tree' },
@@ -119,11 +133,14 @@ async function staffDocuments(record) {
   return h('div', {}, [staffPay(pay), theirCopy(person, held), card({}, [
     cardHeader('Their documents', badge(String(documents.length), 'muted')),
     documents.length
-      ? h('div', { class: 'list' }, documents.slice(0, 10).map((document) => listItem({
-        title: document.title || document.fileName || 'Untitled',
-        subtitle: document.category ?? null,
-        href: Router.href({ module: 'documents', entity: 'document', id: document.id }),
-      })))
+      ? h('div', {}, [
+        h('div', { class: 'list' }, documents.slice(0, THEIR_DOCUMENTS).map((document) => listItem({
+          title: document.title || document.fileName || 'Untitled',
+          subtitle: document.category ?? null,
+          href: Router.href({ module: 'documents', entity: 'document', id: document.id }),
+        }))),
+        restOfList(documents.length, THEIR_DOCUMENTS),
+      ])
       : h('p', { class: 'small muted' },
         'Nothing filed against them yet. Documents are attached to the person, '
         + 'not to the job, so they follow them between roles.'),
@@ -217,10 +234,11 @@ function staffPay({ payments, agreed, staff, leave }) {
         ? h('div', {}, [
           h('p', { class: 'small' }, `${wrong.length} month${wrong.length === 1 ? '' : 's'} `
             + 'do not match what was agreed:'),
-          h('ul', { class: 'small' }, wrong.slice(0, 6).map((row) => h('li', {},
+          h('ul', { class: 'small' }, wrong.slice(0, MONTHS).map((row) => h('li', {},
             row.status === 'nothing recorded'
               ? `${row.month} — nothing recorded`
               : `${row.month} — ${formatMoney(row.paid)} against ${formatMoney(row.agreed)}`))),
+          restOfList(wrong.length, MONTHS),
           notJudged(check),
         ])
         : check.months.length
@@ -228,10 +246,13 @@ function staffPay({ payments, agreed, staff, leave }) {
           : null,
 
     payments.length
-      ? h('div', { class: 'list' }, payments.slice(0, 6).map((row) => listItem({
-        title: formatMoney(Math.abs(addable(row.amount))),
-        subtitle: formatDay(row.date),
-      })))
+      ? h('div', {}, [
+        h('div', { class: 'list' }, payments.slice(0, PAYMENTS).map((row) => listItem({
+          title: formatMoney(Math.abs(addable(row.amount))),
+          subtitle: formatDay(row.date),
+        }))),
+        restOfList(payments.length, PAYMENTS),
+      ])
       : h('p', { class: 'small muted' },
         agreed
           ? `Nothing recorded yet. ${formatMoney(agreed)} a month is what was agreed, `

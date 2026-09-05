@@ -10,6 +10,7 @@ import { h, replace } from '../dom.js';
 import { icon } from '../icons.js';
 import { format, formatCompact } from '../../core/money.js';
 import { formatDay, relativeDays, daysUntil } from '../../core/dates.js';
+import { t } from '../../core/locale.js';
 
 /**
  * Anything these components will accept where content goes.
@@ -346,6 +347,47 @@ export function listItem({
       onClick(event);
     },
   }, children);
+}
+
+/**
+ * What a capped list is not showing.
+ *
+ * Nearly every list in this application draws a `slice`, and a sweep of all
+ * twenty-four found five that said how many they were hiding and the rest
+ * that said nothing. `js/modules/crud.js` had already settled the question
+ * for its history card and written down why — *"how many there are in total,
+ * is what a person reads"* — so this is that decision, made once, for
+ * everybody else to call.
+ *
+ * The worst of what it fixes was not a cosmetic one. Health's Current card
+ * capped medications at eight with no total, no badge and no footer, so a
+ * household on eleven saw eight of them and nothing saying so.
+ *
+ * Two shapes, because there are two situations and one wrong answer for each:
+ *
+ *   - **`href` given** — the rest are on another screen, so offer the way
+ *     there. A link is only honest when it actually leads somewhere the rest
+ *     can be read; several of these cards sit directly above the full list on
+ *     their own page, and a link back to the page you are on is worse than
+ *     the silence it replaces.
+ *   - **no `href`** — say the number. The household can then judge whether
+ *     what is missing matters, which is the whole of what the count is for.
+ *
+ * Returns `null` when nothing is hidden, so a caller can place it
+ * unconditionally and a list that fits stays exactly as it was.
+ *
+ * @param {number} total how many there are
+ * @param {number} shown how many were drawn
+ * @param {{href?: string}} [options]
+ */
+export function restOfList(total, shown, { href } = {}) {
+  if (!(total > shown)) return null;
+  if (href) {
+    return h('div', { class: 'attention-foot' },
+      h('a', { class: 'btn btn--subtle btn--small', href }, t('list.seeAll', { n: total })));
+  }
+  return h('p', { class: ['small', 'faint', 'attention-foot'] },
+    t('list.andMore', { n: total - shown }));
 }
 
 /**

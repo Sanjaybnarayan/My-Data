@@ -20,6 +20,7 @@ import { h, replace } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import {
   card, cardHeader, button, badge, pageHeader, empty, listItem, chip, dueBadge, avatar,
+  restOfList,
 } from '../ui/components/basics.js';
 import { modal } from '../ui/components/modal.js';
 import { toast } from '../ui/components/toast.js';
@@ -50,6 +51,16 @@ import { leadFor } from '../domain/reminders.js';
  * copies of one number, agreeing until somebody changed one of them.
  */
 const EXPIRY_LEAD = leadFor('document', 'expiresOn');
+
+/*
+ * How many rows the two attention cards draw.
+ *
+ * These two say the count rather than offering a link, and that is the point
+ * of the distinction `restOfList` draws: the full, filterable list of every
+ * document is on this same screen, directly below them. A "see all" here
+ * would lead back to the page it was clicked on.
+ */
+const ATTENTION = 5;
 
 export async function render(route) {
   if (route.id && route.id !== 'new') return documentDetail(route.id);
@@ -207,12 +218,13 @@ export async function render(route) {
         ? card({ class: 'card--flush' }, [
           h('div', { style: { padding: 'var(--space-5) var(--space-5) 0' } },
             cardHeader('Expiring', badge(String(expiring.length), 'warning'), { iconName: 'alert' })),
-          h('div', { class: 'list' }, expiring.slice(0, 5).map((document) => listItem({
+          h('div', { class: 'list' }, expiring.slice(0, ATTENTION).map((document) => listItem({
             title: document.title,
             subtitle: `${document.category} · ${formatDay(document.expiresOn)}`,
             trailing: dueBadge(document.expiresOn, { leadDays: EXPIRY_LEAD }),
             href: Router.href({ module: 'documents', entity: 'document', id: document.id }),
           }))),
+          restOfList(expiring.length, ATTENTION),
         ])
         : null,
 
@@ -225,11 +237,12 @@ export async function render(route) {
             h('p', { class: 'small muted' },
               'These gave more than one expiry date, so none was filed. '
               + 'Open one to set the date it should renew on.')),
-          h('div', { class: 'list' }, unclear.slice(0, 5).map((document) => listItem({
+          h('div', { class: 'list' }, unclear.slice(0, ATTENTION).map((document) => listItem({
             title: document.title,
             subtitle: `${document.category} · states ${document.expiryConflict}`,
             href: Router.href({ module: 'documents', entity: 'document', id: document.id }),
           }))),
+          restOfList(unclear.length, ATTENTION),
         ])
         : null,
 

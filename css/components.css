@@ -155,6 +155,22 @@
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+
+  /*
+   * A button that is an anchor is still a button.
+   *
+   * `base.css` underlines links, correctly, and `.btn` never said it was not
+   * one — so every `<a class="btn">` in the application drew a pill with
+   * underlined text inside it. The dashboard's "See all 9" footers have
+   * looked like that since they shipped; found by reading the computed style
+   * of one rather than by looking at it, because at small sizes an underline
+   * inside a pill reads as emphasis rather than as a mistake.
+   *
+   * `.chip` was given the same line in the Settings split for the same
+   * reason. This is that fix, one component later.
+   */
+  text-decoration: none;
+
   transition: background var(--duration-fast) var(--ease),
               box-shadow var(--duration-fast) var(--ease),
               border-color var(--duration-fast) var(--ease);
@@ -1656,6 +1672,23 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2);
+}
+
+/*
+ * The card centres its text, which is right for the heading, the warning and
+ * the phrase, and wrong for the one checkbox on it. The box sits at the row's
+ * left edge while the label is centred, so an acknowledgement that wraps to a
+ * second line starts nowhere near the first — visible at 390px, where it does
+ * wrap, and not at 1280px, where it does not. That is why the enrolment the
+ * suite walks twice has never seen it.
+ *
+ * Centre the row as a unit and set its own text left, so the second line
+ * starts under the first. `.lock-card .checkbox` matches exactly one element
+ * in the application.
+ */
+.lock-card .checkbox {
+  justify-content: center;
+  text-align: left;
 }
 
 .shake { animation: shake 320ms var(--ease); }
