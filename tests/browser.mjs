@@ -1048,14 +1048,25 @@ async function main() {
       check('and offers to keep it on this device',
         (await page.getByRole('button', { name: 'Keep everything local' }).count()) === 1);
 
-      // The language card. It exists to say one true thing — that there is
-      // only English — and a card that silently failed to render would say
-      // nothing at all, which reads exactly like a card that was never built.
-      // This session has already had `card()` called wrong take a whole screen
-      // down, so the card is checked by its text rather than by its absence
-      // of an error.
+      /*
+       * The language card. It exists to say one true thing — that there is
+       * only English — and a card that silently failed to render would say
+       * nothing at all, which reads exactly like a card that was never built.
+       * This session has already had `card()` called wrong take a whole screen
+       * down, so the card is checked by its text rather than by its absence
+       * of an error.
+       *
+       * On `#/settings/device` rather than `#/settings`: Settings' groups are
+       * routes now, and only the open one is built. Reading the whole of
+       * Settings off one page was possible when one page held all of it.
+       */
+      await go(page, '#/settings/device');
+      await page.waitForTimeout(500);
+      const deviceBody = (await page.locator('.app-content').innerText()).trim();
+
       check('Settings names the language, and says English is the only one',
-        /Language/.test(body) && /English only/.test(body), body.slice(0, 1200));
+        /Language/.test(deviceBody) && /English only/.test(deviceBody),
+        deviceBody.slice(0, 1200));
       check('and does not offer a picker with one entry in it',
         (await page.getByRole('button', { name: /^English/ }).count()) === 0);
 
@@ -1063,6 +1074,8 @@ async function main() {
       // detect that a copy of a household's records was taken, and a screen
       // implying otherwise would be answering a question it never asked.
       {
+        await go(page, '#/settings/wrong');
+        await page.waitForTimeout(500);
         const summary = page.getByText('If you think your records have got out');
         check('Settings offers help if records may have got out',
           (await summary.count()) >= 1);
@@ -1086,6 +1099,8 @@ async function main() {
       // A member of household staff is another person; before this, nothing
       // in the application asked, and nothing recorded that nobody had.
       {
+        await go(page, '#/settings/agreed');
+        await page.waitForTimeout(600);
         const before = (await page.locator('.app-content').innerText()).trim();
         check('a household with no staff and no children is not asked about either',
           !/works for you/.test(before), before.slice(0, 400));
@@ -1103,7 +1118,7 @@ async function main() {
         }, IN_PAGE.context);
 
         await go(page, '#/finance');
-        await go(page, '#/settings');
+        await go(page, '#/settings/agreed');
         await page.waitForTimeout(600);
         const after = (await page.locator('.app-content').innerText()).trim();
 
@@ -1155,7 +1170,12 @@ async function main() {
         // Back to Settings. The suite is one long session on one page, and
         // the three checks after this block read the Settings screen — this
         // navigation cost them all three before it was put back.
-        await go(page, '#/settings');
+        //
+        // To `wrong` rather than to `#/settings`: the diagnostics card lives
+        // in that group now, and `#/settings` opens `data`, which does not
+        // hold it. The three checks below would have been reading a screen
+        // that never contained what they name.
+        await go(page, '#/settings/wrong');
         await page.waitForTimeout(500);
 
         // Put the household back. A later check asserts this copy has no
@@ -1202,7 +1222,7 @@ async function main() {
         }, IN_PAGE.context);
 
         await go(page, '#/finance');
-        await go(page, '#/settings');
+        await go(page, '#/settings/wrong');
         await page.waitForTimeout(500);
         const after = (await page.locator('.app-content').innerText()).trim();
 
@@ -1263,10 +1283,23 @@ async function main() {
         && (await page.locator('html').getAttribute('dir')) === 'ltr',
         `lang=${await page.locator('html').getAttribute('lang')} dir=${await page.locator('html').getAttribute('dir')}`);
 
+      /*
+       * Back to `data`, where the privacy and backup cards are.
+       *
+       * Everything from here to the end of this block used to read one page,
+       * because Settings *was* one page. It is six routes now, so each run of
+       * checks goes to the group holding the card it is about — and reads
+       * that group's text rather than a string captured before any of the
+       * navigation happened.
+       */
+      await go(page, '#/settings');
+      await page.waitForTimeout(500);
+      const dataBody = (await page.locator('.app-content').innerText()).trim();
+
       // The sentence that stops somebody assuming more than is true. If this
       // ever stops being shown, the application is overclaiming.
       check('it says plainly that not every field is encrypted',
-        /fields are ciphertext/.test(body), body.slice(0, 900));
+        /fields are ciphertext/.test(dataBody), dataBody.slice(0, 900));
       check('it can be inspected field by field',
         (await page.getByRole('button', { name: 'Show me field by field' }).count()) === 1);
 
@@ -1275,22 +1308,10 @@ async function main() {
       check('and inspecting names real entities',
         /sealed/.test(await page.locator('.app-content').innerText()));
 
-      // The device registry existed for a tranche with no way to reach it: an
-      // owner had to call the endpoint by hand to sign out a lost phone, which
-      // is a capability rather than a feature.
-      check('Settings lists the devices this household syncs from',
-        /Devices/.test(body) && /Where this household has signed in from/.test(body),
-        body.slice(0, 1200));
-
-      // With no backend configured there is nothing to list, and saying so is
-      // the honest answer — an empty card would read as "no devices".
-      check('and says why the list is empty rather than showing nothing',
-        /there are no devices to list|Nothing has synced yet/.test(body), body.slice(0, 1200));
-
       // The only place a household can take every record they have, and the
       // only place they can replace every record they have.
       check('Settings offers a real backup, not only the CSV exports',
-        /One encrypted file holding every record/.test(body), body.slice(0, 2000));
+        /One encrypted file holding every record/.test(dataBody), dataBody.slice(0, 2000));
       check('and offers the way back from a lost phone',
         (await page.getByRole('button', { name: 'Restore from a file' }).count()) === 1);
 
@@ -1298,7 +1319,7 @@ async function main() {
       // the state is on the card. "Never" is the honest word for a fresh
       // install, and it is the state most households are in.
       check('and says plainly that no backup has ever been taken here',
-        /No backup has ever been taken on this device/.test(body), body.slice(0, 2400));
+        /No backup has ever been taken on this device/.test(dataBody), dataBody.slice(0, 2400));
 
       // Sealed with a key derived from the phrase, and checked against the
       // keyring first. A backup sealed with a typo is one nobody can open, and
@@ -1331,10 +1352,14 @@ async function main() {
       // prose, which is how the setup page came to say the browser never
       // reads mail. This is the list that cannot drift from what the code
       // asks for, in front of the person doing the configuring.
+      await go(page, '#/settings/connections');
+      await page.waitForTimeout(500);
+      const connectionsBody = (await page.locator('.app-content').innerText()).trim();
+
       check('Settings lists the Google permissions to add',
-        /Google permissions/.test(body), body.slice(0, 400));
+        /Google permissions/.test(connectionsBody), connectionsBody.slice(0, 400));
       check('and names the console page they go on',
-        /OAuth consent screen/.test(body));
+        /OAuth consent screen/.test(connectionsBody), connectionsBody.slice(0, 1200));
       /*
        * Opened, the way a person opens it.
        *
@@ -1369,19 +1394,24 @@ async function main() {
       // error inside the popup and the app can only tell that a window shut,
       // so the two strings that have to match are printed rather than
       // described.
-      // `body`, not `scopes`: these two moved out of the fold on purpose and
-      // have to be readable without opening anything. Reading them from the
-      // opened text would pass either way and stop being a check.
+      // `connectionsBody`, not `scopes`: these two moved out of the fold on
+      // purpose and have to be readable without opening anything. Reading
+      // them from the opened text would pass either way and stop being a
+      // check.
       check('the origin and redirect URI are shown, exactly',
-        body.includes('Authorised redirect URI')
-        && body.includes('/oauth-callback.html'), body.slice(0, 1600));
+        connectionsBody.includes('Authorised redirect URI')
+        && connectionsBody.includes('/oauth-callback.html'), connectionsBody.slice(0, 1600));
 
       // Which ways in this device actually has. The question this card exists
       // to answer is "how do I get back in", and a household that never
       // printed a recovery phrase should find that out here rather than on
       // the morning they need it.
+      await go(page, '#/settings/device');
+      await page.waitForTimeout(500);
+      const securityBody = (await page.locator('.app-content').innerText()).trim();
+
       check('Settings says what unlocks this device',
-        /This device unlocks with/.test(body), body.slice(0, 400));
+        /This device unlocks with/.test(securityBody), securityBody.slice(0, 400));
 
       const security = await page.locator('.card', { hasText: 'This device unlocks with' })
         .innerText();
@@ -1389,13 +1419,37 @@ async function main() {
       check('and does not warn about a recovery phrase that exists',
         !/No recovery phrase\./.test(security), security);
 
-      if (SHOTS) await shot(page, 'settings-privacy');
+      if (SHOTS) {
+        await go(page, '#/settings');
+        await page.waitForTimeout(400);
+        await shot(page, 'settings-privacy');
+      }
     }
 
-    /* ------------------------------------------------------------ consent */
+    /* --------------------------------------------- devices, and consent */
 
     {
       const before = consoleErrors.length;
+
+      // Both cards are in `agreed` — the group about the people whose records
+      // these are, and the devices they are on.
+      await go(page, '#/settings/agreed');
+      await page.waitForTimeout(600);
+      const agreedBody = (await page.locator('.app-content').innerText()).trim();
+
+      // The device registry existed for a tranche with no way to reach it: an
+      // owner had to call the endpoint by hand to sign out a lost phone, which
+      // is a capability rather than a feature.
+      check('Settings lists the devices this household syncs from',
+        /Devices/.test(agreedBody) && /Where this household has signed in from/.test(agreedBody),
+        agreedBody.slice(0, 1200));
+
+      // With no backend configured there is nothing to list, and saying so is
+      // the honest answer — an empty card would read as "no devices".
+      check('and says why the list is empty rather than showing nothing',
+        /there are no devices to list|Nothing has synced yet/.test(agreedBody),
+        agreedBody.slice(0, 1200));
+
       const consent = await page.locator('.card', { hasText: 'What you agreed to' });
 
       check('Settings says what was agreed to', (await consent.count()) === 1);
@@ -3973,6 +4027,109 @@ async function main() {
       await page.setViewportSize({ width: 1280, height: 900 });
     }
 
+    /* ------------------------ Settings, one group at a time */
+
+    {
+      /*
+       * Twelve awaited reads for whichever group you came for.
+       *
+       * Settings gathered the sync status, the database statistics and disk
+       * usage, twelve activity rows, a hundred diagnostics, the connectors
+       * needing attention, the breach readiness, the keyring methods, every
+       * person, and a full consent report — then drew all twenty-one cards.
+       * Every visit, whichever group somebody wanted.
+       *
+       * Measured against every other screen: 392ms to settle, 615 nodes,
+       * 10,623px. The median screen is 73ms and about a hundred nodes; the
+       * next slowest was 90ms. Slowest, tallest and largest at once.
+       *
+       * The groups are routes now and each says what it needs. This checks
+       * both halves of that: the work stays down, and nothing was lost on the
+       * way — every group reachable, every card still somewhere.
+       */
+      const before = consoleErrors.length;
+      await page.setViewportSize({ width: 390, height: 844 });
+
+      const seen = [];
+      for (const id of ['data', 'device', 'agreed', 'connections', 'wrong', 'about']) {
+        await go(page, '#/dashboard');
+        await go(page, `#/settings/${id}`);
+        await page.waitForTimeout(700);
+        seen.push({
+          id,
+          ...(await page.evaluate(() => {
+            const outlet = document.querySelector('.app-content');
+            const row = document.querySelector('.app-content .settings-jump');
+            return {
+              heading: document.querySelector('.app-content h1')?.textContent?.trim(),
+              cards: outlet?.querySelectorAll('.card').length ?? 0,
+              height: Math.round(outlet?.scrollHeight ?? 0),
+              // Every group is one tap away from every other, which is what
+              // the row is for now that it navigates instead of scrolling.
+              links: [...document.querySelectorAll('.app-content .settings-jump a')]
+                .map((one) => one.getAttribute('href')),
+              marked: [...document.querySelectorAll(
+                '.app-content .settings-jump [aria-current="page"]')].length,
+              underlined: row
+                ? getComputedStyle(row.querySelector('a')).textDecorationLine : null,
+            };
+          })),
+        });
+      }
+
+      check('every settings group opens', seen.every((one) => one.cards > 0),
+        JSON.stringify(seen.map((one) => [one.id, one.cards])));
+
+      // The word "Settings" stays on the screen. Putting the group's name in
+      // the heading instead took it off entirely, and somebody arriving at
+      // `#/settings/device` from a link had nothing saying where they were.
+      check('and still says it is Settings',
+        seen.every((one) => one.heading === 'Settings'),
+        JSON.stringify(seen.map((one) => one.heading)));
+
+      check('each group offers every other as a link',
+        seen.every((one) => one.links.length === 6),
+        JSON.stringify(seen.map((one) => [one.id, one.links.length])));
+
+      check('and marks the one you are on, exactly once',
+        seen.every((one) => one.marked === 1),
+        JSON.stringify(seen.map((one) => [one.id, one.marked])));
+
+      // A chip that is an anchor must not read as a link that escaped a
+      // button. This was underlined for an hour.
+      check('the section chips are not underlined',
+        seen.every((one) => one.underlined === 'none'),
+        JSON.stringify(seen.map((one) => one.underlined)));
+
+      /*
+       * The cost, held down.
+       *
+       * Not "faster than before" — a number from a run nobody can repeat. The
+       * whole of Settings was 10,623px; no single group may now be more than
+       * half of it, which is the bound the previous repair lacked. It grouped
+       * 19 cards at 6,905px into named sections and the page then grew to 21
+       * and 10,623px, because a heading is not a limit.
+       */
+      const tallest = Math.max(...seen.map((one) => one.height));
+      check('no one group is more than half of what the whole screen was',
+        tallest < 5311, `tallest group ${tallest}px of the old 10623px`);
+
+      /*
+       * And nothing was quietly dropped. Twenty-one cards were on that page;
+       * they are spread across six routes now and the total has to survive
+       * the move — a group that silently rendered nothing would pass every
+       * check above it.
+       */
+      const total = seen.reduce((n, one) => n + one.cards, 0);
+      check('all of the cards are still somewhere',
+        total >= 20, `${total} across ${seen.length} groups`);
+
+      check('Settings renders without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
     /* ------------------- filters built from the records, not from the schema */
 
     {
@@ -6138,8 +6295,10 @@ async function main() {
           check('a calendar push that fails is remembered, not just toasted',
             stored !== null, JSON.stringify(stored));
 
-          // And it reaches the one place a household would look for it.
-          await go(page, '#/settings');
+          // And it reaches the one place a household would look for it —
+          // `connections`, which is the group holding the card that names one
+          // that has stopped working.
+          await go(page, '#/settings/connections');
           await page.waitForTimeout(600);
           const settings = (await page.locator('.app-content').innerText()).trim();
 
@@ -7704,11 +7863,16 @@ async function main() {
       /*
        * Action chips (no toggle state) must not carry `aria-pressed`.
        *
-       * The settings jump-row uses `chip()` for one-shot scroll actions — not
+       * The settings jump-row was chips for one-shot scroll actions — not
        * toggle buttons. Before the fix, `chip()` unconditionally set
        * `aria-pressed="false"`, which announced them as toggle buttons that
        * were always off. The fix makes `aria-pressed` conditional on the
        * caller passing an explicit `pressed` boolean; action chips get none.
+       *
+       * The row is links now, one per group, and the rule got stricter rather
+       * than moot: the one you are on is marked `aria-current="page"`, and a
+       * link that also claimed to be a pressed toggle would be announced as
+       * two different kinds of control at once.
        */
       await go(page, '#/settings');
       await page.waitForTimeout(600);
@@ -9000,7 +9164,7 @@ async function main() {
     /* ------------------------------------------------ settings, measured */
 
     /*
-     * Nineteen cards in one flat grid.
+     * Nineteen cards in one flat grid, and then twenty-one.
      *
      * The note at the top of `js/modules/settings.js` says the cards live in
      * `js/modules/settings/` "grouped by the question somebody came to this
@@ -9010,44 +9174,45 @@ async function main() {
      * of OAuth scopes (19% of the page, read once during setup) sitting above
      * Security, Appearance and Backup.
      *
+     * Grouping the cards into named sections was that repair, and it gave the
+     * screen headings to navigate by but nothing to bound it: it grew to 21
+     * cards and 10,623px afterwards, because a heading is not a limit. The
+     * groups are routes now, and the block further up this file measures what
+     * each one costs.
+     *
+     * What is left here is what survives the split and cannot be read off a
+     * single route: every card has a heading wherever it ended up, and the
+     * scope reference — the 1,301px card this whole thread started with — is
+     * still folded away and still shows the two strings a broken sign-in
+     * needs without being opened.
+     *
      * This measures the rendered document rather than reading the source,
      * because the source is what made the claim.
      */
     {
       await page.setViewportSize({ width: 390, height: 844 });
-      await go(page, '#/settings');
-      await page.waitForTimeout(900);
 
-      const settings = await page.evaluate(() => {
-        const content = document.querySelector('.app-content');
-        const groups = [...document.querySelectorAll('.settings-group')];
-        const tallest = [...document.querySelectorAll('.app-content .card')]
-          .map((el) => ({
-            title: (el.querySelector('h2')?.textContent ?? '').trim(),
-            height: Math.round(el.getBoundingClientRect().height),
-          }))
-          .sort((a, b) => b.height - a.height)[0] ?? { title: '', height: 0 };
+      const named = [];
+      let cards = 0;
+      let headings = 0;
 
-        return {
-          height: content instanceof HTMLElement ? content.scrollHeight : 0,
-          viewport: globalThis.innerHeight,
-          groups: groups.map((el) => (el.querySelector('.settings-group-title')?.textContent ?? '').trim()),
-          cards: document.querySelectorAll('.app-content .card').length,
-          tallest,
+      for (const id of ['data', 'device', 'agreed', 'connections', 'wrong', 'about']) {
+        await go(page, `#/settings/${id}`);
+        await page.waitForTimeout(700);
+        const group = await page.evaluate(() => ({
           // Every card contributes a heading, including the folded ones.
+          cards: document.querySelectorAll('.app-content .card').length,
           headings: document.querySelectorAll('.app-content .card h2').length,
-          jumps: document.querySelectorAll('.settings-jump .chip').length,
-        };
-      });
+          names: [...document.querySelectorAll('.app-content .settings-jump a')]
+            .map((one) => (one.textContent ?? '').trim()),
+        }));
+        cards += group.cards;
+        headings += group.headings;
+        named.push(group.names);
+      }
 
-      check('settings is grouped rather than one flat grid',
-        settings.groups.length >= 5, JSON.stringify(settings.groups));
-      check('and every group can be jumped to', settings.jumps === settings.groups.length,
-        `${settings.jumps} jump chips for ${settings.groups.length} groups`);
-      check('and every group is named', settings.groups.every((one) => one.length > 0),
-        JSON.stringify(settings.groups));
       check('and it still draws every card it did before',
-        settings.cards >= 19, `${settings.cards} cards`);
+        cards >= 19, `${cards} cards across six groups`);
 
       /*
        * Every card carries a heading, folded ones included.
@@ -9058,8 +9223,14 @@ async function main() {
        * repeat that.
        */
       check('every card contributes a heading, including the folded ones',
-        settings.headings >= settings.cards,
-        `${settings.headings} headings for ${settings.cards} cards`);
+        headings >= cards, `${headings} headings for ${cards} cards`);
+
+      // And every group is named wherever you are standing, because the row
+      // is the only thing on the screen saying what the other five hold.
+      check('and every group is named, from every group',
+        named.length === 6
+        && named.every((row) => row.length === 6 && row.every((one) => one.length > 0)),
+        JSON.stringify(named[0]));
 
       /*
        * The folded card, specifically — not a budget on every card.
@@ -9075,6 +9246,9 @@ async function main() {
        * hundred-line scope reference open by default above Security and
        * Backup. Closed, it is a heading.
        */
+      await go(page, '#/settings/connections');
+      await page.waitForTimeout(700);
+
       const folded = await page.evaluate(() => {
         const scopes = [...document.querySelectorAll('details.card')]
           .find((el) => /Google permissions/.test(el.textContent ?? ''));
