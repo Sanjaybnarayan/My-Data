@@ -509,6 +509,9 @@ export const strings = {
   'dash.papers.open': 'Open documents',
   'dash.dateFallback': 'Date',
 
+  'dash.seeAll': 'See all {n}',
+  'dash.seeAllOpen': 'Open',
+
   /* ------------------------------------------------------- notifications */
   'notifications.title': 'Notifications',
   'notifications.subtitle': 'Dates this household has recorded, and what is coming',
