@@ -153,7 +153,7 @@ export function consentCard(db, repaint, consent) {
     });
     toast(decision === DECISIONS.GRANTED
       ? 'Agreed, and recorded'
-      : `Stopped. ${PURPOSES[row.purpose].without}`, { kind: 'success' });
+      : `Stopped. ${t(PURPOSES[row.purpose].without)}`, { kind: 'success' });
     await repaint();
   }
 
@@ -166,9 +166,9 @@ export function consentCard(db, repaint, consent) {
     const answerable = !purpose.localOnly;
 
     return listItem({
-      title: purpose.title + (row.subject ? ` — ${row.subject}` : ''),
+      title: t(purpose.title) + (row.subject ? ` — ${row.subject}` : ''),
       subtitle: [
-        purpose.what,
+        t(purpose.what),
         !answerable
           ? 'Nothing to agree to — this never leaves the device.'
           : row.decision === DECISIONS.UNRECORDED
@@ -280,7 +280,7 @@ export function permissionsCard() {
 
   const row = (scope) => listItem({
     title: scopeName(scope),
-    subtitle: `${scope.title} — ${scope.why}`,
+    subtitle: `${t(scope.title)} — ${t(scope.why)}`,
     value: '',
   });
 
@@ -319,7 +319,7 @@ export function permissionsCard() {
     h('h3', { class: 'small', style: { marginTop: 'var(--space-4)' } }, 'Optional'),
     h('div', { class: 'list' }, optional.map((scope) => listItem({
       title: scopeName(scope),
-      subtitle: `${scope.title} — ${scope.why}`,
+      subtitle: `${t(scope.title)} — ${t(scope.why)}`,
       trailing: badge('optional', ''),
     }))),
     h('p', { class: 'small faint' },

@@ -19,10 +19,14 @@
  */
 
 import { plugin as nativePlugin } from './native.js';
-import { t } from './locale.js';
 
-export const UNSUPPORTED = t('screentime.unsupported');
-export const NOT_PERMITTED = t('screentime.notPermitted');
+/*
+ * Keys, not sentences — see the note on `BLOCKED` in `backgroundlocation.js`.
+ * `t()` at module load keeps whatever language was active at import; these are
+ * translated where they are drawn.
+ */
+export const UNSUPPORTED = 'screentime.unsupported';
+export const NOT_PERMITTED = 'screentime.notPermitted';
 
 const bridge = (plugin = nativePlugin) => plugin?.('ScreenTime');
 

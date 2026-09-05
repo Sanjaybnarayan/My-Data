@@ -7,6 +7,7 @@ import {
   APPDATA_SCOPE, GMAIL_SCOPE, consentScreen, backendScopes,
 } from '../js/core/scopes.js';
 import { config } from '../js/core/config.js';
+import { t } from '../js/core/locale.js';
 
 setSuite('scopes');
 
@@ -26,8 +27,11 @@ describe('the registry describes every scope', () => {
   test('each one says what it is for and what is lost without it', () => {
     for (const scope of SCOPES) {
       assert.ok(scope.id.length, 'a scope with no id');
-      assert.ok(scope.title?.length > 3, `${scope.id} has no title`);
-      assert.ok(scope.why?.length > 20, `${scope.id} does not say what it is for`);
+      // Through `t()`, because a routed entry holds a key and the sentence
+      // somebody reads is what this is about. An unrouted one comes back
+      // unchanged, so both kinds are measured the same way.
+      assert.ok(t(scope.title)?.length > 3, `${scope.id} has no title`);
+      assert.ok(t(scope.why)?.length > 20, `${scope.id} does not say what it is for`);
       assert.ok(scope.without?.length > 15, `${scope.id} does not say what is lost`);
       assert.includes(['browser', 'backend'], scope.where, `${scope.id} belongs nowhere`);
     }
