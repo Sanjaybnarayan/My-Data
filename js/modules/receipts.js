@@ -59,7 +59,10 @@ import { categoryLabel } from '../domain/categorise.js';
 import { AppsScriptTransport } from '../sync/transport.js';
 import { GmailClient, MAIL_SCOPES } from '../sync/gmail.js';
 import { googleAuth } from '../auth/googleauth.js';
-import { today, addDays, addMonths, formatDay } from '../core/dates.js';
+import { today, addMonths, formatDay } from '../core/dates.js';
+import {
+  explainer, defaultSince, latestDate, MATCHED, restOfMatched,
+} from './receipts-parts.js';
 import { format, formatCompact } from '../core/money.js';
 import { userMessage } from '../core/errors.js';
 import { config } from '../core/config.js';
@@ -956,52 +959,17 @@ export async function render() {
         badge(`${percent}% matched`, percent > 70 ? 'success' : 'info'),
         badge(`${matched.unmatched.length} unmatched`, ''),
       ]),
-      ...matched.matched.slice(0, 12).map(({ receipt, transaction }) => listItem({
+      ...matched.matched.slice(0, MATCHED).map(({ receipt, transaction }) => listItem({
         title: receipt.merchant,
         subtitle: `${formatDay(receipt.date)} · ${transaction.narration || transaction.payee || 'bank row'}`
           + (receipt.orderId ? ` · ${receipt.orderId}` : ''),
         value: money(receipt.amount),
       })),
+      restOfMatched(matched.matched.length),
       h('p', { class: 'small muted' },
         'An unmatched receipt is not an error. It may have been paid by a card whose '
         + 'statement is not imported, from an account belonging to somebody else, or '
         + 'with a wallet balance that never touched a bank.'),
     ]);
   }
-}
-
-/* ------------------------------------------------------------------ static */
-
-function explainer() {
-  return card({ class: 'card--quiet' }, [
-    cardHeader('Why there is no “Connect Zomato” button', null, { iconName: 'info' }),
-    h('p', { class: 'muted' },
-      'Zomato, Swiggy, Amazon, Flipkart, Blinkit and Zepto do not offer one. None of '
-      + 'them publishes an API a household can sign into, so the only way an app can '
-      + '“link” to them is to keep your password and drive their website as if it were '
-      + 'you. This application will not hold those passwords.'),
-    h('p', { class: 'muted' },
-      'What every one of them does do is email a receipt for every order. That mail is '
-      + 'already yours, it covers shops nobody built an integration for, and reading it '
-      + 'needs one connection instead of twenty.'),
-    h('p', { class: 'small faint' },
-      'Gmail has no per-sender permission — reading mail means a scope that can read all '
-      + 'of it. So the limit is the query, printed below before it runs, and the fact '
-      + 'that nothing but the merchant, date, total and order number is kept. The message '
-      + 'itself stays in Gmail.'),
-  ]);
-}
-
-/* ----------------------------------------------------------------- helpers */
-
-/** Where to start looking: after the newest receipt, or three months back. */
-function defaultSince(receipts) {
-  const latest = latestDate(receipts);
-  return latest ? addDays(latest, -1) : addMonths(today(), -3);
-}
-
-function latestDate(receipts) {
-  return receipts.reduce((newest, receipt) => (
-    receipt.date && (!newest || receipt.date > newest) ? receipt.date : newest
-  ), '');
 }

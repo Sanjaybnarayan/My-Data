@@ -232,6 +232,8 @@ const SHELL = [
   './js/modules/identity.js',
   './js/modules/dashboard.js',
   './js/modules/dashboard-parts.js',
+  './js/modules/receipts-parts.js',
+  './js/modules/statements-parts.js',
   './js/modules/dashboard-widgets.js',
   './js/modules/finance.js',
   './js/modules/finance/overview.js',

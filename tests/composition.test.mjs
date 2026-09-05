@@ -95,6 +95,8 @@ function withDom(fn) {
 }
 
 const { button, iconButton, card, badge, chip } = await import('../js/ui/components/basics.js');
+const { restOfMatched, MATCHED } = await import('../js/modules/receipts-parts.js');
+const { restOfUnreadable, UNREADABLE } = await import('../js/modules/statements-parts.js');
 
 /* ------------------------------------------------------------------ tests */
 
@@ -175,5 +177,40 @@ describe('the check can fail', () => {
     const fixed = ({ variant, ...rest } = {}) =>
       ({ ...rest, class: ['btn', variant && `btn--${variant}`, rest.class] });
     assert.equal(Array.isArray(fixed({ class: 'btn--small' }).class), true);
+  });
+});
+
+/*
+ * The two footers the module-size ratchet was holding up.
+ *
+ * `receipts.js` and `statements.js` both stated a total above a list that
+ * stopped without saying so — receipts worst of all, its subtitle reading
+ * "31 of 40 receipts found the payment that settled them" above a list of
+ * twelve. Both were over budget at 1,008 and 827 lines, and the ratchet's
+ * instruction is to move code out rather than raise the number, so the fix
+ * waited for the split that carried these two functions into their own files.
+ *
+ * Tested here rather than in the browser because the condition needs more
+ * receipts than the example household has, and what is worth checking is the
+ * arithmetic either side of the cap rather than the pixels.
+ */
+describe('a capped list in the two files that were too big to fix', () => {
+  test('the reconciliation footer counts what is hidden, and only then', () => {
+    assert.equal(withDom(() => restOfMatched(MATCHED)), null);
+    assert.equal(withDom(() => restOfMatched(MATCHED - 1)), null);
+
+    const shown = withDom(() => restOfMatched(31));
+    assert.not(shown === null, 'no footer above the cap');
+    assert.includes(String(shown.children.flatMap((c) => c.children ?? c)
+      .map((c) => c.textContent ?? c).join(' ')), String(31 - MATCHED));
+  });
+
+  test('the unreadable-rows footer does the same', () => {
+    assert.equal(withDom(() => restOfUnreadable(UNREADABLE)), null);
+
+    const shown = withDom(() => restOfUnreadable(12));
+    assert.not(shown === null, 'no footer above the cap');
+    assert.includes(String(shown.children.flatMap((c) => c.children ?? c)
+      .map((c) => c.textContent ?? c).join(' ')), String(12 - UNREADABLE));
   });
 });

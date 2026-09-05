@@ -46,7 +46,7 @@ with strings the application will never show. A refused line counts as zero.
 
 ## What still cannot be translated
 
-**3,031<!--live:unroutedStrings--> English strings, across 158<!--live:unroutedFiles--> files.** That is the measured count from
+**3,031<!--live:unroutedStrings--> English strings, across 160<!--live:unroutedFiles--> files.** That is the measured count from
 `node tools/strings.mjs`, and it is the number that matters. They are written
 directly into the source, so no catalogue can reach them and no translator will
 ever see them.
