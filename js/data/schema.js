@@ -631,7 +631,7 @@ const investmentTransaction = {
   acl: restricted,
   sort: '-date',
   indexes: [['byHolding', 'holding'], ['byDate', 'date']],
-  title: (r) => `${r.kind} ${r.units ?? ''}`.trim(),
+  title: (r) => [`${r.kind} ${r.units ?? ''}`.trim(), r.date].filter(Boolean).join(' · '),
   fields: [
     ref('holding', 'holding', { required: true, list: true }),
     day('date', { required: true, list: true, default: 'today' }),
@@ -741,7 +741,7 @@ const vehicleService = {
   acl: shared,
   sort: '-date',
   indexes: [['byVehicle', 'vehicle']],
-  title: (r) => r.kind,
+  title: (r) => [r.kind, r.date].filter(Boolean).join(' · '),
   fields: [
     ref('vehicle', 'vehicle', { required: true, list: true }),
     day('date', { required: true, list: true, default: 'today' }),
@@ -1495,7 +1495,7 @@ const locationPing = {
   acl: { read: ALL_ADULTS, write: HOUSEHOLD },
   sort: '-recordedAt',
   indexes: [['byPerson', 'person'], ['byRecordedAt', 'recordedAt']],
-  title: (r) => r.zoneName || 'Location reading',
+  title: (r) => `${r.zoneName || 'Location reading'} · ${String(r.recordedAt).slice(0, 16).replace('T', ' ')}`,
   fields: [
     ref('person', 'person', { required: true, list: true }),
     { key: 'recordedAt', type: 'text', label: 'Taken at', required: true, list: true },

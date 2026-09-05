@@ -1,7 +1,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb, makePerson, makeAccount } from './fixture.mjs';
 import { outbound, inbound, connectionsOf, describeConnections } from '../js/domain/connections.js';
-import { referenceFields, referencedIds, entityNames } from '../js/data/schema.js';
+import { referenceFields, referencedIds, entityNames, entity } from '../js/data/schema.js';
 import { RecordsService } from '../js/services/records.js';
 
 setSuite('connections');
@@ -154,4 +154,74 @@ describe('both directions', () => {
     assert.length(c.broken, 1);
     assert.includes(describeConnections(c), 'not there');
   });
+});
+
+/*
+ * A title has to tell one record from another.
+ *
+ * The connected-records card on a holding listed **six rows all reading
+ * "buy"** — same title, same subtitle ("Investment transactions · via
+ * Holding", which is the group's own description and so identical by
+ * construction), nothing to tell them apart. The same titles are what the
+ * timeline, search and the delete-impact dialog show.
+ *
+ * The cause is a shape rather than a typo: a title built from a `pick` — one
+ * of nine values — plus an *optional* field degrades to the bare pick as soon
+ * as the optional one is missing. `vehicleService` and `locationPing` had the
+ * same shape, the latter with a literal fallback that made every reading
+ * outside a named zone the same row.
+ *
+ * Each of the three has a required date, so each now carries it. Measured
+ * across the example household, `investmentTransaction` went from one distinct
+ * title for six records to six, and the dates make the pattern legible — the
+ * six buys are a monthly instalment on the 7th, which six rows reading "buy"
+ * could not say.
+ *
+ * Tested by holding every other field still and moving only the one that is
+ * required: if the titles still match, the title is not identifying the
+ * record.
+ */
+describe('a record title identifies the record', () => {
+  // Objects rather than a mixed tuple: an array whose entries hold both a
+  // string and an object infers as the union of the two, and every spread and
+  // computed key in the loop below is then a type error. Five findings on the
+  // first run, none of them a fault in the test.
+  const cases = [
+    {
+      name: 'investmentTransaction',
+      shared: { kind: 'buy', holding: 'hol_1' },
+      field: 'date',
+      one: '2026-04-07',
+      two: '2026-05-07',
+    },
+    {
+      name: 'vehicleService',
+      shared: { kind: 'periodic service', vehicle: 'veh_1' },
+      field: 'date',
+      one: '2026-01-09',
+      two: '2026-07-09',
+    },
+    {
+      name: 'locationPing',
+      shared: { person: 'per_1' },
+      field: 'recordedAt',
+      one: '2026-09-01T18:24:00.000Z',
+      two: '2026-09-02T09:10:00.000Z',
+    },
+  ];
+
+  for (const { name, shared, field, one, two } of cases) {
+    test(`${name} distinguishes two records differing only by ${field}`, () => {
+      const title = entity(name).title;
+      const first = title({ ...shared, [field]: one });
+      const second = title({ ...shared, [field]: two });
+
+      // The guard: a title that is empty for both would "differ" never, and
+      // one that throws would fail for the wrong reason.
+      assert.ok(first && second, `empty titles: ${first} / ${second}`);
+      assert.not(first === second, `both records are titled "${first}"`);
+      // And the distinguishing part is actually shown, not merely computed.
+      assert.includes(first, one.slice(0, 10));
+    });
+  }
 });
