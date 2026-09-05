@@ -25,9 +25,12 @@ import { toast } from '../ui/components/toast.js';
 import { confirm } from '../ui/components/modal.js';
 import { app } from '../context.js';
 import { extract } from '../data/pdf-read.js';
+import {
+  instructions, importedKeys, isTable, BUSINESSES, sameName, UNREADABLE, restOfUnreadable,
+} from './statements-parts.js';
 import { parseTable, looksLikeCard } from '../domain/tabular.js';
 import {
-  isPaymentApp, byInstrument, alreadyOnRecord, referencesIn, describeImport,
+  isPaymentApp, byInstrument, alreadyOnRecord, describeImport,
   matchInstruments, splitByAccount, describeSplit, resolveTransfers,
 } from '../domain/paymentapp.js';
 import {
@@ -673,9 +676,12 @@ export async function render() {
       ].filter(Boolean)),
 
       plan.problems.length
-        ? h('ul', { class: 'muted', style: { marginTop: 'var(--space-2)' } },
-          plan.problems.slice(0, 5).map((problem) => h('li', {},
-            `Row ${problem.serial} on ${problem.date}: ${problem.reason}`)))
+        ? h('div', {}, [
+          h('ul', { class: 'muted', style: { marginTop: 'var(--space-2)' } },
+            plan.problems.slice(0, UNREADABLE).map((problem) => h('li', {},
+              `Row ${problem.serial} on ${problem.date}: ${problem.reason}`))),
+          restOfUnreadable(plan.problems.length),
+        ])
         : null,
     ].filter(Boolean));
   }
@@ -771,56 +777,3 @@ export async function render() {
     ]);
   }
 }
-
-function instructions() {
-  return card({}, [
-    cardHeader('How this works', null, { iconName: 'info' }),
-    h('ol', { class: 'muted' }, [
-      h('li', {}, 'Choose every statement you have this month — PDF or CSV, bank accounts and credit cards, all people, at once.'),
-      h('li', {}, 'Each file is matched to an account by the number printed on it. Unknown accounts can be created here.'),
-      h('li', {}, 'Rows already imported are skipped, so re-uploading the same month is harmless.'),
-      h('li', {}, 'Nothing is written until you have seen what each file contains.'),
-    ]),
-  ]);
-}
-
-/* ---------------------------------------------------------------- helpers */
-
-/**
- * Every fingerprint already on record.
- *
- * Read once per batch rather than queried per row: a household with a few
- * years of history has tens of thousands of transactions, and one pass over
- * them costs less than one index lookup per imported line.
- */
-async function importedKeys(db) {
-  const rows = await db.repo('transaction').list({ decrypt: false, limit: Infinity });
-  return {
-    keys: new Set(rows.map((row) => row.importKey).filter(Boolean)),
-    // Every bank reference already on record. A payment app's row and a bank's
-    // row are the same movement written down twice, and the fingerprint cannot
-    // see it: the narrations differ completely, so both would import and the
-    // household's spending would double. The UTR is the one thing both records
-    // carry — the bank writes it into its narration — and is the only exact
-    // link between them. See `domain/paymentapp.js`.
-    references: referencesIn(rows),
-  };
-}
-
-/**
- * Whether a file is a table rather than a page.
- *
- * By extension and type rather than by sniffing the bytes: a bank's CSV export
- * is served as everything from `text/csv` to `application/octet-stream`
- * depending on the browser, and the name is the one thing that stays put.
- */
-function isTable(file) {
-  return /\.(csv|tsv|txt)$/i.test(file.name)
-    || /^text\/(csv|tab-separated-values|plain)$/.test(file.type ?? '');
-}
-
-/** Where the household's own firms are kept. */
-const BUSINESSES = 'finance.businesses';
-
-const sameName = (a, b) => String(a ?? '').trim().toLowerCase().replace(/[^a-z]/g, '')
-  === String(b ?? '').trim().toLowerCase().replace(/[^a-z]/g, '');
