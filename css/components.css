@@ -467,6 +467,10 @@
 .badge--danger   { background: var(--danger-subtle);   color: var(--danger-text); }
 
 .chip {
+  /* A chip can be an anchor now — Settings' section row navigates rather than
+     scrolling — and an underlined chip reads as a link that escaped its
+     button. */
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -478,6 +482,10 @@
   font-size: var(--text-sm);
   cursor: pointer;
 }
+/* `aria-current` beside `aria-pressed`: a chip that is a toggle says pressed,
+   and a chip that is a link to the page you are on says current. Settings'
+   section row became the second kind when its groups became routes. */
+.chip[aria-current='page'],
 .chip[aria-pressed='true'] {
   background: var(--accent-subtle);
   border-color: transparent;
@@ -1299,20 +1307,18 @@
 /* ----------------------------------------------- settings groups & folds */
 
 /*
- * Named sections on the Settings screen.
+ * The row that moves between the Settings groups.
  *
  * The screen was one flat grid of nineteen cards — 6,905px, 8.2 screens on a
- * 390px phone, with nothing to navigate by. The grouping the source tree
- * already had is now on the screen too.
+ * 390px phone, with nothing to navigate by. Named sections were the first
+ * repair and they bounded nothing: the page reached 21 cards and 10,623px
+ * with the headings still in place.
+ *
+ * Each group is a route of its own now, so the sections themselves are gone
+ * along with `.settings-group` and its title — one group is on the screen at
+ * a time and the row is what carries you between them.
  */
 .settings-jump { margin-bottom: var(--space-5); }
-.settings-group { margin-bottom: var(--space-6); }
-/* Somewhere to land that is not under the sticky header. */
-.settings-group > div:first-child { scroll-margin-top: var(--space-6); }
-.settings-group-title {
-  font-size: var(--text-lg);
-  margin-bottom: var(--space-3);
-}
 
 /*
  * A card that folds itself away, for reference rather than control.

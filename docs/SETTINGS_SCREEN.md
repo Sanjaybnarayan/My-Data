@@ -99,3 +99,100 @@ semantically a level below its group and does not say so. Fixing it properly
 means `cardHeader` taking a level, which is a change to about a hundred call
 sites for a precision no screen reader user has asked for here. Left as it is,
 deliberately, and written down rather than quietly ignored.
+
+---
+
+## Measured again, later, and the headings had not held
+
+Everything above is still what happened. It stopped being enough.
+
+The repair was six named sections and a jump row. Grouping gave the screen
+something to navigate by and **nothing to bound it**: a heading is not a limit.
+Measured again against every other screen in the application, on the same
+390×844 phone:
+
+| | Settings | median screen | next slowest |
+| --- | --- | --- | --- |
+| settle | **392ms** | 73ms | 90ms |
+| nodes in the outlet | **615** | ~100 | — |
+| scroll height | **10,623px** | — | — |
+| cards | **21** | — | — |
+
+Slowest, tallest and largest at once — and the page had grown from 19 cards at
+6,905px to 21 at 10,623px *with the sections in place*. The grouping was doing
+what it was built for and none of what it was hoped for.
+
+Behind the 392ms: `paint` gathered everything before drawing anything. The sync
+status, the database statistics and disk usage, twelve activity rows, a hundred
+diagnostics, the connectors needing attention, the breach readiness, the
+keyring methods, every person, and a full consent report — which itself reads
+the mailboxes and the people records are held *about*. **Twelve awaited reads,
+on every visit, whichever group somebody came for.** A household changing its
+PIN paid for a hundred diagnostics.
+
+## Each group is a route
+
+`#/settings/device`, `#/settings/wrong`, and four more. `render` reads
+`route.entity`, falls back to the first group, and builds one:
+
+    const CONTENTS = {
+      async device(db, repaint) {
+        const methods = await db.keyring.methods();
+        …
+      },
+      async about() { return [aboutCard()]; },
+    };
+
+`about` needs nothing and now does nothing. Nothing else asks for what it does
+not draw.
+
+| | before | after |
+| --- | --- | --- |
+| settle | 392ms | **119ms** |
+| nodes | 615 | **111** |
+| scroll height | 10,623px | **2,331px** |
+
+A particular setting can also be linked to now, which it could not be: the
+jump row's `href="#connections"` would have been read as a route and taken
+somebody off the screen entirely, so the row was buttons calling
+`scrollIntoView`. **The groups *are* routes, so the reason for the buttons has
+gone with the change that made it true** — the row is anchors, carrying
+`aria-current="page"` on the one you are standing in. `.settings-group` and
+`.settings-group-title` are gone from the stylesheet with the sections they
+styled.
+
+### And the accessibility note above resolves itself
+
+The last section of this document said the group headings and the card headings
+were both `h2`, that no level was skipped, and that fixing it properly meant
+`cardHeader` taking a level across a hundred call sites. There are no group
+headings any more. One `h1` — still the word **Settings**, not the group's
+name, or somebody arriving from a link would have nothing telling them where
+they were — and `h2` per card, which is the structure that note wanted.
+
+## What the checks had been reading
+
+Twelve browser checks named a card by its text and read it off `#/settings`,
+because Settings *was* one page. Nine of those cards are in other groups now,
+and the run said so by throwing: a click on **Check the log** timed out against
+a screen that no longer holds it.
+
+Each one was pointed at the group holding its card rather than weakened —
+`device` for the language and the unlock methods, `wrong` for the diagnostics,
+the audit chain and the breach card, `agreed` for consent and devices,
+`connections` for the OAuth scopes. Six of them were reading a string captured
+before any of that navigation happened, which would have kept passing on stale
+text for as long as the string survived anywhere on any screen; they read the
+group they are about.
+
+The old measured block asserted `.settings-group` count, a jump chip per
+section, and 19 cards on one page. All three of those facts are gone. It was
+**rewritten rather than deleted**, because what it was really holding — every
+card carries a heading, the scope reference is folded, the redirect URI is
+visible without opening anything — is all still true and still worth holding;
+it walks the six routes and sums.
+
+The new block measures the thing the sections never had: **no one group may be
+more than half of what the whole screen was**, and the cards must all still be
+somewhere. A group that silently rendered nothing would pass every other check
+in the block.
