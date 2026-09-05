@@ -26,7 +26,7 @@
  */
 
 import { h, replace } from '../ui/dom.js';
-import { pageHeader } from '../ui/components/basics.js';
+import { pageHeader, chipFace } from '../ui/components/basics.js';
 import { Router } from '../ui/router.js';
 import { t } from '../core/locale.js';
 import { app } from '../context.js';
@@ -204,7 +204,7 @@ async function paint(host, open) {
       class: 'chip',
       href: Router.href({ module: 'settings', entity: one.id }),
       ...(one.id === open ? { 'aria-current': 'page' } : {}),
-    }, t(one.title)))),
+    }, chipFace(t(one.title))))),
 
     h('div', { class: 'grid grid--wide' }, inside),
   ]);

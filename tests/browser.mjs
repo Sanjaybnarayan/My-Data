@@ -961,6 +961,69 @@ async function main() {
 
     /* ------------------------------------------------------------ privacy */
 
+    /* ------------------------------------- the icon belongs to its heading */
+
+    {
+      /*
+       * An 18px glyph on a line of its own, above the title it belongs to.
+       *
+       * A card header is `display: flex; flex-wrap: wrap` so a badge can drop
+       * below a long title. But `.spacer` carrying the title is
+       * `flex: 1 1 auto`, and an `auto` basis is the title's *max-content*
+       * width — wrapping is decided before shrinking, so a title too wide for
+       * the room beside the icon took a line of its own and stranded the icon
+       * above it.
+       *
+       * Eight cards across eight screens, none of which any check could see:
+       * nothing overflowed, nothing was clipped, no target shrank, and the
+       * screens were unremarkable by height. It was found by looking at a
+       * screenshot of Health.
+       *
+       * The measure is geometric and needs no list of titles: the icon is
+       * orphaned when its bottom edge is at or above the title's top edge,
+       * which is only true when the two are on different flex lines.
+       */
+      const before = consoleErrors.length;
+      await page.setViewportSize({ width: 390, height: 844 });
+
+      const orphaned = [];
+      let headersSeen = 0;
+      for (const id of ['health', 'family', 'investments', 'insurance',
+        'education', 'notes', 'digital', 'reports']) {
+        await go(page, `#/${id}`);
+        await page.waitForTimeout(600);
+        const found = await page.evaluate(() =>
+          [...document.querySelectorAll('.app-content .card-header')].map((head) => {
+            const glyph = head.querySelector('svg');
+            const titled = head.querySelector('.spacer');
+            if (!glyph || !titled) return null;
+            const g = glyph.getBoundingClientRect();
+            const t = titled.getBoundingClientRect();
+            return {
+              seen: true,
+              orphaned: g.bottom <= t.top + 1,
+              title: (head.querySelector('h2, h3')?.textContent ?? '').trim().slice(0, 44),
+            };
+          }).filter(Boolean));
+        headersSeen += found.length;
+        for (const one of found) if (one.orphaned) orphaned.push(`${id}: ${one.title}`);
+      }
+
+      // Without this the check passes on a selector that stopped matching,
+      // which is the way this suite has most often been wrong.
+      check('the card headers with icons are found at all',
+        headersSeen >= 8, `${headersSeen} headers with both an icon and a title`);
+
+      check('no card icon is stranded on a line above its own heading',
+        orphaned.length === 0, orphaned.join(' | '));
+
+      check('those screens draw without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(200);
+    }
+
     /* ------------------------------- the dashboard's cards, and their counts */
 
     {
@@ -1109,6 +1172,47 @@ async function main() {
       check('and every shortened list offers a way to the rest',
         atCap.every(([, one]) => one.out),
         JSON.stringify(atCap.map(([k, v]) => [k, v.out])));
+
+      /*
+       * And on a desktop it is not half a row with a hole beside it.
+       *
+       * The dashboard is a two-column grid above 900px — 473px each at
+       * 1280px — and the attention card is drawn first, with the wallet
+       * after it spanning both columns. So the card the design puts first on
+       * purpose came out half width with the other 473px of its row empty,
+       * on the screen the application opens on.
+       *
+       * Measured against the grid rather than against a number, so the check
+       * survives a different breakpoint or column count.
+       */
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await go(page, '#/finance');
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(900);
+
+      const wide = await page.evaluate(() => {
+        const card = [...document.querySelectorAll('.app-content .card')]
+          .find((one) => /need your attention/.test(one.textContent ?? ''));
+        if (!card?.parentElement) return null;
+        const grid = getComputedStyle(card.parentElement);
+        return {
+          columns: grid.gridTemplateColumns.split(' ').length,
+          cardW: Math.round(card.getBoundingClientRect().width),
+          gridW: Math.round(card.parentElement.getBoundingClientRect().width),
+        };
+      });
+
+      // Without this the width comparison holds trivially on a one-column
+      // grid, which is every phone — and the fault only exists on a desktop.
+      check('the dashboard really is more than one column at 1280px',
+        (wide?.columns ?? 0) >= 2, JSON.stringify(wide));
+      check('and the attention card takes the whole row rather than half of it',
+        wide !== null && wide.cardW >= wide.gridW - 1, JSON.stringify(wide));
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/finance');
+      await go(page, '#/dashboard');
+      await page.waitForTimeout(900);
 
       const tall = await page.evaluate(() =>
         Math.round(document.querySelector('.app-content')?.scrollHeight ?? 0));
