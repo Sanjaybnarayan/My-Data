@@ -126,7 +126,10 @@ function trailCard(state, repaint) {
       { iconName: 'alert' }),
     h('p', { class: 'small' },
       state.running ? t('safety.trail.on') : t('safety.trail.off')),
-    state.blocked ? h('p', { class: 'small muted' }, state.blocked) : null,
+    // `t(...)` here, because `state.blocked` is a key now. It used to be an
+    // English sentence translated when `backgroundlocation.js` was imported,
+    // which froze it in whatever language was active at boot.
+    state.blocked ? h('p', { class: 'small muted' }, t(state.blocked)) : null,
     state.pending
       ? h('p', { class: 'small muted' }, t('safety.trail.pending', { n: state.pending }))
       : null,

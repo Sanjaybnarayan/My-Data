@@ -14,6 +14,7 @@
 
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb, makePerson } from './fixture.mjs';
+import { t } from '../js/core/locale.js';
 import {
   status, start, stop, drain, reasonFor, available, BLOCKED,
 } from '../js/core/backgroundlocation.js';
@@ -230,6 +231,8 @@ describe('screen time is not read without a decision', () => {
     const purpose = new ScreenTimeService({ repo: () => {} }).purpose();
     assert.equal(purpose.withoutStops, true);
     assert.equal(purpose.aboutAPerson, true);
-    assert.includes(purpose.without.toLowerCase(), 'nothing is read');
+    // `t(...)`: the purpose holds a key now, and the claim being checked is
+    // about the sentence a person is shown.
+    assert.includes(t(purpose.without).toLowerCase(), 'nothing is read');
   });
 });

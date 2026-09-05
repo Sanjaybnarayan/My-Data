@@ -183,15 +183,15 @@ export const PURPOSES = Object.freeze({
   // count would have been the application growing English no translator can
   // reach. The others are a separate, larger job.
   screenTime: {
-    title: t('consent.screenTime.title'),
-    what: t('consent.screenTime.what'),
+    title: 'consent.screenTime.title',
+    what: 'consent.screenTime.what',
     processors: [],
     scopes: [],
     localOnly: true,
     aboutAPerson: true,
     withoutStops: true,
-    moment: t('consent.screenTime.moment'),
-    without: t('consent.screenTime.without'),
+    moment: 'consent.screenTime.moment',
+    without: 'consent.screenTime.without',
   },
 
   identity: {
@@ -461,7 +461,11 @@ export async function report(db, state = {}) {
       rows.push({
         purpose: name,
         subject,
-        title: purpose.title,
+        // `t(...)` at the point of use. These were translated when this module
+        // was imported, which froze them in whatever language was active then;
+        // an unknown key comes back unchanged, so the purposes still written in
+        // English pass through untouched.
+        title: t(purpose.title),
         active: isActive(name, state, subject),
         decision,
         at,

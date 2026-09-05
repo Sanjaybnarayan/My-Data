@@ -30,14 +30,24 @@
  */
 
 import { plugin as nativePlugin } from './native.js';
-import { t } from './locale.js';
 
-/** Why the trail cannot run, in the order a person would fix them. */
+/**
+ * Why the trail cannot run, in the order a person would fix them.
+ *
+ * Keys, not sentences. These were `t(...)` calls, which run **once when this
+ * module is imported** and keep whatever language was active then — the trap
+ * `js/modules/finance.js` and `js/modules/calendar.js` both document, and both
+ * had to be repaired for. `Object.freeze` made it worse by advertising the
+ * result as settled.
+ *
+ * `js/core/position.js` and `js/core/smsinbox.js`, in this same directory, had
+ * it right all along: a plain identifier here, and `t()` where it is drawn.
+ */
 export const BLOCKED = Object.freeze({
-  UNSUPPORTED: t('trail.blocked.unsupported'),
-  FOREGROUND: t('trail.blocked.foreground'),
-  BACKGROUND: t('trail.blocked.background'),
-  NOTIFICATIONS: t('trail.blocked.notifications'),
+  UNSUPPORTED: 'trail.blocked.unsupported',
+  FOREGROUND: 'trail.blocked.foreground',
+  BACKGROUND: 'trail.blocked.background',
+  NOTIFICATIONS: 'trail.blocked.notifications',
 });
 
 const bridge = (plugin = nativePlugin) => plugin?.('BackgroundLocation');

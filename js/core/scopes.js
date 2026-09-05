@@ -46,7 +46,6 @@ const AUTH = 'https://www.googleapis.com/auth/';
  * getter — and so do the fifty-one plain strings below, which have the same
  * property and are simply invisible about it.
  */
-import { t } from './locale.js';
 
 /** @type {readonly Scope[]} */
 export const SCOPES = Object.freeze([
@@ -175,9 +174,15 @@ export const SCOPES = Object.freeze([
      * the difference between a ratchet that holds and one somebody argues
      * with the first time it is inconvenient.
      */
-    title: t('scope.sendMail.title'),
-    why: t('scope.sendMail.why'),
-    without: t('scope.sendMail.without'),
+    // Keys, not sentences. `t()` here ran once when this module was imported
+    // and kept whatever language was active then — the trap `finance.js` and
+    // `calendar.js` both document. The renderer translates instead, and
+    // because `t()` returns an unknown key unchanged, the entries above that
+    // are still raw English pass through it untouched. That is what lets this
+    // registry be routed one entry at a time rather than all at once.
+    title: 'scope.sendMail.title',
+    why: 'scope.sendMail.why',
+    without: 'scope.sendMail.without',
   },
 ]);
 

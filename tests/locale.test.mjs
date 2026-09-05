@@ -5,6 +5,10 @@ import {
 } from '../js/core/locale.js';
 import { labelKeys, entityKey, fieldKey, moduleKey } from '../js/core/labels.js';
 import { strings as english } from '../js/locale/en.js';
+import { BLOCKED } from '../js/core/backgroundlocation.js';
+import { UNSUPPORTED, NOT_PERMITTED } from '../js/core/screentime.js';
+import { SCOPES } from '../js/core/scopes.js';
+import { PURPOSES } from '../js/data/consent.js';
 import { formatDay, formatInstant, relativeDays } from '../js/core/dates.js';
 import { survey, userFacing, check, readInventory, findIn } from '../tools/strings.mjs';
 import { readFileSync } from 'node:fs';
@@ -434,5 +438,71 @@ describe('the unrouted ratchet', () => {
     // The tempting bug: treat a missing file as "nothing to compare against"
     // and return ok, which makes deleting the inventory a way to silence it.
     assert.not(check({ total: 999, byFile: {} }, null).ok);
+  });
+});
+
+/*
+ * Strings translated when a module is imported.
+ *
+ * `t()` at module scope runs **once**, when the file is first imported, and
+ * keeps whatever language was active at that moment. Change language
+ * afterwards and the value never moves. This repository has repaired that
+ * fault four times — `js/modules/finance.js` and `js/modules/calendar.js` both
+ * carry a note about it — and it had come back in four more places, all of
+ * them frozen registries that reach a screen:
+ *
+ *   js/core/backgroundlocation.js  BLOCKED, 4 strings, rendered by Safety
+ *   js/core/scopes.js              a scope's title and why, rendered by Settings
+ *   js/data/consent.js             a purpose's title, what, moment, without
+ *   js/core/screentime.js          UNSUPPORTED and NOT_PERMITTED
+ *
+ * The general rule — "no `t()` above function scope anywhere" — needs a parser
+ * to state, and a regex that guesses would report its own false findings,
+ * which `tools/lint.mjs` says in as many words is worse than no rule.
+ *
+ * So this checks the property instead of the syntax, and it can, because
+ * `t()` returns an unknown key unchanged: **a value that changes when passed
+ * through `t()` is a key.** A registry translated at import would hold the
+ * finished sentence, `t()` would not recognise it, and it would come back
+ * identical — which is what these assertions catch.
+ */
+describe('registries hold keys, not sentences translated at import', () => {
+  test('the trail says why it is blocked with keys', () => {
+    const values = Object.values(BLOCKED);
+    assert.equal(values.length, 4);
+    for (const value of values) {
+      assert.notEqual(t(value), value, `${value} is not a key the catalogue knows`);
+    }
+  });
+
+  test('screen time reports its refusals as keys', () => {
+    for (const value of [UNSUPPORTED, NOT_PERMITTED]) {
+      assert.notEqual(t(value), value, `${value} is not a key the catalogue knows`);
+    }
+  });
+
+  test('a routed scope holds keys, and an unrouted one still reads', () => {
+    const routed = SCOPES.filter((one) => t(one.title) !== one.title);
+    assert.ok(routed.length >= 1, 'no scope is routed at all — this check would prove nothing');
+    for (const scope of routed) {
+      assert.notEqual(t(scope.why), scope.why, `${scope.id} has a title key and a why sentence`);
+    }
+    // The rest are English written straight into the registry, which the
+    // unrouted ratchet counts. They must still survive being passed through
+    // `t()` on their way to the screen.
+    for (const scope of SCOPES) {
+      assert.ok(t(scope.title).length > 3, `${scope.id} loses its title through t()`);
+      assert.ok(t(scope.why).length > 20, `${scope.id} loses its reason through t()`);
+    }
+  });
+
+  test('a routed purpose holds keys, and every purpose still reads', () => {
+    const purposes = Object.values(PURPOSES);
+    const routed = purposes.filter((one) => t(one.title) !== one.title);
+    assert.ok(routed.length >= 1, 'no purpose is routed at all — this check would prove nothing');
+    for (const purpose of purposes) {
+      assert.ok(t(purpose.title).length > 3, 'a purpose loses its title through t()');
+      assert.ok(t(purpose.what).length > 10, 'a purpose loses what it does through t()');
+    }
   });
 });
