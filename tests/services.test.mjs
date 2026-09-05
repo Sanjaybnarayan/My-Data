@@ -118,6 +118,51 @@ describe('the portfolio question', () => {
     assert.length(view.rows, 0);
   });
 
+  /*
+   * *Annualised* is a claim about a year.
+   *
+   * The example household printed an XIRR of **116,801.24%** for one holding
+   * and **2,117,610.57%** for the portfolio, as the headline figure, because
+   * a 576% gain over a short run extrapolates to that. The arithmetic was
+   * right and the answer was unusable — on a screen that two lines below says
+   * "no interest rate is recorded" rather than guess one.
+   *
+   * Both halves are tested. A rule that refuses short spans is worthless if
+   * nothing is left that still gets a rate, and a check for the refusal alone
+   * would pass just as well on a screen that had stopped computing XIRR at
+   * all.
+   */
+  test('a rate is not annualised over less than a year', async () => {
+    const db = await makeDb();
+    const person = await makePerson(db, { name: 'Asha' });
+    const holding = await db.repo('holding').create({
+      name: 'Bought last month', kind: 'mutual fund', owner: person.id,
+      units: 100, invested: 100_000, currentValue: 676_670, active: true,
+    });
+    await db.repo('investmentTransaction').create({
+      holding: holding.id, date: '2026-06-01', kind: 'buy', amount: 100_000, units: 100,
+    });
+
+    const view = await new PortfolioService(db).overview({ asOf: '2026-08-14' });
+    assert.equal(view.rows[0].rate, null);
+    // Which of the two reasons, so the screen can say the right one. "Never
+    // dated" and "not yet a year old" read very differently to somebody who
+    // has just started.
+    assert.equal(view.rows[0].rateTooNew, true);
+    assert.equal(view.pooled, null);
+    assert.equal(view.pooledTooNew, true);
+  });
+
+  test('and is annualised once a year of transactions exists', async () => {
+    const db = await makeDb();
+    await aPortfolio(db);
+
+    const view = await new PortfolioService(db).overview({ asOf: '2026-08-14' });
+    assert.ok(view.rows[0].rate !== null);
+    assert.equal(view.rows[0].rateTooNew, false);
+    assert.ok(view.pooled !== null);
+  });
+
   test('a holding is reported with its gain and its owner', async () => {
     const db = await makeDb();
     await aPortfolio(db);

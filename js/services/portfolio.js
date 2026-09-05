@@ -22,7 +22,7 @@
 
 import { Service, NET_WORTH_LOAD, HOLDING_LIMIT } from './service.js';
 import {
-  portfolioSummary, allocation, holdingValue, xirr, cashFlows,
+  portfolioSummary, allocation, holdingValue, xirr, cashFlows, spanDays, YEAR,
   maturingSoon, dividendIncome,
 } from '../domain/portfolio.js';
 import { costBasis, gainOn } from '../domain/costbasis.js';
@@ -33,6 +33,32 @@ import {
   instalmentLinks, instalmentSummary, missedInstalmentSummary,
 } from '../domain/instalments.js';
 import { startOfFinancialYear, endOfFinancialYear, today } from '../core/dates.js';
+
+/**
+ * Whether a set of flows may honestly be annualised.
+ *
+ * *Annualised* is a claim about a year, and a rate worked out over two months
+ * makes that claim by extrapolation. On the example household one holding had
+ * gained 576% over a short run, and the screen printed its XIRR as
+ * **116,801.24%** and the portfolio's as **2,117,610.57%** — arithmetic that
+ * is exactly right and an answer no household can use. Worse, it was the
+ * headline figure on a screen otherwise scrupulous about what it will not
+ * claim: two lines below it says "no interest rate is recorded" and "3 of 4
+ * holdings have no transactions recorded".
+ *
+ * So the rule is the one this application already applies elsewhere — it will
+ * not compare a part-month of staff pay against a monthly agreement, and it
+ * measures mileage only between two full tanks. A rate is annualised over a
+ * year or it is not offered, and the screen says which of the two reasons it
+ * has for showing nothing.
+ *
+ * Not a plausibility band: a threshold on the *output* would be a number
+ * chosen by hand, and it would still let a 900% figure through from eleven
+ * months of data while refusing a real one from a bad year.
+ */
+function annualisable(flows) {
+  return flows.length >= 2 && spanDays(flows) >= YEAR;
+}
 
 export class PortfolioService extends Service {
   /**
@@ -140,7 +166,11 @@ export class PortfolioService extends Service {
           // a rate needs two dated flows — is a property of the *answer* rather
           // than of the solver, and the test below locks xirr's half so the two
           // cannot quietly disagree.
-          rate: flows.length >= 2 ? xirr(flows) : null,
+          rate: annualisable(flows) ? xirr(flows) : null,
+          // Why there is no rate, when there is none. "Never dated" and "not
+          // yet a year old" are different facts about a holding and the screen
+          // says which — the same reason `rate` is null rather than zero.
+          rateTooNew: flows.length >= 2 && !annualisable(flows),
           ownerName: people.find((p) => p.id === holding.owner)?.name ?? '',
         };
       })
@@ -170,9 +200,11 @@ export class PortfolioService extends Service {
     summary.typedInvested = asTyped.invested;
     summary.difference = summary.invested - asTyped.invested;
 
-    const pooled = xirr(holdings
+    const pooledFlows = holdings
       .flatMap((holding) => cashFlows(holding, txns, { asOf, value: closingValue(holding) }))
-      .sort((a, b) => a.date.localeCompare(b.date)));
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const pooled = annualisable(pooledFlows) ? xirr(pooledFlows) : null;
+    const pooledTooNew = pooledFlows.length >= 2 && !annualisable(pooledFlows);
 
     const worth = netWorth({
       accounts: data.accounts,
@@ -188,6 +220,7 @@ export class PortfolioService extends Service {
       summary,
       rows,
       pooled,
+      pooledTooNew,
       /*
        * The trades this device is holding out of every figure above.
        *

@@ -516,6 +516,14 @@ export const strings = {
   'list.seeAll': 'See all {n}',
   'list.andMore': 'and {n} more',
 
+  // Investments: three states for a rate, because "nothing is dated" and
+  // "nothing is a year old yet" are different facts about a portfolio.
+  'invest.xirr': 'XIRR',
+  'invest.xirr.annualised': 'annualised',
+  'invest.xirr.tooNew': 'not yet a year of transactions',
+  'invest.xirr.undated': 'needs dated transactions',
+  'invest.xirr.underAYear': 'under a year',
+
   /* ------------------------------------------------------- notifications */
   'notifications.title': 'Notifications',
   'notifications.subtitle': 'Dates this household has recorded, and what is coming',

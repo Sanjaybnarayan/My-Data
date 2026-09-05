@@ -989,8 +989,10 @@ async function main() {
 
       const orphaned = [];
       const underlined = [];
+      const invisible = [];
       let headersSeen = 0;
       let buttonsSeen = 0;
+      let subtleSeen = 0;
       for (const id of ['health', 'family', 'investments', 'insurance',
         'education', 'notes', 'digital', 'reports']) {
         await go(page, `#/${id}`);
@@ -1014,6 +1016,61 @@ async function main() {
         buttonsSeen += buttons.length;
         for (const one of buttons) {
           if (one.line !== 'none') underlined.push(`${id}: ${one.label} (${one.line})`);
+        }
+
+        /*
+         * A button has to be visible as a button.
+         *
+         * `.btn--subtle` painted itself `--surface-sunken`, and `.card--quiet`
+         * paints its background the same token — so on a quiet card the
+         * button was its own ground: surface contrast **1:1**, border alpha
+         * **0**, in both themes. Insurance's "Open the estate review" was a
+         * 44px tap target sitting in a paragraph with nothing to say it could
+         * be tapped. Ten rules in this file paint that token.
+         *
+         * Either the fill or the edge has to carry it, so the measure is the
+         * better of the two against whatever is actually behind the button —
+         * walked up the tree, because the button's own parent is usually
+         * transparent. 3:1 is what a non-text part of a control needs.
+         */
+        const faint = await page.evaluate(() => {
+          const parse = (c) => (c.match(/[\d.]+/g) ?? []).map(Number);
+          const lum = ([r, g, b]) => {
+            const f = (v) => {
+              const x = v / 255;
+              return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+            };
+            return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+          };
+          const ratio = (a2, b2) => {
+            const [hi, lo] = [lum(a2) + 0.05, lum(b2) + 0.05].sort((p, q) => q - p);
+            return Math.round((hi / lo) * 100) / 100;
+          };
+          const ground = (el) => {
+            let n = el.parentElement;
+            while (n) {
+              const p = parse(getComputedStyle(n).backgroundColor);
+              if (p.length >= 3 && (p[3] === undefined || p[3] > 0)) return p.slice(0, 3);
+              n = n.parentElement;
+            }
+            return [255, 255, 255];
+          };
+          return [...document.querySelectorAll('.app-content .btn--subtle')].map((one) => {
+            const cs = getComputedStyle(one);
+            const behind = ground(one);
+            const bg = parse(cs.backgroundColor);
+            const bd = parse(cs.borderColor);
+            const fill = bg[3] === 0 ? 1 : ratio(bg.slice(0, 3), behind);
+            const edge = (bd[3] ?? 1) === 0 ? 1 : ratio(bd.slice(0, 3), behind);
+            return {
+              label: one.textContent.trim().slice(0, 28),
+              seen: Math.max(fill, edge),
+            };
+          });
+        });
+        subtleSeen += faint.length;
+        for (const one of faint) {
+          if (one.seen < 3) invisible.push(`${id}: ${one.label} at ${one.seen}:1`);
         }
 
         const found = await page.evaluate(() =>
@@ -1047,9 +1104,221 @@ async function main() {
       check('and none of them is underlined like a link',
         underlined.length === 0, underlined.join(' | '));
 
+      check('the subtle buttons are found at all',
+        subtleSeen > 0, `${subtleSeen} buttons carrying .btn--subtle`);
+
+      check('and each is visible against whatever is behind it',
+        invisible.length === 0, invisible.join(' | '));
+
       check('those screens draw without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(200);
+    }
+
+    /* ------------------------------ a placeholder that fits its own field */
+
+    {
+      /*
+       * The assistant's field said "Ask about spending, net worth, renewals,
+       * bills…" — four examples naming what it understands, which is the
+       * right idea and needs **320px** to render. The field offers 182px at a
+       * 320px viewport and 252px at 390px, the icon inside it taking the
+       * rest, so it clipped at every phone width to "Ask about spending, net
+       * worth, rene". The half that survived promised two topics; the half
+       * that did not was the point of the sentence.
+       *
+       * Measured against the field's own content box rather than by counting
+       * characters, and at the narrowest width this application supports —
+       * 320px is where it fails first, and a check written at 390px would
+       * have passed on the string that shipped.
+       */
+      const before = consoleErrors.length;
+      await page.setViewportSize({ width: 320, height: 844 });
+      await go(page, '#/assistant');
+      await page.waitForTimeout(700);
+
+      const fits = await page.evaluate(() => {
+        const input = document.querySelector('.app-content input[placeholder]');
+        if (!input) return null;
+        const cs = getComputedStyle(input);
+        const room = input.clientWidth
+          - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        const probe = document.createElement('span');
+        probe.style.cssText =
+          `position:absolute;visibility:hidden;white-space:nowrap;font:${cs.font}`;
+        probe.textContent = input.getAttribute('placeholder') ?? '';
+        document.body.append(probe);
+        const width = probe.getBoundingClientRect().width;
+        probe.remove();
+        return {
+          text: input.getAttribute('placeholder') ?? '',
+          room: Math.round(room),
+          needs: Math.ceil(width),
+        };
+      });
+
+      check('the assistant field is found, with a placeholder to measure',
+        fits !== null && fits.needs > 0 && fits.room > 0, JSON.stringify(fits));
+
+      check('and its placeholder is read whole at 320px',
+        fits !== null && fits.needs <= fits.room,
+        `${fits?.needs}px of placeholder in ${fits?.room}px of field — ${fits?.text}`);
+
+      check('the assistant draws without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(200);
+    }
+
+    /* --------------------------------- one absence, stated once */
+
+    {
+      /*
+       * Chat told a household the same thing twice.
+       *
+       * With no conversations the screen drew "No conversations yet" in its
+       * own card, and again 250px below inside the "Manage conversations"
+       * disclosure — same icon, same heading — above two buttons wording one
+       * act differently: "Start a conversation" and "Add the first
+       * conversation".
+       *
+       * The disclosure opened itself when there was nothing yet, and the
+       * comment saying why was true when written: it once held the only way
+       * to make a conversation. The empty state above was later given its own
+       * button, and `section.openForm()` raises a modal, so it works whether
+       * the disclosure is open or shut. The `open` outlived its reason.
+       *
+       * Counted by walking up to the nearest `details` rather than by asking
+       * whether the node is visible: a closed `details` still reports a
+       * height and an `offsetParent` here, so both of those measure nothing.
+       * That is the fault this suite keeps finding in itself, so it is worth
+       * saying which measure was rejected and why.
+       */
+      const before = consoleErrors.length;
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/chat');
+      await page.waitForTimeout(900);
+
+      const shown = await page.evaluate(() => {
+        const all = [...document.querySelectorAll('.app-content .empty')];
+        const onScreen = all.filter((e) => {
+          const fold = e.closest('details');
+          return !fold || fold.open;
+        });
+        return {
+          total: all.length,
+          shown: onScreen.map((e) => (e.querySelector('h2, h3, .empty-title')
+            ?? e).textContent.trim().slice(0, 40)),
+        };
+      });
+
+      // The guard: this screen must actually be in its empty state, or there
+      // is no duplicate to count and the check below proves nothing.
+      check('chat is on its empty state, with something folded away',
+        shown.total > shown.shown.length, JSON.stringify(shown));
+
+      check('and says "no conversations yet" once, not twice',
+        shown.shown.filter((one) => /no conversations/i.test(one)).length === 1,
+        JSON.stringify(shown.shown));
+
+      check('chat draws without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForTimeout(200);
+    }
+
+    /* ------------------------------- the day you are reading stays on screen */
+
+    {
+      /*
+       * The timeline's day heading is `position: sticky`, deliberately, with
+       * its reason written beside it: *"`3 March` above a run of changes is
+       * how somebody reads a history"*. It had never once stuck.
+       *
+       * `.card--flush` carried `overflow: hidden` — there to keep a list's
+       * square corners inside the card's 22px radius — and `hidden` makes an
+       * element a scroll container. A sticky child sticks to its nearest
+       * scroll container, so the heading was pinned to a box that does not
+       * itself scroll and rode off the top of the screen with everything
+       * else. Measured at 3,673px above the viewport after scrolling 4,000px.
+       * `overflow: clip` clips identically and creates no scroll container.
+       *
+       * The second half was `top: 0` under an app header that is itself
+       * sticky and 60px tall: a heading parked behind the header is the same
+       * as no heading.
+       *
+       * Read as geometry against the header's own box rather than against a
+       * number written here, so a change to the header's height moves both
+       * sides of the comparison.
+       */
+      const before = consoleErrors.length;
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/timeline');
+      await page.waitForTimeout(900);
+
+      const day = await page.evaluate(() => {
+        const heads = [...document.querySelectorAll('.app-content .timeline-day')];
+        if (!heads.length) return null;
+        const el = document.scrollingElement;
+        const box = heads[0].getBoundingClientRect();
+        return {
+          count: heads.length,
+          scrollable: Math.round(el.scrollHeight - el.clientHeight),
+          // Where the first heading starts, and how far the page must move
+          // before an unstuck one would be gone from the screen.
+          needed: Math.round(box.top + box.height),
+        };
+      });
+
+      /*
+       * Nothing to measure unless the page can scroll far enough to carry an
+       * unstuck heading off the top — otherwise both readings below are true
+       * of a page that never moved, and the check proves nothing.
+       *
+       * Derived from the heading's own position rather than from a number
+       * chosen here: the first draft asked for 1,000px of scroll, measured
+       * against a household seeded with a year of history, and failed on this
+       * suite's fixture at 452px — the guard catching its own check before it
+       * could pass for the wrong reason.
+       */
+      check('the timeline can scroll far enough to test a heading',
+        day !== null && day.count > 0 && day.scrollable > day.needed,
+        JSON.stringify(day));
+
+      await page.evaluate(() => {
+        const el = document.scrollingElement;
+        el.scrollTop = el.scrollHeight;
+      });
+      await page.waitForTimeout(300);
+
+      const stuck = await page.evaluate(() => {
+        const head = document.querySelector('.app-header');
+        const one = document.querySelector('.app-content .timeline-day');
+        if (!head || !one) return null;
+        const h = head.getBoundingClientRect();
+        const d = one.getBoundingClientRect();
+        return {
+          headerBottom: Math.round(h.bottom),
+          dayTop: Math.round(d.top),
+          onScreen: d.top >= 0 && d.bottom <= window.innerHeight,
+          clearOfHeader: d.top >= h.bottom - 1,
+        };
+      });
+
+      check('the day heading stays on screen once its run is scrolled past',
+        stuck !== null && stuck.onScreen, JSON.stringify(stuck));
+
+      check('and sits clear of the app header rather than behind it',
+        stuck !== null && stuck.clearOfHeader, JSON.stringify(stuck));
+
+      check('the timeline draws without a console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+
+      await page.evaluate(() => { document.scrollingElement.scrollTop = 0; });
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.waitForTimeout(200);
     }

@@ -221,7 +221,8 @@ async function portfolioView() {
     }
 
     const {
-      summary, rows, pooled, dividends, maturing, shareOfAssets, accrual, instalments,
+      summary, rows, pooled, pooledTooNew, dividends, maturing, shareOfAssets,
+      accrual, instalments,
       held,
       instalmentSchedule,
     } = view;
@@ -239,9 +240,15 @@ async function portfolioView() {
             compact: true,
           }),
           metric({
-            label: 'XIRR',
+            label: t('invest.xirr'),
             value: pooled === null ? '—' : `${pooled}%`,
-            hint: pooled === null ? 'needs dated transactions' : 'annualised',
+            // Three states, not two. "Nothing is dated" and "nothing is a
+            // year old yet" are different facts, and a household that has
+            // just started reads the second as the first if both say the
+            // same thing.
+            hint: pooled !== null ? t('invest.xirr.annualised')
+              : pooledTooNew ? t('invest.xirr.tooNew')
+                : t('invest.xirr.undated'),
             compact: true,
           }),
         ]),
@@ -329,7 +336,7 @@ async function portfolioView() {
             // silent substitution the service is careful not to make.
             row.rate !== null
               ? badge(`${row.rate}% XIRR${row.rateEstimated ? ' est.' : ''}`)
-              : null,
+              : row.rateTooNew ? badge(t('invest.xirr.underAYear'), 'muted') : null,
           ]),
           href: Router.href({ module: 'investments', entity: 'holding', id: row.id }),
         }))),
