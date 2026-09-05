@@ -2720,6 +2720,84 @@ async function main() {
         }
       }
 
+      /*
+       * Each tab, standing on its own screen.
+       *
+       * The block above measured the bar from `#/dashboard` every time, so
+       * only ever saw *Dashboard* in the selected state — and the selected
+       * tab was drawn at `font-weight: 600`, which is wider. "Notifications"
+       * measures 63.8px at the ordinary weight and **71.1px bold**, against a
+       * 65.2px box, so it wrapped to "Notification / s" exactly while
+       * somebody was on that tab, and this check passed the whole time.
+       *
+       * The 5.9px could not be found anywhere in the bar — tab padding to
+       * zero, the bar's own padding and its inset together come to 3.2px —
+       * so the weight went and the filled ground and the bar above the icon
+       * carry the selected state, both of them shape rather than colour.
+       *
+       * What matters here is the shape of the mistake rather than the fix: a
+       * bar whose labels are measured on one screen is a bar measured in one
+       * of its five states. So this walks all five.
+       */
+      await page.setViewportSize({ width: 390, height: 844 });
+      for (const tab of ['dashboard', 'notifications', 'chat', 'finance', 'profile']) {
+        await go(page, `#/${tab}`);
+        await page.waitForTimeout(350);
+
+        const standing = await page.evaluate(() => [...document.querySelectorAll('.bottom-nav a')]
+          .map((a) => {
+            const span = [...a.children].find((el) => el.tagName === 'SPAN'
+              && !el.classList.contains('nav-badge')
+              && (el.textContent ?? '').trim().length > 1);
+            if (!span) return null;
+            const style = getComputedStyle(a);
+            const box = a.getBoundingClientRect();
+            const label = span.getBoundingClientRect();
+            const left = box.left + parseFloat(style.paddingLeft)
+              + parseFloat(style.borderLeftWidth);
+            const right = box.right - parseFloat(style.paddingRight)
+              - parseFloat(style.borderRightWidth);
+            return {
+              text: (span.textContent ?? '').trim(),
+              current: a.getAttribute('aria-current') === 'page',
+              lines: Math.round(label.height / parseFloat(getComputedStyle(span).lineHeight)),
+              spill: Math.round(Math.max(0, label.right - right, left - label.left) * 10) / 10,
+            };
+          }).filter(Boolean));
+
+        // The tab being stood on has to be the marked one, or this walks five
+        // screens measuring the same unselected state five times.
+        check(`the ${tab} tab is the marked one when standing on it`,
+          standing.filter((one) => one.current).length === 1
+          && standing.some((one) => one.current),
+          JSON.stringify(standing.map((one) => [one.text, one.current])));
+
+        check(`and no label wraps or spills while ${tab} is selected`,
+          standing.every((one) => one.lines === 1 && one.spill <= 0.5),
+          JSON.stringify(standing.filter((one) => one.lines > 1 || one.spill > 0.5)
+            .map((one) => [one.text, one.lines, one.spill])));
+      }
+
+      /*
+       * And the selected tab is still distinguishable without colour, which
+       * is what the weight was one of three ways of saying. Two remain, both
+       * of them shape: the filled ground, and the bar above the icon.
+       */
+      await go(page, '#/notifications');
+      await page.waitForTimeout(350);
+      const marked = await page.evaluate(() => {
+        const on = document.querySelector('.bottom-nav a[aria-current="page"]');
+        const off = [...document.querySelectorAll('.bottom-nav a')]
+          .find((a) => a.getAttribute('aria-current') !== 'page');
+        if (!on || !off) return null;
+        return {
+          ground: getComputedStyle(on).backgroundColor !== getComputedStyle(off).backgroundColor,
+          bar: getComputedStyle(on, '::before').content !== 'none',
+        };
+      });
+      check('the selected tab is marked by shape, not only by colour',
+        Boolean(marked?.ground && marked?.bar), JSON.stringify(marked));
+
       await page.setViewportSize({ width: 390, height: 844 });
       await page.waitForTimeout(200);
 

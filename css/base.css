@@ -544,11 +544,30 @@ ul, ol { margin: 0; padding-left: 1.25rem; }
    * and a bar above the icon. Colour alone is not a distinction for everyone
    * reading this, and on a row of five identical shapes the selected tab is
    * the only thing telling somebody where they are.
+   *
+   * ## The weight had to go, and the reason it could
+   *
+   * Bold text is wider. "Notifications" measures 63.8px at the row's ordinary
+   * weight and **71.1px at 600**, against a 65.2px label box at 390px — so
+   * the longest label wrapped to "Notification / s" *only while you were on
+   * that tab*, which is the one moment somebody is looking at it.
+   *
+   * 5.9px could not be found. Taking the tab padding to zero gives 0.8px per
+   * tab, the bar's own padding another 0.8px, and pulling the bar's inset in
+   * 1.6px more: 3.2px in total, against 5.9px needed. There is no arrangement
+   * of this bar at 390px in which a bold "Notifications" fits.
+   *
+   * So the weight goes and the other two stay. The intent above was *"colour
+   * alone is not a distinction"*, and it survives: the filled ground and the
+   * bar above the icon are both shape, neither depends on seeing colour, and
+   * there are still two of them. What is gained on top is a bar whose layout
+   * no longer depends on which tab you are standing on — every label is the
+   * same width on every screen, which is why this could never have been
+   * settled by measuring one screen.
    */
   .bottom-nav a[aria-current='page'] {
     color: var(--accent-text);
     background: var(--accent-subtle);
-    font-weight: 600;
   }
 
   .bottom-nav a[aria-current='page']::before {

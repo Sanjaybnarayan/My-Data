@@ -234,11 +234,35 @@ export function familyCompletion(perPerson = []) {
   };
 }
 
+/**
+ * How many sections to name before counting the rest.
+ *
+ * Three, which is what `js/domain/timeline.js` settled on for the same
+ * problem — *"a list of eleven field names is a list nobody reads, and the
+ * count is the part that says a lot happened"*. This joined **every** section
+ * it was waiting on, and on the Identity screen, where a row is drawn per
+ * person, that put ten comma-separated names into one subtitle and wrapped it
+ * over four lines:
+ *
+ *     6 of 16 sections · waiting on Identity, KYC, Documents, Loans,
+ *     Investments, Insurance, Vehicles, Property, Employment, Digital life
+ *
+ * Naming them is still the point — `js/modules/profile.js` says so, and a
+ * test holds it — so the fix is to name fewer, not to stop naming.
+ */
+const NAMED = 3;
+
 /** The sentence under the number. */
 export function describeCompletion(result) {
   if (result.percent === null) return 'Nothing applies to this person yet.';
   const parts = [`${result.recorded} of ${result.applicable} sections`];
   if (result.dismissed) parts.push(`${result.dismissed} marked not applicable`);
-  if (result.waitingOn.length) parts.push(`waiting on ${result.waitingOn.join(', ')}`);
+  if (result.waitingOn.length) {
+    // The remainder comes off the full list, not off what was drawn — the
+    // mistake `js/modules/dashboard.js` had made with a badge.
+    const named = result.waitingOn.slice(0, NAMED);
+    const rest = result.waitingOn.length - named.length;
+    parts.push(`waiting on ${named.join(', ')}${rest ? ` and ${rest} more` : ''}`);
+  }
   return parts.join(' · ');
 }
