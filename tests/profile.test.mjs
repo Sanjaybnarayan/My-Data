@@ -107,6 +107,32 @@ describe('one person', () => {
     assert.includes(text, '1 marked not applicable');
     assert.includes(text, 'Loans');
   });
+
+  /*
+   * Three names, then a count.
+   *
+   * It joined every section it was waiting on, and Identity draws one of these
+   * per person: ten comma-separated names in a subtitle, four lines deep on a
+   * 390px phone. `js/domain/timeline.js` had already settled the same question
+   * — a list of eleven names is a list nobody reads.
+   *
+   * The count comes off the full list, never off the three drawn, which is the
+   * mistake a dashboard badge had made.
+   */
+  test('and names three of them, then says how many more', () => {
+    const bare = completion({ ...RENTER }, {});
+    const text = describeCompletion(bare);
+
+    assert.ok(bare.waitingOn.length > 4,
+      `the fixture waits on ${bare.waitingOn.length} sections — too few to be cut`);
+
+    const named = bare.waitingOn.slice(0, 3);
+    for (const one of named) assert.includes(text, one);
+    assert.includes(text, `and ${bare.waitingOn.length - 3} more`);
+
+    // The fourth name is gone, which is the whole point of the change.
+    assert.not(text.includes(bare.waitingOn[3]));
+  });
 });
 
 describe('the household', () => {
