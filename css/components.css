@@ -1257,6 +1257,22 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
   .app-title { display: none; }
 }
 
+/*
+ * The filter bar above a list, which is now sometimes nothing.
+ *
+ * Its controls are built from the records rather than the schema, so a list
+ * of two identically-typed things offers neither a search box nor a filter —
+ * see `filterBar` in `js/ui/components/table.js` for why. When that leaves
+ * the bar empty it has to take no room at all, margin included, or the saving
+ * is a blank strip instead of a useless control.
+ *
+ * Not `.filter-bar`: that is the Transactions ledger's own panel, three rows
+ * of it, styled further down this file. These two rules carried that name for
+ * an hour and were adding margin to all three.
+ */
+.record-filters { margin-bottom: var(--space-4); }
+.record-filters:empty { display: none; }
+
 .search-box { position: relative; flex: 1; max-width: 520px; min-width: 0; }
 .search-box .icon {
   position: absolute;
