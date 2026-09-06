@@ -40,6 +40,7 @@ import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { t, noun } from '../core/locale.js';
+import { formatDay, relativeDays } from '../core/dates.js';
 import { entitiesOfModule, entity } from '../data/schema.js';
 import { entityLabel } from '../core/labels.js';
 import { can } from '../security/rbac.js';
@@ -183,11 +184,23 @@ function currentCard({ medications, appointments }) {
     restOfList(medications.length, MEDICATIONS,
       { href: Router.href({ module: 'health', entity: 'medication' }) }),
 
+    /*
+     * `formatDay`, and the distance rather than the word "ahead".
+     *
+     * The subtitle pasted `one.date` in raw, so this card read `2026-09-22`
+     * while the appointments table a few rows down the same screen read
+     * `22 Sep 2026` — the only two places that date appears, disagreeing.
+     *
+     * The badge said "ahead" on every row, which the position in a list
+     * headed "coming up" already says. `HealthService#current` had sorted
+     * these by `said.days` and thrown the number away; the table below was
+     * showing "in 16 days" from the same date all along.
+     */
     appointments.length
       ? h('div', { class: 'list' }, appointments.slice(0, APPOINTMENTS).map((one) => listItem({
         title: one.title,
-        subtitle: [one.date, one.time, one.doctor].filter(Boolean).join(' · '),
-        trailing: badge(t('health.current.ahead'), 'accent'),
+        subtitle: [formatDay(one.date), one.time, one.doctor].filter(Boolean).join(' · '),
+        trailing: badge(relativeDays(one.date), 'accent'),
         href: Router.href({ module: 'health', entity: 'appointment', id: one.id }),
       })))
       : null,

@@ -94,7 +94,12 @@ function withDom(fn) {
   }
 }
 
-const { button, iconButton, card, badge, chip } = await import('../js/ui/components/basics.js');
+const {
+  button, iconButton, card, badge, chip, dueBadge,
+} = await import('../js/ui/components/basics.js');
+const { entityNames, entity } = await import('../js/data/schema.js');
+const { phraseKey } = await import('../js/domain/duewords.js');
+const { t } = await import('../js/core/locale.js');
 const { restOfMatched, MATCHED } = await import('../js/modules/receipts-parts.js');
 const { restOfUnreadable, UNREADABLE } = await import('../js/modules/statements-parts.js');
 
@@ -212,5 +217,94 @@ describe('a capped list in the two files that were too big to fix', () => {
     assert.not(shown === null, 'no footer above the cap');
     assert.includes(String(shown.children.flatMap((c) => c.children ?? c)
       .map((c) => c.textContent ?? c).join(' ')), String(12 - UNREADABLE));
+  });
+});
+
+/**
+ * What a date behind today is called.
+ *
+ * `dueBadge` built its label from a literal — `overdue ${relativeDays(day)}` —
+ * for every one of the 23 expiry fields in the schema. `domain/duewords.js`
+ * exists because that is the wrong shape: it was written when the reminder
+ * line read "next dose on expires today", and it already carries a past-tense
+ * phrase for all 23. The badge spoke none of them.
+ *
+ * Driven off the schema rather than a list written here. A new expiry field is
+ * covered the day it is declared, which is the property a hand-written copy of
+ * the same list would lose.
+ */
+describe('a date behind today is said in the words its field chose', () => {
+  /** Every expiry field the schema declares, as `{entity, key}`. */
+  function expiryFields() {
+    const out = [];
+    for (const name of entityNames()) {
+      for (const field of entity(name).fields) {
+        if (field.expiry) out.push({ entity: name, key: field.key });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The words on the badge for a date `days` from today.
+   *
+   * The stub wraps text in `{ nodeType: 3, textContent }`, so reading
+   * `children[0]` directly gives `[object Object]` — which passes any
+   * assertion that only asks whether the string contains "overdue".
+   */
+  function labelFor(key, days) {
+    const day = new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+    const el = withDom(() => dueBadge(day, { field: key }));
+    return (el?.children ?? [])
+      .map((child) => (typeof child === 'string' ? child : child?.textContent ?? ''))
+      .join('');
+  }
+
+  test('the schema declares expiry fields for this to walk', () => {
+    // A walk over nothing would satisfy every assertion below.
+    assert.ok(expiryFields().length >= 20, `${expiryFields().length} expiry fields found`);
+  });
+
+  test('every one of them has a phrase, so none falls back to a bare number', () => {
+    const missing = expiryFields().filter((one) => !phraseKey(one.key, 'past'));
+    assert.deep(missing.map((one) => `${one.entity}.${one.key}`), []);
+  });
+
+  test('and the badge says that phrase rather than "overdue"', () => {
+    const wrong = [];
+    for (const one of expiryFields()) {
+      const said = labelFor(one.key, -9);
+      const wanted = t(phraseKey(one.key, 'past') ?? '');
+      if (!said.startsWith(wanted) || /overdue/i.test(said)) {
+        wrong.push(`${one.entity}.${one.key}: "${said}"`);
+      }
+    }
+    assert.deep(wrong, []);
+  });
+
+  /*
+   * The four that read worst before, named individually. The sweep above would
+   * pass on phrases nobody had read; these say what the words actually are.
+   */
+  test('a course of tablets ended, a deposit matured, an appointment simply was', () => {
+    assert.equal(labelFor('endsOn', -3), 'ended 3 days ago');
+    assert.equal(labelFor('maturesOn', -6), 'matured 6 days ago');
+    assert.equal(labelFor('date', -9), 'was 9 days ago');
+    assert.equal(labelFor('nextDoseOn', -9), 'next dose was due 9 days ago');
+  });
+
+  test('a date still ahead is the distance alone, with no phrase at all', () => {
+    // The badge sits beside the date itself, so "in 16 days" is the whole
+    // message ahead of the day. Only the past needed a verb.
+    assert.equal(labelFor('endsOn', 16), 'in 16 days');
+  });
+
+  test('a field nobody wrote a phrase for gets the bare distance, not a guess', () => {
+    // How "next dose on expires today" happened: a word chosen for a field
+    // nobody chose one for. The distance is a fact; a verb would be an
+    // invention.
+    const said = labelFor('noSuchFieldKey', -4);
+    assert.equal(said, '4 days ago');
+    assert.equal(/overdue/i.test(said), false);
   });
 });

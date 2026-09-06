@@ -11,6 +11,10 @@ import { icon } from '../icons.js';
 import { format, formatCompact } from '../../core/money.js';
 import { formatDay, relativeDays, daysUntil } from '../../core/dates.js';
 import { t } from '../../core/locale.js';
+// The one edge from `ui/` into `domain/`, and it is a vocabulary table with
+// no imports of its own. The alternative was four call sites each deciding
+// how a passed date is spoken, which is what this component exists to stop.
+import { phraseKey, TENSE } from '../../domain/duewords.js';
 
 /**
  * Anything these components will accept where content goes.
@@ -393,12 +397,38 @@ export function restOfList(total, shown, { href } = {}) {
 /**
  * A due date with the urgency already worked out — the same rule everywhere,
  * so "expiring soon" means one thing across nineteen modules.
- */
-/**
+ *
+ * ## The word it used to use for every one of them
+ *
+ * A date behind today read `overdue 9 days ago`, on all **23** expiry fields
+ * in the schema, from a literal in this function. `domain/duewords.js` exists
+ * because that is wrong — it was written when the reminder line said "next
+ * dose on expires today", and its point is that *"a follow-up date passing is
+ * not something expiring, and a vaccination's next dose does not expire"*.
+ * Every field there has a past-tense phrase already, and this badge spoke none
+ * of them:
+ *
+ *     medication.endsOn     "overdue 3 days ago"  ->  "ended 3 days ago"
+ *     appointment.date      "overdue 9 days ago"  ->  "was 9 days ago"
+ *     holding.maturesOn     "overdue 6 days ago"  ->  "matured 6 days ago"
+ *     vaccination.nextDoseOn                      ->  "next dose was due …"
+ *
+ * `holding.maturesOn` shows the shape plainly: a deposit that matured last
+ * week is money the household has, called overdue in red. On the health
+ * module it is worse than untidy — `modules/health.js` says a screen saying
+ * "overdue" about somebody's medicine would be making a claim about their
+ * treatment, and the screen said it about all four health dates while the
+ * card above them carefully asked a question instead.
+ *
+ * A field this does not know the key for gets the bare distance — "9 days
+ * ago" — rather than a fallback word. The distance is a fact; a word chosen
+ * for a field nobody wrote one for is how "expires" got onto a next dose.
+ *
  * @param {string} day
- * @param {{leadDays?: number}} [options]
+ * @param {{leadDays?: number, field?: string}} [options] `field` is the
+ *   schema field key, which decides how a date behind today is spoken.
  */
-export function dueBadge(day, { leadDays = 30 } = {}) {
+export function dueBadge(day, { leadDays = 30, field = '' } = {}) {
   if (!day) return null;
   const days = daysUntil(day);
   if (!Number.isFinite(days)) return null;
@@ -408,7 +438,8 @@ export function dueBadge(day, { leadDays = 30 } = {}) {
       : days <= leadDays ? 'warning'
         : 'positive';
 
-  const label = days < 0 ? `overdue ${relativeDays(day)}` : relativeDays(day);
+  const past = days < 0 ? phraseKey(field, TENSE.past) : null;
+  const label = past ? `${t(past)} ${relativeDays(day)}` : relativeDays(day);
   return badge(label, tone);
 }
 

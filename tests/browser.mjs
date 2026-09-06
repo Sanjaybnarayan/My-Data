@@ -10745,19 +10745,101 @@ async function main() {
        * Every finding is about the records. A word like "overdue" or "missed"
        * would be this application making a claim about somebody's treatment
        * out of a tick box nobody remembered to untick.
+       *
+       * Read across all four tabs, not against the questions card.
+       *
+       * This check was named "the health screen never says overdue" and given
+       * `raised` — the questions card alone. While it passed, `dueBadge` was
+       * printing a red **"overdue 9 days ago"** on the Dentist appointment in
+       * the table a few rows below the card that carefully asked whether it
+       * had happened. All four health dates carried it, and each lives on its
+       * own tab: `healthRecord.followUpOn`, `medication.endsOn`,
+       * `vaccination.nextDoseOn`, `appointment.date`. Reading one screen would
+       * still have seen only one of the four.
        */
+      /** Every tab's rendered text, and the badges for dates behind today. */
+      const tabs = [];
+      for (const one of ['healthRecord', 'medication', 'vaccination', 'appointment']) {
+        await go(page, `#/health/${one}`);
+        await page.waitForTimeout(400);
+        tabs.push({
+          name: one,
+          text: (await page.locator('.app-content').innerText()).trim(),
+          behind: await page.evaluate(() => [...document.querySelectorAll('.app-content .badge')]
+            .map((node) => (node.textContent || '').trim())
+            .filter((text) => /\bago\b/.test(text))),
+        });
+      }
+      const allTabs = tabs.map((one) => one.text).join('\n');
+
       for (const word of ['overdue', 'at risk', 'you should', 'urgent']) {
-        check(`the health screen never says "${word}"`,
-          !new RegExp(word, 'i').test(raised), raised.slice(0, 500));
+        const said = tabs.filter((one) => new RegExp(word, 'i').test(one.text));
+        check(`no health tab says "${word}"`, said.length === 0,
+          said.map((one) => one.name).join(', '));
       }
       check('and does not call an unanswered appointment missed',
-        !/Dentist[^\n]*missed/i.test(raised), raised.slice(0, 500));
+        !/Dentist[^\n]*missed/i.test(allTabs), allTabs.slice(0, 500));
+
+      /*
+       * A guard on the guard. Every word above is absent from a screen that
+       * drew no past dates at all, so the sweep has to be shown to have had
+       * something to be wrong about.
+       *
+       * Three tabs, not four. `healthRecord.followUpOn` is `list: false`, so
+       * it never reaches the table — its badge is drawn on the record's own
+       * screen, by the other of `dueBadge`'s two generic call sites. Written
+       * first as "every tab", this failed on `healthRecord` and was right to:
+       * the claim was about a column that does not exist.
+       */
+      const withBadges = tabs.filter((one) => one.behind.length > 0);
+      check('three health tabs list a date behind today',
+        withBadges.length === 3,
+        tabs.map((one) => `${one.name}:${one.behind.length}`).join(' '));
+
+      // The fourth, through the record screen, which is `crud.js` rather than
+      // `table.js` — the same badge reached by a different route.
+      const knee = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const rows = await app().db.repo('healthRecord').list({ decrypt: false, limit: 200 });
+        return rows.find((row) => row.title === 'Knee scan')?.id ?? '';
+      }, IN_PAGE.context);
+      check('the seeded record with a follow-up date can be opened', Boolean(knee), knee);
+
+      await go(page, `#/health/healthRecord/${knee}`);
+      await page.waitForTimeout(500);
+      const detail = (await page.locator('.app-content').innerText()).trim();
+      check('a follow-up date gone by says so on the record screen',
+        /follow-up was due \d+ days ago/i.test(detail) && !/overdue/i.test(detail),
+        detail.slice(0, 500));
+
+      const words = [...tabs.flatMap((one) => one.behind), 'follow-up was due'];
+      check('each says what its own field calls a date gone by, all four of them',
+        words.length >= 4
+          && words.every((text) => /^(ended|was|next dose was due|follow-up was due)\b/.test(text)),
+        words.join(' | '));
+
+      await go(page, '#/health');
+      await page.waitForTimeout(400);
 
       // What is current, derived from the dates rather than the tick box.
       // Both these records have `ongoing: true`; only one is still running.
       const current = await cardText('Being taken');
       check('what is being taken is derived, not read from the tick box',
         /Thyroxine/.test(current) && !/Amoxicillin/.test(current),
+        current.slice(0, 400));
+
+      /*
+       * The card and the table below it show the same appointment date, and
+       * showed it two different ways: the card pasted `one.date` in raw, so it
+       * read `2026-09-22` above a table reading `22 Sep 2026`. The badge said
+       * the constant word "ahead" on every row while the table, from the same
+       * date, said "in 16 days".
+       */
+      check('a coming appointment is dated the way the rest of the screen dates things',
+        /Eye test/.test(current) && !/\d{4}-\d{2}-\d{2}/.test(current),
+        current.slice(0, 400));
+      check('and says how far off it is rather than the word "ahead"',
+        /\bin \d+ days\b/.test(current) && !/\bahead\b/.test(current),
         current.slice(0, 400));
 
       // The absences, on the screen rather than only in a comment.

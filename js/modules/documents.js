@@ -221,7 +221,7 @@ export async function render(route) {
           h('div', { class: 'list' }, expiring.slice(0, ATTENTION).map((document) => listItem({
             title: document.title,
             subtitle: `${document.category} · ${formatDay(document.expiresOn)}`,
-            trailing: dueBadge(document.expiresOn, { leadDays: EXPIRY_LEAD }),
+            trailing: dueBadge(document.expiresOn, { leadDays: EXPIRY_LEAD, field: 'expiresOn' }),
             href: Router.href({ module: 'documents', entity: 'document', id: document.id }),
           }))),
           restOfList(expiring.length, ATTENTION),
@@ -348,7 +348,7 @@ export async function render(route) {
       ].join('')),
       document.expiresOn
         ? h('div', { style: { marginTop: 'var(--space-2)' } },
-          dueBadge(document.expiresOn, { leadDays: EXPIRY_LEAD }))
+          dueBadge(document.expiresOn, { leadDays: EXPIRY_LEAD, field: 'expiresOn' }))
         : null,
     ]);
   }

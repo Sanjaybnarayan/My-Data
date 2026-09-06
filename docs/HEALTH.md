@@ -41,7 +41,12 @@ would be this screen deciding somebody did not turn up.
 
 A unit test asserts none of the five sentences contains *overdue*, *at risk*,
 *you should*, *dangerous* or *urgent*, and the browser suite asserts the same
-of the rendered card.
+across all four tabs and the record screen.
+
+It used to assert it of the **questions card only**, while the table a few rows
+below drew a red `overdue 9 days ago` on the same appointment — from a literal
+in `dueBadge` that spoke that one word for all 23 expiry fields in the schema.
+See [A_WORD_FOR_EVERY_DATE_GONE_BY.md](A_WORD_FOR_EVERY_DATE_GONE_BY.md).
 
 ### The next dose is answered from the records, not from the date
 
