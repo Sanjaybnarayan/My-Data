@@ -82,6 +82,45 @@ jobs:
       # Both flavours. `standard` is the one that installs: Play Protect
       # blocks a sideloaded app asking for READ_SMS outright, which was making
       # every other feature in this build unreachable on a phone.
+      # A GitHub secret holds text; a keystore is binary. So it travels as
+      # base64 and is decoded here, and the FIRST version of this workflow got
+      # that wrong: it passed `secrets.FAMILYOS_KEYSTORE_PATH` straight to
+      # Gradle as a path, and nothing ever put a file there. With no secrets
+      # set the fallback hid it — which is the only path CI had ever run — and
+      # with secrets set the build would have failed on a missing file rather
+      # than signed anything.
+      #
+      # Decoded into RUNNER_TEMP rather than the workspace, so nothing that
+      # archives the checkout can pick it up, and never echoed. The runner is
+      # discarded after the job.
+      - name: Put the signing key on disk, if there is one
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.FAMILYOS_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.FAMILYOS_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "no FAMILYOS_KEYSTORE_BASE64 — the release will be signed with the debug key"
+            exit 0
+          fi
+
+          STORE="${RUNNER_TEMP}/familyos-release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$STORE" 2>/dev/null \
+            || { echo "::error::FAMILYOS_KEYSTORE_BASE64 is not valid base64"; exit 1; }
+
+          [ -s "$STORE" ] \
+            || { echo "::error::FAMILYOS_KEYSTORE_BASE64 decoded to an empty file"; exit 1; }
+
+          # A truncated secret or a wrong password fails here, saying which,
+          # rather than surfacing later as an opaque Gradle signing error.
+          # `keytool -list` prints the store's contents, so its output is
+          # discarded; only the exit status is used.
+          keytool -list -keystore "$STORE" -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1 \
+            || { echo "::error::the decoded keystore did not open with FAMILYOS_KEYSTORE_PASSWORD"; exit 1; }
+
+          echo "keystore=$STORE" >> "$GITHUB_OUTPUT"
+          echo "decoded a keystore for signing"
+
       - name: Build both release APKs
         working-directory: android
         # Release, not debug. A debug build carries android:debuggable="true",
@@ -95,7 +134,9 @@ jobs:
         # distributable and Play will reject it; it is still not debuggable,
         # which is the part that mattered.
         env:
-          FAMILYOS_KEYSTORE: ${{ secrets.FAMILYOS_KEYSTORE_PATH }}
+          # Empty when the step above found no secret, which is what makes
+          # `build.gradle` take the debug-key fallback.
+          FAMILYOS_KEYSTORE: ${{ steps.signing.outputs.keystore }}
           FAMILYOS_KEYSTORE_PASSWORD: ${{ secrets.FAMILYOS_KEYSTORE_PASSWORD }}
           FAMILYOS_KEY_ALIAS: ${{ secrets.FAMILYOS_KEY_ALIAS }}
           FAMILYOS_KEY_PASSWORD: ${{ secrets.FAMILYOS_KEY_PASSWORD }}
