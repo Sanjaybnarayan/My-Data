@@ -2,6 +2,21 @@
 
 State as audited at `68b9b65`. Findings only — nothing was changed.
 
+> **This is a dated snapshot, not the current posture.** It is kept as written
+> because rewriting a dated audit in place destroys the record of what was true
+> when. Three of the weaknesses numbered below have since been fixed —
+> authorisation *is* enforced server-side by the generated `Policy.gs`, the
+> deployment *does* rate-limit, and `index.html` *does* carry a CSP.
+>
+> For what is true now, read **`docs/THREAT_MODEL.md`** (the standing register
+> of what remains, with residual risk per row) and
+> **`docs/REMEDIATION_REPORT.md`** (what changed, what is still open, and what
+> could not be checked without a device).
+>
+> The hazard this note fixes is the filename. Somebody looking for the current
+> security posture opens `SECURITY.md`, and three of its headline weaknesses
+> are history.
+
 ## What is sound
 
 - **WebCrypto throughout.** AES-256-GCM, PBKDF2 at 600,000 rounds, WebAuthn
