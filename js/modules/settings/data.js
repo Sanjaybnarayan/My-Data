@@ -4,6 +4,7 @@
  */
 
 import { ACTIONS } from '../../data/audit.js';
+import { CODE_METHOD } from '../../security/codeescrow.js';
 import { ArchiveService } from '../../services/archive.js';
 import { card, cardHeader, button, badge, listItem, empty, metric, progress } from '../../ui/components/basics.js';
 import { download } from '../reports.js';
@@ -83,9 +84,22 @@ export function dataCard(db, stats, usage) {
 const ERASE_WORD = 'ERASE';
 
 async function eraseEverything(db) {
+  /*
+   * The escrow is named only when there is one, and it is a local read: the
+   * keyring's own method list, no network, on a path that must not hang.
+   */
+  const escrowed = (await db.keyring.methods())
+    .some((one) => one.method === CODE_METHOD);
+
   const ok = await confirm({
     title: t('settings.data.eraseTitle'),
-    message: t('settings.data.eraseMessage'),
+    // Joined rather than interpolated: a template literal holding two routed
+    // calls still reads as an English sentence to `tools/strings.mjs`, and
+    // would put the unrouted ratchet up for a string that is entirely routed.
+    message: [
+      t('settings.data.eraseMessage'),
+      ...(escrowed ? [t('settings.data.eraseEscrow')] : []),
+    ].join(' '),
     confirmLabel: t('settings.data.eraseConfirm'),
     danger: true,
   });
