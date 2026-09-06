@@ -612,7 +612,7 @@ Following the brief's phase structure, restricted to what exists here:
 | 2 | Threat model | **Done** (§7) |
 | 3 | OTP security | **OTP-01 and OTP-02 done** — this row read *already met* until §10's concurrency requirement was tested rather than read, and read *done* again until the ten-minute life of a code was tested rather than read: forty-nine checks and not one moved the clock, so a wrong guess buying the code another ten minutes went unseen. The escrow is documented in `docs/SIGN_IN_BY_CODE.md` |
 | 4 | Session / token | TOK-01 **done** |
-| 5 | Android secure storage | TOK-01 **done** in-repo. A Keystore-backed bridge would be stronger still and is not built |
+| 5 | Android secure storage | TOK-01 **done** in-repo, and this row understated the rest: a Keystore-backed bridge **is** built. `BiometricPlugin.java` seals the bytes that wrap the data key with an AES key generated *inside* the Android Keystore — non-exportable, `setUserAuthenticationRequired(true)`, `setInvalidatedByBiometricEnrollment(true)`. Those four properties were the plugin's whole argument and were held up by a comment; `tests/native.test.mjs` holds them now. **What is still not device-bound is the PIN path** — see below |
 | 6 | Network security | Already met |
 | 7 | Chat identity separation | Already met — chat uses person ids, not phone numbers |
 | 8 | Chat authorisation | CHAT-01 **done**, CHAT-02 **done** — and the blocker was a defect: nobody had a server-side `personId` at all |
@@ -639,6 +639,22 @@ word. Integrity attestation would need a Play-distributed build and a server
 that verifies the token it returns, and neither exists. It is listed here
 because leaving it off the table was the misleading part; putting a date on it
 would be the next mistake.
+
+**Phase 5's remaining gap is the PIN, not the Keystore.** The biometric path
+is hardware-bound and always was; this row simply had not been re-read. What
+is *not* bound to the device is the ordinary PIN wrap: the KEK is derived by
+PBKDF2 alone, so a copy of IndexedDB lifted off a phone can be attacked
+offline, on any machine, with no hardware involved. That is `T1.2` in
+`docs/THREAT_MODEL.md` and the largest single residual in the whole register.
+
+Binding it would mean wrapping the PIN-derived KEK with a Keystore key as
+well, so the ciphertext could only be opened on the device that made it. It is
+a real improvement and it is **not** being done unilaterally, for two reasons.
+It changes the key hierarchy, which needs a migration for every household
+already enrolled. And it trades an offline-brute-force risk for a lockout
+risk: a device reset or an invalidated key would leave the recovery phrase as
+the only way back in, which is what the phrase is for — but that is a decision
+about what a household loses, not a patch. Proposed, not merged.
 
 **Phase 12 is partial, and the split is worth naming.** What exists is
 static: the backend's own `.gs` files are loaded and driven through `doPost` by

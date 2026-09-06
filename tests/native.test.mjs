@@ -1132,3 +1132,87 @@ describe('fingerprint unlock, and what it says when it cannot', () => {
     assert.ok(/PIN/.test(said), said);
   });
 });
+
+/**
+ * The Keystore key spec, which is the whole of the biometric plugin's argument.
+ *
+ * `BiometricPlugin.java` stores 32 bytes that wrap the household data key, and
+ * everything that makes that safe is four lines of `KeyGenParameterSpec`. The
+ * class comment sets out the reasoning at length — non-exportable, unusable
+ * without a fresh biometric authentication, destroyed the moment a new
+ * fingerprint is enrolled — and **nothing checked that the code still said it**.
+ *
+ * That is the same shape as the transport tests above: a security property
+ * held up by a comment. Deleting `setUserAuthenticationRequired(true)` would
+ * leave the plugin compiling, the tests passing, the comment still describing
+ * a guarantee, and the sealed bytes openable by anything on the device that
+ * can reach the Keystore alias.
+ *
+ * These read the source rather than run it. Nothing here can execute Android
+ * code, and asserting on the text of a spec builder is a weaker claim than
+ * running it — but it is the difference between a property that fails loudly
+ * when removed and one that fails silently, which is the difference this file
+ * exists for.
+ */
+describe('what protects the bytes that unlock a household', () => {
+  const source = () => readFile(
+    join(ROOT, 'android/app/src/main/java/com/familyos/app/BiometricPlugin.java'), 'utf8');
+
+  test('the key is unusable without a fresh authentication', async () => {
+    assert.includes(await source(), '.setUserAuthenticationRequired(true)',
+      'the Keystore key no longer requires authentication — the sealed bytes '
+      + 'become openable by anything on the device that can reach the alias');
+  });
+
+  test('and dies when a new fingerprint is enrolled', async () => {
+    /*
+     * The one that is easy to argue away as inconvenient. Without it, somebody
+     * who can add a fingerprint to an unlocked device thereby gains a door
+     * into the household's records — which is precisely the person this is
+     * meant to keep out.
+     */
+    assert.includes(await source(), '.setInvalidatedByBiometricEnrollment(true)',
+      'a new fingerprint no longer destroys the key — adding one becomes a way in');
+  });
+
+  test('the cipher is authenticated, not just encrypted', async () => {
+    // GCM with no padding. A block mode change here turns a forgery the
+    // library would reject into one it would decrypt.
+    const java = await source();
+    assert.includes(java, 'KeyProperties.BLOCK_MODE_GCM');
+    assert.includes(java, 'KeyProperties.ENCRYPTION_PADDING_NONE');
+  });
+
+  test('the key is generated in the Keystore rather than handed to it', async () => {
+    /*
+     * `AndroidKeyStore` as the generator's provider is what makes the key
+     * non-exportable: it is created inside the secure hardware and never
+     * exists as bytes anywhere this code could read. A key generated normally
+     * and then imported would satisfy every other assertion here and be worth
+     * far less.
+     */
+    const java = await source();
+    assert.includes(java, 'AndroidKeyStore');
+    assert.ok(/KeyGenerator\.getInstance\([^)]*,\s*KEYSTORE\s*\)/.test(java)
+      || /KeyGenerator\.getInstance\([^)]*,\s*"AndroidKeyStore"\s*\)/.test(java),
+      'the AES key is not generated with the AndroidKeyStore provider, so it '
+      + 'may exist as extractable bytes before it reaches the Keystore');
+  });
+
+  test('an invalidated key is reported as its own case, not as a generic failure', async () => {
+    /*
+     * `KeyPermanentlyInvalidatedException` means "a fingerprint was added and
+     * the key is gone", and the person needs to be told to re-enrol rather
+     * than shown a failure they cannot act on. Collapsing it into the generic
+     * catch would leave them with a button that does nothing and no reason.
+     */
+    assert.includes(await source(), 'KeyPermanentlyInvalidatedException');
+  });
+
+  test('only strong biometrics may gate it', async () => {
+    // A class-2 sensor cannot gate a Keystore key at all; naming BIOMETRIC_STRONG
+    // is what keeps a face-unlock that Android rates as weak from being offered
+    // as though it were equivalent.
+    assert.includes(await source(), 'BiometricManager.Authenticators.BIOMETRIC_STRONG');
+  });
+});
