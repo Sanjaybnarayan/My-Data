@@ -220,6 +220,36 @@ async function main() {
     check('and the keypad is still the way in',
       (await page.locator('.keypad').count()) === 1);
 
+    /*
+     * Four digits is refused, and the refusal is the encryption's strength.
+     *
+     * A four-digit PIN is ten thousand candidates, about 13.3 bits.
+     * `security/crypto.js` states the consequence plainly — "no iteration
+     * count fixes that against an attacker who has the wrapped key" — and the
+     * keyring's 600,000 PBKDF2 iterations turn that into roughly 6e9 hashes,
+     * minutes to hours on one GPU against a store lifted off a rooted or
+     * imaged device. Six digits is a million candidates and the same attack
+     * costs a hundred times as much.
+     *
+     * Typed through the real keypad rather than asserted against the constant,
+     * because the constant was already right in one of the two places it is
+     * read and wrong in the other: `renderDots` took the same name and would
+     * have thrown a ReferenceError on the first keypress had the rename not
+     * reached it.
+     */
+    for (const digit of '4829') await page.getByRole('button', { name: digit, exact: true }).click();
+    await page.getByRole('button', { name: 'Done' }).click();
+    await page.waitForTimeout(200);
+    check('a four-digit PIN is refused when choosing one',
+      (await page.locator('.lock-card p[role="status"]').innerText()).includes('at least 6'),
+      await page.locator('.lock-card p[role="status"]').innerText());
+
+    // Clear it, so the digits below start fresh. 'Backspace' is the key's own
+    // aria-label in \`auth/lock.js\`, not a guess at one.
+    for (let i = 0; i < 4; i += 1) {
+      await page.getByRole('button', { name: 'Backspace', exact: true }).click();
+    }
+
     for (const digit of PIN) await page.getByRole('button', { name: digit, exact: true }).click();
     await page.getByRole('button', { name: 'Done' }).click();
     await page.waitForTimeout(200);

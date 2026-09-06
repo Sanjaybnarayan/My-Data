@@ -44,8 +44,60 @@ export function lockNow(db) {
   globalThis.location.reload();
 }
 
-const PIN_LENGTH_MIN = 4;
+/*
+ * Two floors, and the difference between them is somebody's records.
+ *
+ * A four-digit PIN is ten thousand candidates — about 13.3 bits.
+ * `security/crypto.js` says what that means and does not soften it: "no
+ * iteration count fixes that against an attacker who has the wrapped key".
+ * The keyring stretches at 600,000 PBKDF2-SHA256 iterations, which is current
+ * OWASP guidance and still only buys time: ten thousand candidates is roughly
+ * 6e9 hashes, an order of minutes to hours on one GPU against an IndexedDB
+ * store lifted off a rooted or imaged device. Six digits is a million
+ * candidates, ~19.9 bits, and the same attack costs a hundred times as much.
+ *
+ * `AttemptLimiter` does not cover this and is not meant to. Its five attempts
+ * guard the keypad; an attacker with the store never touches the keypad, and
+ * the limiter's own state is unsigned JSON in `localStorage`. The floor below
+ * is the defence, together with `allowBackup="false"` in the manifest, which
+ * is there for exactly this reason.
+ *
+ * ## Why unlocking keeps the old floor
+ *
+ * Raising one shared constant would have been a one-line change and would have
+ * locked every existing household out of its own records: this check runs on
+ * unlock as well as enrolment, so a household whose PIN is four digits could
+ * no longer type it. Not "would have to reset" — there is no PIN-change screen
+ * and the recovery phrase is the only way back, which many will have filed
+ * somewhere they cannot reach.
+ *
+ * So the new floor applies where a PIN is *chosen* and the old one where a PIN
+ * already chosen is *typed*. An existing four-digit PIN keeps working; every
+ * PIN made from here is six digits or more.
+ */
+const PIN_LENGTH_MIN_NEW = 6;
+const PIN_LENGTH_MIN_EXISTING = 4;
 const PIN_LENGTH_MAX = 12;
+
+/**
+ * The floor a PIN must clear, which depends on whether it is being chosen.
+ *
+ * Exported, and a named function rather than a ternary inside `submit`,
+ * because the dangerous mistake here is invisible in a diff. Raising the floor
+ * for `unlock` as well as `enrol` looks like tightening security and is
+ * instead a permanent lockout for every household whose PIN predates the
+ * change — there is no PIN-change screen, so the recovery phrase is the only
+ * way back, and many will have filed it somewhere they cannot reach.
+ *
+ * Written inline it passed every check in this repository. `tests/security.test.mjs`
+ * pins it now, in both directions, because a tripwire on the *value* of the
+ * new floor says nothing about which mode it is applied to.
+ *
+ * @param {'unlock'|'enrol'} mode
+ */
+export function pinFloor(mode) {
+  return mode === 'enrol' ? PIN_LENGTH_MIN_NEW : PIN_LENGTH_MIN_EXISTING;
+}
 
 /**
  * @param {{keyring, limiter, biometricCredentialId?: string,
@@ -76,8 +128,17 @@ export function lockScreen({
   const card = h('div', { class: 'lock-card' });
   const root = h('div', { class: 'lock-screen' }, card);
 
+  /*
+   * How many dots stand empty before anything is typed.
+   *
+   * The mode's own floor, so enrolment shows six and says with its shape what
+   * the message below would otherwise have to say twice. Unlock shows four —
+   * the length an existing PIN may be — and grows as digits arrive.
+   */
+  const dotFloor = pinFloor(mode);
+
   function renderDots() {
-    replace(dots, Array.from({ length: Math.max(PIN_LENGTH_MIN, pin.length) }, (_, i) => h('span', {
+    replace(dots, Array.from({ length: Math.max(dotFloor, pin.length) }, (_, i) => h('span', {
       class: 'pin-dot',
       dataset: { filled: String(i < pin.length) },
     })));
@@ -116,8 +177,9 @@ export function lockScreen({
   }
 
   async function submit() {
-    if (pin.length < PIN_LENGTH_MIN) {
-      reject(`A PIN is at least ${PIN_LENGTH_MIN} digits.`);
+    const floor = pinFloor(mode);
+    if (pin.length < floor) {
+      reject(`A PIN is at least ${floor} digits.`);
       return;
     }
 

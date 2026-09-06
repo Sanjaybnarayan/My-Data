@@ -97,9 +97,13 @@ Two Android settings are deliberate rather than inherited:
 - `android:allowBackup="false"`. Android's auto-backup copies the app's data
   directory — the household's records and the wrapped key material — to the
   account holder's Drive. The wrapping is only as strong as what wraps it, and
-  `auth/lock.js` allows a four-digit PIN: ten thousand candidates between an
-  exfiltrated store and the records in it. The keypad is rate-limited; a copy
-  of the file is not.
+  `auth/lock.js` requires six digits of a PIN being chosen — a million
+  candidates between an exfiltrated store and the records in it — and still
+  accepts four from a household enrolled before that floor was raised, which is
+  ten thousand. The same check runs on unlock, so raising one shared constant
+  would have locked those households out of their own records; there is no
+  PIN-change screen and the recovery phrase would have been the only way back.
+  The keypad is rate-limited; a copy of the file is not.
 
   **The cost is larger here than on the web, and worth reading twice.** On a
   native build there is no backup at all today: the recovery phrase restores a

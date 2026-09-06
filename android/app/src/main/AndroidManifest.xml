@@ -9,8 +9,13 @@
       account holder's Drive. For FamilyOS that directory is the WebView's
       IndexedDB: a household's records, and the wrapped key material beside
       them. The wrapping is sound, and it is only as strong as what wraps it —
-      `auth/lock.js` allows a PIN of four digits, so ten thousand candidates
-      stand between an exfiltrated store and the records in it. Rate limiting
+      `auth/lock.js` requires six digits of a PIN being chosen — a million
+      candidates between an exfiltrated store and the records in it — but still
+      accepts four from a household that enrolled before that floor was raised,
+      because the same check runs on unlock and raising one shared constant
+      would have locked those households out of their own records. So the
+      exposure this argues about is ten thousand candidates for them and a
+      million for everybody since. Rate limiting
       guards the keypad, not a copy of the file. An application whose premise
       is "encrypted, on this device" should not put that copy on somebody
       else's server by default.

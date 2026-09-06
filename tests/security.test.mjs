@@ -20,6 +20,7 @@ import {
   sanitizeHtml, escapeHtml,
 } from '../js/security/sanitize.js';
 import { modules, entities, entitiesOfModule, entityNames, ROLES } from '../js/data/schema.js';
+import { pinFloor } from '../js/auth/lock.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -841,5 +842,43 @@ describe('who may open a secret without saying so', () => {
     const inTitles = timeline.slice(timeline.indexOf('async #titles('));
     assert.includes(inTitles, 'logRead: false',
       'the suppressed read must be the one made to name a record');
+  });
+});
+
+/* ------------------------------------------------------------- PIN floors */
+
+describe('the floor a PIN has to clear', () => {
+  /*
+   * A four-digit PIN is ten thousand candidates, about 13.3 bits.
+   * `security/crypto.js` refuses to soften what that means — "no iteration
+   * count fixes that against an attacker who has the wrapped key" — and the
+   * keyring's 600,000 PBKDF2-SHA256 iterations turn ten thousand candidates
+   * into roughly 6e9 hashes: minutes to hours on one GPU, against an
+   * IndexedDB store lifted off a rooted or imaged device. Six digits is a
+   * million candidates and costs a hundred times as much.
+   */
+  test('a PIN being chosen is six digits', () => {
+    assert.equal(pinFloor('enrol'), 6);
+  });
+
+  /*
+   * And the half that is easy to break by "tightening" it.
+   *
+   * The same length check runs on unlock. Applying the new floor there too
+   * looks like the stricter reading and is a permanent lockout for every
+   * household whose PIN predates the change: they could no longer type the
+   * PIN they have, there is no PIN-change screen, and the recovery phrase —
+   * filed once, on paper, often somewhere unreachable — is the only way back.
+   *
+   * This is here because the mistake survived everything else. Written inline
+   * as a ternary, changing it to the new floor for both modes passed all 3345
+   * node checks and the manifest tripwire alike: that tripwire pins the
+   * *value* of each floor and says nothing about which mode gets which.
+   */
+  test('but a PIN already chosen keeps the floor it was made under', () => {
+    assert.equal(pinFloor('unlock'), 4);
+    assert.notEqual(pinFloor('unlock'), pinFloor('enrol'),
+      'unlock must not inherit the raised floor — every household enrolled '
+      + 'before it was raised would be locked out of their own records');
   });
 });
