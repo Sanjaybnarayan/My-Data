@@ -156,6 +156,49 @@ function otpEnforceLimits(address) {
 }
 
 /**
+ * The ceiling on *checking* codes, which the request limits did not cover.
+ *
+ * `otpEnforceLimits` is charged when a code is sent and nowhere else, so the
+ * only thing bounding guesses was `OTP_MAX_ATTEMPTS` on the code itself. That
+ * holds — the dispatcher takes a script lock, so attempts are serialised and
+ * the counter cannot be raced — but it is one mechanism, and a six-digit code
+ * is a million candidates.
+ *
+ * The caps are derived rather than chosen, which is what makes them safe to
+ * add. A household can be sent at most `OTP_PER_ADDRESS` codes an hour, and
+ * each accepts at most `OTP_MAX_ATTEMPTS` guesses, so twenty-five verify calls
+ * an hour is the most that honest use can produce for one address. Anything
+ * beyond it is arithmetically abuse, and nobody legitimate can reach it
+ * without first hitting the send limit.
+ *
+ * Deliberately NOT the same counter as `otpEnforceLimits`. Charging verify
+ * attempts to the send budget would let five wrong guesses stop a household
+ * asking for a new code for an hour — a denial of service against the person
+ * being protected, dressed as a rate limit.
+ */
+function otpEnforceVerifyLimits(address) {
+  var cache = CacheService.getScriptCache();
+  var hour = Math.floor(Date.now() / 3600000);
+
+  // The global one first, for the reason `otpEnforceLimits` checks its own
+  // first: an attacker spreading guesses across addresses defeats a per-address
+  // cap entirely, and that is the shape the attack takes.
+  var globalKey = 'otp_try_all_' + hour;
+  var all = Number(cache.get(globalKey) || 0) + 1;
+  cache.put(globalKey, String(all), 3700);
+  if (all > OTP_PER_DEPLOYMENT * OTP_MAX_ATTEMPTS) {
+    throw fail('this deployment has checked too many codes in the last hour', 429);
+  }
+
+  var oneKey = otpKey('otp_try_' + hour + '_', address);
+  var one = Number(cache.get(oneKey) || 0) + 1;
+  cache.put(oneKey, String(one), 3700);
+  if (one > OTP_PER_ADDRESS * OTP_MAX_ATTEMPTS) {
+    throw fail('too many codes have been checked for that address — wait an hour', 429);
+  }
+}
+
+/**
  * Is this address one of the household's, and whose?
  *
  * A code is only ever sent to an address already recorded against a person.
@@ -295,6 +338,11 @@ function otpVerify(payload) {
   var address = otpNormalise(payload && payload.address);
   var code = String((payload && payload.code) || '');
   if (!address || !code) throw fail('an address and a code are needed', 400);
+
+  // Charged before the record is looked at, so an address that was never sent
+  // a code is throttled the same as one that was. Checking after the lookup
+  // would answer "does this address exist" in the shape of the response.
+  otpEnforceVerifyLimits(address);
 
   var cache = CacheService.getScriptCache();
   var key = otpKey('otp_code_', address);

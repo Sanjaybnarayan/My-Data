@@ -771,3 +771,53 @@ describe('two of them arriving at the same moment', () => {
     assert.equal(/busy/i.test(busy.error), true, busy.error);
   });
 });
+
+describe('how many codes may be checked, not just sent', () => {
+  /*
+   * `otpEnforceLimits` is charged when a code is sent and nowhere else, so
+   * until this the only thing bounding guesses was `OTP_MAX_ATTEMPTS` on the
+   * code itself. That holds — the dispatcher serialises verification under a
+   * script lock, so the counter cannot be raced — but it was the single
+   * mechanism standing between a guesser and a six-digit secret.
+   */
+  test('a deployment stops answering after the requests could have earned', () => {
+    const api = withOtp();
+    api.post('otp.request', '', { channel: 'email', address: 'asha@example.com' });
+
+    // Five sends an hour, five guesses each: twenty-five is the most honest
+    // use can produce for one address. The twenty-sixth is arithmetically
+    // somebody guessing.
+    let last = null;
+    for (let i = 0; i < 26; i += 1) {
+      last = api.post('otp.verify', '', { address: 'asha@example.com', code: '000000' });
+    }
+
+    assert.equal(last.ok, false);
+    assert.equal(last.status, 429);
+  });
+
+  /*
+   * And the half that matters more, because a rate limit that fires on honest
+   * use is a denial of service against the person it protects.
+   *
+   * Charging verify attempts to the *send* budget would have done exactly
+   * that: five wrong guesses would stop a household asking for a new code for
+   * an hour. The counters are separate, so a wrong guess must not consume a
+   * send.
+   */
+  test('and checking a code never spends the budget for sending one', () => {
+    const api = withOtp();
+    api.post('otp.request', '', { channel: 'email', address: 'asha@example.com' });
+
+    // Four wrong guesses — under the per-code cap, so the code survives.
+    for (let i = 0; i < 4; i += 1) {
+      api.post('otp.verify', '', { address: 'asha@example.com', code: '000000' });
+    }
+
+    // The household can still ask for another code.
+    const again = api.post('otp.request', '', {
+      channel: 'email', address: 'asha@example.com',
+    });
+    assert.equal(again.ok, true);
+  });
+});
