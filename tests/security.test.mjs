@@ -132,10 +132,15 @@ describe('keyring', () => {
 
   test('a weak PIN is refused', async () => {
     const ring = new Keyring(metaStore(), 1000);
-    await assert.throws(() => ring.enrolPin('111'), '4 to 12 digits');
-    await assert.throws(() => ring.enrolPin('1111'), 'repeated digit');
-    await assert.throws(() => ring.enrolPin('1234'), 'consecutive');
-    await assert.throws(() => ring.enrolPin('abc'), '4 to 12 digits');
+    // Six is the floor now, so four digits is refused on length before any
+    // of the shape rules are reached. The repeated-digit and consecutive-run
+    // cases are therefore written at six, or they would be testing the length
+    // check twice and the rules they name not at all.
+    await assert.throws(() => ring.enrolPin('11111'), '6 to 12 digits');
+    await assert.throws(() => ring.enrolPin('1234'), '6 to 12 digits');
+    await assert.throws(() => ring.enrolPin('111111'), 'repeated digit');
+    await assert.throws(() => ring.enrolPin('123456'), 'consecutive');
+    await assert.throws(() => ring.enrolPin('abc'), '6 to 12 digits');
   });
 
   test('locking really removes the ability to decrypt', async () => {
@@ -847,6 +852,74 @@ describe('who may open a secret without saying so', () => {
 
 /* ------------------------------------------------------------- PIN floors */
 
+describe('where the PIN floor is actually enforced', () => {
+  const keyringSource = () =>
+    readFileSync(join(ROOT, 'js/security/keyring.js'), 'utf8');
+
+  /*
+   * The hole this closes.
+   *
+   * Raising the floor in `js/auth/lock.js` raised it on the lock screen and
+   * nowhere else. Settings' "Change PIN" calls `keyring.changePin`, which
+   * validates through `assertPin` — and that still read four. So a household
+   * could set a four-digit PIN through Settings on the same build whose
+   * enrolment screen refused one, and the claim "a PIN being chosen must clear
+   * six" was false for the path most likely to be used by somebody acting on
+   * the advice to lengthen their PIN.
+   *
+   * It went unnoticed because the audit recorded "there is no PIN-change
+   * screen", which was simply wrong: `js/modules/settings/security.js` has had
+   * one. That sentence reached two security documents and a merged commit
+   * message before anybody opened the file.
+   */
+  test('the keyring refuses a five-digit PIN when one is chosen', async () => {
+    const ring = new Keyring(metaStore(), 1000);
+    await assert.throws(() => ring.enrolPin('12358'), '6 to 12 digits');
+  });
+
+  test('and refuses one on the change-PIN path too, not only at enrolment', async () => {
+    const ring = new Keyring(metaStore(), 1000);
+    await ring.enrolPin('482913');
+    await assert.throws(() => ring.changePin('482913', '12358'), '6 to 12 digits');
+  });
+
+  /*
+   * Two floors that must not drift.
+   *
+   * `lock.js` shapes the keypad and gives a message before submission;
+   * `keyring.js` decides. A UI floor with a lower floor behind it is not a
+   * floor, and a UI floor with a *higher* one behind it is a screen that
+   * accepts a PIN and then throws. Either way they have to agree.
+   */
+  test('the lock screen asks for exactly what the keyring will accept', () => {
+    const declared = /const PIN_DIGITS_MIN = (\d+);/.exec(keyringSource())?.[1];
+    assert.equal(Number(declared), pinFloor('enrol'),
+      'js/auth/lock.js and js/security/keyring.js disagree about the minimum '
+      + 'length of a new PIN');
+  });
+
+  /*
+   * And the reason raising it was safe at all.
+   *
+   * `unlockWithPin` does not validate shape — it derives a key and lets the
+   * unwrap fail. That is what lets an existing four-digit PIN keep working
+   * while a new one must be six. Adding a length check to the unlock path
+   * would lock every such household out of their own records, with no
+   * PIN-change screen reachable because they cannot get in to reach it.
+   */
+  test('but unlocking never validates the shape of a PIN', () => {
+    const source = keyringSource();
+    const unlock = source.slice(source.indexOf('async unlockWithPin('));
+    const body = unlock.slice(0, unlock.indexOf('\n  }'));
+
+    assert.not(/assertPin/.test(body),
+      'unlockWithPin validates the PIN shape — every household whose PIN '
+      + 'predates the raised floor would be locked out of their own records');
+  });
+});
+
+
+
 describe('the floor a PIN has to clear', () => {
   /*
    * A four-digit PIN is ten thousand candidates, about 13.3 bits.
@@ -867,8 +940,9 @@ describe('the floor a PIN has to clear', () => {
    * The same length check runs on unlock. Applying the new floor there too
    * looks like the stricter reading and is a permanent lockout for every
    * household whose PIN predates the change: they could no longer type the
-   * PIN they have, there is no PIN-change screen, and the recovery phrase —
-   * filed once, on paper, often somewhere unreachable — is the only way back.
+   * PIN they have, they cannot reach Settings' PIN-change screen to fix it
+   * without getting in first, and the recovery phrase — filed once, on paper,
+   * often somewhere unreachable — is the only way back.
    *
    * This is here because the mistake survived everything else. Written inline
    * as a ternary, changing it to the new floor for both modes passed all 3345

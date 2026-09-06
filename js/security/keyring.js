@@ -313,9 +313,40 @@ export class Keyring {
   }
 }
 
+/**
+ * The floor a PIN must clear, and the only place it is actually enforced.
+ *
+ * Six, not four. Ten thousand candidates is about 13.3 bits; a million is
+ * ~19.9, and the attack this governs — an IndexedDB store lifted off a device,
+ * brute-forced against 600,000 PBKDF2-SHA256 iterations — costs a hundred
+ * times as much for the second. The comment on `deriveKeyEncryptionKey` says
+ * why iterations alone cannot fix the first.
+ *
+ * `js/auth/lock.js` has a `pinFloor` of its own. That one shapes the keypad
+ * and gives a message before submission; this one decides. They are checked
+ * against each other in `tests/security.test.mjs`, because a UI floor with a
+ * lower floor behind it is not a floor — which is exactly what shipped: the
+ * lock screen was raised to six and Settings' "Change PIN" still went through
+ * here, accepting four.
+ *
+ * ## Called when a PIN is chosen, never when one is typed
+ *
+ * Both call sites — `enrolPin` and `changePin` — are somebody *choosing* a
+ * PIN. `unlockWithPin` deliberately does not validate shape: it derives a key
+ * and lets the unwrap fail. That is what makes raising this floor safe. A
+ * household whose PIN predates the change keeps unlocking with it, and is
+ * asked for six only when they choose a new one. A check added to the unlock
+ * path would lock every one of them out of their own records, and a test in
+ * `tests/security.test.mjs` refuses it.
+ */
+const PIN_DIGITS_MIN = 6;
+const PIN_DIGITS_MAX = 12;
+
 function assertPin(pin) {
-  if (typeof pin !== 'string' || !/^\d{4,12}$/.test(pin)) {
-    throw new AppError('a PIN must be 4 to 12 digits', { code: 'weak-pin' });
+  if (typeof pin !== 'string'
+    || !new RegExp(`^\\d{${PIN_DIGITS_MIN},${PIN_DIGITS_MAX}}$`).test(pin)) {
+    throw new AppError(
+      `a PIN must be ${PIN_DIGITS_MIN} to ${PIN_DIGITS_MAX} digits`, { code: 'weak-pin' });
   }
   if (/^(\d)\1+$/.test(pin)) {
     throw new AppError('a PIN of one repeated digit is guessed first', { code: 'weak-pin' });

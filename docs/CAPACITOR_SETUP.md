@@ -102,7 +102,8 @@ Two Android settings are deliberate rather than inherited:
   accepts four from a household enrolled before that floor was raised, which is
   ten thousand. The same check runs on unlock, so raising one shared constant
   would have locked those households out of their own records; there is no
-  PIN-change screen and the recovery phrase would have been the only way back.
+  way to reach Settings' PIN-change screen, since reaching it requires getting
+  in, and the recovery phrase would have been the only way back.
   The keypad is rate-limited; a copy of the file is not.
 
   **The cost is larger here than on the web, and worth reading twice.** On a

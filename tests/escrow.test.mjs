@@ -359,7 +359,7 @@ describe('turning Continue with Google on from Settings', () => {
     // so there was no path from "set up with a PIN" to "also use Google".
     const drive = fakeDrive();
     const keyring = new Keyring(meta(), 1000);
-    await keyring.enrolPin('4913');
+    await keyring.enrolPin('491337');
 
     const { outcome } = await linkExistingDevice(keyring, drive.escrow(), 'a@example.com');
 
@@ -370,7 +370,7 @@ describe('turning Continue with Google on from Settings', () => {
   test('and a new phone can then join that household', async () => {
     const drive = fakeDrive();
     const desktop = new Keyring(meta(), 1000);
-    await desktop.enrolPin('4913');
+    await desktop.enrolPin('491337');
     await linkExistingDevice(desktop, drive.escrow(), '');
 
     const phone = new Keyring(meta(), 1000);
@@ -390,7 +390,7 @@ describe('turning Continue with Google on from Settings', () => {
     const before = JSON.parse([...drive.files.values()].find(Boolean));
 
     const mine = new Keyring(meta(), 1000);
-    await mine.enrolPin('4913');
+    await mine.enrolPin('491337');
 
     await assert.throws(
       () => linkExistingDevice(mine, drive.escrow(), 'me@example.com'),
@@ -407,7 +407,7 @@ describe('turning Continue with Google on from Settings', () => {
     await drive.seed('tok', false, null);
 
     const keyring = new Keyring(meta(), 1000);
-    await keyring.enrolPin('4913');
+    await keyring.enrolPin('491337');
     const { outcome } = await linkExistingDevice(keyring, drive.escrow(), '');
 
     assert.equal(outcome, 'published');
@@ -417,7 +417,7 @@ describe('turning Continue with Google on from Settings', () => {
   test('turning it off locally leaves every other device working', async () => {
     const drive = fakeDrive();
     const keyring = new Keyring(meta(), 1000);
-    await keyring.enrolPin('4913');
+    await keyring.enrolPin('491337');
     await linkExistingDevice(keyring, drive.escrow(), '');
 
     await unlinkGoogleUnlock(keyring, null);
