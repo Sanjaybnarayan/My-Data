@@ -82,9 +82,24 @@ jobs:
       # Both flavours. `standard` is the one that installs: Play Protect
       # blocks a sideloaded app asking for READ_SMS outright, which was making
       # every other feature in this build unreachable on a phone.
-      - name: Build both debug APKs
+      - name: Build both release APKs
         working-directory: android
-        run: ./gradlew assembleStandardDebug assembleSmsDebug --no-daemon --stacktrace
+        # Release, not debug. A debug build carries android:debuggable="true",
+        # which lets `adb run-as com.familyos.app` read the WebView's IndexedDB
+        # — records and wrapped key material — off an unrooted phone with only
+        # USB debugging on. Every APK this workflow ever handed anybody was a
+        # debug build. See the `release` block in android/app/build.gradle.
+        #
+        # Signed with the household keystore when the secrets below are set,
+        # and with the SDK debug key when they are not. The fallback is not
+        # distributable and Play will reject it; it is still not debuggable,
+        # which is the part that mattered.
+        env:
+          FAMILYOS_KEYSTORE: ${{ secrets.FAMILYOS_KEYSTORE_PATH }}
+          FAMILYOS_KEYSTORE_PASSWORD: ${{ secrets.FAMILYOS_KEYSTORE_PASSWORD }}
+          FAMILYOS_KEY_ALIAS: ${{ secrets.FAMILYOS_KEY_ALIAS }}
+          FAMILYOS_KEY_PASSWORD: ${{ secrets.FAMILYOS_KEY_PASSWORD }}
+        run: ./gradlew assembleStandardRelease assembleSmsRelease --no-daemon --stacktrace
 
       - name: Say what came out
         run: |
@@ -128,6 +143,33 @@ jobs:
             || { echo "::error::the app window is not adjustResize (${MODE:-unset}) — the keyboard will pan the window on some devices"; exit 1; }
           echo "the app window resizes for the keyboard"
 
+      # The whole reason this workflow builds `release` rather than `debug`.
+      #
+      # `android:debuggable="true"` is injected by AGP into a debug build and
+      # permits `adb run-as com.familyos.app` on an unrooted phone, which reads
+      # the WebView's IndexedDB: a household's records and the wrapped key
+      # material beside them. Read out of the BUILT APK rather than grepped for
+      # in source, because a build type or a merged library manifest can put
+      # the attribute back and a source grep would never know — which is
+      # exactly how the debug build went unnoticed for as long as it did.
+      #
+      # aapt2 prints the attribute only when it is present, so its absence is
+      # the pass. `grep -q` on the tree would invert that and pass on a typo.
+      - name: Check the shipped APK is not debuggable
+        run: |
+          AAPT=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" \
+            -name aapt2 | sort | tail -1)
+          for APK in $(find android/app/build/outputs/apk -name '*.apk'); do
+            echo "reading $APK"
+            TREE=$("$AAPT" dump xmltree --file AndroidManifest.xml "$APK")
+            if echo "$TREE" | grep -qi 'debuggable'; then
+              echo "$TREE" | grep -i 'debuggable'
+              echo "::error::$APK is debuggable — adb run-as can read the encrypted store off an unrooted phone"
+              exit 1
+            fi
+          done
+          echo "neither APK is debuggable"
+
       - name: And that the sms flavour still has it
         run: |
           AAPT=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools"             -name aapt2 | sort | tail -1)
@@ -148,14 +190,17 @@ jobs:
       - name: Name the files after what they do
         run: |
           mkdir -p upload/install upload/sms
-          cp android/app/build/outputs/apk/standard/debug/*.apk \
+          cp android/app/build/outputs/apk/standard/release/*.apk \
              upload/install/familyos-INSTALL-THIS.apk
-          cp android/app/build/outputs/apk/sms/debug/*.apk \
+          cp android/app/build/outputs/apk/sms/release/*.apk \
              upload/sms/familyos-sms-BLOCKED-BY-PLAY-PROTECT.apk
           ls -lh upload/install upload/sms
 
-      # THIS is the one to install. Debug build, standard debug key — fine for
-      # trying, not for distributing.
+      # THIS is the one to install. A release build: not debuggable, so the
+      # store cannot be pulled off the phone with `adb run-as`. Whether it is
+      # *distributable* depends on the signing key — with no household keystore
+      # configured it carries the SDK debug key, which Play will not accept and
+      # which gives no upgrade integrity.
       - uses: actions/upload-artifact@v4
         with:
           name: 1-INSTALL-THIS-familyos
