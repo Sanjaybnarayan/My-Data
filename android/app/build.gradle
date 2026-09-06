@@ -73,8 +73,11 @@ dependencies {
     implementation "androidx.biometric:biometric:$androidxBiometricVersion"
     // On-device text recognition, for photographs and scanned PDFs. Bundled,
     // so it works with no network and no Play Services — see variables.gradle.
-    // Adds roughly 4 MB to the APK, which is the price of the Scan button
-    // producing something rather than nothing.
+    // Measured across the CI builds either side of this line, it takes the APK
+    // from 5.4 MB to 23.9 MB — about 18.5 MB, four times the whole rest of the
+    // application, which is the real price of the Scan button producing
+    // something rather than nothing. An earlier version of this comment
+    // guessed 4 MB and was never checked against a built APK.
     implementation "com.google.mlkit:text-recognition:$mlkitTextRecognitionVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"

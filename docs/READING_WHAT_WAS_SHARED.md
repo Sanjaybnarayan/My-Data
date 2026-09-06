@@ -131,18 +131,32 @@ bill, produce nothing at all until the phone had signal.
 
 ### The engine, and the one that was rejected
 
-**ML Kit Latin text recognition, bundled into the APK.** Roughly 4 MB, runs
-entirely on the device, and needs no Play Services — which matters, because
-this is a sideloaded build. The Play Services variant downloads its model on
-first use and would put the network back in the path this removes.
+**ML Kit Latin text recognition, bundled into the APK.** It runs entirely on
+the device and needs no Play Services — which matters, because this is a
+sideloaded build. The Play Services variant downloads its model on first use
+and would put the network back in the path this removes.
 
-`tesseract.js` was the alternative. `package.json` states *"The application
-itself has no dependencies and no build step"*; there is no bundler to load a
-WASM module through, and the CSP is `script-src 'self'` with no
-`wasm-unsafe-eval`. Vendoring roughly fifteen megabytes of engine and language
-data into the repository to avoid a four-megabyte native dependency was the
-worse trade, and it would have been a JavaScript dependency in an application
-that has none.
+It is not cheap. Measured on the two CI builds either side of the change, the
+APK went from **5.4 MB to 23.9 MB** — the recogniser and its model add about
+**18.5 MB**, and nothing else in that release is large enough to matter. An
+earlier draft of this page, the comment in `android/app/build.gradle` and the
+docblock in `js/core/ocr.js` all said "roughly 4 MB", which was an estimate
+nobody had checked against a built APK. Downloading four times the application
+to read a photograph is a real cost to a household on a metered connection,
+and it is the reason this is worth stating in the place the decision is
+recorded rather than discovering it on a phone.
+
+`tesseract.js` was the alternative, and it was rejected on grounds that have
+nothing to do with size. `package.json` states *"The application itself has no
+dependencies and no build step"*; there is no bundler to load a WASM module
+through, and the CSP is `script-src 'self'` with no `wasm-unsafe-eval`. It
+would have been a JavaScript dependency, and a vendored build artefact, in an
+application that has neither.
+
+The size argument would now run the other way — roughly fifteen megabytes of
+vendored engine and language data against ML Kit's eighteen and a half — so it
+is not offered here. It was offered in an earlier draft, resting on the four-
+megabyte estimate, and that comparison was wrong.
 
 ### Scanned PDFs, by a different route
 
