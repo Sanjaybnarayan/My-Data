@@ -275,6 +275,39 @@ describe('what the workflow actually hands somebody', () => {
   });
 
   /*
+   * The keystore has to actually exist on the runner.
+   *
+   * The first version of this workflow passed `secrets.FAMILYOS_KEYSTORE_PATH`
+   * to Gradle as a path and nothing ever wrote a file there. A GitHub secret
+   * holds text, not a binary `.jks`. With no secrets configured the debug-key
+   * fallback hid it completely — and that was the only path CI had ever run —
+   * so the signed build would have failed on a missing file the first time
+   * anybody supplied real credentials, which is the moment it matters most.
+   *
+   * What this pins is the shape of the fix rather than its wording: the
+   * keystore arrives base64-encoded, is decoded to a file, and Gradle is
+   * handed the path of that file rather than the contents of a secret.
+   */
+  test('materialises the keystore before handing Gradle a path', async () => {
+    const yml = await workflow();
+
+    assert.ok(/FAMILYOS_KEYSTORE_BASE64/.test(yml),
+      'the keystore is no longer supplied base64-encoded — a GitHub secret '
+      + 'cannot hold a binary .jks');
+
+    assert.ok(/base64\s+-d/.test(yml),
+      'nothing decodes the keystore secret to a file on the runner');
+
+    assert.ok(/FAMILYOS_KEYSTORE:\s*\$\{\{\s*steps\./.test(yml),
+      'Gradle is being handed something other than the path of the file the '
+      + 'decode step wrote');
+
+    assert.not(/FAMILYOS_KEYSTORE:\s*\$\{\{\s*secrets\./.test(yml),
+      'a secret is being passed to Gradle as a filesystem path again — that '
+      + 'is the bug this test exists for');
+  });
+
+  /*
    * Signing is supplied from outside the repository or falls back to the debug
    * key. Nothing here invents a keystore; what this pins is that the release
    * type has *a* signing configuration at all, since an unsigned release APK
