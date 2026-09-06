@@ -15,9 +15,11 @@
  * downloaded on first use. `tesseract.js` was the alternative and was
  * rejected: `package.json` says this application has no dependencies and no
  * build step, there is no bundler to load a WASM module through, and the CSP
- * is `script-src 'self'` with no `wasm-unsafe-eval`. Vendoring fifteen
- * megabytes of engine and language data to avoid a four-megabyte native
- * dependency would have been the worse trade.
+ * is `script-src 'self'` with no `wasm-unsafe-eval`. Not on size — bundling
+ * ML Kit takes the APK from 5.4 MB to 23.9 MB, which is more than the fifteen
+ * megabytes of vendored engine and language data `tesseract.js` would have
+ * cost. An earlier version of this docblock made the size argument off a
+ * four-megabyte estimate, and had it backwards.
  *
  * Scanned PDFs go through the same plugin by a different route: `pdf-read.js`
  * is a text extractor with no rasteriser, and Android has had one since API 21
