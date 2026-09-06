@@ -201,7 +201,7 @@ describe('turning it on and off, from an unlocked device', () => {
     const transport = fakeTransport();
     const escrow = new CodeEscrow({ transport });
     const keyring = new Keyring(meta(), 1000);
-    await keyring.enrolPin('4913');
+    await keyring.enrolPin('491337');
 
     const rawKey = mintRawKey();
     await keyring.addMethod(CODE_METHOD, { rawKey, label: 'asha@example.com' });

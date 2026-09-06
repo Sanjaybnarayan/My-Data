@@ -67,9 +67,14 @@ export function lockNow(db) {
  * Raising one shared constant would have been a one-line change and would have
  * locked every existing household out of its own records: this check runs on
  * unlock as well as enrolment, so a household whose PIN is four digits could
- * no longer type it. Not "would have to reset" — there is no PIN-change screen
- * and the recovery phrase is the only way back, which many will have filed
- * somewhere they cannot reach.
+ * no longer type it. Not "would have to reset": a household that cannot get
+ * in cannot reach Settings' "Change PIN" either, so the recovery phrase would
+ * be the only way back — filed once, on paper, often somewhere unreachable.
+ *
+ * (An earlier version of this paragraph said there is no PIN-change screen at
+ * all. There is, in `js/modules/settings/security.js`, and believing otherwise
+ * is why the raised floor was missed on that path for a release: it validates
+ * through `keyring.assertPin`, which still read four.)
  *
  * So the new floor applies where a PIN is *chosen* and the old one where a PIN
  * already chosen is *typed*. An existing four-digit PIN keeps working; every
@@ -86,8 +91,9 @@ const PIN_LENGTH_MAX = 12;
  * because the dangerous mistake here is invisible in a diff. Raising the floor
  * for `unlock` as well as `enrol` looks like tightening security and is
  * instead a permanent lockout for every household whose PIN predates the
- * change — there is no PIN-change screen, so the recovery phrase is the only
- * way back, and many will have filed it somewhere they cannot reach.
+ * change, and a household locked out cannot reach the PIN-change screen in
+ * Settings to fix it — the recovery phrase would be the only way back, and
+ * many will have filed it somewhere they cannot reach.
  *
  * Written inline it passed every check in this repository. `tests/security.test.mjs`
  * pins it now, in both directions, because a tripwire on the *value* of the
