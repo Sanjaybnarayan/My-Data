@@ -403,6 +403,92 @@ describe('pulling', () => {
   });
 });
 
+/* ------------------------------- what the backend does NOT know about chat */
+
+/**
+ * Conversation membership is not a server-side boundary, and this says so.
+ *
+ * A characterisation test, not an aspiration. `Policy.gs` grants `message`
+ * read and write to owner, spouse, adult and child as a blanket rule, and
+ * `message` is absent from `OWN_RECORD` — which only ever *widens* what a
+ * blanket rule allows and can never refuse. Nothing in `sheetPush` or
+ * `sheetPull` knows who is in a conversation.
+ *
+ * So a household member outside a conversation is pulled its rows and may
+ * write into it. What stops them reading anything is `js/security/e2ee.js`,
+ * which seals per recipient device and says in its own opening that the
+ * contents are not readable by "a household member outside the conversation".
+ * The confidentiality is carried by the encryption; the backend is not
+ * carrying it and does not claim to.
+ *
+ * Written down for two reasons. The audit called this "not applicable — no
+ * backend", which was wrong twice over: there *is* a backend, and it *does*
+ * authorise, it simply does not model conversations. And if somebody later
+ * teaches it to, these assertions fail — which is the correct outcome, and the
+ * signal to come and delete them.
+ *
+ * `docs/THREAT_MODEL.md` T4.6 carries the residual risk.
+ */
+describe('the backend does not know who is in a conversation', () => {
+  const MSG = ['_id', '_rev', '_updatedAt', '_deletedAt', 'conversation', 'sender'];
+  const map = { message: 'ChatMessages' };
+
+  // Positional, matching MSG — `fakeBook` hands `getValues` back exactly what
+  // it is given, and a sheet row is an array of cells, not an object.
+  const rows = [
+    ['m1', 1, '2026-08-01T00:00:00.000Z', '', 'parents-only', 'p-mum'],
+    ['m2', 1, '2026-08-02T00:00:00.000Z', '', 'parents-only', 'p-dad'],
+  ];
+  const book = () => fakeBook(['ChatMessages'], { headers: MSG, rows });
+
+  test('a child is pulled a conversation they are not part of', () => {
+    // Metadata, not contents: who is talking to whom, when, and how much.
+    const out = sheets(map).sheetPull({}, 100, book(),
+      { role: 'child', personId: 'p-kid' });
+
+    assert.length(out.records.message, 2,
+      'membership is enforced on pull now — delete this test and T4.6');
+    assert.equal(out.records.message[0].conversation, 'parents-only');
+  });
+
+  test('and may write into it, so long as they do not forge the sender', () => {
+    const result = sheets(map).sheetPush(
+      [{
+        store: 'message',
+        op: 'put',
+        recordId: 'm3',
+        rev: 1,
+        payload: { conversation: 'parents-only', sender: 'p-kid' },
+      }],
+      book(),
+      { role: 'child', personId: 'p-kid' },
+    );
+
+    assert.length(result.rejected, 0,
+      'membership is enforced on push now — delete this test and T4.6');
+    assert.length(result.applied, 1);
+  });
+
+  test('the one thing that IS narrowed is who the message is from', () => {
+    // The boundary that does exist, asserted beside the one that does not, so
+    // the pair cannot be misread as "chat is unauthorised".
+    const result = sheets(map).sheetPush(
+      [{
+        store: 'message',
+        op: 'put',
+        recordId: 'm4',
+        rev: 1,
+        payload: { conversation: 'parents-only', sender: 'p-mum' },
+      }],
+      book(),
+      { role: 'child', personId: 'p-kid' },
+    );
+
+    assert.length(result.applied, 0);
+    assert.length(result.rejected, 1);
+  });
+});
+
 /* ------------------------------------------- who a message may be sent as */
 
 describe('a message may only be sent as the person the account belongs to', () => {

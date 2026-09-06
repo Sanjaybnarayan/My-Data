@@ -28,7 +28,7 @@ held by a test that fails when the fix is reverted.
 | **#242** | No threat model, no data inventory, and §37 recorded only as "not started". | `docs/THREAT_MODEL.md` and `docs/DATA_INVENTORY.md`, each with a ratchet that fails when the document stops describing the code. |
 | **#244** | A request body of the four bytes `null` parsed, then threw reading `.token` — answering an unauthenticated caller with a V8 internal message, a 500, and `retryable: true`. An unknown action was echoed back at whatever length it arrived, 100,000 characters included. | A shape check on the parsed body, and a bound on the echo. Found by **fuzzing `doPost`**, not by reading it — `tests/fuzz.test.mjs`. |
 
-Checks went from **3339 to 3434** across the run — 95 new ones, every one of
+Checks went from **3339 to 3438** across the run — 99 new ones, every one of
 them written to fail against a specific reverted behaviour rather than to
 raise a count.
 
@@ -47,6 +47,7 @@ threat model gives each a row with its residual risk stated.
 | **R8 is off** | `minifyEnabled false`, argued rather than defaulted: Capacitor resolves plugins by reflection, and nothing here can verify on a device that they still resolve when minified. |
 | **The Capacitor dependency surface** | Eight runtime packages compiled into the APK, no lockfile audit, no pinning beyond the caret. The PWA has no dependencies; the Android build is a different supply chain. **T2.4** |
 | **92.7% of fields are plaintext** | In IndexedDB and in the backup Sheet. Reading the Sheet is reading the records. This is the largest exposure in the model and it is architectural. **T5.1** |
+| **Conversation membership is not server-side** | `Policy.gs` grants `message` to four roles blanket and knows nothing about who is in a conversation. E2EE holds the contents; the metadata and the ability to write into any conversation are not held by anything. Closing it means teaching the backend what a conversation's membership is — a schema change, and a decision rather than a patch. **T4.6** |
 | **Two Play policy items** | `READ_SMS` in the `sms` flavour, and the background-location declaration. Both need a human decision, not code. |
 
 ## What could not be checked from here
