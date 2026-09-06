@@ -49,10 +49,94 @@ android {
         }
     }
 
-    buildTypes {
+    /*
+     * Signing material comes from outside this file, or not at all.
+     *
+     * Nothing here invents a keystore. A release build is signed with the
+     * household's own key when one is supplied — by environment variable in
+     * CI, or `~/.gradle/gradle.properties` locally — and falls back to the
+     * SDK's debug key when none is, so the pipeline still produces something
+     * installable rather than an unsigned APK nobody can put on a phone.
+     *
+     *     FAMILYOS_KEYSTORE           path to the .jks
+     *     FAMILYOS_KEYSTORE_PASSWORD
+     *     FAMILYOS_KEY_ALIAS
+     *     FAMILYOS_KEY_PASSWORD
+     *
+     * The fallback is a real limitation and is printed at configuration time
+     * rather than left to be discovered: the debug key's private half ships
+     * with Android Studio, so a build signed with it has no upgrade integrity
+     * and Play will not accept it. What the fallback still buys is the thing
+     * that actually mattered — see the `release` build type below.
+     */
+    signingConfigs {
         release {
+            def store = System.getenv("FAMILYOS_KEYSTORE") ?: findProperty("familyos.keystore")
+            if (store) {
+                storeFile file(store)
+                storePassword System.getenv("FAMILYOS_KEYSTORE_PASSWORD") ?: findProperty("familyos.keystorePassword")
+                keyAlias System.getenv("FAMILYOS_KEY_ALIAS") ?: findProperty("familyos.keyAlias")
+                keyPassword System.getenv("FAMILYOS_KEY_PASSWORD") ?: findProperty("familyos.keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        /*
+         * The build type that ships, and why it is not the debug one.
+         *
+         * Every APK this repository has ever handed anybody was
+         * `assembleStandardDebug` — the artifact is still named
+         * `1-INSTALL-THIS-familyos` — and the Android Gradle Plugin injects
+         * `android:debuggable="true"` into a debug build.
+         *
+         * That one attribute permits `adb run-as com.familyos.app` to read the
+         * application's private data directory on an UNROOTED phone with only
+         * USB debugging switched on. That directory is the WebView's
+         * IndexedDB: a household's records and the wrapped key material beside
+         * them. It also lets a debugger attach to the process while it holds
+         * the decrypted data key.
+         *
+         * It is the same exposure `capacitor.config.ts` sets
+         * `webContentsDebuggingEnabled: false` to avoid, in its own words —
+         * "A debuggable WebView lets anything with adb attach to a process
+         * holding a decrypted data key" — reopened by the build type after the
+         * configuration closed it. A release build carries no such flag, which
+         * is what the fallback signing above still buys even without a
+         * household keystore.
+         *
+         * `.github/workflows/android.yml` reads the attribute back out of the
+         * built APK with aapt2, because a build type or a merged library
+         * manifest can put it back and no source grep would know.
+         */
+        release {
+            /*
+             * R8 stays off, deliberately, and this is the one place it is
+             * argued rather than defaulted.
+             *
+             * Capacitor resolves plugins by reflection over `@CapacitorPlugin`
+             * annotations, so shrinking without the right keep rules produces
+             * an APK that builds, links, installs, and then cannot find a
+             * single native plugin — no OCR, no biometrics, no share target.
+             * CI can prove it compiles; nothing available here can prove the
+             * bridge still resolves on a device.
+             *
+             * The security value is small either way: `docs/` and the audit
+             * both record that there are no secrets in this APK to hide, and
+             * obfuscation is not a secret-protection control. The cost of
+             * getting it wrong is every native feature, silently, in the build
+             * a household installs. So it waits for somebody who can run the
+             * result on a phone, and the size win waits with it.
+             */
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+
+            def store = System.getenv("FAMILYOS_KEYSTORE") ?: findProperty("familyos.keystore")
+            signingConfig store ? signingConfigs.release : signingConfigs.debug
+            if (!store) {
+                println "familyos: no FAMILYOS_KEYSTORE — signing release with the debug key. " +
+                        "Not debuggable, so adb run-as is refused; not distributable, and Play will reject it."
+            }
         }
     }
 }

@@ -227,6 +227,75 @@ describe('the allowBackup decision', () => {
   });
 });
 
+describe('what the workflow actually hands somebody', () => {
+  const workflow = () =>
+    readFile(join(ROOT, '.github/workflows/android.yml'), 'utf8');
+  const gradle = () =>
+    readFile(join(ROOT, 'android/app/build.gradle'), 'utf8');
+
+  /*
+   * Every APK this repository ever handed anybody was `assembleStandardDebug`,
+   * uploaded under the name `1-INSTALL-THIS-familyos`, for as long as the
+   * workflow has existed. The Android Gradle Plugin injects
+   * `android:debuggable="true"` into a debug build, and that one attribute
+   * permits `adb run-as com.familyos.app` on an UNROOTED phone: it reads the
+   * WebView's IndexedDB, which is a household's records and the wrapped key
+   * material beside them.
+   *
+   * The workflow reads the attribute back out of the built APK with aapt2,
+   * which is the check that cannot be fooled by a merged manifest. This one is
+   * a source tripwire in front of it, because that step only runs where an
+   * Android SDK exists and this suite runs everywhere.
+   */
+  test('builds release APKs, not debug ones', async () => {
+    const yml = await workflow();
+
+    assert.ok(/assembleStandardRelease/.test(yml),
+      'the workflow no longer builds a release APK — a debug build carries '
+      + 'android:debuggable="true", and adb run-as then reads the encrypted '
+      + 'store off an unrooted phone');
+
+    assert.not(/assemble\w*Debug/.test(yml),
+      'the workflow builds a debug APK again');
+  });
+
+  test('and uploads the release output rather than the debug output', async () => {
+    const yml = await workflow();
+    assert.ok(/outputs\/apk\/standard\/release\//.test(yml),
+      'the installable artifact is no longer copied from the release output');
+    assert.not(/outputs\/apk\/\w+\/debug\//.test(yml),
+      'a debug output is being packaged for upload again');
+  });
+
+  test('and keeps the check that reads debuggable out of the built APK', async () => {
+    const yml = await workflow();
+    assert.ok(/is not debuggable/.test(yml) && /aapt2/.test(yml),
+      'the not-debuggable check has gone — a merged library manifest can put '
+      + 'the attribute back and no source grep would know');
+  });
+
+  /*
+   * Signing is supplied from outside the repository or falls back to the debug
+   * key. Nothing here invents a keystore; what this pins is that the release
+   * type has *a* signing configuration at all, since an unsigned release APK
+   * cannot be installed and would quietly break the one flow a household uses.
+   */
+  test('signs the release build from configuration, never a committed key', async () => {
+    const build = await gradle();
+
+    assert.ok(/signingConfigs\s*\{[\s\S]*release\s*\{/.test(build),
+      'the release signing configuration has gone');
+    assert.ok(/FAMILYOS_KEYSTORE/.test(build),
+      'the release build no longer reads a keystore from the environment');
+    assert.ok(/signingConfig\s+store\s*\?/.test(build),
+      'the release build type no longer chooses a signing config');
+
+    assert.not(/storeFile\s+file\(['"][^)]*\.jks['"]\)/.test(build),
+      'a keystore path is hard-coded in build.gradle — signing material '
+      + 'belongs in the environment, never in the repository');
+  });
+});
+
 describe('the Android resource directories', () => {
   test('name their qualifiers in the order Android demands', async () => {
     // Android fixes this order and rejects anything else outright: orientation,
