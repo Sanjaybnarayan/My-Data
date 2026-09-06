@@ -9,6 +9,7 @@
 import { h, replace } from '../ui/dom.js';
 import { card, cardHeader, badge, pageHeader, listItem } from '../ui/components/basics.js';
 import { listSection, recordDetail } from './crud.js';
+import { centreChosen } from '../ui/components/slidingrow.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { entitiesOfModule } from '../data/schema.js';
@@ -34,16 +35,39 @@ export async function render(route) {
   replace(host, [
     pageHeader('Belongings', { subtitle: 'What the household owns, and what still has cover' }),
     coverCard(state),
-    h('div', { class: 'tabs' }, entitiesOfModule('belongings').map((def) => h('a', {
-      class: ['tab', def.name === active && 'tab--active'],
-      href: Router.href({ module: 'belongings', entity: def.name }),
-      // `aria-current="page"` carries the active state for assistive technology.
-      // The CSS class conveys it visually; screen readers cannot see CSS.
-      'aria-current': def.name === active ? 'page' : null,
-    }, def.labels.many))),
+    tabStrip(active),
     section.node,
   ]);
   return { node: host, destroy: section.destroy };
+}
+
+/**
+ * The tab strip, with the label in a box of its own.
+ *
+ * This row slides — two tabs fit, but the schema decides how many there are —
+ * and every sliding row in the application turns like a wheel seen edge-on.
+ * That turn is a transform, and `getBoundingClientRect` reports the
+ * transformed box, so putting it on the link itself would take the tap target
+ * with it: a 44px control at 0.82 measures 36px and stops being one, which
+ * `tests/browser.mjs` checks at 390px and at 320px rather than trusting a
+ * comment like this one.
+ *
+ * So the link keeps its full box and receives the tap; `.tab-face` carries the
+ * rule, the colour and the turn. Identical in shape to `chipFace` and to
+ * Finance's `.finance-nav-face`, for the same reason in all three.
+ */
+function tabStrip(active) {
+  const row = h('div', { class: 'tabs' }, entitiesOfModule('belongings').map((def) => h('a', {
+    class: ['tab', def.name === active && 'tab--active'],
+    href: Router.href({ module: 'belongings', entity: def.name }),
+    // `aria-current="page"` carries the active state for assistive technology.
+    // The CSS class conveys it visually; screen readers cannot see CSS.
+    'aria-current': def.name === active ? 'page' : null,
+  }, h('span', { class: 'tab-face' }, def.labels.many))));
+
+  // The chosen tab to the middle, the same as every other sliding row.
+  centreChosen(row);
+  return row;
 }
 
 function coverCard(state) {

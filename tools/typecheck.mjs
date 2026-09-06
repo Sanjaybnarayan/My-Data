@@ -57,6 +57,43 @@ if (configErrors.length) {
   process.exit(2);
 }
 
+/*
+ * Neither is a file that would not parse, and this one had teeth.
+ *
+ * `tsc` stops semantic analysis on a source file it cannot parse. One broken
+ * import — a line inserted into the middle of a multi-line `import { … }` in
+ * `js/modules/calendar.js` — took the whole run from 156 findings to **five**,
+ * all of them TS1003/TS1005/TS1109 parse errors on that one file, and this
+ * script printed `5 type findings (budget 155)` and exited 0.
+ *
+ * A budget compares a number against a ceiling, so the one failure it cannot
+ * see is the one that makes the number *smaller*. The application was broken —
+ * Calendar would not have loaded at all — and the check that exists to catch
+ * exactly that reported a pass with 150 to spare.
+ *
+ * TS1xxx is the syntax range. There is no budget for it: a file that does not
+ * parse is not a finding, it is the check not having run.
+ *
+ * TS1064 is the exception and is excluded by name. It is the JSDoc complaint
+ * that an `async` function's `@returns` should be written `Promise<T>` — a
+ * semantic quibble filed in the syntax range, which stops no parse and which
+ * this repository carries two of, in `js/security/crypto.js` and
+ * `js/sync/drive.js`. Without the exclusion this guard fails on a clean tree,
+ * which is how it was first written and how it was caught. Any other TS1xxx
+ * that turns out to be survivable belongs on this list beside it, with the
+ * same kind of note; the default stays "a TS1xxx means the parser gave up".
+ */
+const SURVIVABLE = new Set(['TS1064']);
+const syntaxErrors = lines.filter((line) => {
+  const code = / error (TS1\d{3}): /.exec(line)?.[1];
+  return code !== undefined && !SURVIVABLE.has(code);
+});
+if (syntaxErrors.length) {
+  console.error('A source file could not be parsed, so nothing else was checked:\n');
+  for (const line of syntaxErrors.slice(0, 10)) console.error(`  ${line}`);
+  process.exit(2);
+}
+
 const budget = JSON.parse(readFileSync(BUDGET_FILE, 'utf8'));
 
 if (process.argv.includes('--update')) {

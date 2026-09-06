@@ -203,6 +203,7 @@ const SHELL = [
   './js/ui/components/charts.js',
   './js/ui/components/form.js',
   './js/ui/components/modal.js',
+  './js/ui/components/slidingrow.js',
   './js/ui/components/table.js',
   './js/ui/components/syncstatus.js',
   './js/ui/components/toast.js',

@@ -4682,9 +4682,32 @@ async function main() {
         JSON.stringify(allTaps.filter((one) => one.tapHeight < 44)
           .map((one) => [one.label, one.tapHeight])));
 
-      check('and every face is actually turned by it',
-        allTaps.every((one) => one.turned),
-        JSON.stringify(allTaps.filter((one) => !one.turned).map((one) => one.label)));
+      /*
+       * Turned, except the one you are on.
+       *
+       * This asserted that *every* face turns, chosen included — which is what
+       * the wheel did, and what made it wrong. An item can only come square-on
+       * if the row can scroll it to the middle, and the first item never can:
+       * centring an 84px chip at 390px wants a `scrollLeft` of −108px, and
+       * scroll offsets do not go negative. So a chosen first item — Settings
+       * opens on General, Health on its first entity, every filter row on All
+       * — was drawn at 0.81 scale and turned 46° away, permanently, by an
+       * effect whose stated purpose is that the chosen thing faces you.
+       *
+       * Both halves are asserted, and neither passes alone. Without the first,
+       * deleting the wheel outright would pass; without the second, the bug is
+       * back.
+       */
+      const unchosen = allTaps.filter((one) => !one.chosen);
+      const chosenFaces = allTaps.filter((one) => one.chosen);
+
+      check('every unchosen face is turned by the wheel',
+        unchosen.length > 0 && unchosen.every((one) => one.turned),
+        JSON.stringify(unchosen.filter((one) => !one.turned).map((one) => one.label)));
+
+      check('and the chosen face is not turned at all, so it faces the reader',
+        chosenFaces.length > 0 && chosenFaces.every((one) => !one.turned),
+        JSON.stringify(chosenFaces.map((one) => [one.label, one.turned])));
 
       /*
        * Receding, not merely dimmed once.
@@ -4712,6 +4735,46 @@ async function main() {
         allTaps.every((one) => one.opacity >= 0.7),
         JSON.stringify(allTaps.map((one) => [one.label, one.opacity.toFixed(2)])
           .filter(([, o]) => +o < 0.7)));
+
+      /*
+       * And none of it happens to somebody who asked for no motion.
+       *
+       * `css/tokens.css` answers `prefers-reduced-motion: reduce` by collapsing
+       * `--duration` to 0.01ms, under a comment reading "A person who has asked
+       * for less motion gets none of it. Not 'less' — none, because vestibular
+       * triggers are not a matter of degree." That covers every `transition`
+       * and nothing else — and the wheel is a scroll-driven `animation`, whose
+       * progress comes from the scrollport rather than from a duration. The
+       * token could not touch it.
+       *
+       * Measured before the fix, the same row under both settings returned
+       * byte-identical faces: scales 0.57 to 0.98, opacities 0.72 to 0.97.
+       *
+       * `emulateMedia` rather than a second context, because a new context
+       * would need the PIN enrolled again to reach a real screen. Restored
+       * immediately afterwards so nothing below inherits the setting.
+       */
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      const stilled = await page.evaluate(() => [...document.querySelectorAll(
+        '.finance-nav-face, .chip-row--scroll > .chip > .chip-face, .tab-face',
+      )].map((face) => getComputedStyle(face).animationName));
+      await page.emulateMedia({ reducedMotion: null });
+
+      check('the wheel does not turn for somebody who asked for less motion',
+        stilled.length > 0 && stilled.every((name) => name === 'none'),
+        JSON.stringify([...new Set(stilled)]));
+
+      // The mask is deliberately still there: it moves no content, and a row
+      // silently cut with no cue is a worse answer for everybody.
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      const stillMasked = await page.evaluate(() => {
+        const row = document.querySelector('.finance-nav-groups');
+        return row ? getComputedStyle(row).maskImage : '';
+      });
+      await page.emulateMedia({ reducedMotion: null });
+
+      check('but the edge fade stays, because it says where the row continues',
+        /gradient/.test(stillMasked), stillMasked.slice(0, 60));
 
       /* Sliding, not wrapping: seventeen sections used to wrap onto four lines. */
       check('both rows slide sideways instead of wrapping',
@@ -9135,6 +9198,82 @@ async function main() {
       });
       check('the active belongings tab is marked aria-current',
         activeBelongingsTab !== null, `active tab: ${activeBelongingsTab}`);
+
+      /*
+       * The row `docs/ONE_WHEEL_EVERYWHERE.md` counted seven of and rolled out
+       * to six.
+       *
+       * `.tabs` sits in the edge-fade list beside the chip rows and Finance's
+       * pair, so this strip faded at its edges exactly like its neighbours and
+       * was the only sliding row in the application never given the turn. Not
+       * argued against anywhere — simply absent from the one `@supports` block
+       * that grants it, which is a difference no amount of reading the rollout
+       * would surface and no amount of looking at the two screens would miss.
+       *
+       * Measured at 390px, where the strip actually slides: the wheel is gated
+       * below 900px, so a desktop viewport would report `none` here and prove
+       * nothing.
+       */
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/belongings/purchase');
+      await page.waitForTimeout(400);
+      const tabWheel = await page.evaluate(() => {
+        const faces = [...document.querySelectorAll('.tabs .tab-face')];
+        return {
+          faces: faces.length,
+          animated: faces.map((f) => getComputedStyle(f).animationName),
+          // The split the turn depends on: the link keeps its 44px box, the
+          // face inside it carries the transform.
+          tapHeights: [...document.querySelectorAll('.tabs .tab')]
+            .map((a) => Math.round(a.getBoundingClientRect().height)),
+        };
+      });
+      await page.setViewportSize({ width: 1280, height: 900 });
+
+      check('the belongings tab strip turns on the same wheel as every other row',
+        tabWheel.faces > 0 && tabWheel.animated.every((n) => n.startsWith('nav-wheel')),
+        JSON.stringify(tabWheel.animated));
+
+      check('and the turn does not cost the tab its 44px target',
+        tabWheel.tapHeights.length > 0 && tabWheel.tapHeights.every((n) => n >= 44),
+        JSON.stringify(tabWheel.tapHeights));
+
+      /*
+       * The half of the wheel that is not CSS.
+       *
+       * Finance scrolled its chosen item to the middle from the day the wheel
+       * was written — a bookmark into Conflicts opens with Conflicts on screen
+       * rather than at a row scrolled to its start with the answer off to the
+       * right. `docs/ONE_WHEEL_EVERYWHERE.md` rolled the *turn* out to six more
+       * rows and left that behind, so arriving at `#/settings/about` drew the
+       * row at position 0 with About off the right-hand edge: the screen said
+       * where you were everywhere except in the control whose job is saying so.
+       *
+       * `about` is the last of six groups, so it is the one that cannot be on
+       * screen by accident. Measured at 390px, where the row overflows.
+       */
+      await page.setViewportSize({ width: 390, height: 844 });
+      await go(page, '#/settings/about');
+      await page.waitForTimeout(500);
+      const centred = await page.evaluate(() => {
+        const row = document.querySelector('.settings-jump');
+        const chosen = row?.querySelector('[aria-current="page"]');
+        if (!row || !chosen) return null;
+        const rowBox = row.getBoundingClientRect();
+        const chosenBox = chosen.getBoundingClientRect();
+        return {
+          scrollLeft: Math.round(row.scrollLeft),
+          overflows: row.scrollWidth > row.clientWidth,
+          // Wholly inside the row's own box, which position 0 would not be.
+          visible: chosenBox.left >= rowBox.left - 1 && chosenBox.right <= rowBox.right + 1,
+          label: chosen.textContent?.trim(),
+        };
+      });
+      await page.setViewportSize({ width: 1280, height: 900 });
+
+      check('a sliding row arrives scrolled to the item it is on',
+        centred !== null && centred.overflows && centred.visible && centred.scrollLeft > 0,
+        JSON.stringify(centred));
 
       /*
        * Module chip navigation rows must use `role="group"` not `role="tablist"`.

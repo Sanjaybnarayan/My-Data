@@ -46,6 +46,7 @@ import { entityLabel } from '../core/labels.js';
 import { can } from '../security/rbac.js';
 import { HealthService } from '../services/health.js';
 import { CANNOT_SHOW } from '../domain/health.js';
+import { slidingRow } from '../ui/components/slidingrow.js';
 
 /*
  * How much of the Current card is drawn.
@@ -90,7 +91,7 @@ export async function render(route) {
     currentCard(current),
 
     entities.length > 1
-      ? h('div', { class: 'chip-row chip-row--scroll', role: 'group', 'aria-label': t('health.title') }, entities.map((one) => chip(
+      ? slidingRow({ role: 'group', 'aria-label': t('health.title') }, entities.map((one) => chip(
         entityLabel(one, 'many'),
         {
           pressed: one.name === chosen,

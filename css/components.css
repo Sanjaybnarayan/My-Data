@@ -772,6 +772,27 @@
     border-color var(--duration) var(--ease);
 }
 
+/*
+ * `no-preference`, not unconditional.
+ *
+ * `css/tokens.css` answers `prefers-reduced-motion: reduce` by collapsing
+ * `--duration` to 0.01ms, under a comment reading "A person who has asked for
+ * less motion gets none of it. Not 'less' — none, because vestibular triggers
+ * are not a matter of degree." That covers every `transition` in the
+ * application and nothing else — and the wheel is not a transition. It is a
+ * scroll-driven `animation`, whose progress comes from the scrollport rather
+ * than from a duration, so zeroing the token never touched it.
+ *
+ * Measured on a 390px viewport, the same eight-chip row under both settings,
+ * the computed faces came back byte-identical: scales 0.57 to 0.98, opacities
+ * 0.72 to 0.97. Eight chips rotating in 3D as the row is dragged is exactly
+ * the motion that sentence promises not to show, and it was showing.
+ *
+ * The mask below is deliberately *not* gated with it. It moves no content — it
+ * says which side of the row has more — and a row silently cut with no cue is
+ * a worse answer for everybody, including the person who asked for less.
+ */
+@media (prefers-reduced-motion: no-preference) {
 @supports (animation-timeline: view(inline)) {
   .finance-nav-face {
     animation: nav-wheel linear both;
@@ -781,6 +802,7 @@
   .finance-nav-section[aria-current='page'] .finance-nav-face {
     animation-name: nav-wheel-chosen;
   }
+}
 }
 
 /*
@@ -806,18 +828,37 @@
 }
 
 /*
- * The chosen one turns with the wheel but never dims.
+ * The chosen one faces you, wherever it happens to sit.
  *
- * It is the thing being read, and it is the only face here whose colours have
- * no headroom left: white on `--accent` measures 4.51:1, which is the floor
- * itself, so a single percent of fade puts the selection under the bar. The
- * unchosen faces carry the fade instead — which is what was asked for anyway:
- * *the selected one highlighted, the others faded.*
+ * It never dimmed — it is the only face here whose colours have no headroom
+ * left: white on `--accent` measures 4.51:1, the floor itself, so a single
+ * percent of fade puts the selection under the bar. But it *turned*, on the
+ * argument that it rides the same wheel as everything else, and that was the
+ * wrong call for a reason arithmetic settles rather than taste.
+ *
+ * An item can only come square-on if the row can scroll it to the middle. The
+ * first item never can: at 390px with an 84px chip, centring it wants a
+ * `scrollLeft` of **−108px**, and scroll offsets do not go negative. So the
+ * first chip sits at the left edge at **0.81 scale, turned 46° away** — and
+ * most of these rows open on their first item. Settings opens on General,
+ * Health on its first entity, every filter row on All.
+ *
+ * The selection was therefore drawn smaller and turned away from the reader,
+ * permanently, on the commonest view of six screens, by the very effect whose
+ * stated purpose is *the item in the middle faces you square-on*. Finance hid
+ * this from itself with a 4.5rem gutter that lets its first group reach the
+ * middle; the six rows the wheel was rolled out to have no gutter, and it went
+ * straight through.
+ *
+ * Holding the chosen face still fixes it at every scroll position and every
+ * row width, with no gutter and no script, and it reads as the selection
+ * standing out of the wheel toward you rather than riding it. The turn still
+ * belongs to everything you have *not* chosen, which is the whole of what the
+ * effect was ever asked to say.
  */
 @keyframes nav-wheel-chosen {
-  from { transform: rotateY(46deg)  scale(0.82); }
-  50%  { transform: rotateY(0)       scale(1); }
-  to   { transform: rotateY(-46deg)  scale(0.82); }
+  from { transform: none; }
+  to   { transform: none; }
 }
 
 /* ------------------------------------------------------------ the groups */
@@ -1039,12 +1080,20 @@
    * while Finance's turned. One treatment across every sliding row in the
    * application is the whole point of it being here rather than there.
    *
-   * `scroll-padding-inline` rather than the `padding-inline` gutter Finance
-   * uses. That gutter exists so the *first* item can reach the middle; these
-   * rows are not a hierarchy being read from the centre, they are filters
-   * sitting under a heading, and 4.5rem of blank before the first one would
-   * read as a missing control. `scroll-padding` moves where snapping lands
-   * without moving where the row starts.
+   * No gutter, deliberately, and no `scroll-padding-inline` either.
+   *
+   * This comment used to argue for `scroll-padding-inline` over Finance's
+   * 4.5rem `padding-inline` — a gutter here would read as a missing control
+   * rather than a centred one — and then never declared it. `getComputedStyle`
+   * reported `auto`. It would not have helped in any case: scroll padding
+   * insets the snapport, it does not add scrollable room, so the first item
+   * still could not have reached the middle.
+   *
+   * What actually answers it is two changes elsewhere. The chosen face no
+   * longer turns, so an item that cannot reach the middle is no longer drawn
+   * turned away while chosen; and `js/ui/components/slidingrow.js` scrolls
+   * whatever *is* chosen as near the middle as the row allows, which is what
+   * Finance had all along and these rows never got.
    */
   scroll-snap-type: x proximity;
   scroll-behavior: smooth;
@@ -1124,15 +1173,27 @@
  *
  * Finance's two rows are deliberately not gated — their centring gutter means
  * they overflow at every width, so the wheel always has something to express.
+ *
+ * That paragraph above describes this exact defect and then fixed half of it.
+ * Below 900px the row really does slide, so the gate lets the wheel through —
+ * and the leftmost chip is still usually the selected one, still drawn at the
+ * start of the timeline, still turned furthest away. Identity's "People" was
+ * fixed on a desktop and left exactly as it was on a phone, which is the
+ * screen it was reported on. Holding the chosen face still, in
+ * `nav-wheel-chosen`, is what closes it at every width.
+ *
+ * `prefers-reduced-motion` for the reason given at Finance's copy of this
+ * block: the token that answers it collapses durations, and a scroll-driven
+ * animation has no duration to collapse.
  */
-@media (max-width: 900px) {
+@media (max-width: 900px) and (prefers-reduced-motion: no-preference) {
 @supports (animation-timeline: view(inline)) {
   .chip-row--scroll > .chip > .chip-face {
     animation: nav-wheel linear both;
     animation-timeline: view(inline);
   }
   /*
-   * The chosen chip turns but never dims — `--accent-text` on
+   * The chosen chip neither turns nor dims — `--accent-text` on
    * `--accent-subtle` has no headroom to give, exactly as Finance's chosen
    * face has none, and the contrast walk reads effective opacity now.
    */
@@ -2077,34 +2138,80 @@ details.card > .card-summary-actions { margin: var(--space-3) 0; }
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   scrollbar-width: none;
+  /* The wheel's two prerequisites, matching `.chip-row--scroll` exactly. */
+  scroll-snap-type: x proximity;
+  scroll-behavior: smooth;
+  perspective: 20rem;
 }
 
 .tabs::-webkit-scrollbar { display: none; }
 
+/*
+ * The row `docs/ONE_WHEEL_EVERYWHERE.md` counted seven of and rolled out to
+ * six.
+ *
+ * `.tabs` is in the edge-fade list two hundred lines below with the chip rows
+ * and Finance's pair, so Belongings' strip fades at the edges exactly like its
+ * neighbours — and it was the only sliding row in the application never given
+ * the turn. Not argued against anywhere; simply absent from the one `@supports`
+ * block that grants it, which is a difference nobody could see by reading the
+ * rollout and nobody could miss by looking at the two screens side by side.
+ *
+ * It joins on the same terms as the chip rows: the control keeps an
+ * untransformed 44px box and the face carries everything visible, because
+ * `getBoundingClientRect` reports the transformed size and this repository
+ * measures that floor rather than claiming it.
+ */
 .tab {
   display: inline-flex;
   align-items: center;
   flex: none;
   min-height: 44px;
-  padding: 0 var(--space-4);
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
   text-decoration: none;
   font-size: var(--text-md);
+  scroll-snap-align: center;
+}
+
+.tab-face {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 var(--space-4);
+  border-bottom: 2px solid transparent;
+  /* Finance's value, for Finance's reason: a 42px face centred in a 44px
+     control puts its rule a pixel above where the control's own border used to
+     sit, and this puts it back. */
+  margin-bottom: -1px;
+  color: var(--text-muted);
   font-weight: 500;
   white-space: nowrap;
   transition: color var(--duration-fast) var(--ease),
               border-color var(--duration-fast) var(--ease);
 }
 
-.tab:hover { color: var(--text); }
+.tab:hover .tab-face { color: var(--text); }
 
 /* Selected is carried by weight and a rule as well as by colour, because
    colour alone is not a distinction for everyone reading this. */
-.tab--active {
+.tab--active .tab-face {
   color: var(--accent-text);
   border-bottom-color: var(--accent);
   font-weight: 600;
+}
+
+@media (max-width: 900px) and (prefers-reduced-motion: no-preference) {
+@supports (animation-timeline: view(inline)) {
+  .tab-face {
+    animation: nav-wheel linear both;
+    animation-timeline: view(inline);
+  }
+  /*
+   * `--accent-text` is this row's chosen colour and it is the same reading as
+   * everywhere else: the selection is the one face with no contrast headroom
+   * to spend, so it neither turns nor fades.
+   */
+  .tab--active .tab-face { animation-name: nav-wheel-chosen; }
+}
 }
 
 /* -------------------------------------------------------- touch minimums */

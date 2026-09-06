@@ -37,6 +37,7 @@ import { formatInstant } from '../core/dates.js';
 import { describe as describeAudit } from '../data/audit.js';
 import { t, noun } from '../core/locale.js';
 import { entityLabel, fieldLabel, moduleLabel } from '../core/labels.js';
+import { slidingRow } from '../ui/components/slidingrow.js';
 
 /**
  * @param {{module: string, entity?: string, id?: string}} route
@@ -69,7 +70,7 @@ async function moduleScreen(moduleDef, entities, entityName, route) {
   const section = await listSection(entityName, { autoOpenNew: route.id === 'new' });
 
   const tabs = entities.length > 1
-    ? h('div', { class: 'chip-row chip-row--scroll', role: 'group', 'aria-label': moduleLabel(moduleDef), style: { marginBottom: 'var(--space-4)' } },
+    ? slidingRow({ role: 'group', 'aria-label': moduleLabel(moduleDef), style: { marginBottom: 'var(--space-4)' } },
       entities.map((e) => chip(entityLabel(e, 'many'), {
         pressed: e.name === entityName,
         onClick: () => app().router.navigate({ module: moduleDef.id, entity: e.name }),

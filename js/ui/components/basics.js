@@ -150,6 +150,10 @@ export function chip(label, { pressed, onClick, iconName } = {}) {
  * solved this by splitting the control from its face; every sliding row does
  * the same now, which is what makes one treatment possible across all of them.
  *
+ * "Every" was not true when that was written — Belongings' `.tabs` strip had
+ * no face and never took the turn. It has one now, so the sentence holds and
+ * there are three faces: `.chip-face` here, `.finance-nav-face`, `.tab-face`.
+ *
  * Outside a sliding row this is inert: `.chip` keeps its own pill and the face
  * is a plain inline box, so a chip in an ordinary wrapping row is unchanged.
  *
