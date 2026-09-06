@@ -57,7 +57,7 @@ chose to name, not the corpus.
 
 | Threat | Vector | Likelihood | Impact | Mitigation | Residual risk |
 | --- | --- | --- | --- | --- | --- |
-| **T2.1** A modified build is installed | An APK repackaged with the checks removed, sideloaded or passed around | Low for a household app; the payoff is one family's records | The attacker's build does whatever they wrote | The release APK is signed; `.github/workflows/android.yml` fails the build if either flavour is debuggable, checked with `aapt2` against both manifests | **No Play Integrity, no attestation, no anti-tamper.** Nothing tells the backend which build is calling it. Section 37 is not implemented and is not claimed |
+| **T2.1** A modified build is installed | An APK repackaged with the checks removed, sideloaded or passed around | Low for a household app; the payoff is one family's records | The attacker's build does whatever they wrote | The release APK is signed; `.github/workflows/android.yml` fails the build if either flavour is debuggable, checked with `aapt2` against both manifests | **No Play Integrity, no attestation, no anti-tamper.** Nothing tells the backend which build is calling it. Section 37 is not implemented, and the appendix below says why it does not simply fit — verification needs a publisher-operated server this architecture deliberately lacks, and the `sms` flavour is sideload-only and cannot be attested at all |
 | **T2.2** Data pulled with `adb run-as` | A debuggable build on a machine the attacker has | Low — it needs a debuggable build **and** physical access | Full database extraction with no PIN | `android:debuggable` is absent from release, and CI proves it for both flavours | **A debug build, if one escapes.** The check exists because this is easy to regress and impossible to see by eye |
 | **T2.4** A compromised Capacitor dependency | `package.json` declares eight `@capacitor/*` runtime packages, pinned only to `^` ranges; they and their transitive dependencies are compiled into the APK | Low per-package, and there are more than eight of them once transitives are counted | Arbitrary code inside the app's own process, with the data key in scope | **None.** No lockfile audit, no provenance verification, no pinning beyond the caret | **This is an open gap, stated as one.** The PWA genuinely has no dependencies and that fact does not transfer to the Android build — the two are different supply chains and were nearly conflated in this document |
 | **T2.3** A malicious Apps Script paste | The setup asks a person to copy six `.gs` files by hand into their own project | Low, but the *consequence* is unusual | A backend that lies to its own household | `tests/docs.test.mjs` checks the file list in `docs/SETUP.md` against the directory, because that list was already wrong once | **Nothing verifies what was pasted.** There is no signature, no checksum, and no way for the app to tell an unmodified `Code.gs` from an edited one |
@@ -121,6 +121,41 @@ Named so their absence is a decision rather than an oversight.
   are compiled into the APK. Every one is a supply-chain surface the PWA does
   not have. That belongs in the model rather than outside it, and it is
   **T2.4** above.
+
+## Appendix — why T2.1 has no mitigation (section 37)
+
+The residual-risk cell on T2.1 says there is no Play Integrity and no
+attestation. `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md` already records phase 11
+as not started and declines to put a date on it. What neither says is *why the
+usual fix does not fit this architecture*, and that is worth writing down
+before somebody reads "not started" as "nobody got round to it".
+
+**Play Integrity produces a verdict that somebody else has to check.** The app
+asks Google for a signed token; the token is meaningless until a party holding
+credentials tied to the Play Console listing verifies it. That party is the
+app's *publisher*.
+
+FamilyOS has no publisher-operated server. The only backend is the Apps Script
+web app **each household deploys under its own Google account**, and that
+household does not hold the Play Console listing — so it cannot verify a
+verdict about the build it is running. Wiring one up would mean introducing a
+central service that every household's app reports to, which is precisely the
+thing this architecture exists without, and it would be a larger change to the
+privacy posture than the integrity check is worth.
+
+**And one of the two flavours cannot be attested at all.** `standard` is the
+build intended for Play; `sms` adds `READ_SMS`, which is a Play restricted
+permission, so it is sideload-only by construction —
+`docs/INSTALLABLE_BUILD.md` is about installing it past Play Protect. A build
+that is not distributed by Play has no Play-recognised installation to attest
+to, so an integrity check on it would fail structurally rather than detect
+anything.
+
+So section 37 is **not implemented, and it is not merely pending**. Doing it
+would require either a service this project does not have and has reasons not
+to want, or accepting that it protects one flavour and not the other. That is
+a decision for whoever owns the distribution, and it is recorded here as a
+decision rather than as a to-do.
 
 ## Stale claims found while writing this
 
