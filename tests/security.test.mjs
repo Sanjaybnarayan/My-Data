@@ -852,6 +852,56 @@ describe('who may open a secret without saying so', () => {
 
 /* ------------------------------------------------------------- PIN floors */
 
+describe('what erasing a device says about the key that survives it', () => {
+  /*
+   * "Erase FamilyOS from this device?" is honest about the Drive copy: it says
+   * in as many words that anything already synced stays in Google Sheets and
+   * Drive. A household reads that and concludes the remaining exposure is their
+   * own Google account.
+   *
+   * If sign-in by code is on, it is not. Their Apps Script deployment holds the
+   * wrapped data key *and*, in the same property store, the secret that unwraps
+   * it — `security/codeescrow.js` says so in its opening paragraphs. So the
+   * Drive copy that survives the wipe stays readable by that deployment, and
+   * the sentence naming Sheets and Drive is true and incomplete in the one
+   * place a household is deciding what remains.
+   *
+   * Erasing cannot remove it. `CodeEscrow#drop` is a network call, and this
+   * runs on a device that may be offline and is about to destroy its own keys;
+   * a best-effort drop that quietly failed would be worse than saying nothing,
+   * because the screen would then imply the key is gone. So the screen names
+   * the escrow and points at the switch instead.
+   *
+   * Source-level, because the sentence is assembled inside a modal flow. What
+   * it protects is that the warning cannot be deleted without a test going red
+   * — which is exactly what happened when it was written: removing it left all
+   * 3356 checks green.
+   */
+  const eraseSource = () =>
+    readFileSync(join(ROOT, 'js/modules/settings/data.js'), 'utf8');
+
+  test('names the code escrow when the household has one', () => {
+    const source = eraseSource();
+
+    assert.ok(/eraseEscrow/.test(source),
+      'the erase confirmation no longer mentions the code escrow — a household '
+      + 'wiping this device would not be told that a key which opens what stays '
+      + 'in Drive is still held by their Apps Script deployment');
+
+    assert.ok(/CODE_METHOD/.test(source),
+      'the erase flow no longer checks whether a code escrow exists');
+  });
+
+  test('and says it only when one exists', () => {
+    // Warning every household about an escrow most of them never turned on
+    // would be its own kind of dishonesty, and the noise costs the warning its
+    // force where it is true.
+    const source = eraseSource();
+    assert.ok(/escrowed\s*\?/.test(source),
+      'the escrow warning is no longer conditional on there being an escrow');
+  });
+});
+
 describe('where the PIN floor is actually enforced', () => {
   const keyringSource = () =>
     readFileSync(join(ROOT, 'js/security/keyring.js'), 'utf8');

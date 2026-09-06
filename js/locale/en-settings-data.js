@@ -29,6 +29,23 @@ export const settingsDataStrings = {
   'settings.data.eraseButton': 'Erase everything on this device',
   'settings.data.eraseTitle': 'Erase FamilyOS from this device?',
   'settings.data.eraseMessage': 'Every record, the encryption key and the queue are deleted from this browser. Anything already synced stays in your Google Sheets and Drive; anything not yet synced is gone for good. This cannot be undone.',
+  /*
+   * Said only when a code escrow actually exists, because it is the one thing
+   * left that can decrypt what stays behind.
+   *
+   * The message above is honest about the Drive copy surviving. It names Google
+   * Sheets and Drive and stops there — and a household reading it concludes the
+   * remaining exposure is their own Google account. If sign-in by code is on,
+   * their Apps Script deployment also holds the wrapped data key *and* the
+   * secret that unwraps it (see `security/codeescrow.js`), so the surviving
+   * Drive copy stays readable by that deployment after the device is wiped.
+   *
+   * Erasing cannot remove it: `CodeEscrow#drop` is a network call and this
+   * runs on a device that may be offline and is about to destroy its own keys.
+   * So the screen says where the switch is rather than pretending to have
+   * thrown it.
+   */
+  'settings.data.eraseEscrow': 'Signing in by code is on. Your Apps Script deployment holds a key that opens the records left in Drive, and erasing this device does not remove it. Turn it off under Security first if you want that key gone.',
   'settings.data.eraseConfirm': 'Erase everything',
   // `{word}` is the literal the code compares against, passed in rather than
   // written into the sentence: a translation that localised the word itself
