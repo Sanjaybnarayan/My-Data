@@ -189,13 +189,28 @@ describe('the allowBackup decision', () => {
     // This is a tripwire rather than an assertion about the right value.
     // Raising the minimum PIN length would be a good change; it would also make
     // two security documents wrong, and this is what says so.
+    //
+    // Two floors since the minimum was raised, and both belong here. A PIN
+    // being *chosen* must be six digits; a PIN already chosen may still be
+    // four, because this check runs on unlock too and raising one shared
+    // constant would have locked every existing household out of its own
+    // records. So the exposure the manifest argues about is still governed by
+    // the four, and the improvement is still governed by the six. A document
+    // quoting only one of them would be wrong about the other.
     const lock = await readFile(join(ROOT, 'js/auth/lock.js'), 'utf8');
-    const floor = Number(/const PIN_LENGTH_MIN = (\d+);/.exec(lock)?.[1]);
+    const chosen = Number(/const PIN_LENGTH_MIN_NEW = (\d+);/.exec(lock)?.[1]);
+    const existing = Number(/const PIN_LENGTH_MIN_EXISTING = (\d+);/.exec(lock)?.[1]);
 
-    assert.equal(floor, 4,
-      'the minimum PIN length changed — AndroidManifest.xml and '
-      + 'docs/CAPACITOR_SETUP.md both quote it as four digits, and ten thousand '
+    assert.equal(chosen, 6,
+      'the floor for a new PIN changed — AndroidManifest.xml and '
+      + 'docs/CAPACITOR_SETUP.md both quote it as six digits, and a million '
       + 'candidates. Update both, then update this test.');
+
+    assert.equal(existing, 4,
+      'the floor for an existing PIN changed — AndroidManifest.xml and '
+      + 'docs/CAPACITOR_SETUP.md both quote it as four digits, and ten thousand '
+      + 'candidates, because that is what an already-enrolled household may '
+      + 'still be using. Update both, then update this test.');
   });
 
   test('does not claim a backup that a native build has', async () => {
