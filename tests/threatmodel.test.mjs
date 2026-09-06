@@ -84,6 +84,43 @@ describe('the numbers the document quotes are the numbers in the code', () => {
   }
 });
 
+describe('the remediation report does not cite rows that are not there', () => {
+  /*
+   * `docs/REMEDIATION_REPORT.md` answers section 80 by listing what is still
+   * open and pointing each one at its row here — "**T1.2**", "**T2.4**". Those
+   * references are the only thing tying the two documents together, and a
+   * renumbered or deleted row breaks them silently: the report goes on citing
+   * an id that means nothing, which is worse than citing none, because it
+   * reads as though somebody checked.
+   */
+  const report = read('docs/REMEDIATION_REPORT.md');
+
+  /** Every `T<boundary>.<n>` the threat model actually defines a row for. */
+  const defined = new Set(
+    [...doc.matchAll(/\| \*\*(T\d+\.\d+)\*\*/g)].map((m) => m[1]),
+  );
+
+  /** Every one the report points at. */
+  const cited = [...new Set(
+    [...report.matchAll(/\*\*(T\d+\.\d+)\*\*/g)].map((m) => m[1]),
+  )].sort();
+
+  test('the threat model defines rows, so an empty scan cannot pass silently', () => {
+    assert.ok(defined.size >= 10, `only found ${defined.size} rows — the scan is broken`);
+  });
+
+  test('and the report cites some of them', () => {
+    assert.ok(cited.length >= 4, `only found ${cited.length} citations — the scan is broken`);
+  });
+
+  for (const id of cited) {
+    test(`${id} is a row that exists`, () => {
+      assert.ok(defined.has(id),
+        `docs/REMEDIATION_REPORT.md cites ${id}, which docs/THREAT_MODEL.md does not define`);
+    });
+  }
+});
+
 describe('the shape of the document', () => {
   /*
    * Section 3 of the brief asks for six named columns and this keeps them.

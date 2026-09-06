@@ -618,9 +618,9 @@ Following the brief's phase structure, restricted to what exists here:
 | 8 | Chat authorisation | CHAT-01 **done**, CHAT-02 **done** — and the blocker was a defect: nobody had a server-side `personId` at all |
 | 9 | Privacy / minimisation | PRIV-01 **done** — the rule is held by a test against the schema |
 | 10 | Play compliance | **PLAY-01** — needs a human decision |
-| 11 | Play Integrity / anti-abuse | **Not started.** Not partially, not planned — nothing in this repository mentions it |
+| 11 | Play Integrity / anti-abuse | **Not implemented, and now argued rather than blank.** `docs/THREAT_MODEL.md`'s appendix says why it does not simply fit: verification needs credentials tied to the Play Console listing, held by the publisher, and there is no publisher-operated server — only the deployment each household runs under its own account. The `sms` flavour is sideload-only by construction and cannot be attested at all. A decision, not a to-do |
 | 12 | Security testing | **Partial** — see below for exactly which half |
-| 13 | Final report (§80) | **Not written.** This document is phase 1, the audit; §80 asks for a statement of the state *after* remediation, and nothing produces one |
+| 13 | Final report (§80) | **Written** — `docs/REMEDIATION_REPORT.md`. Eight pull requests, what each closed, what is still open with its threat-model row, what could not be checked without a device, and the corrections in both directions. It does not say *secure* and is not scored 100 |
 | — | SEARCH-01 | **Done** — the read path that never met the authorisation rule |
 | — | LOCK-01 | **Done** — the write path's lock, raised as an open question under OTP-01 and settled by the owner |
 | — | MANIFEST-01 | **Done** — two manifest attributes, and two absences, that nothing checked |
