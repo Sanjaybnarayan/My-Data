@@ -27,6 +27,7 @@
 
 import { h, replace } from '../ui/dom.js';
 import { pageHeader, chipFace } from '../ui/components/basics.js';
+import { slidingRow } from '../ui/components/slidingrow.js';
 import { Router } from '../ui/router.js';
 import { t } from '../core/locale.js';
 import { app } from '../context.js';
@@ -49,7 +50,6 @@ import { securityCard } from './settings/security.js';
 import { appearanceCard, languageCard, aboutCard } from './settings/display.js';
 import { dataCard, backupCard, deletedCard, conflictsCard, exampleCard } from './settings/data.js';
 import { activityCard, connectionsCard, diagnosticsCard, breachCard } from './settings/activity.js';
-
 
 /**
  * The groups, in the order they are shown.
@@ -196,8 +196,8 @@ async function paint(host, open) {
     // from a link would have had nothing telling them where they were.
     pageHeader('Settings', { subtitle: `Device ${db.deviceId.slice(0, 12)}…` }),
 
-    h('div', {
-      class: 'chip-row chip-row--scroll settings-jump',
+    slidingRow({
+      class: 'settings-jump',
       role: 'group',
       'aria-label': 'Settings sections',
     }, GROUPS.map((one) => h('a', {

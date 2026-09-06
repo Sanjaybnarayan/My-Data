@@ -1,6 +1,6 @@
 {
   "note": "Class names written by more than one file. This may only fall. tools/class-names.mjs says why.",
-  "count": 64,
+  "count": 63,
   "names": [
     "attention-foot",
     "attention-head",
@@ -20,7 +20,6 @@
     "checkbox",
     "chip",
     "chip-row",
-    "chip-row--scroll",
     "empty",
     "faint",
     "field",

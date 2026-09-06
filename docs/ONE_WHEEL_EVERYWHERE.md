@@ -71,6 +71,15 @@ snapping lands without moving where the row starts.
 | settings | 6 | 44px | 6/6 | 0.72 – 1 |
 | finance | 5 | 44px | 5/5 | 0.72 – 1 |
 
+> **Superseded on the "faces turned" column.** Every face turning, chosen
+> included, is what this table recorded and what
+> `docs/THE_CHOSEN_ONE_FACED_AWAY.md` had to undo: the first item in a row can
+> never be scrolled to the middle, so a chosen first item was drawn turned away
+> at 0.81 scale — permanently, on the commonest view of six of these screens.
+> The chosen face no longer turns. The column now reads 3/4, 4/5, 5/6 and so
+> on, one fewer than the count, and Belongings' `.tabs` joins the table as the
+> seventh row.
+
 Calendar reads 1 – 1 and that is correct: all six sources are on by default, so
 all six chips are *chosen*, and a chosen face never dims. `--accent-text` on
 `--accent-subtle` has no headroom to give — the same reason Finance's chosen

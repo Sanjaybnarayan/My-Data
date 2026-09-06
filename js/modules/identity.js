@@ -35,6 +35,7 @@ import { IdentityService } from '../services/identity.js';
 import { describeCompletion } from '../domain/profile.js';
 import { summarise } from '../domain/wallet.js';
 import { formatDay } from '../core/dates.js';
+import { slidingRow } from '../ui/components/slidingrow.js';
 
 const TABS = ['person', 'identityDocument', 'kycRecord', 'employment'];
 
@@ -56,7 +57,7 @@ export async function render(route) {
         variant: 'primary', iconName: 'plus', onClick: () => section?.openForm(),
       })],
     }),
-    h('div', { class: 'chip-row chip-row--scroll', role: 'group', 'aria-label': t('identity.title'), style: { marginBottom: 'var(--space-4)' } },
+    slidingRow({ role: 'group', 'aria-label': t('identity.title'), style: { marginBottom: 'var(--space-4)' } },
       TABS.map((name) => chip(entities.find((e) => e.name === name)?.labels.many ?? name, {
         pressed: name === active,
         onClick: () => app().router.navigate({ module: 'identity', entity: name }),

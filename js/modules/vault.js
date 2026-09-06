@@ -21,6 +21,7 @@ import { entitiesOfModule } from '../data/schema.js';
 import { EstateService } from '../services/estate.js';
 import { A_NOTE_IS_NOT_THE_WILL } from '../domain/estate.js';
 import { formatDay } from '../core/dates.js';
+import { slidingRow } from '../ui/components/slidingrow.js';
 
 const TABS = ['vaultItem', 'will', 'beneficiary', 'legalDocument'];
 
@@ -46,7 +47,7 @@ export async function render(route) {
         variant: 'primary', iconName: 'plus', onClick: () => section?.openForm(),
       })],
     }),
-    h('div', { class: 'chip-row chip-row--scroll', role: 'group', 'aria-label': 'Vault', style: { marginBottom: 'var(--space-4)' } },
+    slidingRow({ role: 'group', 'aria-label': 'Vault', style: { marginBottom: 'var(--space-4)' } },
       TABS.map((name) => chip(entities.find((e) => e.name === name)?.labels.many ?? name, {
         pressed: name === active,
         onClick: () => app().router.navigate({ module: 'vault', entity: name }),

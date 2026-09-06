@@ -35,6 +35,7 @@ import {
   today, addMonths, startOfMonth, endOfMonth, addDays, formatDay,
   fromDay, toDay,
 } from '../core/dates.js';
+import { slidingRow } from '../ui/components/slidingrow.js';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -166,7 +167,7 @@ export async function render(route) {
         // phone. It scrolls sideways instead, which is what every other
         // crowded row in this application does, and carries the edge fade
         // that says so.
-        h('div', { class: 'chip-row chip-row--scroll', role: 'group', 'aria-label': t('calendar.sources'), style: { marginBottom: 'var(--space-4)' } },
+        slidingRow({ role: 'group', 'aria-label': t('calendar.sources'), style: { marginBottom: 'var(--space-4)' } },
           SOURCES.map((source) => h('button', {
             class: 'chip',
             type: 'button',

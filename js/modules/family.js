@@ -28,6 +28,7 @@ import { upcomingDates } from '../domain/reminders.js';
 import { formatDay, ageOn, today, relativeDays } from '../core/dates.js';
 import { format as formatMoney, addable } from '../core/money.js';
 import { reconcile, disagreements } from '../domain/staffpay.js';
+import { slidingRow } from '../ui/components/slidingrow.js';
 
 /*
  * How much of each staff card is drawn.
@@ -78,7 +79,7 @@ export async function render(route) {
           variant: 'primary', iconName: 'plus', onClick: () => section?.openForm(),
         })],
     }),
-    h('div', { class: 'chip-row chip-row--scroll', role: 'group', 'aria-label': 'Family', style: { marginBottom: 'var(--space-4)' } },
+    slidingRow({ role: 'group', 'aria-label': 'Family', style: { marginBottom: 'var(--space-4)' } },
       TABS.map((tab) => chip(tab.label, {
         pressed: tab.id === active,
         onClick: () => app().router.navigate(tab.id === 'tree'

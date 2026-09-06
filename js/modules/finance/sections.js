@@ -26,50 +26,8 @@
  */
 
 import { h, replace } from '../../ui/dom.js';
+import { reveal } from '../../ui/components/slidingrow.js';
 import { t } from '../../core/locale.js';
-
-/**
- * Bring the chosen item into view without moving the page.
- *
- * `scrollIntoView` on a horizontally scrolling row will happily scroll every
- * ancestor as well, which on arrival means the page jumps past the header to
- * put a chip in the middle of the screen. Setting the row's own `scrollLeft`
- * moves the one thing that should move.
- *
- * The wait is not optional. The first paint runs while the nav is still being
- * built and is not yet in the document, where `clientWidth` and `offsetLeft`
- * are both zero and the sum below is a confident nought — so a bookmark into
- * Disagreements opened with Review scrolled off the right edge, reading
- * "Rev". Every subsequent paint, from a tap, has a layout already and takes
- * the first branch.
- */
-function reveal(row, item) {
-  if (!row || !item) return;
-  const put = () => {
-    row.scrollLeft = Math.max(0,
-      item.offsetLeft - (row.clientWidth - item.offsetWidth) / 2);
-  };
-
-  // Every paint after the first is a tap on a row already on screen.
-  if (row.clientWidth) {
-    put();
-    return;
-  }
-
-  // The first is not. Guessing at a frame count was the version before this
-  // one, and it was wrong twice: three frames guessed too few, and the guard
-  // meant to stop the retry looping read `isConnected` on a node that is
-  // legitimately detached at that moment, so it never retried at all. This
-  // waits for the one event it is actually waiting for.
-  const Watch = globalThis.ResizeObserver;
-  if (!Watch) return;
-  const watch = new Watch(() => {
-    if (!row.clientWidth) return;
-    watch.disconnect();
-    put();
-  });
-  watch.observe(row);
-}
 
 /**
  * The label, in a box of its own that can be turned without shrinking the
