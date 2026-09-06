@@ -105,6 +105,30 @@ function doPost(e) {
   }
 
   /*
+   * Parsing is not validating, and the gap was four bytes wide.
+   *
+   * `JSON.parse('null')` succeeds and returns `null`, so the catch above never
+   * fires and `request.token` two blocks down throws a TypeError. That reached
+   * the outer catch, which has no way to tell a bug from a bad request, and
+   * answered an unauthenticated caller with
+   *
+   *     {"ok":false,"error":"Cannot read properties of null (reading 'token')",
+   *      "status":500,"retryable":true}
+   *
+   * Three things wrong in one reply, from a body of `null`: a V8 internal
+   * message handed to a stranger, a 500 that says the deployment broke when
+   * the request was malformed, and `retryable: true` — so a client's outbox
+   * would resend a permanently invalid request until it gave up on something
+   * that was never going to work.
+   *
+   * A JSON body may legally be a string, a number, an array or null; only an
+   * object is a request. Found by fuzzing `doPost` rather than by reading it.
+   */
+  if (!request || typeof request !== 'object' || Array.isArray(request)) {
+    return reply(false, null, 'the request body was not a JSON object', 400, false);
+  }
+
+  /*
    * The one path that runs before `verifyToken`, and the only one.
    *
    * A one-time code has to be requestable by somebody who has not signed in —
@@ -257,7 +281,14 @@ function dispatch(action, payload, context) {
       audienceChecked: expectedAudiences().length > 0,
     };
     default:
-      throw fail('unknown action: ' + action, 400);
+      /*
+       * Bounded, because the action is attacker-controlled and was echoed
+       * whole. A 100,000-character action came back in full and was written to
+       * the log at that length as well — a small amplification, and a cheap way
+       * to flood a deployment's own diagnostics. Forty characters is enough to
+       * see which action was meant.
+       */
+      throw fail('unknown action: ' + String(action).slice(0, 40), 400);
   }
 }
 
