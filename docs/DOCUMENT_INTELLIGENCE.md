@@ -98,10 +98,14 @@ surfaced later, is precisely what the redaction exists to prevent.** The
 encrypted file is already on the device; reading it again costs a parse and
 stores nothing.
 
-`readable: false` means nothing on this device can get text out of the file —
-a photograph, which only Drive's OCR can read. That is not the same as a
-document with no identifiers in it, and the screen does not report the two the
-same way.
+`readable: false` means nothing on this device could get text out of the file.
+That is not the same as a document with no identifiers in it, and the screen
+does not report the two the same way.
+
+It used to be false for **every** photograph, because only Drive's OCR could
+read one. On a build carrying `js/core/ocr.js` a photographed PAN card is
+recognised on the device and can offer its number; in a browser, where there is
+no recogniser, it is false exactly as before.
 
 ### The screen says whether the text was read
 

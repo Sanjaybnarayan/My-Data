@@ -33,11 +33,12 @@ import { bus, TOPIC } from '../core/bus.js';
 import { Router } from '../ui/router.js';
 import { DocumentStore } from '../sync/drive.js';
 import {
-  CATEGORIES, HOUSEHOLD_FOLDER, guessCategory, categoryForEntity, matches,
+  CATEGORIES, HOUSEHOLD_FOLDER, guessCategory, categoryForEntity, matches, titleFromFileName,
   iconForMime, formatSize, personFolderName,
 } from '../domain/filing.js';
 import { identifierOffers, identityRecordFor, textState } from '../domain/identifiers.js';
 import { formatDay, daysUntil } from '../core/dates.js';
+import { available as canRecogniseText } from '../core/ocr.js';
 import { userMessage } from '../core/errors.js';
 import { can } from '../security/rbac.js';
 import { DocumentsService } from '../services/documents.js';
@@ -102,7 +103,7 @@ export async function render(route) {
     for (const file of files) {
       try {
         const { document: record } = await store.capture(file, {
-          title: file.name.replace(/\.[^.]+$/, ''),
+          title: titleFromFileName(file.name),
           category: category || guessCategory(file.name),
           // Filed under whoever's folder is open. Browsing "Asha" and adding
           // a file should not drop it into Household.
@@ -433,7 +434,11 @@ async function documentDetail(id) {
    * and then dropped it, leaving the encrypted place it belongs empty.
    */
   async function paintReading() {
-    const state = textState(record);
+    // Whether this build reads pictures of text on the device. A browser
+    // does not and is told Drive will; a phone has already tried, and
+    // sending somebody to connect an account that would not have helped
+    // is the wrong sentence.
+    const state = textState(record, { canRecognise: canRecogniseText() });
 
     // Read on demand from the encrypted file rather than kept anywhere. A
     // second copy of an unrecorded identifier is exactly what the redaction
@@ -713,7 +718,7 @@ export function attachmentStrip(entityName, record, { onChange } = {}) {
       const added = [];
       for (const file of files) {
         const { document } = await store.capture(file, {
-          title: file.name.replace(/\.[^.]+$/, ''),
+          title: titleFromFileName(file.name),
           category: categoryForEntity(entityName),
           // A vaccination filed against a child belongs in that child's
           // folder, not in Household — the parent record already says whose

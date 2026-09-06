@@ -31,6 +31,33 @@ const RULES = [
   [/agreement|contract|\bwill\b|affidavit|notice|power of attorney/, 'legal'],
 ];
 
+/**
+ * What a person calls a file: its name without the extension.
+ *
+ * Written out at three call sites — `\.[^.]+$` stripped by hand in
+ * `modules/documents.js` twice and in `services/intake.js` — while a fourth,
+ * `modules/reports.js`, passed the whole file name through. So a generated rent
+ * receipt was filed as **"Rent receipt 2026-09.docx"** and everything a
+ * household uploaded was filed without its extension, in the same list.
+ *
+ * `sync/drive.js` had a fifth behaviour: its fallback for a caller that passes
+ * no title at all keeps the extension too.
+ *
+ * Four copies of a rule and one exception is the shape this repository keeps
+ * finding. One definition, used by all of them.
+ *
+ * The extension is matched without path separators in it, so a name with a dot
+ * in a folder and none in the file — `2026.tax/receipt` — is left alone rather
+ * than losing half of itself.
+ *
+ * @param {string} [name]
+ * @param {string} [fallback] for a name that is all extension, or nothing
+ */
+export function titleFromFileName(name, fallback = 'Document') {
+  const bare = String(name ?? '').replace(/\.[^./\\]+$/, '').trim();
+  return bare || fallback;
+}
+
 export function guessCategory(fileName) {
   const name = String(fileName ?? '').toLowerCase();
   for (const [pattern, category] of RULES) {
@@ -138,16 +165,125 @@ export function formatSize(bytes) {
 /* -------------------------------------------------- reading what is inside */
 
 /**
- * Whether a document's text can be read without OCR.
+ * How a document's text is read, or that it cannot be.
  *
- * A PDF made by a computer — a statement, a policy, a bill — carries its text
- * as text, and that can be lifted out exactly. A *scanned* PDF carries pictures
- * of text and cannot, which is a different problem and still an unsolved one
- * here. Both arrive as `application/pdf`, so this says what is worth trying,
- * not what will succeed.
+ * ## What this used to say
+ *
+ * `application/pdf`, and nothing else. Meanwhile the file picker on the
+ * Documents screen offers `image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt`
+ * — so the screen invited five kinds of file it would then refuse to look
+ * inside, and a `.txt` was treated exactly like a photograph.
+ *
+ * The `.docx` case was the sharpest: `domain/docxtemplate.js` has unzipped
+ * Word files and lifted their text runs since Phase 3, for report templates.
+ * The machinery was in the repository, exported, tested, and used — and a
+ * household uploading a Word bill got nothing read out of it.
+ *
+ * ## Pictures of text are their own answer
+ *
+ * A **scanned** PDF and any **image** carry pictures of text, which is why
+ * `READER.IMAGE` exists rather than folding them into `NONE`. Reading one
+ * means *recognising* it — a different capability from parsing a file, and one
+ * not present in every build.
+ *
+ * This paragraph used to say there was no OCR engine here and that adding one
+ * meant either a dependency that could not be verified offline or a network
+ * call the CSP forbids. `js/core/ocr.js` and `OcrPlugin` are that engine: ML
+ * Kit's Latin recogniser, bundled into the APK, with `PdfRenderer` for a scan.
+ * In a browser there is still no recogniser and an image still waits for
+ * Drive, which `identifiers.js#textState` says on the screen — in different
+ * words depending on which build a household is holding.
+ *
+ * ## Why the file name matters
+ *
+ * A file arriving through Android's share sheet frequently carries
+ * `application/octet-stream` or nothing at all, because the sending app never
+ * set one. Judging only by the declared type would refuse to read a `.docx`
+ * shared from Gmail while reading the identical file picked from storage.
  */
-export function canReadText(mimeType) {
-  return String(mimeType ?? '') === 'application/pdf';
+export const READER = Object.freeze({
+  PDF: 'pdf',
+  OOXML: 'ooxml',
+  PLAIN: 'plain',
+  /**
+   * Pictures of text. Nothing can be lifted out of these without recognising
+   * them, which is a different capability from parsing a file and is not
+   * present in every build — `core/ocr.js` answers whether it is.
+   */
+  IMAGE: 'image',
+  NONE: 'none',
+});
+
+/** Extension to reader, for the files whose type does not survive a share. */
+const BY_EXTENSION = Object.freeze({
+  pdf: READER.PDF,
+  docx: READER.OOXML,
+  xlsx: READER.OOXML,
+  txt: READER.PLAIN,
+  csv: READER.PLAIN,
+  md: READER.PLAIN,
+  json: READER.PLAIN,
+});
+
+/** Declared type to reader, for the files whose type does. */
+const BY_MIME = Object.freeze({
+  'application/pdf': READER.PDF,
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': READER.OOXML,
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': READER.OOXML,
+  'text/plain': READER.PLAIN,
+  'text/csv': READER.PLAIN,
+  'text/markdown': READER.PLAIN,
+  'application/json': READER.PLAIN,
+});
+
+/**
+ * Which reader a file needs, from its declared type and its name.
+ *
+ * The declared type wins where it says something. `.doc` and `.xls` — the old
+ * binary formats — are deliberately absent: they are not zip archives and
+ * nothing here can open them, and claiming otherwise would file a document as
+ * read with nothing in it.
+ *
+ * @param {string} [mimeType]
+ * @param {string} [fileName]
+ */
+export function readerFor(mimeType, fileName = '') {
+  const declared = String(mimeType ?? '').toLowerCase().split(';')[0].trim();
+  if (Object.prototype.hasOwnProperty.call(BY_MIME, declared)) return BY_MIME[declared];
+
+  // An image says what it is and is never a zip; deciding by extension after
+  // that would let `photo.txt` through.
+  if (declared.startsWith('image/')) return READER.IMAGE;
+
+  const extension = String(fileName ?? '').toLowerCase().split('.').pop() ?? '';
+  if (Object.prototype.hasOwnProperty.call(BY_EXTENSION, extension)) return BY_EXTENSION[extension];
+
+  return READER.NONE;
+}
+
+/**
+ * Whether a document's text can be lifted out **without recognising it**.
+ *
+ * Deliberately still false for an image. A PDF carries its text as text and
+ * that is exact; a photograph carries pixels, and reading those is a guess
+ * made by a model — a good one, and still a different kind of answer. Keeping
+ * the two apart is what lets a screen say which it is looking at.
+ */
+export function canReadText(mimeType, fileName = '') {
+  const reader = readerFor(mimeType, fileName);
+  return reader !== READER.NONE && reader !== READER.IMAGE;
+}
+
+/**
+ * Whether anything on this device might get text out of a file at all.
+ *
+ * The wider question, and the one the read paths ask before they bother
+ * decrypting a blob. True for an image — whether recognition is actually
+ * *available* is a fact about the build rather than about the file, so it is
+ * answered where that is known and not guessed at here.
+ */
+export function mayRead(mimeType, fileName = '') {
+  return readerFor(mimeType, fileName) !== READER.NONE;
 }
 
 /**

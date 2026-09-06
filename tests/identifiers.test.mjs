@@ -192,6 +192,55 @@ describe('whether a document’s text was read', () => {
     assert.includes(state.why, 'have to be typed in');
   });
 
+  /*
+   * The list this file used to keep, beside the one in `filing.js`.
+   *
+   * `textState` branched on `image/*` and `application/pdf` and called
+   * everything else unreadable. Once `filing.js` learned `.docx`, `.xlsx` and
+   * plain text, that last sentence was false about three formats and nothing
+   * compared the two lists.
+   */
+  test('a format this device does read is not called unreadable', () => {
+    const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const state = textState({ mimeType: docx, fileName: 'bill.docx', ocrText: '' });
+    assert.equal(state.state, 'empty');
+    // The distinction: the reader works, the file had nothing in it.
+    assert.includes(state.why, 'nothing was found in this file');
+    assert.equal(/nothing here can read text/.test(state.why), false);
+  });
+
+  test('and one nothing can open still says the dates have to be typed', () => {
+    const state = textState({ mimeType: 'application/msword', fileName: 'old.doc' });
+    assert.equal(state.state, 'empty');
+    assert.includes(state.why, 'nothing here can read text out of this kind of file');
+  });
+
+  /*
+   * The same photograph is a different sentence on a phone and in a browser.
+   * A build that recognises has already tried, so pointing somebody at Drive
+   * would send them to connect an account that would not have helped.
+   */
+  test('a build that recognises says it tried, rather than promising Drive', () => {
+    const state = textState({ mimeType: 'image/jpeg', ocrText: '' }, { canRecognise: true });
+    assert.equal(state.state, 'unreadable');
+    assert.includes(state.why, 'no text could be recognised');
+    assert.equal(/Drive/.test(state.why), false);
+  });
+
+  test('and a scanned PDF on such a build says the same about its pictures', () => {
+    const state = textState({ mimeType: 'application/pdf', ocrText: '' }, { canRecognise: true });
+    assert.equal(state.state, 'unreadable');
+    assert.includes(state.why, 'recognised in the pictures it holds');
+  });
+
+  test('while a browser is still told Drive will read it', () => {
+    // The counterpart. Both branches above are true of a function that ignored
+    // the option entirely.
+    const state = textState({ mimeType: 'image/jpeg', ocrText: '' }, { canRecognise: false });
+    assert.equal(state.state, 'pending-upload');
+    assert.includes(state.why, 'read when they reach Drive');
+  });
+
   test('nothing at all does not throw', () => {
     assert.equal(textState(undefined).read, false);
     assert.equal(textState({}).state, 'empty');

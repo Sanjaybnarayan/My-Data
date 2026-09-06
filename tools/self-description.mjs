@@ -73,7 +73,13 @@ function observability() {
     sites += (src.match(/\.catch\s*\(/g) ?? []).length;
 
     if (file.endsWith(join('data', 'diagnostics.js'))) continue;
-    const imported = src.match(/import\s*\{([^}]*)\}\s*from\s*'[^']*diagnostics\.js'/);
+    // Static and dynamic both. The regex used to match only
+    // `import { record as x } from '…diagnostics.js'`, so a recorder written
+    // as `const { record } = await import('…')` was counted as no recorder at
+    // all — and this number is the one `docs/PHASE_STATUS.md` quotes about how
+    // much of the tree reports its failures.
+    const imported = src.match(/import\s*\{([^}]*)\}\s*from\s*'[^']*diagnostics\.js'/)
+      ?? src.match(/\{([^}]*)\}\s*=\s*await\s+import\s*\(\s*'[^']*diagnostics\.js'\s*\)/);
     if (!imported) continue;
     const alias = (imported[1].match(/\brecord\s+as\s+(\w+)/)
       ?? imported[1].match(/\b(record)\b/) ?? [])[1];

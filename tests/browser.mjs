@@ -120,6 +120,41 @@ function tinyPdf(lines) {
   return Buffer.from(pdf, 'latin1');
 }
 
+/**
+ * An `.xlsx` the way Excel writes one — strings pooled in `sharedStrings.xml`
+ * rather than sitting in the cells.
+ */
+function sheetFile(cells) {
+  const enc = (text) => new TextEncoder().encode(text);
+  return Buffer.from(zip([
+    { name: '[Content_Types].xml', data: enc('<Types/>') },
+    {
+      name: 'xl/sharedStrings.xml',
+      data: enc(`<sst>${cells.map((one) => `<si><t>${one}</t></si>`).join('')}</sst>`),
+    },
+    { name: 'xl/worksheets/sheet1.xml', data: enc('<worksheet/>') },
+  ]));
+}
+
+/**
+ * A `.docx` the way Word writes one — a zip with `word/document.xml` in it.
+ *
+ * Built with the application's own `zip`, the same writer that produces its
+ * reports, so a change to how this repository writes an OOXML file is a change
+ * this reads back.
+ */
+function wordFile(lines) {
+  const enc = (text) => new TextEncoder().encode(text);
+  const body = lines.map((line) => `<w:p><w:r><w:t>${line}</w:t></w:r></w:p>`).join('');
+  return Buffer.from(zip([
+    { name: '[Content_Types].xml', data: enc('<Types/>') },
+    {
+      name: 'word/document.xml',
+      data: enc(`<w:document><w:body>${body}</w:body></w:document>`),
+    },
+  ]));
+}
+
 function check(name, condition, detail = '') {
   checks.push({ name, ok: Boolean(condition) });
   if (!condition) failures.push(`${name}${detail ? ` \u2014 ${detail}` : ''}`);
@@ -6971,6 +7006,66 @@ async function main() {
       check('the screen says an empty field keeps its marker',
         /keeps its marker/.test(said), said.slice(0, 700));
 
+      /*
+       * Generate, and file what was generated.
+       *
+       * This block used to stop at "the fields are listed" — so
+       * `documentStore().capture(...)` in the Generate handler was reached by
+       * neither suite. A `titleFromFileName` used there and never imported sat
+       * as a `ReferenceError` waiting for the first household to press the
+       * button, and only `tools/typecheck.mjs` saw it.
+       *
+       * The download is a no-op here — a headless browser has nowhere to put
+       * it — but the filing is real, and the filing is the half with a record
+       * at the end of it.
+       */
+      await page.locator('#docx-field-Tenant').fill('Asha Narayan');
+      await page.getByRole('button', { name: 'Generate', exact: true }).click();
+
+      /*
+       * Waited for, not slept through.
+       *
+       * A fixed pause was here first. `download()` tries `showSaveFilePicker`
+       * before falling back to an anchor, and how long that takes headless is
+       * not something this suite should be asserting by guess — a sleep that
+       * is long enough today is the flake somebody debugs next month, and it
+       * would fail saying "no document" rather than "it took too long".
+       */
+      const generated = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const deadline = Date.now() + 8000;
+        for (;;) {
+          const rows = await app().db.repo('document').list({ limit: 200 });
+          const one = rows.find((row) => row.generatedFrom);
+          if (one) return { id: one.id, title: one.title, from: one.generatedFrom };
+          if (Date.now() > deadline) return null;
+          await new Promise((done) => { setTimeout(done, 150); });
+        }
+      }, IN_PAGE.context);
+
+      check('generating a document files it, rather than only downloading it',
+        Boolean(generated?.from), JSON.stringify(generated));
+      check('and it is titled the way an uploaded document is, without the extension',
+        Boolean(generated) && !/\.docx$/.test(generated.title),
+        JSON.stringify(generated));
+
+      /*
+       * And put the library back.
+       *
+       * A generated document carries no person, so it is filed under
+       * Household — and the documents block below asserts the Household folder
+       * *disappears* once its only file is assigned to somebody. Leaving this
+       * one behind held it open at `Household (1)` and failed a check that was
+       * right about the application and wrong only about what this block had
+       * left lying around.
+       */
+      if (generated?.id) {
+        await page.evaluate(async ({ spec, id }) => {
+          const { app } = await import(spec);
+          await app().db.repo('document').remove(id);
+        }, { spec: IN_PAGE.context, id: generated.id });
+      }
+
       check('reading a template raises no console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
@@ -7081,6 +7176,139 @@ async function main() {
           (await page.getByRole('button', { name: /File it against this/ }).count()) >= 1,
           shown.slice(0, 1200));
       }
+
+    {
+      /*
+       * A Word bill, through the real picker.
+       *
+       * The unit suite proves `office-read.js` lifts the text and
+       * `readerFor` routes to it. Neither proves the *screen* does — which is
+       * the whole shape of this defect: `domain/docxtemplate.js` has unzipped
+       * Word files since Phase 3 for report templates, and the Documents
+       * picker offered `.docx` while `canReadText` answered `application/pdf`
+       * and nothing else. Every piece existed and nothing joined them.
+       */
+      const before = consoleErrors.length;
+
+      await go(page, '#/documents');
+      await page.waitForTimeout(400);
+      await page.locator('input[type=file]:not([capture])').setInputFiles({
+        name: 'BESCOM bill.docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        buffer: wordFile([
+          'BESCOM Electricity Bill',
+          'Bill Number: 40021998',
+          'Amount Payable: Rs. 2,340.00',
+          'Due Date: 18/10/2026',
+        ]),
+      });
+      await page.waitForSelector('.modal', { timeout: 8000 });
+
+      // The form that opens straight after capture. Its expiry field is the
+      // one a household never comes back to fill in, which is why reading the
+      // document is worth doing at all.
+      const filled = await page.locator('#f-document-expiresOn').inputValue().catch(() => '');
+      check('a Word bill arrives with its due date already filled in',
+        filled === '2026-10-18', `the expiry field held ${JSON.stringify(filled)}`);
+
+      await page.locator('#f-document-title').fill('BESCOM bill');
+      await page.locator('#f-document-title').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 8000 });
+      await page.waitForTimeout(500);
+
+      // And the text is searchable, which is the other half of reading it.
+      const found = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const rows = await app().db.repo('document').list({ limit: 50 });
+        const one = rows.find((row) => (row.fileName || '').endsWith('.docx'));
+        return { ocrText: one?.ocrText ?? '', expiresOn: one?.expiresOn ?? '' };
+      }, IN_PAGE.context);
+      check('and its text is stored where search can reach it',
+        /BESCOM/.test(found.ocrText), JSON.stringify(found).slice(0, 300));
+
+      /*
+       * The other two formats, through the same picker.
+       *
+       * The unit suite drives all three through `DocumentStore.capture`, which
+       * is the production path — but only `.docx` reached the *screen* until
+       * now, and a table claiming three formats work while one is clicked is
+       * the shape of overclaim this repository keeps finding.
+       */
+      /** @type {[string, string, string, Buffer, string][]} */
+      const alsoRead = [
+        ['a spreadsheet policy', 'policy.xlsx',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          sheetFile(['Policy Number: OG-26-1201-4081', 'Premium Rs. 12,500 due on 04/03/2027']),
+          'OG-26-1201-4081'],
+        ['a plain text bill', 'tatapower.txt', 'text/plain',
+          Buffer.from('TATA POWER\nTotal Amount Rs. 1,880.00\nDue Date: 02/11/2026\n', 'utf8'),
+          'TATA POWER'],
+      ];
+
+      for (const [what, name, mimeType, buffer, wanted] of alsoRead) {
+        await go(page, '#/documents');
+        await page.waitForTimeout(400);
+        await page.locator('input[type=file]:not([capture])').setInputFiles({
+          name, mimeType, buffer,
+        });
+        await page.waitForSelector('.modal', { timeout: 8000 });
+        /*
+         * Titled the way `capture` titles it — without the extension.
+         *
+         * Filled with the whole file name first, and the locale-key guard
+         * failed on `tatapower.txt`: a lower-case dotted word with no spaces
+         * is exactly the shape of an unrendered `t()` key, and the guard
+         * cannot tell one from a file name. It was right to complain. The
+         * application never produces that title — `documents.js` strips the
+         * extension — so the fixture was inventing a state no household
+         * reaches, which is a worse fault in a test than in a screen.
+         */
+        await page.locator('#f-document-title').fill(name.replace(/\.[^.]+$/, ''));
+        await page.locator('#f-document-title').press('Enter');
+        await page.waitForSelector('.modal', { state: 'detached', timeout: 8000 });
+        await page.waitForTimeout(500);
+
+        const stored = await page.evaluate(async (arg) => {
+          const { app } = await import(arg.spec);
+          const rows = await app().db.repo('document').list({ limit: 80 });
+          const one = rows.find((row) => row.fileName === arg.name);
+          return { ocrText: one?.ocrText ?? '', found: Boolean(one) };
+        }, { spec: IN_PAGE.context, name });
+
+        check(`${what} is read through the picker`,
+          stored.found && stored.ocrText.includes(wanted),
+          `${name}: ${JSON.stringify(stored).slice(0, 240)}`);
+      }
+
+      /*
+       * The counterpart, on the same screen. Everything above would pass on a
+       * build that invented text for every upload.
+       */
+      await go(page, '#/documents');
+      await page.waitForTimeout(400);
+      await page.locator('input[type=file]:not([capture])').setInputFiles({
+        name: 'old-format.xls',
+        mimeType: 'application/vnd.ms-excel',
+        buffer: Buffer.from('\xd0\xcf\x11\xe0 not a zip', 'latin1'),
+      });
+      await page.waitForSelector('.modal', { timeout: 8000 });
+      await page.locator('#f-document-title').fill('old-format');
+      await page.locator('#f-document-title').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 8000 });
+      await page.waitForTimeout(500);
+
+      const refused = await page.evaluate(async (spec) => {
+        const { app } = await import(spec);
+        const rows = await app().db.repo('document').list({ limit: 80 });
+        const one = rows.find((row) => row.fileName === 'old-format.xls');
+        return { kept: Boolean(one), ocrText: one?.ocrText ?? '' };
+      }, IN_PAGE.context);
+      check('a pre-2007 binary Office file is kept, and honestly unread',
+        refused.kept && refused.ocrText === '', JSON.stringify(refused).slice(0, 240));
+
+      check('reading a Word file logs no console error',
+        consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
+    }
 
       const before = consoleErrors.length;
       const PAN = 'ABCDE1234F';

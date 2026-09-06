@@ -22,6 +22,11 @@ import { Database } from './data/database.js';
 import { setContext } from './context.js';
 import { applyTheme, storedTheme, watchSystemTheme } from './ui/theme.js';
 import { start as startLocale, t } from './core/locale.js';
+// Statically, not on demand: `data/diagnostics.js` is already in the boot
+// graph through `data/repository.js`, so there is nothing to defer — and
+// `tools/self-description.mjs` counts recorders by their import, which a
+// dynamic one is invisible to.
+import { record as recordDiagnostic, KIND as DIAGNOSTIC } from './data/diagnostics.js';
 import { buildShell } from './ui/shell.js';
 import { lockScreen, recoveryKitScreen, lockNow } from './auth/lock.js';
 import { Session, AttemptLimiter } from './security/session.js';
@@ -246,7 +251,65 @@ async function start(db, limiter, googleSession = null) {
   const { runAutomations } = await import('./domain/automation.js');
   runAutomations(db).catch((err) => console.warn('automations failed', err));
 
+  /*
+   * Anything shared into FamilyOS from another app's share sheet.
+   *
+   * Drained here rather than listened for: on a cold share Android starts this
+   * application *because of* the file, so the intent is delivered before the
+   * WebView has any listener and an event would be lost. The plugin holds it
+   * and this takes it, which behaves the same either way.
+   *
+   * And again on resume, because `MainActivity` is `singleTask` — a share into
+   * an app that is already running never reaches `onCreate`, and waiting for
+   * the next cold launch to notice would be a share target that works once.
+   */
+  collectShares(db, transport, shell.router);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) collectShares(db, transport, shell.router);
+  });
+
   bus.emit(TOPIC.authState, { signedIn: auth.isSignedIn });
+}
+
+/**
+ * File whatever the share sheet is holding, and say what happened.
+ *
+ * Failures are swallowed the way `warnAboutNewDevices` swallows its own: this
+ * runs on every launch and every resume of every install, and a household
+ * should never meet an error about a check they did not ask for. What is *not*
+ * swallowed is the outcome of an actual share — a file that could not be read
+ * or was too large is reported, because somebody who shared it is watching for
+ * something to happen.
+ */
+async function collectShares(db, transport, router) {
+  try {
+    const { intakeShared, intakeMessage } = await import('./services/intake.js');
+    const outcome = await intakeShared(db, { transport });
+    const message = intakeMessage(outcome);
+    if (!message) return;
+
+    bus.emit(TOPIC.toast, {
+      message,
+      kind: outcome.failed.length ? 'error' : 'success',
+    });
+    // Where the documents went, so the household can see them. Only when
+    // something was actually filed — a share that failed entirely should leave
+    // somebody where they were.
+    if (outcome.filed.length) router.navigate({ module: 'documents' });
+    bus.emit(TOPIC.dataChanged, {});
+  } catch (err) {
+    /*
+     * Recorded rather than logged to a console nobody on a phone can open.
+     *
+     * `docs/OBSERVABILITY_AUDIT.md` names the six failures where a failed read
+     * changes what a household is *told*, and this is one: somebody shared a
+     * file, watched for it to appear, and nothing did. A `console.warn` there
+     * is a message to a developer who is not present.
+     */
+    await recordDiagnostic(db.adapter, {
+      kind: DIAGNOSTIC.error, where: 'shareIntake', message: String(err?.message ?? err),
+    }).catch(() => {});
+  }
 }
 
 /**

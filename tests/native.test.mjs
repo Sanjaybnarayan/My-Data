@@ -497,15 +497,27 @@ setSuite('the two native projects agree');
 /**
  * Plugins this repository writes itself, which are not npm packages.
  *
- * All three are `android/app/.../*Plugin.java`, registered by hand in
+ * All of them are `android/app/.../*Plugin.java`, registered by hand in
  * `MainActivity`, so none appears in `capacitor.settings.gradle` — that file
  * lists npm plugins. None has an iOS counterpart, and in each case that is a
  * platform fact rather than an omission: iOS has no SMS inbox to read, no
  * usage-stats API of this kind, and its background-location model is
  * different enough that a shared plugin would be a pretence. Naming them here
  * is what lets the parity checks below stay strict about everything else.
+ *
+ * `ShareTarget` is Android-only for the same kind of reason. iOS delivers a
+ * shared file to a *Share Extension* — a separate binary with its own bundle
+ * and its own lifecycle — not to the app through an intent. Registering the
+ * same plugin there would be a class nothing could ever call.
+ *
+ * `Ocr` is Android-only because the engine is: ML Kit's bundled text
+ * recognition and `android.graphics.pdf.PdfRenderer`. iOS has its own
+ * equivalents in Vision and PDFKit and no iOS project here builds, so an iOS
+ * counterpart would be a file nobody compiles rather than a platform fact.
  */
-const FIRST_PARTY = new Set(['SmsInbox', 'BackgroundLocation', 'ScreenTime', 'Biometric']);
+const FIRST_PARTY = new Set([
+  'SmsInbox', 'BackgroundLocation', 'ScreenTime', 'Biometric', 'ShareTarget', 'Ocr',
+]);
 
 /** Every plugin name the application asks for, read off the source. */
 async function pluginsCalled() {
@@ -534,7 +546,7 @@ describe('every plugin the app calls is wired into both platforms', () => {
     // rather than something the checks below silently absorb.
     assert.deep([...called].sort(),
       ['App', 'BackgroundLocation', 'Biometric', 'Browser', 'Filesystem', 'Geolocation',
-        'ScreenTime', 'Share', 'SmsInbox']);
+        'Ocr', 'ScreenTime', 'Share', 'ShareTarget', 'SmsInbox']);
   });
 
   test('and Android links every npm one of them', async () => {
