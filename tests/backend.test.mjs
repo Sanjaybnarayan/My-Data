@@ -22,12 +22,40 @@ const OWNER = 'owner@example.com';
 const SPOUSE = 'spouse@example.com';
 const STRANGER = 'someone@elsewhere.com';
 
+/**
+ * The client id this deployment's own sign-in uses, and somebody else's.
+ *
+ * `aud` on a Google access token names the application it was issued to, not
+ * the account it belongs to. Two applications the same person has signed into
+ * hold two tokens carrying the same `email` and different `aud`, which is the
+ * whole distinction the check downstream turns on — so the fixture has to
+ * carry both or the tests below could not tell them apart.
+ */
+const CLIENT = '99-familyos.apps.googleusercontent.com';
+/*
+ * The Android shell's own client id. Not a variant of the one above: Google
+ * refuses to serve the browser's implicit flow inside a native WebView, so
+ * `js/auth/googleauth.js` signs in through a second, separately registered
+ * client, and its tokens carry that second id in `aud`.
+ */
+const NATIVE_CLIENT = '99-familyos-android.apps.googleusercontent.com';
+const OTHER_CLIENT = '42-somebody-else.apps.googleusercontent.com';
+
 const tokens = {
-  'owner-token': { email: OWNER, expires_in: '3599' },
-  'spouse-token': { email: SPOUSE, expires_in: '3599' },
-  'stranger-token': { email: STRANGER, expires_in: '3599' },
-  'expired-token': { email: OWNER, expires_in: '0' },
-  'anonymous-token': { expires_in: '3599' },
+  'owner-token': { email: OWNER, aud: CLIENT, expires_in: '3599' },
+  'spouse-token': { email: SPOUSE, aud: CLIENT, expires_in: '3599' },
+  'stranger-token': { email: STRANGER, aud: CLIENT, expires_in: '3599' },
+  'expired-token': { email: OWNER, aud: CLIENT, expires_in: '0' },
+  'anonymous-token': { aud: CLIENT, expires_in: '3599' },
+  // The same person, signed in through the Android shell rather than a
+  // browser. A different client id, and every bit as much ours.
+  'phone-token': { email: OWNER, aud: NATIVE_CLIENT, expires_in: '3599' },
+  // The household member, holding a token some *other* application got them
+  // to grant. Same person, same Google, different client.
+  'other-app-token': { email: OWNER, aud: OTHER_CLIENT, expires_in: '3599' },
+  // And a reply with no `aud` at all, which is what an unexpected shape of
+  // response looks like. It must not read as "no audience to disagree with".
+  'no-audience-token': { email: OWNER, expires_in: '3599' },
 };
 
 const start = (properties) => backend({ owner: OWNER, tokens, properties });
@@ -105,6 +133,129 @@ describe('who may reach the backup', () => {
     let error;
     try { start().verifyToken('anonymous-token'); } catch (err) { error = err; }
     assert.equal(error?.status, 401);
+  });
+});
+
+/* -------------------------------------------------- which application */
+
+/**
+ * Whose token, and issued to whom.
+ *
+ * `tokeninfo` answers two questions and this endpoint was reading only one of
+ * them. It said "this is a live Google token belonging to owner@example.com",
+ * and the backend admitted on the household list alone — so *any* application
+ * that same person had ever signed into with Google held a bearer credential
+ * that walked straight through to `push` and `pull` over the household's
+ * sheet. Comparing `aud` against the deployment's own client id is Google's
+ * documented answer, and token substitution is the documented attack.
+ *
+ * The property is `OAUTH_CLIENT_ID`, and a deployment that has not set it is
+ * the case worth being careful about: refusing everything until somebody adds
+ * one would lock a household out of their own backup to close a hole nobody
+ * has told them about. So the check applies when it can, and `ping` says when
+ * it cannot — the difference between a gap and a silent gap.
+ */
+describe('which application a token was issued to', () => {
+  const configured = (extra = {}) => start({
+    OAUTH_CLIENT_ID: `${CLIENT}, ${NATIVE_CLIENT}`, ...extra,
+  });
+
+  test('a token from another application is refused, though the account is ours', () => {
+    // The finding, in one line: same person, same Google account, on the
+    // household list — and a token that was never issued to this deployment.
+    let error;
+    try { configured().verifyToken('other-app-token'); } catch (err) { error = err; }
+    assert.equal(error?.status, 401);
+    assert.includes(error.message, 'issued to a different application');
+  });
+
+  test("and this deployment's own token still is not", () => {
+    // The half that matters more. A check that refuses everything is not a
+    // check, and the whole household signs in through this client.
+    assert.equal(configured().verifyToken('owner-token').email, OWNER);
+  });
+
+  test('and neither is the phone, which signs in through a second client id', () => {
+    /*
+     * The mistake this exists to stop, which was in the first version of the
+     * check: one client id, compared with `!==`.
+     *
+     * FamilyOS registers two. The browser uses the implicit flow in a popup;
+     * Google will not serve that inside a native WebView, so the Android shell
+     * has its own client and uses PKCE through the system browser. Two
+     * credentials, two values of `aud`, both ours. A single-valued property
+     * would have admitted every browser and refused every phone — locking
+     * households out of their own backup to close a hole, which is a worse
+     * outcome than leaving the hole open.
+     */
+    assert.equal(configured().verifyToken('phone-token').email, OWNER);
+  });
+
+  test('a household that named only the browser client still refuses a stranger', () => {
+    // The list is a list, not a licence: naming one id checks against that one.
+    const api = start({ OAUTH_CLIENT_ID: CLIENT });
+    assert.equal(api.verifyToken('owner-token').email, OWNER);
+
+    let error;
+    try { api.verifyToken('other-app-token'); } catch (err) { error = err; }
+    assert.equal(error?.status, 401);
+  });
+
+  test('a reply carrying no audience at all does not pass for a match', () => {
+    // `String(info.aud || '')` against a configured id: absent is not equal.
+    // Written down because the tempting shape — `info.aud && info.aud !==
+    // expected` — reads almost identically and admits exactly this token.
+    let error;
+    try { configured().verifyToken('no-audience-token'); } catch (err) { error = err; }
+    assert.equal(error?.status, 401);
+  });
+
+  test('a refused token is not cached, so the second attempt is refused too', () => {
+    // The check sits before `cache.put` on purpose. Behind it, a rejection
+    // would be a rejection once and an admission for the next five minutes.
+    const api = configured();
+    let first;
+    try { api.verifyToken('other-app-token'); } catch (err) { first = err; }
+    assert.equal(first?.status, 401);
+    const after = api.fetched.length;
+
+    let second;
+    try { api.verifyToken('other-app-token'); } catch (err) { second = err; }
+    assert.equal(second?.status, 401);
+    assert.ok(api.fetched.length > after, 'the second attempt was answered from cache');
+  });
+
+  test('surrounding whitespace in the property is not a different client id', () => {
+    // A value pasted into the Apps Script properties editor arrives with
+    // whatever came with it. A trailing newline must not silently turn the
+    // check into "refuse everybody".
+    const api = start({ OAUTH_CLIENT_ID: `  ${CLIENT}\n` });
+    assert.equal(api.verifyToken('owner-token').email, OWNER);
+
+    // And the same for a list written the way a person writes lists.
+    const both = start({ OAUTH_CLIENT_ID: `${CLIENT},\n  ${NATIVE_CLIENT}  ` });
+    assert.equal(both.verifyToken('phone-token').email, OWNER);
+  });
+
+  test('a deployment that has not been told its client id still works, and says so', () => {
+    /*
+     * Deliberately stating the hole rather than closing it here. An existing
+     * household upgrading to this version has no `OAUTH_CLIENT_ID`, and
+     * failing closed would take their backup away without warning to fix
+     * something they were never told about.
+     *
+     * So the other application's token is still admitted — and `ping`, which
+     * the client already makes, reports that nothing is checking.
+     */
+    const api = start();
+    assert.equal(api.verifyToken('other-app-token').email, OWNER);
+    assert.not(api.post('ping', 'owner-token').data.audienceChecked,
+      'an unconfigured deployment claimed it checks the audience');
+  });
+
+  test('and one that has been told reports that it checks', () => {
+    assert.ok(configured().post('ping', 'owner-token').data.audienceChecked,
+      'a configured deployment did not report the check');
   });
 });
 

@@ -86,7 +86,22 @@ at a browser tab that says everything worked.
 disagree. With no client id configured it does nothing, because a fresh clone
 that cannot sign in yet is the ordinary state of a fresh clone.
 
-### 4. Scopes
+### 4. Tell the backend about the second client
+
+`Code.gs` checks which application a token was issued to, against the
+`OAUTH_CLIENT_ID` script property — see `docs/SETUP.md`, Step 3. That property
+is a **list**, and a deployment that names only the Web client will refuse
+every token the phone presents:
+
+```
+1234-web.apps.googleusercontent.com, 5678-android.apps.googleusercontent.com
+```
+
+A deployment that has not set the property at all is unaffected: the check
+applies only when it has been told what to check against, and `ping` reports
+`audienceChecked: false` when it has not.
+
+### 5. Scopes
 
 The consent screen must list the same scopes the Web client uses — `core/scopes.js`
 declares them once and says what each is for. A scope granted to one client is
