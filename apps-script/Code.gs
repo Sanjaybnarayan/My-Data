@@ -241,6 +241,20 @@ function dispatch(action, payload, context) {
       // because `ping` is already made and a household should not have to go
       // looking for this.
       unrecognisedDevices: unrecognisedDevices(context.email, context.deviceId),
+      /*
+       * Whether this deployment checks which application a token was issued
+       * to. False means it admits any Google access token belonging to a
+       * household member, from any application they have ever signed into.
+       *
+       * Reported rather than merely fixed, because the fix needs a property
+       * only the household can set, and a deployment that cannot make the
+       * check should not be silent about it. `ping` is where it says so — the
+       * client already makes this call on every launch, so the fact is one
+       * request away rather than something to go looking for. Putting it on a
+       * screen is a separate change; what this key buys today is that the
+       * answer exists and `docs/SETUP.md` can point at it.
+       */
+      audienceChecked: expectedAudiences().length > 0,
     };
     default:
       throw fail('unknown action: ' + action, 400);
@@ -557,11 +571,68 @@ function verifyToken(token) {
     throw fail('the access token has expired', 401);
   }
 
+  /*
+   * Which application the token was issued to, not merely which account.
+   *
+   * `tokeninfo` answers "is this a live Google token, and whose". It does not
+   * answer "was it issued to you", and this endpoint was reading the email and
+   * admitting on the household member list alone. An access token is a bearer
+   * credential issued to a *client*: any other application the member has
+   * signed into with Google holds one that would have passed here. Google's own
+   * guidance for this endpoint says to compare `aud` against your client id,
+   * and it is the documented token-substitution case rather than a theoretical
+   * one.
+   *
+   * What it reached: `push` and `pull` over the household's sheet, where the
+   * schema encrypts named fields and leaves the rest — names, dates, amounts,
+   * institutions — as plain text.
+   *
+   * Configured, not invented. `OAUTH_CLIENT_ID` is the deployment's own client
+   * id, which the household already has because the application uses it to
+   * sign in; nothing here can supply it and nothing here guesses it.
+   */
+  var expected = expectedAudiences();
+  if (expected.length && expected.indexOf(String(info.aud || '')) === -1) {
+    throw fail('that access token was issued to a different application', 401);
+  }
+
   var email = String(info.email || '').toLowerCase();
   if (!email) throw fail('the access token does not say which account it is for', 401);
 
   cache.put(key, email, 300);
   return admit(email);
+}
+
+/**
+ * The client ids this deployment will accept tokens for. Empty means any.
+ *
+ * A *list*, and this is the part that took a second look. FamilyOS has two
+ * client ids, not one: `googleClientId` for the browser, which uses the
+ * implicit flow in a popup, and `googleNativeClientId` for the Android shell,
+ * which Google refuses to serve that way and which uses PKCE through the
+ * system browser — `js/auth/googleauth.js` picks between them. They are
+ * separate credentials in the Cloud console and they put *different* values in
+ * `aud`. A single-valued property here would have checked the web tokens and
+ * locked every phone out of its own backup, which is a worse outcome than the
+ * hole it closes.
+ *
+ * Empty is a real state and not an error: a deployment set up before the check
+ * existed has no such property, and refusing every request until somebody adds
+ * one would lock a household out of their own sheet to close a hole they have
+ * not been told about. So the check applies when it can and `ping` reports
+ * when it cannot, which is the difference between a gap and a silent gap.
+ *
+ * Split on commas and whitespace, and each entry trimmed, because the value is
+ * pasted into the Apps Script properties editor by hand and arrives with
+ * whatever came with it. A trailing newline compared literally would turn the
+ * check into "refuse every token" — the same lockout as above, arrived at by
+ * accident.
+ */
+function expectedAudiences() {
+  return String(PROP.getProperty('OAUTH_CLIENT_ID') || '')
+    .split(/[\s,]+/)
+    .map(function (one) { return one.trim(); })
+    .filter(function (one) { return Boolean(one); });
 }
 
 /**

@@ -127,6 +127,41 @@ Create `familyos/familyos.config.json`:
 This file is **not** in version control (`.gitignore` covers it) — not because
 it holds a secret, but because your deployment URL is yours.
 
+Then tell the **backend** the same client id, so it can check that a token was
+issued to your deployment and not merely to your Google account:
+
+1. In the Apps Script editor, **Project Settings → Script properties → Add
+   script property**.
+2. Property `OAUTH_CLIENT_ID`, value the same
+   `1234-abcd.apps.googleusercontent.com` you copied in Step 2.5.
+
+If you also run the Android app, **list both ids**, separated by a comma —
+the phone signs in through its own OAuth client and its tokens carry that id,
+not the web one. See `docs/NATIVE_SIGN_IN.md`.
+
+```
+1234-abcd.apps.googleusercontent.com, 5678-efgh.apps.googleusercontent.com
+```
+
+A list with only the web id in it will admit every browser and refuse every
+phone, which is a worse outcome than leaving the check off — so set it to
+match what you actually deployed.
+
+> **What this stops, and what happens without it.**
+> `Code.gs` verifies an access token by asking Google whose it is. That answer
+> names the account but not the *application*, and an access token is issued to
+> an application: every other app you or a family member has ever signed into
+> with Google holds one that names the same address. Without this property the
+> backend admits any of them, and what they reach is `push` and `pull` over
+> your workbook.
+>
+> It is a property rather than a hard-coded value because it is *your* client
+> id and nothing in the repository can know it. A deployment that has not set
+> it keeps working — an upgrade must not take a household's backup away to
+> close a hole nobody has told them about — and reports `audienceChecked:
+> false` in its `ping` reply, which is where to look if you want to know
+> whether yours is set.
+
 ### Step 4 — First sync
 
 Open the app, unlock it, go to **Settings → Google account → Sign in with
