@@ -25,6 +25,9 @@ import {
 } from '../domain/rentreceipt.js';
 import { userMessage } from '../core/errors.js';
 import { readTemplate, generate, generatedName } from '../domain/docxtemplate.js';
+// A generated report is titled the way an uploaded one is — the rule lives in
+// one place now, and this call site was the one that used to keep the '.docx'.
+import { titleFromFileName } from '../domain/filing.js';
 import { inflate } from '../data/pdf-read.js';
 import { ACTIONS } from '../data/audit.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
@@ -436,7 +439,7 @@ function templateCard() {
             // revisions that `versionCount` already reads.
             const filed = await documentStore().capture(
               new File([bytes], filename, { type: mime }),
-              { title: filename, category: 'other', generatedFrom: template.name },
+              { title: titleFromFileName(filename), category: 'other', generatedFrom: template.name },
             );
 
             toast(filed

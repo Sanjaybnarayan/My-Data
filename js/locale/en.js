@@ -512,6 +512,22 @@ export const strings = {
 
   'dash.seeAllOpen': 'Open',
 
+  // Files handed over by another app's share sheet. See js/services/intake.js.
+  // Why a document's text was or was not read. See js/domain/identifiers.js.
+  'doc.read.imageNotRecognised': 'no text could be recognised in this image \u2014 this build reads Latin script only, so a document in another script comes back empty rather than wrong',
+  'doc.read.imageNotRead': 'no text could be read from this image, so nothing was filled in from it',
+  'doc.read.imagePending': 'photographs are read when they reach Drive, so nothing has been filled in from this one yet',
+  'doc.read.pdfNotRecognised': 'this PDF is a scan rather than a document, and no text could be recognised in the pictures it holds \u2014 this build reads Latin script only',
+  'doc.read.pdfNoTextLayer': 'this PDF has no text layer \u2014 it is a scan rather than a document, and it will be read when it reaches Drive',
+  'doc.read.unsupported': 'nothing here can read text out of this kind of file, so its dates and amounts have to be typed in',
+  'doc.read.nothingFound': 'nothing was found in this file to fill in, so its dates and amounts have to be typed in',
+  'intake.untitled': 'Shared file',
+  'intake.filed.one': '1 document filed',
+  'intake.filed.many': '{n} documents filed',
+  'intake.unread.only': 'nothing could be read from it',
+  'intake.unread.some': '{n} could not be read',
+  'intake.tooLarge': '{n} too large to share',
+  'intake.failed': '{n} could not be saved',
   'list.seeAll': 'See all {n}',
   'list.andMore': 'and {n} more',
 

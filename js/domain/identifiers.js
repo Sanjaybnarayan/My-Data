@@ -49,6 +49,11 @@
  * this schema has nowhere to *keep* one, and inventing a home for a card
  * number is not a decision a scan should make.
  */
+// Which formats can be read is one answer, in `filing.js`. This file used to
+// carry a second copy of it as a run of mime-type branches — see `textState`.
+import { readerFor, READER } from './filing.js';
+import { t } from '../core/locale.js';
+
 export const IDENTIFIER_KINDS = {
   PAN: 'PAN',
   Aadhaar: 'Aadhaar',
@@ -179,45 +184,79 @@ export function identityRecordFor(offer, document) {
  * anything about the text. A photograph of a bill filed before Drive was
  * connected has no due date, produces no reminder, and nothing explained it.
  *
+ * ## Which formats are readable is asked, not restated
+ *
+ * This used to carry its own list — `image/*` here, `application/pdf` there,
+ * everything else "nothing here can read text out of this kind of file". Once
+ * `domain/filing.js` learned to read `.docx`, `.xlsx` and plain text, that
+ * last sentence became false about three formats and nothing compared the two
+ * lists. `readerFor` is the single answer and this asks it.
+ *
+ * @param {object} [document]
+ * @param {{canRecognise?: boolean}} [options] whether this build reads
+ *   pictures of text on the device. A fact about the build rather than about
+ *   the document, so it is passed in rather than guessed at: the same
+ *   photograph is a different sentence on a phone and in a browser.
  * @returns {{read: boolean, state: string, why: string|null}}
  *   `state` is `read`, `pending-upload`, `unreadable` or `empty`.
  */
-export function textState(document) {
+export function textState(document, { canRecognise = false } = {}) {
   if (document?.ocrText) return { read: true, state: 'read', why: null };
 
-  const mimeType = String(document?.mimeType ?? '');
+  const reader = readerFor(document?.mimeType, document?.fileName);
 
-  // A photograph is read by Drive's OCR when the file goes up, and not before.
-  // That is a real dependency and worth saying out loud rather than leaving a
-  // household to wonder why a photographed bill produced no reminder.
-  if (mimeType.startsWith('image/')) {
+  if (reader === READER.IMAGE) {
+    // A build that recognises has already tried, so Drive is not the
+    // explanation — and offering it would send somebody to connect an account
+    // that would not have helped.
+    if (canRecognise) {
+      return {
+        read: false,
+        state: 'unreadable',
+        why: t('doc.read.imageNotRecognised'),
+      };
+    }
     return document?.driveFileId
       ? {
         read: false,
         state: 'unreadable',
-        why: 'no text could be read from this image, so nothing was filled in from it',
+        why: t('doc.read.imageNotRead'),
       }
       : {
         read: false,
         state: 'pending-upload',
-        why: 'photographs are read when they reach Drive, so nothing has been '
-          + 'filled in from this one yet',
+        why: t('doc.read.imagePending'),
       };
   }
 
-  if (mimeType === 'application/pdf') {
+  if (reader === READER.PDF) {
+    return canRecognise
+      ? {
+        read: false,
+        state: 'unreadable',
+        why: t('doc.read.pdfNotRecognised'),
+      }
+      : {
+        read: false,
+        state: 'unreadable',
+        why: t('doc.read.pdfNoTextLayer'),
+      };
+  }
+
+  if (reader === READER.NONE) {
     return {
       read: false,
-      state: 'unreadable',
-      why: 'this PDF has no text layer — it is a scan rather than a document, '
-        + 'and it will be read when it reaches Drive',
+      state: 'empty',
+      why: t('doc.read.unsupported'),
     };
   }
 
+  // A format this device does read — a Word file, a spreadsheet, plain text —
+  // that gave up nothing. Saying it cannot be read would be false about the
+  // reader; the file had nothing in it to find.
   return {
     read: false,
     state: 'empty',
-    why: 'nothing here can read text out of this kind of file, so its dates and '
-      + 'amounts have to be typed in',
+    why: t('doc.read.nothingFound'),
   };
 }

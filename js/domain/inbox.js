@@ -29,7 +29,7 @@
 
 import { toMinor, divide, addable } from '../core/money.js';
 import { recognise } from './merchants.js';
-import { readDate } from './extract.js';
+import { readDate } from './extract-values.js';
 import { receiptKey } from './mailboxes.js';
 
 /** Words that mean "this is the number you were charged". Order matters. */

@@ -71,6 +71,11 @@ dependencies {
     // BiometricPrompt, and the Keystore binding that makes a fingerprint
     // produce key material rather than merely assert who is holding the phone.
     implementation "androidx.biometric:biometric:$androidxBiometricVersion"
+    // On-device text recognition, for photographs and scanned PDFs. Bundled,
+    // so it works with no network and no Play Services — see variables.gradle.
+    // Adds roughly 4 MB to the APK, which is the price of the Scan button
+    // producing something rather than nothing.
+    implementation "com.google.mlkit:text-recognition:$mlkitTextRecognitionVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

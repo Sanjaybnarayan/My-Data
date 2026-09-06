@@ -29,7 +29,9 @@ import { AppError, TransportError } from '../core/errors.js';
 import { safeFileName } from '../security/sanitize.js';
 import { attempted, DRIVE } from '../data/connectors.js';
 import { bus, TOPIC } from '../core/bus.js';
-import { canReadText, indexableText } from '../domain/filing.js';
+import {
+  mayRead, indexableText, readerFor, READER, titleFromFileName,
+} from '../domain/filing.js';
 import { readDocument, suggestions } from '../domain/extract.js';
 import { matchReceipt } from '../domain/receiptmatch.js';
 import { refused } from '../data/consent.js';
@@ -43,10 +45,27 @@ const PREVIEWABLE = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif
 export class DocumentStore {
   #db;
   #transport;
+  #plugin;
 
-  constructor({ db, transport }) {
+  /**
+   * @param {{db: object, transport: object|null,
+   *          plugin?: (name: string) => object|null}} options
+   *
+   * `plugin` is injected for the same reason `core/smsinbox.js` injects it:
+   * text recognition runs in a native plugin, none of it has run on a phone,
+   * and a path that can only be exercised on hardware is a path nothing here
+   * checks. Left undefined it resolves the real bridge, which is null in a
+   * browser and in the suite.
+   */
+  constructor({ db, transport, plugin }) {
     this.#db = db;
     this.#transport = transport;
+    this.#plugin = plugin;
+  }
+
+  /** The options an OCR call takes, or none, so the default stays the default. */
+  #ocrOptions() {
+    return this.#plugin ? { plugin: this.#plugin } : {};
   }
 
   /**
@@ -77,7 +96,7 @@ export class DocumentStore {
     const blobId = newId('blb');
 
     const document = await this.#db.repo('document').create({
-      title: title || safeFileName(file.name, 'Document'),
+      title: title || safeFileName(titleFromFileName(file.name), 'Document'),
       category,
       person,
       tags,
@@ -108,7 +127,7 @@ export class DocumentStore {
     // The file is safe from here on. Reading its text is a best-effort extra
     // and is deliberately attempted *after* the record and the blob exist, so
     // a PDF this cannot parse costs a search index entry and never the file.
-    const read = await this.#readText(bytes, file.type);
+    const read = await this.#readText(bytes, file.type, file.name);
     if (read) {
       const patch = { ocrText: read.indexable, ...suggestions(read, document) };
       await this.#db.repo('document').update(document.id, patch);
@@ -134,15 +153,15 @@ export class DocumentStore {
    * title — an upload that failed because of it would be a worse outcome than
    * the one it was protecting against.
    */
-  async #readText(bytes, mimeType) {
-    if (!canReadText(mimeType)) return null;
+  async #readText(bytes, mimeType, fileName = '') {
+    const reader = readerFor(mimeType, fileName);
+    if (reader === READER.NONE) return null;
 
     try {
-      const { extract } = await import('../data/pdf-read.js');
-      const result = await extract(bytes);
-      if (result.encrypted) return null;
+      const pages = await this.#pagesFor(reader, bytes);
+      if (!pages) return null;
 
-      const text = indexableText(result.pages);
+      const text = indexableText(pages);
       if (!text) return null;
 
       // `readDocument` returns the redacted text as `indexable`; nothing else
@@ -151,6 +170,58 @@ export class DocumentStore {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The pages of a file, whichever kind it is, or `null` for one that gave up
+   * nothing.
+   *
+   * Every reader is imported on demand. `pdf-read.js` is six hundred lines
+   * nobody needs until a PDF arrives, and this class is constructed at boot —
+   * the same reasoning now covers three formats instead of one.
+   */
+  async #pagesFor(reader, bytes) {
+    if (reader === READER.PDF) {
+      const { extract } = await import('../data/pdf-read.js');
+      const result = await extract(bytes);
+      // An encrypted PDF is not an unreadable one — it is one this device was
+      // not given the key to, and reading it would be the wrong claim either
+      // way.
+      if (result.encrypted) return null;
+
+      /*
+       * A PDF whose pages carry no text is a **scan** — pictures of text in a
+       * PDF wrapper. Both arrive as `application/pdf` and nothing about the
+       * file says which it is, so the only way to tell is to try the exact
+       * reading first and notice that it came back empty.
+       *
+       * Order matters. Recognising a PDF that already carries its text would
+       * replace an exact answer with a model's reading of a picture of it.
+       */
+      if (indexableText(result.pages)) return result.pages;
+
+      const { readPdf } = await import('../core/ocr.js');
+      return readPdf(bytes, this.#ocrOptions());
+    }
+
+    if (reader === READER.OOXML) {
+      const [{ readOoxml }, { inflate }] = await Promise.all([
+        import('../data/office-read.js'),
+        import('../data/pdf-read.js'),
+      ]);
+      return readOoxml(bytes, inflate);
+    }
+
+    if (reader === READER.IMAGE) {
+      // Null where recognition is not in this build — a browser, or an
+      // Android build without the plugin. The file is still filed; it is
+      // filed unread, which is what it was before this existed.
+      const { readImage } = await import('../core/ocr.js');
+      return readImage(bytes, this.#ocrOptions());
+    }
+
+    const { readPlain } = await import('../data/office-read.js');
+    return readPlain(bytes);
   }
 
   /**
@@ -208,20 +279,26 @@ export class DocumentStore {
    * already on the device; reading it again costs a parse and stores nothing.
    *
    * @returns {Promise<{identifiers: Array, readable: boolean}>}
-   *   `readable` is false when nothing on this device can get text out of the
-   *   file — a photograph, which only Drive's OCR can read. That is not the
-   *   same as a document with no identifiers in it, and callers must not
-   *   report it as one.
+   *   `readable` is false when nothing on this device could get text out of
+   *   the file. That is not the same as a document with no identifiers in it,
+   *   and callers must not report it as one.
+   *
+   *   It used to be false for every photograph, because only Drive's OCR could
+   *   read one. On a build with `core/ocr.js` behind it a photographed PAN
+   *   card is now read on the device and can offer its number — and on a
+   *   browser, where there is no recogniser, it is false exactly as before.
    */
   async identifiersIn(documentId) {
     const document = await this.#db.repo('document').get(documentId);
     if (!document) return { identifiers: [], readable: false };
-    if (!canReadText(document.mimeType)) return { identifiers: [], readable: false };
+    if (!mayRead(document.mimeType, document.fileName)) return { identifiers: [], readable: false };
 
     const blob = await this.read(documentId);
     if (!blob) return { identifiers: [], readable: false };
 
-    const read = await this.#readText(new Uint8Array(await blob.arrayBuffer()), document.mimeType);
+    const read = await this.#readText(
+      new Uint8Array(await blob.arrayBuffer()), document.mimeType, document.fileName,
+    );
     return read ? { identifiers: read.identifiers, readable: true }
       : { identifiers: [], readable: false };
   }
@@ -243,14 +320,16 @@ export class DocumentStore {
    */
   async receiptMatchesIn(documentId) {
     const document = await this.#db.repo('document').get(documentId);
-    if (!document || !canReadText(document.mimeType)) {
+    if (!document || !mayRead(document.mimeType, document.fileName)) {
       return { receipt: null, proposals: [], why: 'this file’s text cannot be read here' };
     }
 
     const blob = await this.read(documentId);
     if (!blob) return { receipt: null, proposals: [], why: 'this file is not on this device' };
 
-    const read = await this.#readText(new Uint8Array(await blob.arrayBuffer()), document.mimeType);
+    const read = await this.#readText(
+      new Uint8Array(await blob.arrayBuffer()), document.mimeType, document.fileName,
+    );
     if (read?.kind !== 'receipt') {
       return { receipt: null, proposals: [], why: 'this does not read as a receipt' };
     }

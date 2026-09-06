@@ -1,8 +1,12 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb } from './fixture.mjs';
 import {
-  readDate, readAmount, readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt, stopAtLabel, readAgreement, readVehicle, readNoDues, readTaxCertificate,
+  readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt, stopAtLabel, readAgreement, readVehicle, readNoDues, readTaxCertificate,
 } from '../js/domain/extract.js';
+// The scalar readers moved out when `tools/module-size.mjs` refused to let
+// `extract.js` grow. Imported from where they live rather than re-exported
+// through their old home, so the seam is visible here too.
+import { readDate, readAmount } from '../js/domain/extract-values.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
 
@@ -984,5 +988,65 @@ describe('a tax certificate is not a policy', () => {
     // a claim about which year the premium falls in that the document does not
     // make.
     assert.equal(readTaxCertificate(CERT).financialYear, undefined);
+  });
+});
+
+/**
+ * A labelled amount answered with a day.
+ *
+ * `readAmount` takes the first number within forty characters of its label. On
+ * a policy reading "Premium due on 04/03/2027. Premium Rs. 12,500" it returned
+ * **₹4.00** — the day of the month. Not a near miss: the document says twelve
+ * and a half thousand, and the reader wrote four rupees onto the record,
+ * confidently, from a label that was genuinely there.
+ *
+ * `extract.js` states the rule this broke in its own header — "a field that
+ * cannot be found is absent rather than guessed".
+ */
+describe('a date is not an amount', () => {
+  test('a premium whose only nearby number is a due date is absent', () => {
+    assert.equal(readAmount('Premium due on 04/03/2027', ['premium']), null);
+    assert.equal(readAmount('Premium 04-03-2027', ['premium']), null);
+    assert.equal(readAmount('Premium 2027-03-04', ['premium']), null);
+    assert.equal(readAmount('Premium payable 18 Oct 2026', ['premium']), null);
+  });
+
+  test('and the real amount is found past the date, not before it', () => {
+    // The case that matters. Both readings are available; the wrong one wins
+    // on position alone.
+    assert.equal(
+      readAmount('Premium due on 04/03/2027. Premium Rs. 12,500', ['premium']),
+      1250000,
+    );
+  });
+
+  test('an amount before a date is still read', () => {
+    assert.equal(
+      readAmount('Annual Premium: Rs 18,400 payable on 04/03/2027', ['premium']),
+      1840000,
+    );
+    assert.equal(
+      readAmount('Total Amount 1,200.50 payable by 18 Oct 2026', ['total amount']),
+      120050,
+    );
+  });
+
+  /*
+   * The guard on the fix. Blanking the dates must not blank the amounts, and
+   * `2,340.00` is close enough in shape to a date to be worth asserting rather
+   * than assuming.
+   */
+  test('amounts that look date-shaped survive', () => {
+    assert.equal(readAmount('Amount Payable: Rs. 2,340.00', ['amount payable']), 234000);
+    assert.equal(readAmount('Sum Assured Rs. 5,00,000', ['sum assured']), 50000000);
+    assert.equal(readAmount('Fee 18.10', ['fee']), 1810);
+  });
+
+  test('and the dates themselves are still read, from the same text', () => {
+    // Masked inside `readAmount` only. `readDate` reads the same string and
+    // needs every one of them.
+    assert.equal(readDate('Due Date: 18/10/2026'), '2026-10-18');
+    assert.equal(readDate('payable by 18 Oct 2026'), '2026-10-18');
+    assert.equal(readDate('04/03/2027'), '2027-03-04');
   });
 });

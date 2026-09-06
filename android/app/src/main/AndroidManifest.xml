@@ -68,6 +68,54 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!--
+                The share sheet.
+
+                Without these, FamilyOS does not appear when somebody shares a
+                bill from Gmail, a policy from WhatsApp or a scan from Files —
+                and the only way to get a document in is the picker on the
+                Documents screen. That is the whole gap: the application could
+                already read a PDF and had no way to be handed one.
+
+                The types are the ones `js/domain/filing.js#readerFor` can do
+                something with, plus images. An image is accepted deliberately
+                even though nothing on the device can read text out of one: it
+                is still a document worth keeping, `identifiers.js#textState`
+                already says on screen that a photograph is read when it
+                reaches Drive, and refusing the share would be a worse answer
+                than filing it honestly unread.
+
+                `application/octet-stream` is here because a sending app
+                frequently sets nothing better. `readerFor` takes the file name
+                into account for exactly that reason, so a `.docx` shared from
+                Gmail reads the same as one picked from storage.
+
+                No wildcard `*/*`. FamilyOS appearing in the share sheet for
+                every file on the phone would be a worse citizen than one that
+                appears where it can help.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            </intent-filter>
+
         </activity>
 
         <!--

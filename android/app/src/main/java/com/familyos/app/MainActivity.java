@@ -1,5 +1,6 @@
 package com.familyos.app;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.WindowManager;
 
@@ -17,7 +18,14 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(BackgroundLocationPlugin.class);
         registerPlugin(ScreenTimePlugin.class);
         registerPlugin(BiometricPlugin.class);
+        registerPlugin(ShareTargetPlugin.class);
+        registerPlugin(OcrPlugin.class);
         super.onCreate(savedInstanceState);
+
+        // The share that started this launch. Offered after super, because the
+        // plugin is only registered by then — and held rather than announced,
+        // since on a cold share the WebView has no listener yet.
+        ShareTargetPlugin.offer(getIntent());
 
         // Android photographs the screen every time the app goes to the
         // background, and keeps the picture for the recents switcher. Nobody
@@ -43,5 +51,20 @@ public class MainActivity extends BridgeActivity {
         getWindow().setFlags(
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE);
+    }
+
+    /**
+     * A share arriving while the app is already running.
+     *
+     * `launchMode="singleTask"` means Android reuses this Activity rather than
+     * creating another, so a second share never reaches `onCreate`. Handling
+     * only that one would give a share target that works exactly once per
+     * launch — and works on the developer's first try, every time.
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        ShareTargetPlugin.offer(intent);
     }
 }
