@@ -446,7 +446,7 @@ const WIDGETS = {
         // already decided this row was worth showing using the field's
         // declared lead; re-deciding here made the badge disagree with the
         // list it sat in.
-        trailing: dueBadge(one.date, { leadDays: one.lead }),
+        trailing: dueBadge(one.date, { leadDays: one.lead, field: one.field }),
         href: Router.href({ module: one.module, entity: one.entity, id: one.recordId }),
       }))),
       moreFooter(all.length, Router.href({ module: 'documents' })),
@@ -541,7 +541,7 @@ const WIDGETS = {
         ? h('div', { class: 'list' }, rows.map((r) => listItem({
           title: r.title,
           subtitle: `${r.label} · ${formatDay(r.date)}`,
-          trailing: dueBadge(r.date, { leadDays: r.lead }),
+          trailing: dueBadge(r.date, { leadDays: r.lead, field: r.field }),
           href: Router.href({ module: r.module, entity: r.entity, id: r.recordId }),
         })))
         : empty({ title: 'Nothing expiring', message: 'Everything is in date.', iconName: 'check' }),

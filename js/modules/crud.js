@@ -515,7 +515,7 @@ function detailValue(field, record, labels) {
       (value ?? []).map((v) => badge(labels[field.ref]?.[v] ?? v)));
   }
   if (field.type === 'date' && field.expiry) {
-    return h('span', { class: 'row' }, [cellFor(field, record), dueBadge(value, { leadDays: field.expiryLead })]);
+    return h('span', { class: 'row' }, [cellFor(field, record), dueBadge(value, { leadDays: field.expiryLead, field: field.key })]);
   }
   if (field.type === 'url') {
     /*

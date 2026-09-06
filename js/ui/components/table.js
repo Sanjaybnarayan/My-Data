@@ -52,7 +52,7 @@ export function cellFor(field, record, { currency = 'INR', reveal = false } = {}
       return money(value, { currency, signed: field.signed });
     case 'date':
       return field.expiry
-        ? h('span', { class: 'row row--tight' }, [formatDay(value), ' ', dueBadge(value, { leadDays: field.expiryLead ?? 30 })])
+        ? h('span', { class: 'row row--tight' }, [formatDay(value), ' ', dueBadge(value, { leadDays: field.expiryLead ?? 30, field: field.key })])
         : h('span', {}, formatDay(value));
     case 'boolean':
       return value ? badge('yes', 'positive') : h('span', { class: 'faint' }, 'no');

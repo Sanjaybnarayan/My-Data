@@ -297,7 +297,6 @@ export const strings = {
   'health.q.followedUp': 'Was {subject} followed up? The follow-up date has passed and nothing here says either way',
   'health.q.followedUp.tag': 'Nothing recorded',
   'health.current.title': 'Being taken, and coming up',
-  'health.current.ahead': 'ahead',
   'health.current.derived': 'Worked out from the dates on each record rather than from the \u201congoing\u201d tick box, which starts ticked and is rarely unticked \u2014 a list built from it alone would show a course that finished months ago.',
   'health.absent.title': 'What this screen cannot show',
   'health.absent.sensors': 'No steps, exercise, sleep or activity. Those come from a phone\u2019s sensors or a wearable, and this application reads neither.',
