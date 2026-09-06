@@ -619,7 +619,7 @@ Following the brief's phase structure, restricted to what exists here:
 | 9 | Privacy / minimisation | PRIV-01 **done** — the rule is held by a test against the schema |
 | 10 | Play compliance | **PLAY-01** — needs a human decision |
 | 11 | Play Integrity / anti-abuse | **Not implemented, and now argued rather than blank.** `docs/THREAT_MODEL.md`'s appendix says why it does not simply fit: verification needs credentials tied to the Play Console listing, held by the publisher, and there is no publisher-operated server — only the deployment each household runs under its own account. The `sms` flavour is sideload-only by construction and cannot be attested at all. A decision, not a to-do |
-| 12 | Security testing | **Partial** — see below for exactly which half |
+| 12 | Security testing | **Partial, and less partial than it was.** `tests/fuzz.test.mjs` drives hostile bodies through the real `doPost` and found a real bug doing it. Still no penetration test, no scanning, and nothing run against a deployed instance — see below |
 | 13 | Final report (§80) | **Written** — `docs/REMEDIATION_REPORT.md`. Eight pull requests, what each closed, what is still open with its threat-model row, what could not be checked without a device, and the corrections in both directions. It does not say *secure* and is not scored 100 |
 | — | SEARCH-01 | **Done** — the read path that never met the authorisation rule |
 | — | LOCK-01 | **Done** — the write path's lock, raised as an open question under OTP-01 and settled by the owner |
@@ -658,10 +658,22 @@ MANIFEST-01 added the same kind of coverage on the Android side: two
 transport-security attributes and two absences §79 names, none of which had a
 check.
 
-What does **not** exist is everything dynamic: no penetration testing, no
-fuzzing, no scanning, and nothing at all run against a deployed instance. A
-test that loads a file is not a test of a running service, and the distinction
-is the whole of what phase 12 asks for.
+**Fuzzing exists now** — `tests/fuzz.test.mjs`, which pushes malformed bodies
+through the real `doPost` rather than through a description of it — and it
+found a bug on its first run. A body of the four bytes `null` parses
+successfully, so the parse guard never fired and reading `.token` off it threw
+a TypeError into the outer catch, which cannot tell a bug from a bad request.
+An unauthenticated stranger got back a V8 internal message, a 500 claiming the
+deployment had broken, and `retryable: true`, which would have a client's
+outbox resend a permanently invalid request. Nothing in 3400 checks had ever
+sent a body that was not an object.
+
+What still does **not** exist is the rest of it: no penetration testing, no
+scanning, and nothing at all run against a deployed instance. A test that loads
+a file is closer to a test of a running service than a test that reads one, and
+it is still not the same thing — the distinction is the whole of what phase 12
+asks for, and this row stays **partial** for that reason rather than being
+promoted on the strength of one suite.
 
 
 **CHAT-01 and CHAT-02 are both done**, and they do different halves of one job.

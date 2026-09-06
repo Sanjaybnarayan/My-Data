@@ -13,7 +13,7 @@ not, and what could not be checked from here.
 
 ## What was fixed
 
-Eight pull requests, each with the reasoning in its commit message and each
+Nine pull requests, each with the reasoning in its commit message and each
 held by a test that fails when the fix is reverted.
 
 | # | What was wrong | What holds it now |
@@ -26,8 +26,9 @@ held by a test that fails when the fix is reverted.
 | **#240** | `otpEnforceLimits` was charged on send and nowhere else, so the only thing bounding guesses was the per-code attempt cap. | A verify-side limit whose ceiling is **derived** — `OTP_PER_ADDRESS × OTP_MAX_ATTEMPTS` — so it cannot refuse anything honest use can produce. |
 | **#241** | `verifyToken` proved *whose* a token was and never that it was **issued to this application**. Any other app a member had signed into with Google held one that reached `push` and `pull`. | `aud` compared against the `OAUTH_CLIENT_ID` property — a **list**, because the browser and the Android shell are separately registered clients. |
 | **#242** | No threat model, no data inventory, and §37 recorded only as "not started". | `docs/THREAT_MODEL.md` and `docs/DATA_INVENTORY.md`, each with a ratchet that fails when the document stops describing the code. |
+| **#244** | A request body of the four bytes `null` parsed, then threw reading `.token` — answering an unauthenticated caller with a V8 internal message, a 500, and `retryable: true`. An unknown action was echoed back at whatever length it arrived, 100,000 characters included. | A shape check on the parsed body, and a bound on the echo. Found by **fuzzing `doPost`**, not by reading it — `tests/fuzz.test.mjs`. |
 
-Checks went from **3339 to 3403** across the run — 64 new ones, every one of
+Checks went from **3339 to 3434** across the run — 95 new ones, every one of
 them written to fail against a specific reverted behaviour rather than to
 raise a count.
 
@@ -62,9 +63,11 @@ brief's rule 62 exists to prevent.
 - **Whether signing works with real secrets** is unverified. Only the
   no-secret fallback path has ever executed in CI, which is exactly the blind
   spot that produced the #237 bug.
-- **This was not a penetration test.** No instrumented device, no runtime
-  attack, no fuzzing. Source review against call sites, dependency audit, CI
-  configuration review, and targeted measurement in Chromium.
+- **This was not a penetration test.** No instrumented device, no scanning, and
+  nothing run against a deployed instance. Source review against call sites,
+  dependency audit, CI configuration review, targeted measurement in Chromium,
+  and — since #244 — fuzzing the backend's entry point in process. That last is
+  genuinely dynamic and is genuinely not the same as testing a running service.
 
 ## Method, and the corrections
 
