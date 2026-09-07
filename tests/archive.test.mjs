@@ -1,7 +1,7 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   buildBody, describeBody, seal, open, planRestore, verify,
-  ARCHIVE_VERSION, MAGIC, STORES, WHY,
+  ARCHIVE_VERSION, MAGIC, STORES, WHY, ITERATIONS, MAX_ITERATIONS,
 } from '../js/domain/archive.js';
 import { ArchiveService, REFUSED } from '../js/services/archive.js';
 import { makeDb, makePerson, makeAccount } from './fixture.mjs';
@@ -132,6 +132,101 @@ describe('sealing and opening', () => {
     const opened = await open({ ...file, body: undefined }, PHRASE);
     assert.not(opened.ok);
     assert.equal(opened.why, WHY.DAMAGED);
+  });
+});
+
+describe('how much work a file may ask for', () => {
+  /*
+   * `open` takes the PBKDF2 round count out of the file, which it has to —
+   * a version that raises `ITERATIONS` writes archives an older client still
+   * opens. What it must not do is take any number the file writes down.
+   *
+   * Measured before this guard existed, on a machine faster than any phone:
+   * 600,000 rounds cost 263 ms, 6,000,000 cost 2.8 s, and 60,000,000 cost
+   * **26 seconds** — linear, and `iterations` is JSON, so 2^53 is expressible.
+   * A file picked off a message thread held the restore screen with nothing
+   * to cancel and nothing said.
+   *
+   * The checks are wall-clock-free on purpose. A timing assertion loose
+   * enough not to be flaky is loose enough to pass with the bound removed,
+   * which is what happened to the CMap check in #249.
+   */
+  // One sealed file for the whole block: sealing runs 600,000 rounds, and
+  // paying that per assertion is the sort of thing that makes a suite slow
+  // enough that people stop running it.
+  let sealed = null;
+  const archive = async () => {
+    if (!sealed) sealed = await seal(buildBody({ stores: stores(), entities }), PHRASE);
+    return sealed;
+  };
+  const withRounds = async (iterations) => {
+    const file = await archive();
+    return open({ ...file, kdf: { ...file.kdf, iterations } }, PHRASE);
+  };
+
+  test('an archive asking for a hundred million rounds is refused', async () => {
+    // And refused as damage, not as a wrong phrase. That is what makes this
+    // check exact without a stopwatch: without the ceiling the derivation
+    // succeeds after about a minute and the decryption then fails, which is
+    // reported as WRONG_PHRASE — a different answer, not a slower one.
+    const out = await withRounds(100_000_000);
+    assert.not(out.ok);
+    assert.equal(out.why, WHY.DAMAGED);
+  });
+
+  test('and one asking for every round JavaScript can count', async () => {
+    const out = await withRounds(Number.MAX_SAFE_INTEGER);
+    assert.equal(out.why, WHY.DAMAGED);
+  });
+
+  test('infinity is not a count either', async () => {
+    // JSON cannot carry Infinity — it serialises as null, which takes the
+    // fallback — so this arrives only through `verify`, which calls `open` on
+    // an in-memory object.
+    const out = await withRounds(Infinity);
+    assert.equal(out.why, WHY.DAMAGED);
+  });
+
+  test('the ceiling leaves room for this version to be raised', () => {
+    assert.ok(MAX_ITERATIONS >= ITERATIONS * 8,
+      `${MAX_ITERATIONS} leaves no headroom over ${ITERATIONS}`);
+  });
+
+  test('a count at the ceiling is admitted, not refused for being large', async () => {
+    // The bound must be a bound and not a rejection of anything unusual: an
+    // archive from a future version sealed at the ceiling has to be let
+    // through. This one was sealed at `ITERATIONS`, so the derived key is the
+    // wrong one and the decryption fails — which is the point. `WRONG_PHRASE`
+    // means the ceiling admitted it and the work was done; `DAMAGED` would
+    // mean the ceiling was off by one and turned away a legitimate file.
+    // Sealing a second archive at the ceiling would cost ten million rounds
+    // to learn the same thing.
+    const out = await withRounds(MAX_ITERATIONS);
+    assert.equal(out.why, WHY.WRONG_PHRASE);
+  });
+
+  test('and one round past it is not', async () => {
+    const out = await withRounds(MAX_ITERATIONS + 1);
+    assert.equal(out.why, WHY.DAMAGED);
+  });
+
+  test('a negative or fractional count is damage, not a wrong phrase', async () => {
+    // -5 rounds made `deriveKey` throw, and every throw in that block is
+    // reported as a wrong phrase — which sends somebody hunting for a typo in
+    // a file that is broken.
+    for (const nonsense of [-5, 1.5]) {
+      const out = await withRounds(nonsense);
+      assert.equal(out.why, WHY.DAMAGED, `${JSON.stringify(nonsense)} was reported as ${out.why}`);
+    }
+  });
+
+  test('a blank or missing count still falls back, as it always did', async () => {
+    const file = await archive();
+    for (const empty of [undefined, 0, '', '   ']) {
+      // `Number('   ')` is 0, which is falsy, so these all take the fallback.
+      const out = await open({ ...file, kdf: { ...file.kdf, iterations: empty } }, PHRASE);
+      assert.ok(out.ok, `${JSON.stringify(empty)} was refused: ${out.why}`);
+    }
   });
 });
 
