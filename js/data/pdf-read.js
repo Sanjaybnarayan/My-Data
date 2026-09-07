@@ -39,6 +39,8 @@
  * ToUnicode map produces the raw bytes, and the caller can see that it did.
  */
 
+import { parseToUnicode } from './pdf-cmap.js';
+
 /*
  * ## Why inflation is a separate pass
  *
@@ -150,79 +152,9 @@ function expandObjectStreams(objects, streams) {
  * Subset fonts renumber their glyphs, so without this a statement comes out
  * as plausible-looking gibberish rather than as obviously broken.
  */
-function parseToUnicode(cmap) {
-  const map = new Map();
-  const text = latin1(cmap);
 
-  // `<0000> <FFFF>` in the codespace range means codes are two bytes wide.
-  // Everything downstream has to read them in pairs.
-  const codespace = /begincodespacerange([\s\S]*?)endcodespacerange/.exec(text);
-  const width = codespace ? (/<([0-9A-Fa-f]+)>/.exec(codespace[1])?.[1].length ?? 2) / 2 : 1;
 
-  const single = /beginbfchar([\s\S]*?)endbfchar/g;
-  let block;
-  while ((block = single.exec(text))) {
-    const pairs = block[1].match(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g) ?? [];
-    for (const pair of pairs) {
-      const [, from, to] = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/.exec(pair);
-      map.set(parseInt(from, 16), utf16beToString(to));
-    }
-  }
 
-  const ranges = /beginbfrange([\s\S]*?)endbfrange/g;
-  while ((block = ranges.exec(text))) {
-    const rows = block[1].match(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g) ?? [];
-    for (const row of rows) {
-      const [, low, high, start] = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/.exec(row);
-      const first = parseInt(low, 16);
-      const last = parseInt(high, 16);
-      const base = parseInt(start, 16);
-      for (let i = 0; i <= last - first; i++) {
-        map.set(first + i, String.fromCodePoint(base + i));
-      }
-    }
-  }
-
-  return { map, twoByte: width >= 2 };
-}
-
-/**
- * Typographic ligatures, as the letters a person typed.
- *
- * A subset font maps its `ﬁ` glyph to U+FB01, which is correct and unhelpful:
- * `beneﬁts` does not match a search for `benefits`, and no label pattern in
- * `domain/extract.js` containing `fi` will ever match a document that uses
- * them. Measured on a real motor policy, which is full of them.
- *
- * This is the one place a reader is allowed to change what the document said,
- * because it is not changing it — U+FB01 *is* `fi`, written as one glyph for
- * the typesetter's benefit.
- */
-const LIGATURES = new Map(Object.entries({
-  'ﬀ': 'ff', 'ﬁ': 'fi', 'ﬂ': 'fl',
-  'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬅ': 'st', 'ﬆ': 'st',
-}));
-
-const unligature = (text) => (/[ﬀ-ﬆ]/.test(text)
-  ? [...text].map((ch) => LIGATURES.get(ch) ?? ch).join('')
-  : text);
-
-function utf16beToString(hex) {
-  let out = '';
-  for (let i = 0; i < hex.length; i += 4) {
-    const code = parseInt(hex.slice(i, i + 4).padEnd(4, '0'), 16);
-    // A CMap entry of U+0000 is a font saying *this glyph has no Unicode* —
-    // subset fonts write it for ligatures and ornaments they could not map.
-    // Emitting it puts a NUL inside a word: measured on a real policy, the
-    // reader produced `Certi<NUL>cate`, which is invisible on screen, does
-    // not match a search for `certificate`, and would be written into a cell
-    // in the household's Sheet. Dropping it leaves `Certicate` — wrong, but
-    // wrong in a way somebody can see.
-    if (code === 0) continue;
-    out += String.fromCharCode(code);
-  }
-  return unligature(out);
-}
 
 /* ------------------------------------------------------ content streams */
 
@@ -599,7 +531,7 @@ export function build({ objects, text, encrypted }, inflated) {
     let toUnicode = null;
     if (reference) {
       const data = streamData(Number(reference[1]));
-      if (data) toUnicode = parseToUnicode(data);
+      if (data) toUnicode = parseToUnicode(latin1(data));
     }
     return {
       toUnicode: toUnicode?.map ?? null,

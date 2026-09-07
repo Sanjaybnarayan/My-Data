@@ -11,6 +11,7 @@
 
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { extract } from '../js/data/pdf-read.js';
+import { parseToUnicode } from '../js/data/pdf-cmap.js';
 
 setSuite('pdf reader');
 
@@ -356,5 +357,86 @@ describe('a block moved by cm rather than by Tm', () => {
     const result = await extract(positionedByCm([[700, 'One'], [700, 'Two']]));
     assert.length(result.pages.flatMap((page) => page.lines ?? []), 1,
       'two blocks at the same height should be one line');
+  });
+});
+
+
+/* ------------------------------------------------- a CMap that is not ours */
+
+/**
+ * The bounds of a loop, taken out of the file.
+ *
+ * `parseToUnicode` read `<low> <high> <base>` out of a `bfrange` and ran
+ * `for (i = 0; i <= high - low; i++)`, with all three numbers parsed straight
+ * from the document. `<0000> <FFFFFFFF> <0041>` is eight valid hex digits and
+ * a legal thing to write in a PDF, and it asked for **4,294,967,296**
+ * iterations of `Map.set` — a hang, then an out-of-memory, on a file a
+ * household was invited to upload. It does not take a hostile producer; a
+ * corrupt one does as well.
+ *
+ * `js/sync/drive.js` wraps the read in `try { … } catch { return null }`,
+ * which is why the sibling `fromCodePoint` throw was survivable. **A catch
+ * cannot interrupt a running loop**, so nothing there helped here.
+ *
+ * These assert on the size of the map rather than on a clock, and that is the
+ * second try. The first measured elapsed time against a five-second budget,
+ * and removing the span cap *passed it* in 1.8 seconds — because the
+ * code-point guard was quietly doing the bounding, one glyph at a time, and a
+ * timing assertion loose enough not to be flaky was loose enough not to
+ * measure anything. A count is exact.
+ */
+describe('a CMap whose numbers came out of the file', () => {
+  // Text, not bytes: `parseToUnicode` takes the decoded string, which is what
+  // keeps `pdf-cmap.js` from importing back into `pdf-read.js`.
+  const range = (low, high, base) => '1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n'
+    + `1 beginbfrange\n<${low}> <${high}> <${base}>\nendbfrange\n`;
+
+  /** The whole two-byte code space. Nothing honest asks for more. */
+  const CODE_SPACE = 0x10000;
+
+  test('an impossible span maps the code space and stops', () => {
+    const { map } = parseToUnicode(range('0000', 'FFFFFFFF', '0041'));
+    assert.ok(map.size <= CODE_SPACE,
+      `the range produced ${map.size} entries — the span is unbounded again`);
+  });
+
+  test('and so does a merely enormous one', () => {
+    const { map } = parseToUnicode(range('0000', '00FFFFFF', '0041'));
+    assert.ok(map.size <= CODE_SPACE, `${map.size} entries from a 16-million span`);
+  });
+
+  test('a base above the last code point stops rather than throwing', () => {
+    /*
+     * `String.fromCodePoint` throws above 0x10FFFF. Thrown, it reached
+     * `drive.js`'s blanket catch and the file was filed as unreadable — one
+     * bad glyph costing every page of text. Stopping leaves the rest of that
+     * range unmapped, which is what an unmapped glyph already meant.
+     */
+    const { map } = parseToUnicode(range('0000', '0010', 'FFFFFFFF'));
+    assert.equal(map.size, 0, 'an out-of-range base mapped something');
+  });
+
+  test('a reversed range maps nothing, by arithmetic rather than by a guard', () => {
+    // `last - first` is negative, so `i <= stop` is false on the first test.
+    // There is no separate check for this and there should not be: one was
+    // written, and removing it broke nothing, which is what a line that does
+    // nothing looks like.
+    const { map } = parseToUnicode(range('00FF', '0000', '0041'));
+    assert.equal(map.size, 0);
+  });
+
+  test('an ordinary range still maps every character in it', () => {
+    // Or the guard is just a way of reading nothing at all.
+    const { map } = parseToUnicode(range('0001', '0003', '0041'));
+    assert.equal(map.size, 3);
+    assert.equal(map.get(1), 'A');
+    assert.equal(map.get(3), 'C');
+  });
+
+  test('and a whole document still reads through the real path', async () => {
+    // The unit assertions above go round `extract`; this one does not, so the
+    // guard cannot be correct in isolation and wrong where it is used.
+    const result = await extract(scanned('Net Payable'));
+    assert.includes(result.pages[0].lines.join(' '), 'Net Payable');
   });
 });

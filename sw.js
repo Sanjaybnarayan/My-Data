@@ -83,6 +83,7 @@ const SHELL = [
   './js/data/incident.js',
   './js/data/migrations.js',
   './js/data/office-read.js',
+  './js/data/pdf-cmap.js',
   './js/data/pdf-read.js',
   './js/data/repository.js',
   './js/data/retention.js',
