@@ -32,6 +32,7 @@
 
 
 import { toMinor } from '../core/money.js';
+import { isDay } from '../core/dates.js';
 /**
  * Header words, per field. First match wins, so put the specific ones first.
  *
@@ -249,7 +250,34 @@ export function readDate(cell) {
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const century = (year) => (String(year).length === 2 ? `20${year}` : String(year));
-const pad = (y, m, d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+/**
+ * Format, and then check it is a date that exists.
+ *
+ * This was formatting alone, and formatting alone cannot tell 28 February from
+ * 31 February. `31/02/2026` came out as `2026-02-31` and `05/13/2026` — a
+ * statement written the American way round — as `2026-13-05`, both with no
+ * complaint: `parseTable` reported `problems: []` and handed the row on as an
+ * ordinary transaction.
+ *
+ * The two failures are not equally visible, and the quieter one is worse.
+ * `2026-13-05` is at least *obviously* broken — `new Date` calls it Invalid
+ * and anything downstream stops. `2026-02-31` is not: JavaScript rolls it
+ * forward to **3 March**, and `29/02/2025` — a year that has no 29 February —
+ * rolls to **1 March**. A household reconciling a statement gets a
+ * transaction quietly filed in the wrong month, with a plausible date on it
+ * and nothing anywhere saying so.
+ *
+ * `isDay` already knew all this. It is in `core/dates.js`, it is exported, it
+ * is tested, and it rejects every one of those four. Returning `null` here is
+ * not a new failure path either — it is the one this function already uses for
+ * text it cannot read at all, and `parseTable` turns it into a row the
+ * household is *told* about rather than one it is not.
+ */
+const pad = (y, m, d) => {
+  const day = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  return isDay(day) ? day : null;
+};
 
 /**
  * Read a delimited statement into the shape the importer already takes.

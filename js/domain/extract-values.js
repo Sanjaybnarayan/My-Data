@@ -19,6 +19,7 @@
  */
 
 import { toMinor } from '../core/money.js';
+import { isDay } from '../core/dates.js';
 
 /* ------------------------------------------------------------------ dates */
 
@@ -61,12 +62,26 @@ export function readDate(text) {
   return null;
 }
 
+/**
+ * The range check knew about 31 and did not know about February.
+ *
+ * `1 <= day <= 31` accepts the 31st of February and the 29th of a year that
+ * has no 29 February, and both then *roll*: JavaScript reads `2026-02-31` as
+ * 3 March and `2025-02-29` as 1 March. A due date read off a policy lands in
+ * the wrong month wearing a plausible date, which is worse than one that
+ * fails outright, because nothing downstream has any reason to complain.
+ *
+ * `isDay` in `core/dates.js` is the calendar this lacked — already exported,
+ * already tested. `null` is the answer this function already gives for text it
+ * cannot read, so no caller learns a new shape.
+ */
 function iso(year, month, day) {
   const y = String(year).length === 2 ? `20${year}` : String(year);
   const d = String(day).padStart(2, '0');
   const m = String(month).padStart(2, '0');
   if (Number(m) < 1 || Number(m) > 12 || Number(d) < 1 || Number(d) > 31) return null;
-  return `${y}-${m}-${d}`;
+  const value = `${y}-${m}-${d}`;
+  return isDay(value) ? value : null;
 }
 
 /* ---------------------------------------------------------------- amounts */
