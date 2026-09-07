@@ -360,6 +360,32 @@ export class ChatService extends Service {
       return { row, text: null, why: 'unreadable', attribution: null };
     }
 
+    /*
+     * Parsing is not the same as being an envelope. `JSON.parse('null')`
+     * succeeds and returns null, `'5'` returns a number, `'[]'` an array —
+     * and reading `.from` off any of those throws a TypeError out of a method
+     * that promises never to throw for one unreadable message. Measured: a
+     * single row like that took the **whole conversation** down, and through
+     * `threads()` the whole list.
+     *
+     * These rows arrive over sync, so this is what the deployment or another
+     * device can put in front of this screen. The same guard, for the same
+     * reason, as the one `doPost` grew for a request body of `null`.
+     *
+     * `keys` is checked here too, and not only so nothing throws — the
+     * envelope readers no longer do. It is because of *which* reason gets
+     * shown. With a `keys` that is not a list there are no wraps addressed to
+     * anybody, so opening it fails as `notARecipient` and the screen says the
+     * message was sent before this device was enrolled: a plausible sentence,
+     * about a row that is simply damaged, sending somebody to look at their
+     * enrolment history for an explanation that is not there. `sealBytes`
+     * always writes a list, so anything else is damage and says so.
+     */
+    if (!sealed || typeof sealed !== 'object' || Array.isArray(sealed)
+      || !Array.isArray(sealed.keys)) {
+      return { row, text: null, why: 'unreadable', attribution: null };
+    }
+
     const to = sealedTo(sealed);
     // Not opened, so nothing is proven. Stated rather than left undefined: a
     // screen reading `undefined` as "fine" is the failure this is here to stop.

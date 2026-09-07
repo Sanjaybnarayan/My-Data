@@ -86,6 +86,38 @@ describe('reading a message', () => {
     assert.equal(reading.transactionDate, '2026-08-15');
   });
 
+  test('a day that does not exist is no date at all', () => {
+    /*
+     * The check here was `Number.isNaN(Date.parse(`${iso}T00:00:00Z`))`, which
+     * does not do what it looks like it does. V8 rejects a month of 13 and a
+     * day of 00 — so those were caught, and the guard looked like it worked —
+     * and **accepts 31 February**. `31-02-26` was read as the string
+     * `2026-02-31`: not a wrong date, a date that does not exist, written onto
+     * a reading and then matched against real transactions.
+     *
+     * The same mistake `domain/tabular.js` was making. `core/dates.js` has the
+     * tested function, and this now asks it.
+     */
+    for (const [written, why] of [
+      ['31-02-26', 'February has never had 31 days'],
+      ['30-02-26', 'nor 30'],
+      ['29-02-25', '2025 is not a leap year'],
+      ['32-01-26', 'no month has 32 days'],
+      ['31-04-26', 'April has 30'],
+    ]) {
+      const reading = read(msg(`Rs 100.00 debited from A/c XX4417 on ${written}. Ref 402911.`));
+      assert.equal(reading.transactionDate, null, `${written}: ${why}`);
+      // The rest of the message is still read. A bad date costs the date.
+      assert.equal(reading.amount, 100_00, written);
+    }
+  });
+
+  test('and a leap day that does exist is kept', () => {
+    // The guard has to be a guard, not a refusal of anything unusual.
+    const reading = read(msg('Rs 100.00 debited from A/c XX4417 on 29-02-24. Ref 402911.'));
+    assert.equal(reading.transactionDate, '2024-02-29');
+  });
+
   test('and nothing it does not — no field is invented', () => {
     const reading = read(msg('Your account has been updated.'));
 

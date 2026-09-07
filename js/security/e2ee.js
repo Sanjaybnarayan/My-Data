@@ -256,6 +256,27 @@ export async function open(sealed, device, options = {}) {
   return new TextDecoder().decode(await openBytes(sealed, device, options));
 }
 
+/**
+ * The wraps in a sealed envelope, whatever the envelope actually is.
+ *
+ * `(sealed?.keys ?? [])` was not enough, and the difference matters because
+ * this is reached with whatever `JSON.parse` returned for a row that arrived
+ * over sync. `?? []` fires for null and undefined and for nothing else, so
+ * `keys: "x"`, `keys: 7` and `keys: {}` all reached `.map` and threw a
+ * TypeError — measured, and it took the **whole conversation** down with it,
+ * and on the conversation list the whole list, against this module's own
+ * promise that one unreadable line is reported in place.
+ *
+ * A wrap that is not an object is dropped rather than kept as a hole: every
+ * caller reads `.device` off it, and `keys: [null]` threw for that reason.
+ */
+function wrapsIn(sealed) {
+  const keys = sealed && typeof sealed === 'object' ? sealed.keys : null;
+  return Array.isArray(keys)
+    ? keys.filter((one) => one && typeof one === 'object')
+    : [];
+}
+
 async function unwrapContentKey(sealed, device, escrow) {
   // The device's own wrap first, then escrow. Identical code either way,
   // because escrow *is* a device as far as this is concerned.
@@ -266,7 +287,7 @@ async function unwrapContentKey(sealed, device, escrow) {
 
   let attempted = false;
   for (const candidate of candidates) {
-    const wrap = (sealed.keys ?? []).find((k) => k.device === candidate.id);
+    const wrap = wrapsIn(sealed).find((k) => k.device === candidate.id);
     if (!wrap) continue;
     attempted = true;
     try {
@@ -297,7 +318,7 @@ async function unwrapContentKey(sealed, device, escrow) {
 
 /** Can this device open this message at all, without trying? */
 export function addressedTo(sealed, deviceId) {
-  return (sealed?.keys ?? []).some((k) => k.device === deviceId);
+  return wrapsIn(sealed).some((k) => k.device === deviceId);
 }
 
 /**
@@ -308,7 +329,7 @@ export function addressedTo(sealed, deviceId) {
  * are different sentences and only one of them is true.
  */
 export function sealedTo(sealed) {
-  const ids = (sealed?.keys ?? []).map((k) => k.device);
+  const ids = wrapsIn(sealed).map((k) => k.device);
   return {
     devices: ids.filter((id) => id !== ESCROW_ID),
     escrowed: ids.includes(ESCROW_ID),

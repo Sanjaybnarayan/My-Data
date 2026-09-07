@@ -66,6 +66,7 @@ export const CATEGORY = Object.freeze([
 // without binding it in this module, and `nativeStatus` below reads it.
 import { CONNECTOR_STATUS } from './connector.js';
 import { toMinor } from '../core/money.js';
+import { isDay } from '../core/dates.js';
 
 export { CONNECTOR_STATUS };
 
@@ -252,7 +253,19 @@ function readDate(text) {
   const [, d, m, y] = found;
   const year = y.length === 2 ? `20${y}` : y;
   const iso = `${year}-${m}-${d}`;
-  return Number.isNaN(Date.parse(`${iso}T00:00:00Z`)) ? null : iso;
+
+  /*
+   * `isDay`, not `Date.parse`. The check here used to be
+   * `Number.isNaN(Date.parse(`${iso}T00:00:00Z`))`, and that does not do what
+   * it looks like it does: V8 rejects a month of 13 and a day of 00, and
+   * **accepts 31 February**. So `31-02-26` came back as the string
+   * `2026-02-31` — not a wrong date, a date that does not exist — and
+   * `29-02-25` as `2025-02-29` in a year that has twenty-eight of them.
+   *
+   * The same mistake `domain/tabular.js` was making, found the same way, and
+   * `core/dates.js` already had the function that settles it.
+   */
+  return isDay(iso) ? iso : null;
 }
 
 /* ------------------------------------------------------------ duplicates */
