@@ -301,6 +301,48 @@
       "find": "  if (!entry) return false;",
       "replace": "  if (!entry) return true;",
       "suite": "policy"
+    },
+    {
+      "label": "a list field that is not a list is walked anyway",
+      "file": "apps-script/Sheets.gs",
+      "find": "  if (!Array.isArray(value)) throw fail(what + ' must be a list', 400);\n",
+      "replace": "",
+      "suite": "fuzz"
+    },
+    {
+      "label": "anything at all counts as a record fields can be read off",
+      "file": "apps-script/Sheets.gs",
+      "find": "  return Boolean(one) && typeof one === 'object' && !Array.isArray(one);",
+      "replace": "  return true;",
+      "suite": "fuzz"
+    },
+    {
+      "label": "a schema manifest entry that is not an object decides a tab",
+      "file": "apps-script/Sheets.gs",
+      "find": "    if (!isRecordLike(spec)) throw fail('a schema manifest entry was not an object', 400);\n",
+      "replace": "",
+      "suite": "fuzz"
+    },
+    {
+      "label": "a change that is not an object reaches the field reads",
+      "file": "apps-script/Sheets.gs",
+      "find": "    if (!isRecordLike(changes[c])) {\n      rejected.push({ recordId: '', reason: 'a change was not an object' });\n      continue;\n    }\n",
+      "replace": "",
+      "suite": "fuzz"
+    },
+    {
+      "label": "a malformed audit entry is written into the append-only log",
+      "file": "apps-script/Sheets.gs",
+      "find": "    if (!isRecordLike(entries[i])) throw fail('an audit entry was not an object', 400);\n",
+      "replace": "",
+      "suite": "fuzz"
+    },
+    {
+      "label": "one malformed change throws away the whole batch",
+      "file": "apps-script/Sheets.gs",
+      "find": "      rejected.push({ recordId: '', reason: 'a change was not an object' });\n      continue;",
+      "replace": "      throw fail('a change was not an object', 400);",
+      "suite": "fuzz"
     }
   ]
 }

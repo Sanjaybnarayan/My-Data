@@ -28,6 +28,40 @@ var ENVELOPE = ['_id', '_rev', '_updatedAt', '_updatedBy', '_createdAt',
 
 var AUDIT_SHEET = '_Audit';
 
+/* ------------------------------------------------------------- the lists */
+
+/**
+ * The list a request said it was sending, or a refusal.
+ *
+ * Every write action in this file takes an array out of the payload and walks
+ * it reading fields off each element. All three did that without asking
+ * whether the thing was an array, or whether the elements were objects, and
+ * `doPost` already carries the note explaining exactly why that matters: a
+ * body of the four bytes `null` once reached `request.token` and answered a
+ * stranger with a V8 internal message, a 500 claiming the deployment had
+ * broken, and `retryable: true` — so a client's outbox would resend a
+ * permanently invalid request until it gave up.
+ *
+ * The same three faults were reachable one level further in, from an
+ * authenticated caller, by sending `{"changes":[null]}`. `{"length":3}` did it
+ * too: an array-like object passes a `.length` test and yields `undefined` at
+ * every index. So the test here is `Array.isArray`, not truthiness and not
+ * `.length`.
+ *
+ * Absent stays absent. Every caller below already treats a missing list as
+ * nothing to do, and a request that sends no changes is not a malformed one.
+ */
+function requestList(value, what) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw fail(what + ' must be a list', 400);
+  return value;
+}
+
+/** Is this element something fields can be read off? */
+function isRecordLike(one) {
+  return Boolean(one) && typeof one === 'object' && !Array.isArray(one);
+}
+
 /* ------------------------------------------------------------- migration */
 
 /**
@@ -35,13 +69,18 @@ var AUDIT_SHEET = '_Audit';
  * @returns {{created: string[], columnsAdded: object}}
  */
 function schemaEnsure(manifest, book) {
-  if (!manifest || !manifest.length) throw fail('no schema manifest was supplied', 400);
+  manifest = requestList(manifest, 'the schema manifest');
+  if (!manifest.length) throw fail('no schema manifest was supplied', 400);
 
   var created = [];
   var columnsAdded = {};
 
   for (var i = 0; i < manifest.length; i++) {
     var spec = manifest[i];
+    // A manifest entry decides which tab gets created and what its headers
+    // are. One that is not an object cannot say either, and reading `.sheet`
+    // off it was a 500 rather than the 400 it is.
+    if (!isRecordLike(spec)) throw fail('a schema manifest entry was not an object', 400);
     var sheet = book.getSheetByName(spec.sheet);
 
     if (!sheet) {
@@ -103,7 +142,8 @@ function headerRow(sheet) {
  * @returns {{applied: string[], rejected: Array, conflicts: Array}}
  */
 function sheetPush(changes, book, context) {
-  if (!changes || !changes.length) return { applied: [], rejected: [], conflicts: [] };
+  changes = requestList(changes, 'changes');
+  if (!changes.length) return { applied: [], rejected: [], conflicts: [] };
 
   var applied = [];
   var rejected = [];
@@ -128,6 +168,13 @@ function sheetPush(changes, book, context) {
     // reachable even where their role is not on the entity's list — which is
     // what lets a child keep their own health record and have it backed up.
     // Only ever a widening: nothing here can refuse what the policy allowed.
+    // Malformed goes down the same channel as unauthorised, for the reason
+    // stated above: one bad row should not throw away the fourteen good ones.
+    // It is `rejected`, not a refusal of the batch, and not a 500.
+    if (!isRecordLike(changes[c])) {
+      rejected.push({ recordId: '', reason: 'a change was not an object' });
+      continue;
+    }
     var sendingAs = impersonation(personId, changes[c]);
     if (sendingAs) {
       rejected.push({ recordId: changes[c].recordId, reason: sendingAs });
@@ -319,7 +366,18 @@ function sheetPull(cursors, limit, book, context) {
 /* ----------------------------------------------------------------- audit */
 
 function auditAppend(entries, book, context) {
-  if (!entries || !entries.length) return { appended: 0 };
+  entries = requestList(entries, 'audit entries');
+  if (!entries.length) return { appended: 0 };
+
+  // Refused as a batch rather than filtered, unlike `sheetPush`, and the
+  // difference is the point of the log: silently dropping the entry that did
+  // not parse would leave a gap in an append-only record with nothing saying
+  // one was ever there. A 400 is not retryable, so the client stops and keeps
+  // what it has instead of resending it forever.
+  for (var i = 0; i < entries.length; i++) {
+    if (!isRecordLike(entries[i])) throw fail('an audit entry was not an object', 400);
+  }
+
   ensureAuditSheet(book);
 
   var sheet = book.getSheetByName(AUDIT_SHEET);
