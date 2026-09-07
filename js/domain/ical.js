@@ -32,6 +32,8 @@
  */
 
 /** RFC 5545 §3.1: CRLF, always, whatever the platform. */
+import { isDay } from '../core/dates.js';
+
 const CRLF = '\r\n';
 
 /**
@@ -161,10 +163,23 @@ export function toICalendar(entries, { now = Date.now(), domain = 'my-data.local
   ];
 
   for (const entry of entries) {
-    // An entry with no date is not an event, and one with no id cannot be
-    // re-imported without duplicating. Neither is written rather than written
-    // wrong; `icalProblems` reports both so the screen can say so.
-    if (!entry?.date || !entry?.id) continue;
+    /*
+     * An entry with no **usable** date is not an event, and one with no id
+     * cannot be re-imported without duplicating. Neither is written rather
+     * than written wrong; `icalProblems` reports both so the screen can say so.
+     *
+     * The test is `isDay` and not presence, which is what it was. A date that
+     * is *there* and unparseable — `2026-99-99`, the shape a row gets when it
+     * arrives from the spreadsheet rather than from the form — passed the
+     * presence test and reached `asDate`, where `toISOString()` threw
+     * `RangeError: Invalid time value` out of the whole export. One such row
+     * and the household got no file at all, their good events included.
+     *
+     * `applyRemote` skips validation deliberately — the row "is already
+     * authoritative" — so between a spreadsheet cell somebody typed into and
+     * this line there was nothing that looked at the date.
+     */
+    if (!isDay(entry?.date) || !entry?.id) continue;
     lines.push(...vevent(entry, { stamp, domain }));
   }
 
@@ -184,8 +199,15 @@ export function toICalendar(entries, { now = Date.now(), domain = 'my-data.local
  * way often enough to check for it.
  */
 export function icalProblems(entries) {
-  const undated = (entries ?? []).filter((entry) => entry && !entry.date).length;
-  const unidentified = (entries ?? []).filter((entry) => entry?.date && !entry.id).length;
+  /*
+   * `isDay`, so this and `toICalendar` agree by construction rather than by
+   * both being written carefully. They did not agree: this counted presence
+   * and that one wrote whatever was present, so an entry dated `2026-99-99`
+   * was reported to the household as **written** by the very function whose
+   * job is saying what could not be — while the export it was counting threw.
+   */
+  const undated = (entries ?? []).filter((entry) => entry && !isDay(entry.date)).length;
+  const unidentified = (entries ?? []).filter((entry) => isDay(entry?.date) && !entry.id).length;
   return {
     undated,
     unidentified,

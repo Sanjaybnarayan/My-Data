@@ -139,6 +139,56 @@ describe('what is left out is said, not dropped quietly', () => {
     assert.equal(lines(ics(entries)).filter((l) => l.startsWith('UID:')).length, 1);
   });
 
+  test('a date that is there and unparseable is dropped, not thrown over', () => {
+    /*
+     * The gap between "has a date" and "has a date that is a date".
+     *
+     * The guard here tested presence, so `2026-99-99` passed it, reached
+     * `asDate`, and `toISOString()` threw `RangeError: Invalid time value` out
+     * of the whole export. Not the one entry — **the file**: the household
+     * pressed Export, got nothing at all, and their good events went with the
+     * bad one.
+     *
+     * It is not a hypothetical shape. `Repository.applyRemote` skips
+     * validation on purpose — the row "is already authoritative" — so between
+     * a cell somebody typed into the household's own spreadsheet and this
+     * function there is nothing that looks at the date. Reproduced end to end
+     * through a real database before it was fixed.
+     */
+    const entries = [ENTRY, { id: 'from-the-sheet', date: '2026-99-99', title: 'Row from the sheet' }];
+
+    const text = ics(entries);
+    assert.equal(lines(text).filter((l) => l.startsWith('UID:')).length, 1,
+      'the good entry did not survive the bad one');
+    assert.ok(text.includes('END:VCALENDAR'), 'the file is not a whole calendar');
+  });
+
+  test('and the count says so, rather than reporting it written', () => {
+    /*
+     * The second half, and the worse one. `icalProblems` exists to tell the
+     * household what could not be written. It tested presence too, so it
+     * counted the entry that *threw* as `written: 2` — the screen reporting
+     * success for an export that produced no file.
+     *
+     * Both now ask `isDay`, so the two agree by construction rather than by
+     * both being written carefully. Asserted together with the check above,
+     * because a fix to either alone leaves the pair still disagreeing.
+     */
+    const entries = [ENTRY, { id: 'from-the-sheet', date: '2026-99-99', title: 'Row from the sheet' }];
+    assert.deep(icalProblems(entries), { undated: 1, unidentified: 0, written: 1 });
+  });
+
+  test('a real date is still a real date', () => {
+    // The other direction: a guard that dropped everything would satisfy both
+    // checks above and export an empty calendar for ever.
+    for (const date of ['2026-01-01', '2026-12-31', '2027-02-28']) {
+      assert.deep(icalProblems([{ id: 'e', date, title: 'x' }]),
+        { undated: 0, unidentified: 0, written: 1 }, date);
+      assert.equal(lines(ics([{ id: 'e', date, title: 'x' }]))
+        .filter((l) => l.startsWith('UID:')).length, 1, date);
+    }
+  });
+
   test('an entry with no id is not written either', () => {
     // Writing it would mean inventing a UID, and an invented UID duplicates on
     // the next export. Better absent and reported than present and wrong.
