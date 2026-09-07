@@ -387,7 +387,7 @@ the project.**
 
 ## 12. Document AI findings
 
-Real: PDF text extraction (`js/data/pdf-read.js`, 816 lines, hand-rolled), DOCX
+Real: PDF text extraction (`js/data/pdf-read.js`, 748 lines, hand-rolled), DOCX
 read and generate, XLSX, CSV, classification, extraction with confidence,
 provenance, versioning, duplicate detection, template field detection.
 
