@@ -98,6 +98,37 @@ describe('a key kept in the household own Drive', () => {
     assert.equal(toBase64(read.rawKey), toBase64(made));
   });
 
+  test('a key file with no key in it is corruption, and says so', async () => {
+    /*
+     * `if (!body?.key)` was held by nothing: removing it passed all 3,532
+     * checks. Without it `fromBase64(undefined)` reaches `atob`, and what
+     * comes back is a `DOMException` carrying **`code: 5`** — measured — where
+     * every caller here reads a string code off an `AppError`. So the
+     * household signing in on a new device is shown an
+     * `InvalidCharacterError` about base64 instead of the sentence this line
+     * exists to say, which is the wrong-message failure the archive's refusal
+     * reasons and the chat screen's `sentBefore`/`unreadable` split are both
+     * about.
+     *
+     * A file like this is what a write interrupted between creating the file
+     * and uploading its bytes leaves behind, so it is a real state and not a
+     * hypothetical one.
+     */
+    const drive = fakeDrive();
+    await drive.seed();
+    const [id] = [...drive.files.entries()].filter(([, held]) => held).map(([key]) => key);
+
+    for (const corrupt of [{}, { wrapped: { iv: 'aXY=', key: 'a2V5' } }, { key: '' }]) {
+      drive.files.set(id, JSON.stringify(corrupt));
+      let error;
+      try { await drive.escrow().read(); } catch (thrown) { error = thrown; }
+
+      assert.ok(error, `${JSON.stringify(corrupt)} was read as a key`);
+      assert.equal(error.code, 'escrow-corrupt', JSON.stringify(corrupt));
+      assert.includes(error.message, 'not readable');
+    }
+  });
+
   test('a household that has never escrowed one gets null, not an error', async () => {
     // This is the ordinary case for somebody who set up with a PIN, and it
     // must read as "no key here" rather than as a failure.
