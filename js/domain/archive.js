@@ -77,6 +77,30 @@ export const MAGIC = 'familyos-archive';
 /** Matches the keyring, so the two cost the same to attack. */
 export const ITERATIONS = 600_000;
 
+/**
+ * The most rounds an archive's own header may ask this device to run.
+ *
+ * `open` takes the count out of the file, which it has to: a future version
+ * that raises `ITERATIONS` writes archives an older client still has to open.
+ * What it must not do is take any number the file writes down. `iterations`
+ * is JSON, so 2^53 is expressible, and PBKDF2 is linear — measured here,
+ * 600,000 rounds cost 263 ms and 60,000,000 cost 26 seconds, on a machine
+ * faster than any phone. A file picked off a message thread could hold the
+ * restore screen for the rest of the afternoon, burning the battery, with
+ * nothing to cancel and nothing said.
+ *
+ * Ten times what this version writes: room for four doublings of `ITERATIONS`
+ * before an old client refuses a new archive, and about three seconds here.
+ *
+ * **There is no floor, and adding one would be theatre.** A count *below*
+ * `ITERATIONS` means the file was sealed weakly — but it was sealed by
+ * whoever wrote it, protecting their body, not this household's. Editing the
+ * count down in somebody else's archive changes the derived key and the
+ * decryption simply fails, which the existing check already reports. A floor
+ * would refuse files without protecting anybody.
+ */
+export const MAX_ITERATIONS = ITERATIONS * 10;
+
 export const STORES = Object.freeze({
   included: Object.freeze(['meta', 'audit', 'blobs']),
   excluded: Object.freeze({
@@ -189,11 +213,23 @@ export async function open(file, phrase) {
     return { ok: false, why: WHY.DAMAGED };
   }
 
+  // Read from the file for compatibility, bounded because it is from the file.
+  const rounds = Number(file.kdf.iterations) || ITERATIONS;
+  // `DAMAGED` rather than a reason of its own, and not only because the
+  // unrouted-strings ratchet may only fall: a file asking for a hundred
+  // million rounds, or for -5 of them, is not a file any version of this
+  // wrote, and what a household does about it is what they do about a damaged
+  // one. The distinction these messages exist to draw is damage against a
+  // mistyped phrase — and reporting either of these as a wrong phrase, which
+  // is what `deriveKey` throwing would have done, sends somebody looking for
+  // a typo in a file that is broken.
+  if (!Number.isInteger(rounds) || rounds < 1 || rounds > MAX_ITERATIONS) {
+    return { ok: false, why: WHY.DAMAGED };
+  }
+
   let plaintext;
   try {
-    const key = await deriveKeyEncryptionKey(
-      phrase, fromBase64(file.kdf.salt), Number(file.kdf.iterations) || ITERATIONS,
-    );
+    const key = await deriveKeyEncryptionKey(phrase, fromBase64(file.kdf.salt), rounds);
     plaintext = await decryptBytes(key, { iv: file.iv, data: fromBase64(file.body) }, MAGIC);
   } catch {
     // AES-GCM's tag fails the same way for a wrong key and for a flipped bit,
