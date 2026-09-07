@@ -72,11 +72,21 @@ export async function decryptMany(entityName, records, key) {
   return out;
 }
 
-/** Is any field on this record still sealed? Used to gate a report export. */
-export function hasSealedFields(entityName, record) {
-  return entity(entityName).fields
-    .some((f) => f.encrypted && isEncrypted(record[f.key]));
-}
+/*
+ * `hasSealedFields` was here, and its comment said it gated a report export.
+ *
+ * It gated nothing. It had **no caller** — not in `js/`, not in `tests/`, not
+ * in `tools/` or `docs/` — and it could not have fired if it had one:
+ * `repository.js` decrypts on the read path, and the report writers take
+ * their rows from `db.repo(name).list(...)`, so every record that could reach
+ * it was already plaintext. Making it return `false` unconditionally changed
+ * nothing and was caught by nothing, which is how it was found.
+ *
+ * Removed rather than wired up. A function whose comment claims it gates a
+ * security decision, which nothing calls, is worse than no function: it makes
+ * a reviewer believe a control exists. If a report ever needs that gate, the
+ * decrypt path is where it belongs.
+ */
 
 /**
  * Values safe to put in the local search index. Ciphertext is excluded

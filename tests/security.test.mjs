@@ -210,6 +210,93 @@ describe('roles', () => {
   const child = { personId: 'p3', role: 'child' };
   const guest = { personId: 'p4', role: 'guest' };
 
+  /*
+   * `isRole` is the first line of `can` and the first line of `readScope`, and
+   * removing it from either passed all 3,518 checks in this repository. The
+   * code was right; nothing was holding it right.
+   *
+   * What it holds: without the guard an unrecognised role stops being refused
+   * outright and falls through to the own-record rule at the bottom, so an
+   * actor carrying `role: 'superadmin'` — or no role at all — gets **read and
+   * write on its own records**, where before it got nothing. And an
+   * unrecognised role is not hypothetical: `actor.role` comes off a `member`
+   * row, and nothing validates a synced row against its schema
+   * (`docs/THREAT_MODEL.md` T4.7).
+   */
+  const strangers = [
+    { personId: 'p9', role: 'superadmin' },
+    { personId: 'p9', role: 'admin' },
+    { personId: 'p9', role: 'OWNER' },
+    { personId: 'p9', role: '' },
+    { personId: 'p9', role: null },
+    { personId: 'p9' },
+    { personId: 'p9', role: 1 },
+    { personId: 'p9', role: ['owner'] },
+  ];
+
+  test('a role this application does not have is refused, not fallen through', () => {
+    /*
+     * The record has to be genuinely about the actor or this check is
+     * vacuous, which the first draft was: it used `{ personId: 'p9' }`, and
+     * `SUBJECT_FIELD.task` is `assignee`, so `isAbout` was false whatever the
+     * guard did and the mutation sailed through the check written for it.
+     * Every own-record entity, by its own subject field, so no single
+     * mismatch can hide the same way again.
+     */
+    for (const stranger of strangers) {
+      const label = JSON.stringify(stranger.role);
+      for (const [entityName, field] of Object.entries(SUBJECT_FIELD)) {
+        const own = { [field]: 'p9' };
+        assert.not(can(stranger, 'read', entityName, own),
+          `${label} read its own ${entityName}`);
+        assert.not(can(stranger, 'write', entityName, own),
+          `${label} wrote its own ${entityName}`);
+      }
+      assert.not(can(stranger, 'read', 'transaction'), `${label} read a transaction`);
+    }
+  });
+
+  test('an owner really can read their own task, so the check above means something', () => {
+    // The other half of the same fixture. Without this, a `can` that refused
+    // everything would satisfy every assertion above.
+    assert.ok(can(owner, 'read', 'task', { assignee: 'p1' }));
+    assert.ok(can(child, 'read', 'task', { assignee: 'p3' }), 'a child owns their own task');
+    assert.not(can(child, 'read', 'task', { assignee: 'p1' }), "and not a sibling's");
+  });
+
+  test('a role reached through the prototype is not a role', () => {
+    // `RANK` is an object, so `RANK['constructor']` is a function rather than
+    // undefined. `Object.hasOwn` is what keeps that from being a role, and
+    // `RANK[role] !== undefined` in its place passes every other check here.
+    for (const inherited of ['constructor', 'toString', 'valueOf', 'hasOwnProperty',
+      '__proto__', 'isPrototypeOf']) {
+      const stranger = { personId: 'p9', role: inherited };
+      assert.not(can(stranger, 'read', 'task', { assignee: 'p9' }), inherited);
+      assert.equal(readScope(stranger, 'task'), 'none', inherited);
+    }
+  });
+
+  test('and reads nothing, through readScope and everything built on it', () => {
+    // The same guard, duplicated in `readScope`, and it was equally unheld.
+    // `rowFilter` and `visibleEntities` are both built on it, so this is the
+    // list query and the navigation as well as the predicate.
+    for (const stranger of strangers) {
+      assert.equal(readScope(stranger, 'task'), 'none',
+        `${JSON.stringify(stranger.role)} had a read scope on task`);
+      assert.not(rowFilter(stranger, 'task')({ personId: 'p9' }),
+        `${JSON.stringify(stranger.role)} passed the list filter`);
+      assert.length(visibleEntities(stranger), 0,
+        `${JSON.stringify(stranger.role)} could see entities`);
+    }
+  });
+
+  test('and nothing at all is not an actor either', () => {
+    for (const nobody of [null, undefined]) {
+      assert.not(can(nobody, 'read', 'task'));
+      assert.equal(readScope(nobody, 'task'), 'none');
+    }
+  });
+
   test('rank order runs owner to guest', () => {
     assert.ok(atLeast('owner', 'adult'));
     assert.not(atLeast('child', 'adult'));
@@ -581,6 +668,26 @@ describe('output safety', () => {
     assert.equal(safeUrl('  JavaScript:alert(1)'), '');
     assert.equal(safeUrl('https://example.com'), 'https://example.com');
     assert.equal(safeUrl('mailto:a@b.com'), 'mailto:a@b.com');
+  });
+
+  test('a URL the parser will not take is dropped, not passed through', () => {
+    /*
+     * `safeUrl` ends in `catch { return '' }`, and returning `text` there
+     * instead passed all 3,518 checks. The branch is not dead — seven of
+     * sixteen probed inputs reach it — and it is the one that matters when
+     * two parsers disagree: this one refuses the string, and the attribute
+     * parser that receives it may not.
+     */
+    for (const broken of ['http://', 'https://', '//', 'http://[', 'https://%',
+      'http://:80', 'http://a b']) {
+      assert.equal(safeUrl(broken), '', `${broken} was passed through`);
+    }
+  });
+
+  test('and a relative URL, which parses against the page, is kept', () => {
+    // The guard has to be a guard rather than a refusal of anything unusual.
+    assert.equal(safeUrl('/records/1'), '/records/1');
+    assert.equal(safeUrl('report.html?id=2'), 'report.html?id=2');
   });
 
   test('and something actually calls it', () => {
