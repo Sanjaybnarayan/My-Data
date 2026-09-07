@@ -121,6 +121,31 @@ describe('crypto', () => {
     assert.not(timingSafeEqual('abc', 'abcd'));
     assert.not(timingSafeEqual('abc', null));
   });
+
+  test('a trailing NUL is a difference, which is what the length term is for', () => {
+    /*
+     * `let diff = a.length ^ b.length` was doing work nothing measured.
+     * Removing it passed all 3,532 checks, because the length case above is
+     * `'abc'` against `'abcd'` — where the extra character is `d`, so the
+     * content comparison catches it whether or not the lengths were mixed in.
+     *
+     * The extra character has to be **NUL** to need the length term. The loop
+     * reads past the end as `charCodeAt(i) || 0`, so a missing character and a
+     * `\0` are the same number, and without the length term
+     * `timingSafeEqual('abc', 'abc\0')` came back **true**.
+     *
+     * Its one caller compares base64, where lengths match and NUL cannot
+     * appear, so nothing is broken today. It is an exported primitive named
+     * for a security property, and the next caller will not be base64.
+     */
+    assert.not(timingSafeEqual('abc', 'abc\u0000'));
+    assert.not(timingSafeEqual('abc\u0000', 'abc'));
+    assert.not(timingSafeEqual('abc', 'abc\u0000\u0000'));
+    assert.not(timingSafeEqual('', '\u0000'));
+    // And the empty pair is still equal, so the guard is a guard and not a
+    // refusal of anything short.
+    assert.ok(timingSafeEqual('', ''));
+  });
 });
 
 describe('keyring', () => {
