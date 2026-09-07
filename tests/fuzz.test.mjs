@@ -315,3 +315,216 @@ describe('the pre-auth path, which is the only code a stranger reaches', () => {
     }
   });
 });
+
+/**
+ * The other half, and the file said so before it existed.
+ *
+ * Everything above drives the front door — `doPost`'s parsing and dispatch —
+ * and one payload check that the block itself qualifies: *"`ping` does not
+ * read the payload, so this proves the **plumbing** survives a shape designed
+ * to blow a recursive walk — not that every handler does."*
+ *
+ * It did not. Three of them read a list straight out of the payload and walked
+ * it taking fields off each element, having never asked whether it was a list
+ * or whether the elements were objects. `{"action":"push","payload":
+ * {"changes":[null]}}` from an ordinary household member reproduced, one level
+ * in, all three faults the `null`-body finding above names: a V8 internal
+ * message handed back, a 500 saying the deployment had broken when the request
+ * was malformed, and `retryable: true`, so the sender's outbox would resend a
+ * permanently invalid request.
+ *
+ * `{"length":3}` reached the same place by a different door — an array-like
+ * object passes a `.length` test and hands back `undefined` at every index —
+ * which is why `requestList` tests `Array.isArray` rather than truthiness.
+ *
+ * Found by sweeping every authenticated action against a battery of malformed
+ * payloads, the same way the `null` body was found. Seven of 288 were
+ * mishandled, across `schema`, `push` and `audit`; the rest of the surface
+ * held.
+ */
+describe('hostile payloads through the authenticated actions', () => {
+  const HEADERS = ['_id', '_rev', '_updatedAt', '_deletedAt', 'name'];
+
+  /** A workbook that records what reached it, and grows tabs like the real one. */
+  const book = () => {
+    const appended = [];
+    const written = [];
+    const make = (name) => ({
+      getName: () => name,
+      getLastRow: () => 1,
+      getLastColumn: () => HEADERS.length,
+      getMaxRows: () => 100,
+      setFrozenRows: () => {},
+      getRange: () => ({
+        getValues: () => [HEADERS],
+        setValues: (rows) => written.push({ sheet: name, rows }),
+        setValue: () => {},
+        setFontWeight: () => {},
+        setNumberFormat: () => {},
+      }),
+      appendRow: (row) => appended.push({ sheet: name, row }),
+    });
+    const tabs = new Map([['Accounts', make('Accounts')]]);
+    return {
+      appended,
+      written,
+      getSheets: () => [...tabs.values()],
+      getSheetByName: (name) => tabs.get(String(name)) || null,
+      insertSheet: (name) => {
+        const made = make(String(name));
+        tabs.set(String(name), made);
+        return made;
+      },
+    };
+  };
+
+  const household = () => {
+    const workbook = book();
+    return {
+      workbook,
+      api: backend({
+        owner: OWNER,
+        tokens,
+        workbook,
+        files: ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs'],
+        properties: {
+          members: JSON.stringify([{ email: OWNER, role: 'owner', personId: 'p1' }]),
+          workbookId: 'book-1',
+          sheetMap: JSON.stringify({ account: 'Accounts' }),
+          ownerPersonId: 'p1',
+        },
+      }),
+    };
+  };
+
+  const send = (api, action, payload) => post(api,
+    JSON.stringify({ action, token: 'owner-token', payload, deviceId: 'device-1' }));
+
+  /** The list each write action takes, and the field it arrives under. */
+  const LISTS = [
+    ['schema', 'manifest'],
+    ['push', 'changes'],
+    ['audit', 'entries'],
+  ];
+
+  /*
+   * Shapes that are not a list of records. `{length: n}` is the one worth
+   * keeping separate: it is what defeats a `.length` guard, and a `.length`
+   * guard is what all three of these had.
+   */
+  const NOT_LISTS = [
+    ['a string', 'nope'],
+    ['a number', 42],
+    ['a boolean', true],
+    ['an object', { a: 1 }],
+    ['an array-like object', { length: 3 }],
+  ];
+
+  const NOT_RECORDS = [
+    ['null', null],
+    ['a string', 'nope'],
+    ['a number', 42],
+    ['a list', []],
+  ];
+
+  const RUNTIME = /Cannot read propert|Cannot convert|undefined is not|is not a function|is not iterable|TypeError|RangeError|Maximum call stack/;
+
+  test('a list field that is not a list is refused as malformed', () => {
+    for (const [action, field] of LISTS) {
+      for (const [what, value] of NOT_LISTS) {
+        const said = send(household().api, action, { [field]: value });
+        assert.equal(said.ok, false, `${action} accepted ${field} as ${what}`);
+        assert.ok(said.status >= 400 && said.status < 500,
+          `${action} answered ${said.status} for ${field} as ${what}`);
+        assert.not(said.retryable,
+          `${action} told the outbox to resend ${field} as ${what}`);
+      }
+    }
+  });
+
+  test('and no refusal quotes the runtime back at the caller', () => {
+    for (const [action, field] of LISTS) {
+      for (const [what, value] of [...NOT_LISTS, ...NOT_RECORDS.map(
+        ([label, one]) => [`a list holding ${label}`, [one]])]) {
+        const said = send(household().api, action, { [field]: value });
+        assert.not(RUNTIME.test(String(said.error ?? '')),
+          `${action} leaked for ${field} as ${what}: ${said.error}`);
+      }
+    }
+  });
+
+  /*
+   * The one place the answer is *not* a refusal of the batch, and it is
+   * `sheetPush`'s own rule rather than a new one: "one change a child may not
+   * make should not throw away the fourteen they may." A change that is not an
+   * object is unusable for the same reason an unauthorised one is, so it goes
+   * down the same channel — `rejected`, beside the ones that applied.
+   */
+  test('a malformed change is rejected as a row, and its neighbours still apply', () => {
+    const { api } = household();
+    const said = send(api, 'push', {
+      changes: [
+        null,
+        { store: 'account', op: 'put', recordId: 'a1', rev: 1, payload: { id: 'a1', name: 'Savings' } },
+        'not an object',
+      ],
+    });
+
+    assert.ok(said.ok, said.error);
+    assert.equal(said.data.applied.length, 1, 'the good change did not apply');
+    assert.equal(said.data.rejected.length, 2,
+      `expected two rejections, got ${JSON.stringify(said.data.rejected)}`);
+  });
+
+  /*
+   * Audit goes the other way, deliberately. Filtering a malformed entry out
+   * would leave a hole in an append-only record with nothing saying an entry
+   * was ever there — so the batch is refused and the client keeps it.
+   */
+  test('a malformed audit entry refuses the batch and writes nothing', () => {
+    const { api, workbook } = household();
+    const said = send(api, 'audit', {
+      entries: [{ at: '2026-09-01T00:00:00Z', action: 'read' }, null],
+    });
+
+    assert.equal(said.ok, false, 'a batch with a malformed entry was accepted');
+    assert.equal(said.status, 400);
+    // Named, not counted: a refusal still creates the deployment's own `_Log`
+    // tab, and asserting "nothing was written anywhere" fails on that instead
+    // of on the thing at stake.
+    assert.not(workbook.written.some((one) => one.sheet === '_Audit'),
+      'a refused audit batch still wrote to the audit log');
+    assert.not(workbook.getSheetByName('_Audit'),
+      'a refused audit batch created the audit log');
+  });
+
+  test('a whole batch of good audit entries is still appended', () => {
+    // The other side of the check above: a guard that refused everything would
+    // satisfy it, and would take the audit log with it.
+    const { api, workbook } = household();
+    const said = send(api, 'audit', {
+      entries: [{ at: '2026-09-01T00:00:00Z', action: 'read', entity: 'account' }],
+    });
+
+    assert.ok(said.ok, said.error);
+    assert.equal(said.data.appended, 1);
+    assert.ok(workbook.written.length > 0, 'nothing reached the sheet');
+  });
+
+  test('a schema manifest entry that is not an object is a 400, not a 500', () => {
+    const said = send(household().api, 'schema', { manifest: [null] });
+    assert.equal(said.ok, false);
+    assert.equal(said.status, 400);
+  });
+
+  test('and a manifest of real specs still creates the tab', () => {
+    const { api, workbook } = household();
+    const said = send(api, 'schema', {
+      manifest: [{ entity: 'vehicle', sheet: 'Vehicles', version: 1, columns: ['plate'] }],
+    });
+
+    assert.ok(said.ok, said.error);
+    assert.deep(said.data.created, ['Vehicles']);
+    assert.ok(workbook.getSheetByName('Vehicles'), 'the tab was not created');
+  });
+});

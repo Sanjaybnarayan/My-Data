@@ -422,6 +422,40 @@ This is phase 12 work: §79 prohibits cleartext authentication and any bypass of
 certificate validation, and until now the repository complied with both without
 being able to demonstrate it.
 
+### LIST-01 · MEDIUM · three write actions trusted that a list was a list
+
+*Found the way the `null` body was found — by sweeping hostile payloads through
+the real `doPost` — and it is the finding that says why phase 12's one suite was
+worth building rather than describing.*
+
+| | |
+| --- | --- |
+| **File** | `apps-script/Sheets.gs` — `schemaEnsure`, `sheetPush`, `auditAppend` |
+| **Vulnerability** | Each takes an array out of the payload and walks it reading fields off every element, having never asked whether it was an array or whether the elements were objects. The guard each had was `!x || !x.length`, which a string passes, an array-like object passes, and `[null]` passes outright. |
+| **Impact** | The three faults `doPost`'s own comment already names for a body of `null`, reproduced one level further in and reachable by any authenticated member: a V8 internal message handed back (`Cannot read properties of null (reading 'store')`), a **500** claiming the deployment had broken when the request was malformed, and **`retryable: true`** — so the sender's outbox resends a permanently invalid request until it gives up. On `push` the batch throws, so every well-formed change sent beside the bad one is discarded too. |
+| **Attack scenario** | `{"action":"push","payload":{"changes":[null]}}`. It needs no hostile intent: a truncated write or a half-formed outbox entry produces the same body, and the retry flag makes the client repeat it. |
+| **Why MEDIUM and not higher** | It reads nothing and writes nothing it should not. It is availability and error-handling, against a deployment the household owns — the same weight as the `null` body, and for the same reasons. |
+| **Backend required** | The fix is in `apps-script/`, so **yes to a redeploy**, no to anything new. |
+| **Status** | **Fixed.** `requestList` tests `Array.isArray` — not truthiness, not `.length` — and `isRecordLike` gates every element. 7 of 7 mutations caught. |
+
+**The two handlers answer differently, on purpose.** `sheetPush` puts a
+malformed change into `rejected` beside the ones that applied, because that is
+the rule the file already states in its own comment: *"one change a child may
+not make should not throw away the fourteen they may."* `schemaEnsure` and
+`auditAppend` refuse the whole batch with a 400. For the audit log that is the
+substantive choice of the two — filtering the entry that would not parse leaves
+a gap in an append-only record with nothing saying an entry was ever there,
+and a 400 is not retryable, so the client stops and keeps what it has.
+
+**What the sweep did not find is worth recording too.** Twelve authenticated
+actions were driven with 24 malformed payloads each. Seven of 288 were
+mishandled and they are all above; `pull`, `upload`, `download`, `trash`,
+`signin`, `members`, `devices` and `verify` held against every one. Three
+apparent failures were **my fixture, not the code** — an incomplete `DriveApp`,
+an absent `ScriptApp`, and a workbook stub that did not register the tab it had
+just inserted — and they are named here because a sweep that reports its own
+gaps as findings is worse than no sweep.
+
 ### ID-01 · LOW · ids leak creation time · **accepted**
 
 ULIDs are timestamp-prefixed. A `person` id discloses when the record was
@@ -529,6 +563,8 @@ until it is redeployed.
    Written and tested here; inert everywhere until the same redeploy.
 3. **LOCK-01** — `withLock` now takes `getScriptLock()` too. Same redeploy.
 4. **OTP-02** — a wrong guess no longer buys the code more time. Same redeploy.
+5. **LIST-01** — `push`, `schema` and `audit` no longer walk a list that is not
+   one. Same redeploy.
 
 ---
 
@@ -619,8 +655,9 @@ Following the brief's phase structure, restricted to what exists here:
 | 9 | Privacy / minimisation | PRIV-01 **done** — the rule is held by a test against the schema |
 | 10 | Play compliance | **PLAY-01** — needs a human decision |
 | 11 | Play Integrity / anti-abuse | **Not implemented, and now argued rather than blank.** `docs/THREAT_MODEL.md`'s appendix says why it does not simply fit: verification needs credentials tied to the Play Console listing, held by the publisher, and there is no publisher-operated server — only the deployment each household runs under its own account. The `sms` flavour is sideload-only by construction and cannot be attested at all. A decision, not a to-do |
-| 12 | Security testing | **Partial, and less partial than it was.** `tests/fuzz.test.mjs` drives hostile bodies through the real `doPost` and found a real bug doing it. Still no penetration test, no scanning, and nothing run against a deployed instance — see below |
+| 12 | Security testing | **Partial, and less partial again.** `tests/fuzz.test.mjs` drives hostile bodies through the real `doPost` and found a real bug doing it; it now drives hostile *payloads* through every authenticated action as well, and found **LIST-01** — three write handlers walking a list without asking whether it was one. Still no penetration test, no scanning, and nothing run against a deployed instance — see below |
 | 13 | Final report (§80) | **Written** — `docs/REMEDIATION_REPORT.md`. Eight pull requests, what each closed, what is still open with its threat-model row, what could not be checked without a device, and the corrections in both directions. It does not say *secure* and is not scored 100 |
+| — | LIST-01 | **Done** — three write handlers that walked a list without asking whether it was one |
 | — | SEARCH-01 | **Done** — the read path that never met the authorisation rule |
 | — | LOCK-01 | **Done** — the write path's lock, raised as an open question under OTP-01 and settled by the owner |
 | — | MANIFEST-01 | **Done** — two manifest attributes, and two absences, that nothing checked |
@@ -683,6 +720,17 @@ An unauthenticated stranger got back a V8 internal message, a 500 claiming the
 deployment had broken, and `retryable: true`, which would have a client's
 outbox resend a permanently invalid request. Nothing in 3400 checks had ever
 sent a body that was not an object.
+
+**And it found a second one when it was pointed one level further in.** The
+first pass drove malformed *bodies* through the front door. Everything past the
+front door — sixteen actions, each reading its own payload — had been fuzzed
+only through `ping`, which does not read the payload at all, and the file said
+so about its own check in as many words. Pointed at the rest, the same
+instrument found **LIST-01**: `schema`, `push` and `audit` each walking a list
+without having asked whether it was a list. Seven of 288 hostile payloads were
+mishandled and the other 281 were held, which is the useful half of the result —
+the surface is mostly sound and the sweep can now say which parts, rather than
+nobody having asked.
 
 What still does **not** exist is the rest of it: no penetration testing, no
 scanning, and nothing at all run against a deployed instance. A test that loads
