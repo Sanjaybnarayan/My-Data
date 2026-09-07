@@ -399,6 +399,47 @@ created in the same millisecond, so the recency term in `score` was identical
 and the child's row did not in fact rank last. The fixture now separates them
 by title position, which `score` rates 30 against 60.
 
+### CAL-01 · MEDIUM · one synced row with a date that is not a date took the whole calendar export down
+
+*Found while sizing T4.7's residual — "the same shape of row could be waiting
+behind any other list that reads a field off one without checking" — rather
+than by looking for it. That sizing is below, and most of it is a negative
+result.*
+
+| | |
+| --- | --- |
+| **Files** | `js/domain/ical.js` — `toICalendar`, `icalProblems` |
+| **Vulnerability** | Both tested the entry's date for **presence** and never for **validity**. `2026-99-99` passed the skip guard, reached `asDate`, and `toISOString()` threw `RangeError: Invalid time value` out of the whole export. |
+| **Impact** | Not one entry — **the file**. The household presses Export, gets nothing at all, and their well-formed events are lost with the malformed one. |
+| **And the worse half** | `icalProblems` exists to say what could not be written. It tested presence too, so it counted the entry that *threw* as `written`. The screen reported success for an export that produced no file. |
+| **Why it is reachable** | `Repository.applyRemote` skips validation deliberately — the row "is already authoritative" — so between a cell somebody typed into the household's own spreadsheet and this function there is nothing that looks at the date. **Reproduced end to end through a real database**, not argued from the source. |
+| **Backend required** | No. |
+| **Status** | **Fixed.** Both ask `isDay` — the predicate this repository already has — so the two agree by construction rather than by both being written carefully. 2 of 2 mutations caught. |
+
+The repository's own recurring shape once more: a value present, a second value
+that could check it, and nothing joining them. Here the two were a hundred
+lines apart in one file and disagreed about what "has a date" means.
+
+#### The sweep that found it, and the 22 findings it did not have
+
+`indexEntry` was driven with **371 rows** — every one of the 53 entities under
+seven hostile shapes — because `applyRemote` calls it inside the same
+transaction as the write, so a throw there would take down a whole pull rather
+than a screen. **None threw.** That is the more reassuring result of the two
+and it is recorded because nobody had asked.
+
+Then 41 single-list-argument functions across `js/domain/` were driven with
+malformed rows: 287 calls, **23 throws**. Twenty-two of those were reached only
+by a literal `null` *element*, and checking rather than reporting them showed
+that shape cannot arrive: `applyRemote` does `{ ...record }`, so a `null` or a
+string row from the server becomes an object before it is ever stored, and
+`#resolve` reads `remote.id` before that. A `null` row is not reachable through
+the sync path, so twenty-two of twenty-three were **not defects**.
+
+CAL-01 is the twenty-third, and the one whose hostile shape — an object whose
+field is the wrong sort of string — is exactly what a spreadsheet cell
+produces.
+
 ### MANIFEST-01 · LOW · two security attributes held up by a comment
 
 Not a defect in what ships — both attributes are set correctly, and have been.
@@ -675,6 +716,7 @@ Following the brief's phase structure, restricted to what exists here:
 | 12 | Security testing | **Partial, and less partial again.** `tests/fuzz.test.mjs` drives hostile bodies through the real `doPost` and found a real bug doing it; it now drives hostile *payloads* through every authenticated action as well, and found **LIST-01** — three write handlers walking a list without asking whether it was one. Still no penetration test, no scanning, and nothing run against a deployed instance — see below |
 | 13 | Final report (§80) | **Written** — `docs/REMEDIATION_REPORT.md`. Eight pull requests, what each closed, what is still open with its threat-model row, what could not be checked without a device, and the corrections in both directions. It does not say *secure* and is not scored 100 |
 | — | LIST-01 | **Done** — three write handlers that walked a list without asking whether it was one |
+| — | CAL-01 | **Done** — one synced row with a date that is not a date took the whole calendar export down, while the count of what could not be written called it written |
 | — | SEARCH-01 | **Done** — the read path that never met the authorisation rule |
 | — | LOCK-01 | **Done** — the write path's lock, raised as an open question under OTP-01 and settled by the owner |
 | — | MANIFEST-01 | **Done** — two manifest attributes, and two absences, that nothing checked |

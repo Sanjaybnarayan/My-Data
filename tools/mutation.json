@@ -434,6 +434,20 @@
       "find": "    { key: 'heldMobile', type: 'phone', label: 'Mobile', group: 'As they hold it', encrypted: true },",
       "replace": "    { key: 'heldMobile', type: 'phone', label: 'Mobile', group: 'As they hold it' },",
       "suite": "privacy"
+    },
+    {
+      "label": "a calendar entry's date is tested for presence, not for being a date",
+      "file": "js/domain/ical.js",
+      "find": "    if (!isDay(entry?.date) || !entry?.id) continue;",
+      "replace": "    if (!entry?.date || !entry?.id) continue;",
+      "suite": "ical"
+    },
+    {
+      "label": "the count of what could not be written tests presence, not validity",
+      "file": "js/domain/ical.js",
+      "find": "  const undated = (entries ?? []).filter((entry) => entry && !isDay(entry.date)).length;",
+      "replace": "  const undated = (entries ?? []).filter((entry) => entry && !entry.date).length;",
+      "suite": "ical"
     }
   ]
 }
