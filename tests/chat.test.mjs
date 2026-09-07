@@ -2,7 +2,7 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb, makePerson } from './fixture.mjs';
 import { ChatService } from '../js/services/chat.js';
 import {
-  createIdentity, seal, open, safetyNumber, sealedTo, addressedTo,
+  createIdentity, seal, open, openBytes, safetyNumber, sealedTo, addressedTo,
   SEALED_VERSION, ESCROW_ID,
 } from '../js/security/e2ee.js';
 
@@ -670,5 +670,170 @@ describe('the sender the row claims, checked against the one it proves', () => {
     assert.equal(read.text, null);
     assert.equal(read.attribution.verdict, 'unknown');
     assert.equal(read.attribution.proven, null);
+  });
+});
+
+describe('a message row that is not an envelope', () => {
+  /*
+   * `read` promises, in as many words, that it *"never throws for an
+   * unreadable message — a conversation is a list, and one line this device
+   * cannot read is a fact about that line, reported in place, rather than
+   * taking the screen down"*. It threw for five of the fifteen bodies below,
+   * and `threads()` calls the same method, so the second one took the
+   * whole conversation **list** with it.
+   *
+   * `message` rows arrive over sync. This is what a deployment, another
+   * device, or a truncated write can put in front of the Chat screen, and a
+   * household has no way to reach into the store and delete the row that is
+   * doing it. So each check reads a conversation holding one hostile row and
+   * one real message, and asks for the real message back.
+   */
+  const conversationWith = async (db, participants) => db.repo('conversation').create({
+    title: 'Household', participants, startedAt: new Date().toISOString(),
+  });
+
+  const withRow = async (body) => {
+    const { db, chat, asha, ravi } = await household();
+    await chat.enrol(asha.id);
+    const conversation = await conversationWith(db, [asha.id, ravi.id]);
+    await db.repo('message').create({
+      conversation: conversation.id, sender: asha.id, body,
+      sentAt: '2026-01-01T00:00:00Z',
+    });
+    await chat.send(conversation.id, asha.id, 'and eggs');
+    return { read: await chat.read(conversation.id), chat, conversation };
+  };
+
+  // `JSON.parse` succeeds for every one of these. Parsing is not the same as
+  // being an envelope, and reading `.from` off the result is what threw.
+  const parses = {
+    'the four bytes null': 'null',
+    'a bare number': '5',
+    'a bare string': '"hello"',
+    'an array': '[]',
+    'keys as a string': '{"v":1,"from":"x","keys":"x"}',
+    'keys as a number': '{"v":1,"from":"x","keys":7}',
+    'keys as an object': '{"v":1,"from":"x","keys":{"device":"d"}}',
+    'keys holding nulls': '{"v":1,"from":"x","keys":[null,null]}',
+    'keys holding scalars': '{"v":1,"from":"x","keys":[1,"two"]}',
+    'from as an object': '{"v":1,"from":{},"keys":[]}',
+    'an iv that is not base64': '{"v":1,"from":"x","iv":"!!!","body":"!!!","keys":[]}',
+    'no version at all': '{"from":"x","keys":[]}',
+  };
+
+  for (const [name, body] of Object.entries(parses)) {
+    test(`${name} loses that line and nothing else`, async () => {
+      const { read } = await withRow(body);
+      assert.length(read, 2);
+      // The real message, still there. This is the assertion that fails when
+      // the guard is removed — not by reporting the wrong reason, but by
+      // never returning at all.
+      assert.equal(read[1].text, 'and eggs');
+      assert.equal(read[0].text, null);
+      assert.ok(read[0].why, 'the unreadable line gave no reason');
+    });
+  }
+
+  test('bytes that are not JSON at all are unreadable, as they always were', async () => {
+    const { read } = await withRow('not json');
+    assert.equal(read[0].why, 'unreadable');
+    assert.equal(read[1].text, 'and eggs');
+  });
+
+  test('a damaged envelope says damaged, not "sent before you enrolled"', async () => {
+    /*
+     * The reason matters as much as not throwing. With `keys` that is not a
+     * list there are no wraps addressed to anybody, so opening fails as
+     * `notARecipient` and the screen said the message was sent before this
+     * device was enrolled — a plausible sentence about a row that is simply
+     * damaged, sending somebody to their enrolment history for an explanation
+     * that is not there.
+     */
+    for (const body of ['null', '5', '{"v":1,"from":"x","keys":"x"}']) {
+      const { read } = await withRow(body);
+      assert.equal(read[0].why, 'unreadable', `${body} was reported as ${read[0].why}`);
+    }
+  });
+
+  test('but a list with nobody this device knows in it really is not addressed here', async () => {
+    // Not damage: the envelope is well formed and this device is not in it.
+    // Collapsing this into "unreadable" would lose a distinction the screen
+    // exists to draw.
+    const { read } = await withRow('{"v":1,"from":"x","keys":[{"device":"other"}]}');
+    assert.equal(read[0].why, 'sentBefore');
+  });
+
+  test('the conversation list survives one too', async () => {
+    // `threads()` opens the last row of every conversation through the
+    // same method. A row like this took out the list, which is the whole
+    // screen rather than one line of it.
+    const { chat } = await withRow('null');
+    const list = await chat.threads();
+    assert.ok(list.length >= 1, 'the conversation list came back empty');
+  });
+
+  test('a hundred thousand wraps is answered rather than ground through', async () => {
+    const many = JSON.stringify({
+      v: 1,
+      from: 'x',
+      keys: Array.from({ length: 100_000 }, (_, i) => ({ device: `d${i}` })),
+    });
+    const { read } = await withRow(many);
+    assert.equal(read[1].text, 'and eggs');
+  });
+});
+
+describe('the envelope readers, given something that is not an envelope', () => {
+  /*
+   * `#openRow` guards its own parse, so these three are reachable past it only
+   * through `openAttachment`, `addressedTo` and anything else holding a
+   * `sealed` from elsewhere. Checking them here rather than only through
+   * `read` is the point: a guard proven at one call site is a guard that moves
+   * the next time somebody adds a second one.
+   */
+  const notEnvelopes = [
+    null, undefined, 5, 'hello', [], {},
+    { v: 1, keys: 'x' }, { v: 1, keys: 7 }, { v: 1, keys: { device: 'd' } },
+    { v: 1, keys: [null, 1, 'two'] },
+  ];
+
+  test('sealedTo answers for every one of them', () => {
+    for (const sealed of notEnvelopes) {
+      const to = sealedTo(sealed);
+      assert.length(to.devices, 0, `${JSON.stringify(sealed)} named devices`);
+      assert.equal(to.escrowed, false);
+    }
+  });
+
+  test('addressedTo says no rather than throwing', () => {
+    for (const sealed of notEnvelopes) {
+      assert.equal(addressedTo(sealed, 'dev-1'), false, JSON.stringify(sealed));
+    }
+  });
+
+  test('openBytes refuses with a code, never a TypeError', async () => {
+    const ravi = await createIdentity();
+    for (const sealed of notEnvelopes) {
+      let error;
+      try {
+        await openBytes(sealed, { id: 'dev-ravi', ...ravi });
+      } catch (thrown) {
+        error = thrown;
+      }
+      assert.ok(error, `${JSON.stringify(sealed)} did not refuse`);
+      // A coded refusal is one a screen can turn into a sentence. A TypeError
+      // is a crash wearing a message about `.find`.
+      assert.ok(['sealedVersion', 'notARecipient', 'keyChanged'].includes(error.code),
+        `${JSON.stringify(sealed)} refused as ${error.constructor.name}: ${error.message}`);
+    }
+  });
+
+  test('and a real envelope is untouched by any of it', async () => {
+    const asha = await createIdentity();
+    const ravi = await createIdentity();
+    const sealed = await seal('bring milk', asha, [{ id: 'dev-ravi', publicKey: ravi.publicKey }]);
+    assert.equal(await open(sealed, { id: 'dev-ravi', ...ravi }), 'bring milk');
+    assert.ok(addressedTo(sealed, 'dev-ravi'));
+    assert.length(sealedTo(sealed).devices, 1);
   });
 });
