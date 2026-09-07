@@ -47,6 +47,20 @@
  * control missing from it is invisible here exactly as it was before. It is a
  * ratchet on a chosen set, not a survey.
  *
+ * That limitation is not decorative, and the first thing done about it paid
+ * for itself. Five findings from `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md` had
+ * been proved by hand in the pull requests that fixed them and then never
+ * entered this file — SEARCH-01, CHAT-01, TOK-01, MANIFEST-01, PRIV-01, three
+ * of them HIGH. Entered here, twelve of the thirteen were still held. The
+ * thirteenth was not: `#mayRead`'s `catch` in `js/data/database.js`, where
+ * `rowFilter` throws for an entity the schema no longer has and the branch
+ * chooses between refusing the row and showing it to anybody. It refused, and
+ * nothing said so.
+ *
+ * Which is the argument for this file in one line: the hand-sweep proved the
+ * fix, the fix was right, and a branch of it was one refactor away from being
+ * gone with the suite green.
+ *
  * Nor is it mutation testing in the academic sense: no operators, no automatic
  * generation, no mutation score. Every entry is a specific defeat of a
  * specific defence, written out in the words of what it would let somebody do.
