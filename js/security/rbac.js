@@ -77,8 +77,23 @@ export const SUBJECT_FIELD = {
  */
 export const OWN_RECORD_ENTITIES = new Set(Object.keys(SUBJECT_FIELD));
 
+/**
+ * `Object.hasOwn` rather than `RANK[role] !== undefined`, so a role of
+ * `constructor` or `__proto__` is not a role. That part was right.
+ *
+ * The `typeof` is the part that was not: `Object.hasOwn` **coerces its key to
+ * a string**, so `role: ['owner']` — which a `member` row can carry, JSON
+ * having arrays and nothing validating a synced row against its schema — came
+ * back true. `can` survived it by accident, its `allowed.includes(actor.role)`
+ * being a strict comparison an array fails; `readScope` did not, and answered
+ * `own` where it owed `none`, which is own-record read scope and a navigation
+ * entry for an actor whose role this application does not have.
+ *
+ * Found by writing the check for a different gap in the same function, which
+ * is the argument for writing the check.
+ */
 export function isRole(role) {
-  return Object.hasOwn(RANK, role);
+  return typeof role === 'string' && Object.hasOwn(RANK, role);
 }
 
 export function atLeast(role, minimum) {

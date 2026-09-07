@@ -2,7 +2,9 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import { DriveEscrow, mintRawKey, APPDATA_SCOPE } from '../js/security/escrow.js';
 import { Keyring } from '../js/security/keyring.js';
 import { toBase64, exportKeyBytes } from '../js/security/crypto.js';
-import { missingScopes, completeOAuthRedirect } from '../js/auth/google.js';
+import {
+  missingScopes, completeOAuthRedirect, isOAuthAnswer,
+} from '../js/auth/google.js';
 import {
   unlockFreshDevice, linkExistingDevice, unlinkGoogleUnlock,
 } from '../js/auth/google-unlock.js';
@@ -216,10 +218,15 @@ describe('a token is not proof the permission was given', () => {
   test('the callback carries the granted scopes back, or none of this works', () => {
     const posted = [];
     completeOAuthRedirect({
-      location: { hash: '#access_token=t&expires_in=3599&state=s&scope=openid%20' + encodeURIComponent(APPDATA_SCOPE), pathname: '/cb' },
+      location: {
+        hash: '#access_token=t&expires_in=3599&state=s&scope=openid%20'
+          + encodeURIComponent(APPDATA_SCOPE),
+        pathname: '/cb',
+        origin: 'https://household.example',
+      },
       history: { replaceState() {} },
       opener: null,
-      parent: { postMessage: (message) => posted.push(message) },
+      parent: { postMessage: (message) => { posted.push(message); } },
     });
 
     assert.includes(posted[0].scope, APPDATA_SCOPE);
@@ -228,6 +235,133 @@ describe('a token is not proof the permission was given', () => {
 });
 
 /* ------------------------------------------------------- with the keyring */
+
+describe('the four things that keep an access token from being stolen', () => {
+  /*
+   * None of them was held by anything. Each of these four mutations passed all
+   * 3,508 checks in this repository:
+   *
+   *   postMessage(message, '*')            hands the token to whatever window
+   *                                        opened the callback page
+   *   history.replaceState removed         leaves the token in the address bar
+   *                                        and in browser history
+   *   the origin check removed             accepts a token posted by any origin
+   *   the state check removed              accepts an answer from a flow this
+   *                                        instance never started
+   *
+   * The code was right. Nothing said so, which is the same failure this
+   * repository's ratchets exist for, pointed at the part that matters most.
+   */
+
+  const ORIGIN = 'https://household.example';
+
+  /**
+   * The callback page, as `completeOAuthRedirect` is given it.
+   *
+   * @param {{opener?: {postMessage: (message: any, targetOrigin: string) => void}|null,
+   *          hash?: string}} [options]
+   */
+  function callbackWindow({ opener = null, hash = '' } = {}) {
+    const posted = [];
+    const replaced = [];
+    let closed = false;
+    const win = {
+      location: { hash, pathname: '/app/oauth-callback.html', origin: ORIGIN },
+      history: { replaceState: (...args) => replaced.push(args) },
+      opener,
+      parent: { postMessage: (message, targetOrigin) => posted.push({ message, targetOrigin }) },
+      close: () => { closed = true; },
+    };
+    return { win, posted, replaced, closed: () => closed };
+  }
+
+  const HASH = '#access_token=ya29.secret&expires_in=3599&state=s1&scope=openid';
+
+  test('the token is posted to this origin and never to a wildcard', () => {
+    // `'*'` means any window that opened the callback page is handed a working
+    // Google access token — which a malicious page can arrange by opening it.
+    const { win, posted } = callbackWindow({ hash: HASH });
+    completeOAuthRedirect(win);
+
+    assert.length(posted, 1);
+    assert.equal(posted[0].targetOrigin, ORIGIN);
+    assert.notEqual(posted[0].targetOrigin, '*');
+  });
+
+  test('and to the opener when there is one, which is the popup flow', () => {
+    const openerPosts = [];
+    const { win, posted } = callbackWindow({
+      hash: HASH,
+      opener: { postMessage: (message, targetOrigin) => openerPosts.push({ message, targetOrigin }) },
+    });
+    completeOAuthRedirect(win);
+
+    assert.length(openerPosts, 1, 'the opener was not the receiver');
+    assert.length(posted, 0, 'the parent was posted to as well');
+    assert.equal(openerPosts[0].targetOrigin, ORIGIN);
+  });
+
+  test('the token is cleared out of the address bar before anything else', () => {
+    // It arrives in the URL fragment. Left there it is in the address bar, in
+    // the history entry, and in anything that reads either.
+    const { win, replaced } = callbackWindow({ hash: HASH });
+    completeOAuthRedirect(win);
+
+    assert.length(replaced, 1, 'the fragment was never cleared');
+    const [, , url] = replaced[0];
+    assert.equal(url, '/app/oauth-callback.html');
+    assert.not(String(url).includes('access_token'), 'the token survived the rewrite');
+  });
+
+  test('the popup is closed behind it', () => {
+    const { win, closed } = callbackWindow({
+      hash: HASH, opener: { postMessage() {} },
+    });
+    completeOAuthRedirect(win);
+    assert.ok(closed(), 'a window holding a token in its fragment was left open');
+  });
+
+  const answer = (over = {}) => ({
+    origin: ORIGIN,
+    data: { type: 'familyos-oauth', state: 's1', accessToken: 'ya29.secret', ...over.data },
+    ...over,
+  });
+
+  test('an answer from this origin, of this type, for this flow is accepted', () => {
+    assert.ok(isOAuthAnswer(answer(), { origin: ORIGIN, state: 's1' }));
+  });
+
+  test('a message from another origin is not', () => {
+    // The one that matters: a token posted by a page that is not this app.
+    assert.not(isOAuthAnswer(answer({ origin: 'https://evil.example' }),
+      { origin: ORIGIN, state: 's1' }));
+  });
+
+  test('a message carrying a state this flow never issued is not', () => {
+    // A forgery, or a stale window. Either way it is not this sign-in.
+    assert.not(isOAuthAnswer(answer({ data: { type: 'familyos-oauth', state: 'somebody-elses' } }),
+      { origin: ORIGIN, state: 's1' }));
+  });
+
+  test('nor one with no state at all', () => {
+    assert.not(isOAuthAnswer(answer({ data: { type: 'familyos-oauth' } }),
+      { origin: ORIGIN, state: 's1' }));
+  });
+
+  test('a message of another type is not, whatever else it carries', () => {
+    assert.not(isOAuthAnswer(answer({ data: { type: 'something-else', state: 's1' } }),
+      { origin: ORIGIN, state: 's1' }));
+  });
+
+  test('and nothing that is not a message at all', () => {
+    /** @type {any[]} */
+    const rubbish = [null, undefined, {}, { origin: ORIGIN }, 5, 'hello'];
+    for (const nonsense of rubbish) {
+      assert.not(isOAuthAnswer(nonsense, { origin: ORIGIN, state: 's1' }),
+        JSON.stringify(nonsense));
+    }
+  });
+});
 
 describe('signing in with Google unlocks the same data', () => {
   const meta = () => {

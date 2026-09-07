@@ -17,7 +17,11 @@
  *   - No refresh token. The token lasts an hour and is renewed silently in a
  *     hidden iframe with `prompt=none`; if that fails the user signs in again.
  *   - The token is in the URL fragment on return. It is read and the fragment
- *     is cleared in the same turn, before anything can navigate.
+ *     is cleared in the same turn, before anything can navigate — a sentence
+ *     nothing checked until `tests/escrow.test.mjs` did. Removing the rewrite,
+ *     posting the token to `'*'`, dropping the origin check and dropping the
+ *     state check each passed every check in this repository; the four are
+ *     held now.
  *
  * The token lives in memory. Not `localStorage` — a token in local storage is
  * readable by any script that ever gets injected, and it survives the tab.
@@ -105,7 +109,18 @@ export class GoogleAuth {
     }
   }
 
-  #authUrl({ prompt, state, nonce }) {
+  /**
+   * No `nonce`. It was sent on every request and read back by nothing, which
+   * is worse than not sending it: a reviewer seeing it in an authorization
+   * URL reads replay protection that is not there.
+   *
+   * It could not have been checked. A nonce is bound to an **id token**, and
+   * `response_type=token` asks for none — so Google ignores it, and there
+   * would be nothing here to compare it against if it did not. `state` is the
+   * control that actually runs, it is checked in `isOAuthAnswer`, and there
+   * are now checks holding it there.
+   */
+  #authUrl({ prompt, state }) {
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: this.redirectUri,
@@ -113,7 +128,6 @@ export class GoogleAuth {
       scope: this.scopes.join(' '),
       include_granted_scopes: 'true',
       state,
-      nonce,
     });
     if (prompt) params.set('prompt', prompt);
     const hint = this.#profile?.email || this.loginHint;
@@ -134,8 +148,7 @@ export class GoogleAuth {
     if (this.#inflight) return this.#inflight;
 
     const state = toBase64(randomBytes(16));
-    const nonce = toBase64(randomBytes(16));
-    const url = this.#authUrl({ prompt, state, nonce });
+    const url = this.#authUrl({ prompt, state });
 
     this.#inflight = new Promise((resolve, reject) => {
       const popup = globalThis.open(url, 'familyos-auth',
@@ -147,16 +160,9 @@ export class GoogleAuth {
       }
 
       const onMessage = (event) => {
-        if (event.origin !== globalThis.location.origin) return;
-        if (event.data?.type !== 'familyos-oauth') return;
-
-        // A state we did not issue is not our response: a forgery, a stale
-        // window, or — once a household has a second mailbox — another
-        // instance's silent renewal finishing while this popup is open.
-        // Ignoring is both the safe answer and the correct one; failing this
-        // sign-in because some other flow finished would be neither. If the
-        // real response never comes, the closed-popup poll below still ends it.
-        if (event.data.state !== state) return;
+        // Origin, type and state, all three, and `isOAuthAnswer` says why it
+        // is a function rather than three lines here.
+        if (!isOAuthAnswer(event, { origin: globalThis.location.origin, state })) return;
 
         cleanup();
 
@@ -207,12 +213,11 @@ export class GoogleAuth {
     if (!this.clientId) return Promise.reject(new AppError('not configured', { code: 'not-configured' }));
 
     const state = toBase64(randomBytes(16));
-    const nonce = toBase64(randomBytes(16));
 
     return new Promise((resolve, reject) => {
       const frame = document.createElement('iframe');
       frame.style.display = 'none';
-      frame.src = this.#authUrl({ prompt: 'none', state, nonce });
+      frame.src = this.#authUrl({ prompt: 'none', state });
 
       const timer = setTimeout(() => {
         cleanup();
@@ -220,8 +225,7 @@ export class GoogleAuth {
       }, 15_000);
 
       const onMessage = (event) => {
-        if (event.origin !== globalThis.location.origin) return;
-        if (event.data?.type !== 'familyos-oauth' || event.data.state !== state) return;
+        if (!isOAuthAnswer(event, { origin: globalThis.location.origin, state })) return;
         cleanup();
         if (event.data.error) {
           reject(new AppError(`Silent renewal failed: ${event.data.error}`, { code: 'renew-failed' }));
@@ -309,6 +313,36 @@ export function missingScopes(asked, granted) {
 }
 
 /**
+ * Is this `message` event the answer to the flow that is waiting for it?
+ *
+ * A free function for the reason `missingScopes` is one: it is the whole of
+ * the logic and none of the state, and a rule this easy to get backwards
+ * deserves to be checked without standing up an OAuth flow to do it.
+ *
+ * It is one now because it was measured. Reverting any of the three
+ * conditions — accepting a message from **any origin**, accepting **any
+ * state**, accepting any message type — passed every one of this
+ * repository's checks, so the only thing holding the browser sign-in
+ * together was that nobody had touched it.
+ *
+ * Each condition ignores rather than fails, and that is deliberate. A state
+ * we did not issue is not our response: a forgery, a stale window, or — once
+ * a household has a second mailbox — another instance's silent renewal
+ * finishing while this popup is open. Failing this sign-in because some other
+ * flow finished would be wrong; if the real answer never comes, the
+ * closed-popup poll ends it.
+ *
+ * @param {{origin?: string, data?: any}} event as `window` delivers it
+ * @param {{origin: string, state: string}} expected
+ */
+export function isOAuthAnswer(event, { origin, state }) {
+  return Boolean(event)
+    && event.origin === origin
+    && event.data?.type === 'familyos-oauth'
+    && event.data.state === state;
+}
+
+/**
  * Where Google is told to send the answer.
  *
  * Exported because Settings shows it: it has to be registered on the OAuth
@@ -326,6 +360,18 @@ export function redirectUriFor() {
  * Run inside `oauth-callback.html`. Reads the fragment, hands it to the opener
  * and closes. Kept here rather than inline in the HTML so it is covered by the
  * same review as the rest of the auth code.
+ *
+ * Typed by what it uses rather than as `typeof globalThis`, which a test
+ * standing in a window it can inspect could never satisfy — and a control this
+ * is the only guard for should not be untestable for a typing reason.
+ *
+ * @param {{
+ *   location: {hash: string, pathname: string, origin: string},
+ *   history: {replaceState: (data: any, unused: string, url?: string) => void},
+ *   opener?: {postMessage: (message: any, targetOrigin: string) => void} | null,
+ *   parent?: {postMessage: (message: any, targetOrigin: string) => void},
+ *   close?: () => void,
+ * }} [target]
  */
 export function completeOAuthRedirect(target = globalThis) {
   const fragment = new URLSearchParams(target.location.hash.slice(1));
