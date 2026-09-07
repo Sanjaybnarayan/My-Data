@@ -9,7 +9,7 @@
  * fields, allows editing, generates new DOCX, preserves original"*.
  *
  * Both halves it needs already existed: `reports/xlsx.js` has `zip`, and
- * `data/pdf-read.js` has `inflate` — written for a PDF's compressed streams and
+ * `data/inflate.js` has `inflate` — written for a PDF's compressed streams and
  * exactly what a `.docx` entry needs, since both are DEFLATE. So this costs no
  * dependency, the same way the DOCX writer did.
  *
@@ -100,26 +100,57 @@ export function entriesIn(bytes) {
 }
 
 /**
+ * The most a whole archive is allowed to expand to.
+ *
+ * A per-entry cap does not bound this on its own. The central directory's
+ * count is sixteen bits, so an archive may name **65,535 entries**, and each
+ * one asking for its own capful is four terabytes. The compressed bytes are
+ * shared — the file is one file — but at DEFLATE's 1032:1 that shares out to
+ * gigabytes however it is split, which is the same crash arriving by a
+ * different route.
+ *
+ * So the budget is held here, across the archive, and each entry is offered
+ * what is left of it. `.docx` and `.xlsx` are a handful of parts; a household's
+ * papers do not come near this.
+ */
+const MAX_UNZIPPED_BYTES = 64 * 1024 * 1024;
+
+/**
  * Every entry's bytes, decompressed.
  *
  * @param {Uint8Array} bytes
- * @param {(raw: Uint8Array) => Promise<Uint8Array|null>} inflate
- *   Injected rather than imported: `data/pdf-read.js` owns the browser's
- *   decompression and this file should not decide where that comes from.
+ * @param {(raw: Uint8Array, limit?: number) => Promise<Uint8Array|null>} inflate
+ *   Injected rather than imported, so a caller can run this with no
+ *   decompressor at all and get the stored entries back. `data/inflate.js` is
+ *   what the application passes.
+ * @param {number} [budget] total bytes of output to keep across the archive.
  */
-export async function unzip(bytes, inflate) {
+export async function unzip(bytes, inflate, budget = MAX_UNZIPPED_BYTES) {
   /** @type {Record<string, Uint8Array>} */
   const out = {};
+  let left = budget;
+
   for (const entry of entriesIn(bytes)) {
+    if (left <= 0) break;
+
     if (entry.method === 0) {
-      out[entry.name] = entry.data;
+      // A stored entry is already in memory — it is part of the file that was
+      // read in — so clamping it costs nothing and keeps one accounting.
+      const data = entry.data.subarray(0, left);
+      out[entry.name] = data;
+      left -= data.length;
       continue;
     }
-    const inflated = await inflate(entry.data);
+
+    const inflated = await inflate(entry.data, left);
     // A part that will not decompress is left out rather than stored as
     // rubbish. `readTemplate` says which parts it could not read.
-    if (inflated) out[entry.name] = inflated;
+    if (inflated) {
+      out[entry.name] = inflated;
+      left -= inflated.length;
+    }
   }
+
   return out;
 }
 

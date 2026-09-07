@@ -40,6 +40,7 @@
  */
 
 import { parseToUnicode } from './pdf-cmap.js';
+import { inflate, MAX_INFLATED_BYTES } from './inflate.js';
 
 /*
  * ## Why inflation is a separate pass
@@ -672,45 +673,40 @@ export function toLines(items, tolerance = 2.2) {
 /* --------------------------------------------------- inflating the streams */
 
 /**
- * Inflate with the platform's own decompressor.
- *
- * Both wrappings are tried because PDF writers disagree about whether the
- * two-byte zlib header belongs there, and a stray leading byte before it is
- * common enough that every reader retries past one.
- */
-export async function inflate(raw) {
-  for (const format of ['deflate', 'deflate-raw']) {
-    for (const offset of [0, 1]) {
-      try {
-        const stream = new Blob([raw.subarray(offset)]).stream()
-          .pipeThrough(new DecompressionStream(format));
-        return new Uint8Array(await new Response(stream).arrayBuffer());
-      } catch { /* try the next wrapping */ }
-    }
-  }
-  return null;
-}
-
-/**
  * Inflate every compressed stream a scan found.
+ *
+ * The budget is held across the file for the reason `unzip` holds one across
+ * an archive: a cap on each stream is not a cap on a document that declares
+ * a thousand of them, and a PDF may.
  *
  * @param {Uint8Array} bytes the whole file
  * @param {ReturnType<scan>} scanned
- * @param {(raw: Uint8Array) => Promise<Uint8Array|null>} [decompress]
+ * @param {(raw: Uint8Array, limit?: number) => Promise<Uint8Array|null>} [decompress]
+ * @param {number} [budget] total bytes of output to keep across the file
  */
-export async function inflateAll(bytes, { streams }, decompress = inflate) {
+export async function inflateAll(bytes, { streams }, decompress = inflate,
+  budget = MAX_INFLATED_BYTES) {
   const out = new Map();
+  let left = budget;
 
   for (const [number, { from, to, flate }] of streams) {
+    if (left <= 0) break;
     const raw = bytes.subarray(from, to);
     if (!flate) {
-      out.set(number, raw);
+      // Already in memory, being a slice of the file itself; clamped so one
+      // accounting covers both kinds of stream.
+      const stored = raw.subarray(0, left);
+      out.set(number, stored);
+      left -= stored.length;
       continue;
     }
-    const data = await decompress(raw);
+    const data = await decompress(raw, left);
     // A stream that will not inflate is one object, not a broken file: a
     // corrupt thumbnail must not stop a statement being read.
-    if (data) out.set(number, data);
+    if (data) {
+      out.set(number, data);
+      left -= data.length;
+    }
   }
 
   return out;

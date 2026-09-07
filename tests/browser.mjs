@@ -41,7 +41,7 @@ const BASE = `http://localhost:${PORT}`;
  */
 const IN_PAGE = Object.freeze({
   context: './js/context.js',
-  pdfRead: './js/data/pdf-read.js',
+  inflate: './js/data/inflate.js',
   chat: './js/services/chat.js',
   schema: './js/data/schema.js',
   consent: './js/data/consent.js',
@@ -618,7 +618,7 @@ async function main() {
       check('the importer loads without a console error',
         consoleErrors.length === before, consoleErrors.slice(before).join(' | '));
 
-      // The PDF reader is the part that only exists in a browser — Node has
+      // Decompression is the part that only exists in a browser — Node has
       // zlib, a browser has DecompressionStream, and this is the only place
       // the second one actually runs.
       const decoded = await page.evaluate(async (spec) => {
@@ -629,9 +629,27 @@ async function main() {
         ).arrayBuffer();
         const out = await inflate(new Uint8Array(compressed));
         return out ? new TextDecoder().decode(out) : null;
-      }, IN_PAGE.pdfRead);
-      check('the PDF reader can decompress in the browser',
+      }, IN_PAGE.inflate);
+      check('the reader can decompress in the browser',
         decoded === 'column x, column y, balance', String(decoded));
+
+      // And that the bound holds in the browser's own implementation, which is
+      // where it matters: the cap is enforced by reading the stream chunk by
+      // chunk and cancelling, and how a chunk arrives is the platform's
+      // decision, not Node's.
+      const bounded = await page.evaluate(async (spec) => {
+        const { inflate } = await import(spec);
+        const bomb = new Uint8Array(4 * 1024 * 1024); // four megabytes of zero
+        const compressed = await new Response(
+          new Blob([bomb]).stream().pipeThrough(new CompressionStream('deflate')),
+        ).arrayBuffer();
+        const out = await inflate(new Uint8Array(compressed), 1024);
+        return { packed: compressed.byteLength, kept: out ? out.length : null };
+      }, IN_PAGE.inflate);
+      check('a browser stops inflating at the limit it was given',
+        bounded.kept === 1024, JSON.stringify(bounded));
+      check('the fixture it stopped on really was a bomb',
+        bounded.packed < 64 * 1024, JSON.stringify(bounded));
 
       // A pasted bank message, through the real box on the real screen.
       // Phase 6's reading exists in `domain/sms.js`; this is the half that

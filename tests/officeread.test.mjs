@@ -164,6 +164,61 @@ describe('the text inside an OOXML file', () => {
     assert.equal(pages[0].lines[0], 'Tata Power & Sons Rs 1,880');
   });
 
+  /*
+   * A numeric reference that names no character used to take the document
+   * with it.
+   *
+   * `String.fromCodePoint` throws above 0x10FFFF, and the digits come out of
+   * a file somebody was sent. `&#1114112;` is eight characters a Word
+   * document may legally contain, and it threw a RangeError straight out of
+   * `readOoxml`.
+   *
+   * Nothing crashed: `js/sync/drive.js` wraps the read in
+   * `try { … } catch { return null }`. What happened instead is quieter and
+   * worse — **one bad reference anywhere in a fifty-page document lost the
+   * whole document's text**, and the file was filed as unreadable with
+   * nothing said. No due date read, nothing indexed, no error.
+   *
+   * Found by building a real `.docx` and pushing it through `readOoxml`, not
+   * by reading the function.
+   */
+  test('a reference naming no character does not cost the document its text', async () => {
+    const pages = await readOoxml(
+      docxOf('Electricity Bill', 'Total &#1114112; rupees', 'Due Date: 18/10/2026'), stored,
+    );
+
+    assert.ok(pages.length, 'the whole document was lost to one bad reference');
+    assert.includes(pages[0].lines, 'Due Date: 18/10/2026');
+  });
+
+  test('and the reference it could not name is left as written', async () => {
+    // Which is what every other unrecognised entity here already does: it is
+    // not a character, so the text of it is the honest answer.
+    const pages = await readOoxml(docxOf('Total &#1114112; rupees'), stored);
+    assert.equal(pages[0].lines[0], 'Total &#1114112; rupees');
+  });
+
+  test('a hexadecimal one past the last code point is the same', async () => {
+    const pages = await readOoxml(docxOf('Total &#xFFFFFFFFF; rupees'), stored);
+    assert.equal(pages[0].lines[0], 'Total &#xFFFFFFFFF; rupees');
+  });
+
+  test('and an ordinary reference is still the character it names', async () => {
+    /*
+     * Or the guard is just a way of reading nothing at all.
+     *
+     * Written from code points rather than as a literal: `&#160;` is a
+     * non-breaking space, which is *not* the space beside it on this line and
+     * is indistinguishable from one in a diff. The first version of this
+     * assertion compared two strings that looked the same and were not.
+     */
+    const pages = await readOoxml(docxOf('Rs&#160;1,880 and &#x20B9;500'), stored);
+    const expected = `Rs${String.fromCodePoint(0xA0)}1,880 and ${String.fromCodePoint(0x20B9)}500`;
+
+    assert.equal(pages[0].lines[0], expected);
+    assert.equal(pages[0].lines[0].codePointAt(2), 0xA0, 'the entity lost its character');
+  });
+
   test('a spreadsheet reads its shared string table', async () => {
     const pages = await readOoxml(
       xlsxOf('Policy Number: OG-26-1201', 'Sum Assured Rs. 5,00,000'), stored,

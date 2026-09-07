@@ -7,7 +7,7 @@
  *
  * - `domain/docxtemplate.js` has unzipped `.docx` files and lifted their text
  *   runs since Phase 3, to fill in report templates.
- * - `data/pdf-read.js` owns the browser's `DecompressionStream`, exported as
+ * - `data/inflate.js` owns the browser's `DecompressionStream`, exported as
  *   `inflate`, because a zip entry and a PDF stream are both deflate.
  *
  * Both were in the repository, exported and tested, while `canReadText` said
@@ -48,10 +48,32 @@ function tagText(xml, tag) {
  * forty characters `readAmount` is allowed to cross, and on a longer label
  * enough to lose the amount entirely.
  */
+/**
+ * A numeric reference, or the text of one that names no character.
+ *
+ * `String.fromCodePoint` **throws** above `0x10FFFF`, and the digits come out
+ * of a file somebody was sent. `&#1114112;` is eight characters a Word
+ * document may legally contain, and it threw a `RangeError` straight out of
+ * `readOoxml`.
+ *
+ * `js/sync/drive.js` catches that — it wraps the whole read in
+ * `try { … } catch { return null }` — so nothing crashed. What happened
+ * instead is quieter and worse: **one bad reference anywhere in a fifty-page
+ * document lost the whole document's text**, and the file was filed as
+ * unreadable with nothing said. No due date read, nothing indexed, no error.
+ *
+ * Left as written is the right answer for one that names nothing. `&#1114112;`
+ * is not a character, and putting the literal text back is what every other
+ * unrecognised entity in this function already does.
+ */
+const codePoint = (raw, value) => (Number.isInteger(value) && value >= 0 && value <= 0x10FFFF
+  ? String.fromCodePoint(value)
+  : raw);
+
 function unescapeXml(text) {
   return String(text)
-    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (raw, code) => codePoint(raw, Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (raw, code) => codePoint(raw, parseInt(code, 16)))
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
@@ -105,9 +127,10 @@ function sheetLines(parts) {
  * The text in a `.docx` or `.xlsx`.
  *
  * @param {Uint8Array} bytes
- * @param {(raw: Uint8Array) => Promise<Uint8Array|null>} inflate injected the
- *   same way `docxtemplate.js` takes it — this file should not decide where
- *   the browser's decompression comes from.
+ * @param {(raw: Uint8Array, limit?: number) => Promise<Uint8Array|null>} inflate
+ *   injected the same way `docxtemplate.js` takes it, so a caller can run this
+ *   with no decompressor and get the stored entries back. `unzip` holds a
+ *   budget across the archive and offers each entry what is left of it.
  * @returns {Promise<Array<{lines: string[]}>>} empty when there is nothing to read
  */
 export async function readOoxml(bytes, inflate) {
