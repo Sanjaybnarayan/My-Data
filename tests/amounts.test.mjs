@@ -297,3 +297,69 @@ describe('rows a sync is holding out of the totals', () => {
     assert.equal(none.held, null, 'it reports held rows when there are none');
   });
 });
+
+describe('the breakdown a household reads, beside the total it sits under', () => {
+  /*
+   * `totals()` is held: reverting its filter fails a check. `byCategory()`,
+   * the per-category figure drawn next to it, was held by **nothing**. Three
+   * separate reverts each passed all 3,534 checks:
+   *
+   *   settled ignored   a held row and a deleted one join the chart
+   *   kind ignored      income is bucketed as spending
+   *   blank dropped     uncategorised spending leaves the breakdown
+   *
+   * Measured on one set of rows, in rupees a household would recognise:
+   * groceries reads ₹1,20,000 instead of ₹30,000, rent ₹75,000 instead of
+   * ₹25,000, a ₹1,20,000 salary tops the spending chart, and ₹4,000 of real
+   * spending disappears from the breakdown while staying in the total.
+   *
+   * This repository has been here before, and says so: *"Three modules was not
+   * the money, and the suite passed 3113 of 3113 while it was not."* The
+   * adoption ratchet reads imports, so it can say which modules took
+   * `settled()` and nothing about which figures a held row still reaches.
+   *
+   * So the load-bearing check is the **agreement** between the two figures,
+   * which is the thing a household can actually see going wrong: a pie whose
+   * slices do not add up to the number printed beside it. One assertion,
+   * all three mutations.
+   */
+  const at = '2026-09-01T00:00:00.000Z';
+  const rows = [
+    { id: 't1', kind: 'expense', category: 'groceries', amount: 30_000_00 },
+    { id: 't2', kind: 'expense', category: 'rent', amount: 25_000_00 },
+    { id: 't3', kind: 'expense', category: 'groceries', amount: 90_000_00, heldAt: at },
+    { id: 't4', kind: 'expense', category: 'rent', amount: 50_000_00, deletedAt: at },
+    { id: 't5', kind: 'income', category: 'salary', amount: 1_20_000_00 },
+    { id: 't6', kind: 'expense', category: '', amount: 4_000_00 },
+  ];
+
+  const summed = (breakdown) => breakdown.reduce((n, one) => n + one.value, 0);
+
+  test('the slices add up to the number printed beside them', () => {
+    assert.equal(summed(byCategory(rows)), totals(rows).expense);
+  });
+
+  test('a held row is left out, and so is a deleted one', () => {
+    const shown = new Map(byCategory(rows).map(({ label, value }) => [label, value]));
+    assert.equal(shown.get('groceries'), 30_000_00, 'a held row joined the groceries slice');
+    assert.equal(shown.get('rent'), 25_000_00, 'a deleted row joined the rent slice');
+  });
+
+  test('money arriving is not money spent', () => {
+    const labels = byCategory(rows).map((one) => one.label);
+    assert.not(labels.includes('salary'), 'income was bucketed as spending');
+  });
+
+  test('spending with no category is still spending', () => {
+    // Dropping it would lose ₹4,000 from the breakdown while the total beside
+    // it still counted them — the two figures disagreeing on the same screen.
+    const shown = new Map(byCategory(rows).map(({ label, value }) => [label, value]));
+    assert.equal(shown.get('other'), 4_000_00);
+  });
+
+  test('and the income breakdown is the same function, asked the other way', () => {
+    const income = byCategory(rows, { kind: 'income' });
+    assert.equal(summed(income), totals(rows).income);
+    assert.deep(income.map((one) => one.label), ['salary']);
+  });
+});
