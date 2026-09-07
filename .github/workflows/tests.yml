@@ -70,6 +70,15 @@ jobs:
       - name: Check the backend's access rules match the schema
         run: node tools/policy.mjs --check
 
+      # Every step above asks whether the code is right. This one asks whether
+      # anything is keeping it right: it breaks each security and money control
+      # in turn and requires the named suite to notice. Sixteen of them were
+      # held by nothing when somebody first looked, including every guard on
+      # the browser OAuth flow. It runs one suite per mutation rather than the
+      # whole thing, which is what keeps forty-three of them inside a minute.
+      - name: Check each security control is still held by something
+        run: node tools/mutation.mjs
+
       # Not a linter — see `tools/lint.mjs` for why there is deliberately none.
       # Five patterns a type checker cannot see, every one of them at zero, and
       # the value is in the direction this fails: a `console.log` pasted into a

@@ -1,0 +1,306 @@
+{
+  "//": "The catalogue tools/mutation.mjs runs. Each entry breaks one security or integrity control and names the suite that must notice. Read the tool's header before adding one.",
+  "mutations": [
+    {
+      "label": "the OAuth answer is posted to any window that asked",
+      "file": "js/auth/google.js",
+      "find": "  receiver?.postMessage(message, target.location.origin);",
+      "replace": "  receiver?.postMessage(message, '*');",
+      "suite": "escrow"
+    },
+    {
+      "label": "the access token is left in the address bar",
+      "file": "js/auth/google.js",
+      "find": "  target.history.replaceState(null, '', target.location.pathname);\n",
+      "replace": "",
+      "suite": "escrow"
+    },
+    {
+      "label": "an OAuth answer from any origin is accepted",
+      "file": "js/auth/google.js",
+      "find": "    && event.origin === origin\n",
+      "replace": "",
+      "suite": "escrow"
+    },
+    {
+      "label": "an OAuth answer for any flow is accepted",
+      "file": "js/auth/google.js",
+      "find": "    && event.data.state === state;",
+      "replace": "    && true;",
+      "suite": "escrow"
+    },
+    {
+      "label": "any message type is taken for an OAuth answer",
+      "file": "js/auth/google.js",
+      "find": "    && event.data?.type === 'familyos-oauth'\n",
+      "replace": "",
+      "suite": "escrow"
+    },
+    {
+      "label": "the corrupt Drive key file is read as a key",
+      "file": "js/security/escrow.js",
+      "find": "    if (!body?.key) {",
+      "replace": "    if (false) {",
+      "suite": "escrow"
+    },
+    {
+      "label": "a role this application does not have is admitted by can()",
+      "file": "js/security/rbac.js",
+      "find": "  if (!actor || !isRole(actor.role)) return false;",
+      "replace": "  if (!actor) return false;",
+      "suite": "security"
+    },
+    {
+      "label": "a role this application does not have is given a read scope",
+      "file": "js/security/rbac.js",
+      "find": "  if (!actor || !isRole(actor.role)) return 'none';",
+      "replace": "  if (!actor) return 'none';",
+      "suite": "security"
+    },
+    {
+      "label": "a role that is not a string is coerced into one",
+      "file": "js/security/rbac.js",
+      "find": "  return typeof role === 'string' && Object.hasOwn(RANK, role);",
+      "replace": "  return Object.hasOwn(RANK, role);",
+      "suite": "security"
+    },
+    {
+      "label": "a role reached through the prototype counts as a role",
+      "file": "js/security/rbac.js",
+      "find": "  return typeof role === 'string' && Object.hasOwn(RANK, role);",
+      "replace": "  return typeof role === 'string' && RANK[role] !== undefined;",
+      "suite": "security"
+    },
+    {
+      "label": "a URL the parser refuses is passed through",
+      "file": "js/security/sanitize.js",
+      "find": "  } catch {\n    return '';\n  }\n}",
+      "replace": "  } catch {\n    return text;\n  }\n}",
+      "suite": "security"
+    },
+    {
+      "label": "a script URL is allowed",
+      "file": "js/security/sanitize.js",
+      "find": "    return SAFE_PROTOCOLS.has(url.protocol) ? text : '';",
+      "replace": "    return text;",
+      "suite": "security"
+    },
+    {
+      "label": "the constant-time compare stops distinguishing by length",
+      "file": "js/security/crypto.js",
+      "find": "  let diff = a.length ^ b.length;",
+      "replace": "  let diff = 0;",
+      "suite": "security"
+    },
+    {
+      "label": "any string is accepted as a PIN",
+      "file": "js/security/keyring.js",
+      "find": "  if (/^(\\d)\\1+$/.test(pin)) {",
+      "replace": "  if (false) {",
+      "suite": "security"
+    },
+    {
+      "label": "a sealed envelope whose wraps are not a list reaches the readers",
+      "file": "js/security/e2ee.js",
+      "find": "  return Array.isArray(keys)\n    ? keys.filter((one) => one && typeof one === 'object')\n    : [];",
+      "replace": "  return sealed?.keys ?? [];",
+      "suite": "chat"
+    },
+    {
+      "label": "a message sealed to nobody is allowed",
+      "file": "js/security/e2ee.js",
+      "find": "  if (!recipients?.length && !escrowPublicKey) {",
+      "replace": "  if (false) {",
+      "suite": "chat"
+    },
+    {
+      "label": "a message row that is not an envelope takes the screen down",
+      "file": "js/services/chat.js",
+      "find": "    if (!sealed || typeof sealed !== 'object' || Array.isArray(sealed)\n      || !Array.isArray(sealed.keys)) {",
+      "replace": "    if (false) {",
+      "suite": "chat"
+    },
+    {
+      "label": "a token Google itself rejected is admitted",
+      "file": "apps-script/Code.gs",
+      "find": "  if (response.getResponseCode() !== 200) {",
+      "replace": "  if (false) {",
+      "suite": "backend"
+    },
+    {
+      "label": "a token issued to another application is admitted",
+      "file": "apps-script/Code.gs",
+      "find": "  if (expected.length && expected.indexOf(String(info.aud || '')) === -1) {",
+      "replace": "  if (false) {",
+      "suite": "backend"
+    },
+    {
+      "label": "a request body that is not an object is dispatched",
+      "file": "apps-script/Code.gs",
+      "find": "  if (!request || typeof request !== 'object' || Array.isArray(request)) {",
+      "replace": "  if (false) {",
+      "suite": "fuzz"
+    },
+    {
+      "label": "a guesser spreading across addresses is not stopped",
+      "file": "apps-script/Otp.gs",
+      "find": "  if (all > OTP_PER_DEPLOYMENT * OTP_MAX_ATTEMPTS) {",
+      "replace": "  if (false) {",
+      "suite": "otp"
+    },
+    {
+      "label": "a code with no issue time is given a fresh life on every guess",
+      "file": "apps-script/Otp.gs",
+      "find": "    var left = stored.issuedAt ? (OTP_TTL_SECONDS - age) : 1;",
+      "replace": "    var left = stored.issuedAt ? (OTP_TTL_SECONDS - age) : OTP_TTL_SECONDS;",
+      "suite": "otp"
+    },
+    {
+      "label": "a wrong guess buys the code another ten minutes",
+      "file": "apps-script/Otp.gs",
+      "find": "    cache.put(key, JSON.stringify(stored), left);",
+      "replace": "    cache.put(key, JSON.stringify(stored), OTP_TTL_SECONDS);",
+      "suite": "otp"
+    },
+    {
+      "label": "the backend's role list is not consulted",
+      "file": "apps-script/Policy.gs",
+      "find": "  for (var i = 0; i < allowed.length; i++) if (allowed[i] === role) return true;\n  return false;",
+      "replace": "  return true;",
+      "suite": "policy"
+    },
+    {
+      "label": "an unbound account owns every record on the backend",
+      "file": "apps-script/Policy.gs",
+      "find": "  if (!personId) return false;",
+      "replace": "",
+      "suite": "policy"
+    },
+    {
+      "label": "a held or deleted row counts towards the totals",
+      "file": "js/data/integrity.js",
+      "find": "export const settled = (row) => Boolean(row) && !row.deletedAt && !row.heldAt;",
+      "replace": "export const settled = (row) => Boolean(row);",
+      "suite": "amounts"
+    },
+    {
+      "label": "the category breakdown counts rows the totals do not",
+      "file": "js/domain/finance.js",
+      "find": "    if (!settled(t) || t.kind !== kind) continue;",
+      "replace": "    if (t.kind !== kind) continue;",
+      "suite": "amounts"
+    },
+    {
+      "label": "the category breakdown mixes income into spending",
+      "file": "js/domain/finance.js",
+      "find": "    if (!settled(t) || t.kind !== kind) continue;",
+      "replace": "    if (!settled(t)) continue;",
+      "suite": "amounts"
+    },
+    {
+      "label": "a guest may read anything, not only the emergency card",
+      "file": "js/security/rbac.js",
+      "find": "    return action === 'read' && GUEST_READABLE.has(entityName);",
+      "replace": "    return action === 'read';",
+      "suite": "security"
+    },
+    {
+      "label": "an account matched to nobody is about every record",
+      "file": "js/security/rbac.js",
+      "find": "  if (!actor.personId) return false;\n",
+      "replace": "",
+      "suite": "security"
+    },
+    {
+      "label": "the unlock attempt limiter never locks out",
+      "file": "js/security/session.js",
+      "find": "    if (state.failures >= this.#max) {",
+      "replace": "    if (false) {",
+      "suite": "security"
+    },
+    {
+      "label": "an unlock key of any length is adopted",
+      "file": "js/security/keyring.js",
+      "find": "    if (!(rawKey?.length === 32)) {",
+      "replace": "    if (false) {",
+      "suite": "escrow"
+    },
+    {
+      "label": "a spreadsheet formula in a value is not defused",
+      "file": "js/security/sanitize.js",
+      "find": "  return /^[=+\\-@\\t\\r]/.test(text) ? `'${text}` : text;",
+      "replace": "  return text;",
+      "suite": "security"
+    },
+    {
+      "label": "an envelope from a newer version is opened anyway",
+      "file": "js/security/e2ee.js",
+      "find": "  if (Number(sealed?.v) !== SEALED_VERSION) {",
+      "replace": "  if (false) {",
+      "suite": "chat"
+    },
+    {
+      "label": "a record is read without asking whether the actor may",
+      "file": "js/data/repository.js",
+      "find": "    assertCan(this.#actor(), 'read', this.#name, raw);\n",
+      "replace": "",
+      "suite": "security"
+    },
+    {
+      "label": "a list is returned without filtering by role",
+      "file": "js/data/repository.js",
+      "find": "    const permitted = rowFilter(actor, this.#name);",
+      "replace": "    const permitted = () => true;",
+      "suite": "data"
+    },
+    {
+      "label": "a record is created without asking whether the actor may",
+      "file": "js/data/repository.js",
+      "find": "    assertCan(actor, 'write', this.#name);\n",
+      "replace": "",
+      "suite": "diagnostics"
+    },
+    {
+      "label": "an expired access token is admitted",
+      "file": "apps-script/Code.gs",
+      "find": "  if (info.expires_in && Number(info.expires_in) <= 0) {",
+      "replace": "  if (false) {",
+      "suite": "backend"
+    },
+    {
+      "label": "the one-time code is not compared against its hash",
+      "file": "apps-script/Otp.gs",
+      "find": "  if (stored.hash !== otpHash(address, code)) {",
+      "replace": "  if (false) {",
+      "suite": "otp"
+    },
+    {
+      "label": "guessing a code is never cut off",
+      "file": "apps-script/Otp.gs",
+      "find": "    if (stored.attempts >= OTP_MAX_ATTEMPTS) {",
+      "replace": "    if (false) {",
+      "suite": "otp"
+    },
+    {
+      "label": "one address may be guessed at without limit",
+      "file": "apps-script/Otp.gs",
+      "find": "  if (one > OTP_PER_ADDRESS * OTP_MAX_ATTEMPTS) {",
+      "replace": "  if (false) {",
+      "suite": "otp"
+    },
+    {
+      "label": "the backend admits a role it does not have",
+      "file": "apps-script/Policy.gs",
+      "find": "  if (roleRank(role) < 0) return false;\n",
+      "replace": "",
+      "suite": "policy"
+    },
+    {
+      "label": "an entity with no rule of its own is open on the backend",
+      "file": "apps-script/Policy.gs",
+      "find": "  if (!entry) return false;",
+      "replace": "  if (!entry) return true;",
+      "suite": "policy"
+    }
+  ]
+}
