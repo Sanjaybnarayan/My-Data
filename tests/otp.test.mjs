@@ -805,6 +805,91 @@ describe('how many codes may be checked, not just sent', () => {
    * an hour. The counters are separate, so a wrong guess must not consume a
    * send.
    */
+  /*
+   * The ceiling above it, which nothing held.
+   *
+   * `otpEnforceVerifyLimits` checks a deployment-wide counter *before* the
+   * per-address one, and says why in as many words: *"an attacker spreading
+   * guesses across addresses defeats a per-address cap entirely, and that is
+   * the shape the attack takes."* Removing it passed all 3,525 checks —
+   * every existing check guesses at one address, where the tighter per-address
+   * cap fires first and the global one is never reached.
+   *
+   * So this one spreads. Each address stays far under its own cap of
+   * twenty-five, and the deployment still has to stop answering.
+   */
+  test('and a guesser who spreads across addresses is stopped by the deployment', () => {
+    const api = withOtp();
+
+    let last = null;
+    let refusals = 0;
+    // 60 sends x 5 guesses = 300 verify attempts an hour for the whole
+    // deployment. Four guesses each across a hundred addresses is 400, and
+    // no single address comes near its own limit.
+    for (let a = 0; a < 100; a += 1) {
+      for (let i = 0; i < 4; i += 1) {
+        last = api.post('otp.verify', '', {
+          address: `person${a}@example.com`, code: '000000',
+        });
+        if (last.status === 429) refusals += 1;
+      }
+    }
+
+    assert.ok(refusals > 0, 'four hundred guesses across a hundred addresses were all answered');
+    assert.equal(last.status, 429);
+    assert.includes(String(last.error), 'this deployment has checked too many codes');
+  });
+
+  test('and no single address in that spray came near its own limit', () => {
+    // Without this the check above could pass on the per-address cap and say
+    // nothing about the deployment-wide one — which is exactly how the
+    // deployment-wide one came to be unheld.
+    const api = withOtp();
+    let last = null;
+    for (let i = 0; i < 4; i += 1) {
+      last = api.post('otp.verify', '', { address: 'nobody@example.com', code: '000000' });
+    }
+    assert.notEqual(last.status, 429, 'four guesses at one address was already too many');
+  });
+
+  /*
+   * A code sitting in the cache from before `issuedAt` existed — which is
+   * every unused code across the deployment that added it.
+   *
+   * `otpVerify` gives such a code **one second** on a wrong guess rather than
+   * a fresh ten minutes, and the comment on that line states the rule: *"the
+   * alternative is to trust an unknown age, and the safe direction for a
+   * secret with no known issue time is gone rather than kept."* Handing it
+   * `OTP_TTL_SECONDS` instead passed every check, so the rule was written
+   * down and not held — and a guesser could keep such a code alive for as
+   * long as they cared to guess at it.
+   *
+   * The entry is aged by hand rather than by key: the code is requested
+   * normally, then the stored record is rewritten without its `issuedAt`,
+   * which is exactly the shape an upgrade leaves behind.
+   */
+  test('a code from before issue times were recorded is not given a fresh life', () => {
+    const api = withOtp();
+    api.post('otp.request', '', { channel: 'email', address: 'asha@example.com' });
+
+    const entry = [...api.cache._map.entries()].find(([key]) => key.startsWith('otp_code_'));
+    assert.ok(entry, 'no stored code to age');
+    const [key, held] = entry;
+    const stored = JSON.parse(held.value);
+    delete stored.issuedAt;
+    api.cache.put(key, JSON.stringify(stored), 600);
+
+    // One wrong guess. The code must come back with about a second left, not
+    // ten minutes — so the right code fails a moment later.
+    api.post('otp.verify', '', { address: 'asha@example.com', code: '000000' });
+
+    const after = api.cache._map.get(key);
+    assert.ok(after, 'the code was removed outright, which is also safe');
+    const secondsLeft = Math.round((after.until - Date.now()) / 1000);
+    assert.ok(secondsLeft <= 2,
+      `a code with no issue time was kept for ${secondsLeft} seconds`);
+  });
+
   test('and checking a code never spends the budget for sending one', () => {
     const api = withOtp();
     api.post('otp.request', '', { channel: 'email', address: 'asha@example.com' });
