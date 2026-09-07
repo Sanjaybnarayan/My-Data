@@ -28,6 +28,31 @@ describe('dates in documents', () => {
     assert.equal(readDate('15/01/2026'), '2026-01-15');
   });
 
+  /*
+   * The range check knew about 31 and did not know about February.
+   *
+   * `iso()` accepted any day from 1 to 31 against any month, so the 31st of
+   * February passed — and then *rolled*: JavaScript reads `2026-02-31` as
+   * 3 March, and `2025-02-29`, in a year with no 29 February, as 1 March. A
+   * due date read off a policy lands in the wrong month wearing a plausible
+   * date, which is worse than one that fails outright because nothing
+   * downstream has any reason to complain.
+   *
+   * The month half was already right — 13 and 99 were refused. It was only
+   * ever the day that had no calendar behind it.
+   */
+  test('a day that does not exist on the calendar is refused', () => {
+    assert.equal(readDate('31/02/2026'), null, '31 February was accepted');
+    assert.equal(readDate('29/02/2025'), null, '2025 has no 29 February');
+    assert.equal(readDate('31/09/2026'), null, 'September has 30 days');
+  });
+
+  test('and a real leap day is still read', () => {
+    // Or the check is just a narrower way of being wrong.
+    assert.equal(readDate('29/02/2024'), '2024-02-29');
+    assert.equal(readDate('31/12/2026'), '2026-12-31');
+  });
+
   test('an ISO date is taken as written', () => {
     assert.equal(readDate('2026-01-15'), '2026-01-15');
   });

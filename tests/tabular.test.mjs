@@ -122,6 +122,44 @@ describe('reading a date a bank wrote', () => {
     assert.equal(readDate('Opening Balance'), null);
     assert.equal(readDate(''), null);
   });
+
+  /*
+   * A date that does not exist is not a date, and this was formatting alone.
+   *
+   * `31/02/2026` came out as `2026-02-31` with `problems: []` behind it, and
+   * the two ways that goes wrong are not equally visible. `2026-13-05` — an
+   * American-order statement — is at least obviously broken: `new Date` calls
+   * it Invalid and everything downstream stops. **The February ones roll.**
+   * JavaScript reads `2026-02-31` as 3 March and `2025-02-29`, in a year with
+   * no 29 February, as 1 March. A household reconciling a statement gets a
+   * transaction filed in the wrong month wearing a plausible date, and nothing
+   * anywhere says so.
+   *
+   * Found by fuzzing the parser, not by reading it. All 3444 checks passed
+   * with the bug in place.
+   */
+  test('a day that does not exist on the calendar is refused', () => {
+    assert.equal(readDate('31/02/2026'), null, '31 February was accepted');
+    assert.equal(readDate('29/02/2025'), null, '2025 has no 29 February');
+    assert.equal(readDate('31/04/2026'), null, 'April has 30 days');
+  });
+
+  test('and a month that does not exist is refused rather than formatted', () => {
+    // `05/13/2026` is a statement written the American way round. This
+    // application reads day-first on purpose, so there is no honest reading of
+    // it — and saying so beats inventing month thirteen.
+    assert.equal(readDate('05/13/2026'), null);
+    assert.equal(readDate('99/99/9999'), null);
+    assert.equal(readDate('00/00/0000'), null);
+  });
+
+  test('a leap day in a leap year is still a date', () => {
+    // The check must reject February 29 in 2025 and keep it in 2024, or it is
+    // just a narrower way of being wrong.
+    assert.equal(readDate('29/02/2024'), '2024-02-29');
+    assert.equal(readDate('31/01/2026'), '2026-01-31');
+    assert.equal(readDate('30/04/2026'), '2026-04-30');
+  });
 });
 
 /* ------------------------------------------------------- bank statements */
