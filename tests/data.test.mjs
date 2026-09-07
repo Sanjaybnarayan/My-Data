@@ -420,6 +420,48 @@ describe('search answers to whoever is asking', () => {
     assert.equal(hits[0].recordId, mine.id);
   });
 
+  test('a hit for an entity the schema no longer has is refused, not shown', async () => {
+    /*
+     * The `catch` in `#mayRead`, which nothing reached.
+     *
+     * `rowFilter` **throws** for an unknown entity — measured: `Error: unknown
+     * entity: …` — so an index row naming one cannot be filtered at all, and
+     * the branch decides between refusing it and showing it to anybody. It
+     * refuses, and that was held by nothing: replacing `return false` with
+     * `return true` passed all 87 checks in this suite.
+     *
+     * The row is reachable rather than hypothetical. The index outlives the
+     * schema — it is a store in the same database, not a derived view rebuilt
+     * on load — so a removed entity, or a row written by a newer client than
+     * the one now reading, leaves exactly this behind. And `indexEntry`
+     * denormalises `title` and `subtitle` into the row *"so a result can be
+     * shown without a second read"*, which is what makes showing it a
+     * disclosure rather than a cosmetic bug.
+     *
+     * Written straight into the store, because there is no supported way to
+     * index an entity the schema does not have — which is the point.
+     */
+    const { db } = await household();
+    await db.adapter.write('search', {
+      id: 'gone|r1',
+      entity: 'anEntityThatWasRemoved',
+      recordId: 'r1',
+      term: ['p', 'ps', 'psy', 'psyc', 'psych', 'psychi', 'psychia', 'psychiat',
+        'psychiatr', 'psychiatry'],
+      title: 'Psychiatry referral letter',
+      subtitle: 'from a schema that no longer exists',
+      module: 'health',
+      updatedAt: '2026-03-01T00:00:00.000Z',
+    });
+
+    // The owner, who may read everything the schema *does* have. Even they are
+    // refused this one: nothing can say whose record it is.
+    const hits = await db.search('psychiatry');
+    assert.not(hits.some((h) => h.entity === 'anEntityThatWasRemoved'),
+      'a row no rule can be applied to was shown anyway');
+    assert.length(hits, 2, 'the two real records stopped being found');
+  });
+
   test('the filter is the repository\'s, not a second copy of it', async () => {
     /*
      * An unbound account — no personId — is refused by `rowFilter` since the

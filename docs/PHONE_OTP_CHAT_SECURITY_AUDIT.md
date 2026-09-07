@@ -369,6 +369,23 @@ it.*
 | **Who it exposes** | `js/security/rbac.js` names this case in its own header: *"a shared family device does not expose one sibling's records to another."* This is that device. The search box is on the shell, reachable from every screen. |
 | **Status** | **Fixed.** Each hit is now checked with the same `rowFilter` the repository uses, against the record itself — not a second copy of the rule. |
 
+**One branch of that fix was held by nothing, and the ratchet found it.** When
+every finding in this document was entered into `tools/mutation.json` — rather
+than left as the hand-sweeps the pull requests had done once and discarded —
+twelve of thirteen came back caught. The survivor was `#mayRead`'s `catch`:
+`rowFilter` **throws** for an entity the schema no longer has, so an index row
+naming one cannot be filtered at all, and that branch decides between refusing
+it and showing it to anybody. Turning `return false` into `return true` passed
+all 87 checks in the suite.
+
+The row is reachable rather than hypothetical. The index is a store in the same
+database, not a view rebuilt on load, so it outlives the schema: a removed
+entity, or a row written by a newer client than the one now reading, leaves
+exactly this behind. And it is `indexEntry` denormalising `title` and
+`subtitle` into the row that makes showing it a disclosure rather than a
+cosmetic bug — the same sentence that made SEARCH-01 leak content and not only
+existence. Now checked, and in the catalogue.
+
 The index is over-fetched and trimmed rather than filtered after the caller's
 limit: `searchIndex` ranks over every record on the device, so a limit applied
 first lets twelve of somebody else's rows fill every slot and leaves the person

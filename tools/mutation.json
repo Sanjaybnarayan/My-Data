@@ -343,6 +343,97 @@
       "find": "      rejected.push({ recordId: '', reason: 'a change was not an object' });\n      continue;",
       "replace": "      throw fail('a change was not an object', 400);",
       "suite": "fuzz"
+    },
+    {
+      "label": "a search hit is shown without asking whether the actor may read it",
+      "file": "js/data/database.js",
+      "find": "      if (await this.#mayRead(hit)) out.push(hit);",
+      "replace": "      out.push(hit);",
+      "suite": "data"
+    },
+    {
+      "label": "the search index is filtered after the limit rather than over-fetched",
+      "file": "js/data/database.js",
+      "find": "limit: limit * 5 });",
+      "replace": "limit });",
+      "suite": "data"
+    },
+    {
+      "label": "a search hit no authorisation rule can be applied to is shown",
+      "file": "js/data/database.js",
+      "find": "      return false;\n    }\n    const record = await this.adapter.read",
+      "replace": "      return true;\n    }\n    const record = await this.adapter.read",
+      "suite": "data"
+    },
+    {
+      "label": "a sender the envelope disproves is reported as confirmed",
+      "file": "js/domain/attribution.js",
+      "find": "  if (matches.some((d) => String(d.person ?? '') === claimed && claimed !== '')) {\n    return { verdict: ATTRIBUTION.confirmed, claimed, proven: claimed };\n  }",
+      "replace": "  return { verdict: ATTRIBUTION.confirmed, claimed, proven: claimed };",
+      "suite": "attribution"
+    },
+    {
+      "label": "a message this device could not open still has a proven sender",
+      "file": "js/domain/attribution.js",
+      "find": "  if (!opened || !from) return",
+      "replace": "  if (!from) return",
+      "suite": "attribution"
+    },
+    {
+      "label": "a disputed attribution is not worth saying on a screen",
+      "file": "js/domain/attribution.js",
+      "find": "  return verdict === ATTRIBUTION.disputed;",
+      "replace": "  return false;",
+      "suite": "attribution"
+    },
+    {
+      "label": "the Google refresh token is stored in the clear",
+      "file": "js/auth/googlenative.js",
+      "find": "    await this.store.setMeta(REFRESH_KEY, await encryptText(key, String(value), REFRESH_AAD));",
+      "replace": "    await this.store.setMeta(REFRESH_KEY, String(value));",
+      "suite": "pkce"
+    },
+    {
+      "label": "a device that cannot seal the refresh token stores it anyway",
+      "file": "js/auth/googlenative.js",
+      "find": "    if (!key) return false;",
+      "replace": "    if (!key) { await this.store.setMeta(REFRESH_KEY, String(value)); return true; }",
+      "suite": "pkce"
+    },
+    {
+      "label": "the sealed refresh token is not bound to its own meta key",
+      "file": "js/auth/googlenative.js",
+      "find": "const REFRESH_AAD = `familyos:meta:${REFRESH_KEY}`;",
+      "replace": "const REFRESH_AAD = 'familyos:meta';",
+      "suite": "pkce"
+    },
+    {
+      "label": "Android auto-backup copies the household's data to Drive",
+      "file": "android/app/src/main/AndroidManifest.xml",
+      "find": "        android:allowBackup=\"false\"\n",
+      "replace": "",
+      "suite": "native"
+    },
+    {
+      "label": "cleartext traffic is permitted again",
+      "file": "android/app/src/main/AndroidManifest.xml",
+      "find": "android:usesCleartextTraffic=\"false\"",
+      "replace": "android:usesCleartextTraffic=\"true\"",
+      "suite": "native"
+    },
+    {
+      "label": "an emergency contact's number goes back into the clear",
+      "file": "js/data/schema.js",
+      "find": "    { key: 'phone', type: 'phone', required: true, encrypted: true }, // sealed ⇒ no list",
+      "replace": "    { key: 'phone', type: 'phone', required: true, list: true },",
+      "suite": "privacy"
+    },
+    {
+      "label": "a KYC record's held mobile is not sealed",
+      "file": "js/data/schema.js",
+      "find": "    { key: 'heldMobile', type: 'phone', label: 'Mobile', group: 'As they hold it', encrypted: true },",
+      "replace": "    { key: 'heldMobile', type: 'phone', label: 'Mobile', group: 'As they hold it' },",
+      "suite": "privacy"
     }
   ]
 }
