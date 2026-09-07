@@ -207,7 +207,7 @@ export class DocumentStore {
     if (reader === READER.OOXML) {
       const [{ readOoxml }, { inflate }] = await Promise.all([
         import('../data/office-read.js'),
-        import('../data/pdf-read.js'),
+        import('../data/inflate.js'),
       ]);
       return readOoxml(bytes, inflate);
     }

@@ -7,7 +7,7 @@
  *
  * - `domain/docxtemplate.js` has unzipped `.docx` files and lifted their text
  *   runs since Phase 3, to fill in report templates.
- * - `data/pdf-read.js` owns the browser's `DecompressionStream`, exported as
+ * - `data/inflate.js` owns the browser's `DecompressionStream`, exported as
  *   `inflate`, because a zip entry and a PDF stream are both deflate.
  *
  * Both were in the repository, exported and tested, while `canReadText` said
@@ -127,9 +127,10 @@ function sheetLines(parts) {
  * The text in a `.docx` or `.xlsx`.
  *
  * @param {Uint8Array} bytes
- * @param {(raw: Uint8Array) => Promise<Uint8Array|null>} inflate injected the
- *   same way `docxtemplate.js` takes it — this file should not decide where
- *   the browser's decompression comes from.
+ * @param {(raw: Uint8Array, limit?: number) => Promise<Uint8Array|null>} inflate
+ *   injected the same way `docxtemplate.js` takes it, so a caller can run this
+ *   with no decompressor and get the stored entries back. `unzip` holds a
+ *   budget across the archive and offers each entry what is left of it.
  * @returns {Promise<Array<{lines: string[]}>>} empty when there is nothing to read
  */
 export async function readOoxml(bytes, inflate) {

@@ -28,7 +28,7 @@ import { readTemplate, generate, generatedName } from '../domain/docxtemplate.js
 // A generated report is titled the way an uploaded one is — the rule lives in
 // one place now, and this call site was the one that used to keep the '.docx'.
 import { titleFromFileName } from '../domain/filing.js';
-import { inflate } from '../data/pdf-read.js';
+import { inflate } from '../data/inflate.js';
 import { ACTIONS } from '../data/audit.js';
 import { TRANSACTION_LIMIT } from '../services/service.js';
 import { documentStore } from './documents.js';
