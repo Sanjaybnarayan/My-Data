@@ -70,6 +70,63 @@ describe('who may reach the backup', () => {
     assert.ok(caller.isOwner);
   });
 
+  /*
+   * Four guards stand between a request and the household's sheet, and until
+   * now every one of them was interchangeable from here: the tests asserted
+   * that a bad token was refused and never which control refused it.
+   *
+   * That cost something measurable. Removing the response-code check —
+   * *"Google said no"* — passed all 3,525 checks, because the request was
+   * still refused a few lines later by the email check, which finds nothing
+   * to read in `{"error":"invalid_token"}`. Defence in depth, working, and
+   * hiding the loss of the guard in front of it.
+   *
+   * It is not only bookkeeping. Behind the response-code check, `JSON.parse`
+   * only ever sees a body Google meant as an answer. Without it a 502 from a
+   * proxy — an HTML page — reaches the parse, throws into the outer handler,
+   * and comes back as a **500 marked retryable**, which has a client's outbox
+   * resend a request that will never succeed. That is the bug `doPost` grew
+   * its `null`-body guard for, arriving by a different road.
+   *
+   * So each refusal is now checked by its reason.
+   */
+  test('a token Google itself rejects is refused as that, and not as something else', () => {
+    const api = start();
+    let error;
+    try { api.verifyToken('a-token-google-never-issued'); } catch (err) { error = err; }
+
+    assert.ok(error, 'a token Google rejected was admitted');
+    assert.equal(error.status, 401);
+    assert.includes(error.message, 'rejected by Google');
+  });
+
+  test('an expired token is refused as expired', () => {
+    const api = start();
+    let error;
+    try { api.verifyToken('expired-token'); } catch (err) { error = err; }
+
+    assert.equal(error.status, 401);
+    assert.includes(error.message, 'expired');
+  });
+
+  test('a token that names no account is refused as that', () => {
+    const api = start();
+    let error;
+    try { api.verifyToken('anonymous-token'); } catch (err) { error = err; }
+
+    assert.equal(error.status, 401);
+    assert.includes(error.message, 'does not say which account');
+  });
+
+  test('and no token at all is refused as no token', () => {
+    const api = start();
+    let error;
+    try { api.verifyToken(''); } catch (err) { error = err; }
+
+    assert.equal(error.status, 401);
+    assert.includes(error.message, 'no access token');
+  });
+
   test('an account nobody added is refused, with a reason worth reading', () => {
     const api = start();
     let error;
