@@ -1216,3 +1216,101 @@ describe('what protects the bytes that unlock a household', () => {
     assert.includes(await source(), 'BiometricManager.Authenticators.BIOMETRIC_STRONG');
   });
 });
+
+setSuite('what the APK compiles in');
+
+/**
+ * "No dependencies" is true of the PWA and false of the APK.
+ *
+ * The audit's acceptance criteria have carried *"Dependencies audited — PWA
+ * yes, Android build no"* as a ✗ since they were written, and phase 12 of the
+ * brief names scanning as one of its three gaps. Two of that phase's three
+ * gaps need a deployment nothing here can reach; this is the part of the third
+ * that does not.
+ */
+describe('every dependency is pinned, in both supply chains', () => {
+  test('nothing resolves a different artifact than it did last build', async () => {
+    const { problems } = await import('../tools/supply-chain.mjs');
+    assert.deep(problems(), [], 'a dependency is not pinned');
+  });
+
+  test('the Maven half is read from the app module and its variables', async () => {
+    /*
+     * A parser that matched nothing would make the check above pass on
+     * anything, which is the shape `tools/mutation.mjs` refuses to start
+     * against. `problems()` says so itself for the empty case; this pins that
+     * the real files do parse, and to what.
+     */
+    const { maven } = await import('../tools/supply-chain.mjs');
+    const found = maven();
+
+    assert.ok(found.length >= 4, `only ${found.length} Maven coordinates parsed`);
+    assert.ok(found.every((d) => d.version && /^\d/.test(d.version)),
+      found.map((d) => `${d.coordinate}=${d.version}`).join(' '));
+    assert.ok(found.some((d) => d.coordinate === 'com.google.mlkit:text-recognition'),
+      'the OCR engine is compiled in and should be listed');
+  });
+
+  test('a version Gradle would resolve at build time is refused', async () => {
+    // Driven rather than asserted about the tree as it stands: everything is
+    // pinned today, so the branch that reports one could not otherwise fail.
+    const { problems } = await import('../tools/supply-chain.mjs');
+    const dynamic = [{ coordinate: 'androidx.biometric:biometric', key: 'v', version: '1.1.+' }];
+    const npmFine = [{ name: '@capacitor/core', declared: '^8.5.0', locked: '8.5.0', integrity: true }];
+
+    const found = problems(dynamic, npmFine);
+    assert.length(found, 1, found.join('; '));
+    assert.ok(found[0].includes('resolves at build time'), found[0]);
+  });
+
+  test('and a runtime package the lock does not pin, or pins without integrity', async () => {
+    const { problems } = await import('../tools/supply-chain.mjs');
+    const maven = [{ coordinate: 'a:b', key: 'v', version: '1.0.0' }];
+
+    const unlocked = problems(maven, [{ name: 'x', declared: '^1', locked: null, integrity: false }]);
+    assert.length(unlocked, 1);
+    assert.ok(unlocked[0].includes('the lock does not pin'), unlocked[0]);
+
+    const noHash = problems(maven, [{ name: 'x', declared: '^1', locked: '1.0.0', integrity: false }]);
+    assert.length(noHash, 1);
+    assert.ok(noHash[0].includes('no integrity hash'), noHash[0]);
+  });
+
+  test('and a parse that found nothing is a failure, not a pass', async () => {
+    /*
+     * The guard that keeps this whole check from being vacuous. A regex that
+     * stopped matching — a Gradle reformat, a manifest key renamed — would
+     * otherwise leave `problems()` iterating an empty list and returning
+     * nothing wrong. `tools/mutation.mjs` refuses to start against a suite in
+     * that state; this is the same idea one level down, and the ratchet
+     * correctly called it unheld until it was driven.
+     */
+    const { problems } = await import('../tools/supply-chain.mjs');
+    const ok = { name: 'x', declared: '^1', locked: '1.0.0', integrity: true };
+
+    const noMaven = problems([], [ok]);
+    assert.length(noMaven, 1);
+    assert.ok(noMaven[0].includes('no Maven coordinates parsed'), noMaven[0]);
+
+    const noNpm = problems([{ coordinate: 'a:b', key: 'v', version: '1.0.0' }], []);
+    assert.length(noNpm, 1);
+    assert.ok(noNpm[0].includes('no runtime npm packages parsed'), noNpm[0]);
+  });
+
+  test('the lock pins what the manifest only declares', async () => {
+    /*
+     * `docs/THREAT_MODEL.md` T2.4 said the Android build had "no lockfile
+     * audit, no pinning beyond the caret". The first half is true — nothing
+     * ran `npm audit`, and CI passes `--no-audit` on install. The second was
+     * wrong, and this is what disproves it: the caret is what `package.json`
+     * declares, and the lock pins an exact version with an integrity hash,
+     * which is what `npm ci` installs.
+     */
+    const { npm } = await import('../tools/supply-chain.mjs');
+    for (const dep of npm()) {
+      assert.ok(dep.declared.startsWith('^'), `${dep.name} no longer declares a range`);
+      assert.ok(/^\d+\.\d+\.\d+/.test(dep.locked ?? ''), `${dep.name} is locked to ${dep.locked}`);
+      assert.ok(dep.integrity, `${dep.name} has no integrity hash`);
+    }
+  });
+});
