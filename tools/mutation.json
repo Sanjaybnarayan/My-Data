@@ -448,6 +448,27 @@
       "find": "  const undated = (entries ?? []).filter((entry) => entry && !isDay(entry.date)).length;",
       "replace": "  const undated = (entries ?? []).filter((entry) => entry && !entry.date).length;",
       "suite": "ical"
+    },
+    {
+      "label": "the contract stops comparing payload fields at all",
+      "file": "tools/api-contract.mjs",
+      "find": "    ...fieldDrift(backendReads, payloads),\n",
+      "replace": "",
+      "suite": "apicontract"
+    },
+    {
+      "label": "a payload the tool cannot read is scored as sending nothing",
+      "file": "tools/api-contract.mjs",
+      "find": "    if (client.unreadable.has(action)) continue;",
+      "replace": "    if (false) continue;",
+      "suite": "apicontract"
+    },
+    {
+      "label": "a backend case following one field is read as following the whole payload",
+      "file": "tools/api-contract.mjs",
+      "find": "    for (const call of body.matchAll(/([a-zA-Z_$][A-Za-z0-9_$]*)\\(\\s*payload\\s*[,)]/g)) {",
+      "replace": "    for (const call of body.matchAll(/([a-zA-Z_$][A-Za-z0-9_$]*)\\(\\s*payload\\b/g)) {",
+      "suite": "apicontract"
     }
   ]
 }

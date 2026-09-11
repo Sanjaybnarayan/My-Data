@@ -36,6 +36,36 @@ Every request is one POST to the deployment's `/exec`:
 | `verify` | `js/sync/transport.js` |
 | `versions` | `js/sync/transport.js` |
 
+## Payload fields, per action
+
+Derived from both sides and checked in both directions: the keys of the object
+literal at each `.call()` site, against the `payload.x` reads in the
+`dispatch` case and in whatever function that case hands the payload to. A
+field present on one side and missing from the other fails the run.
+
+| Action | Fields |
+|---|---|
+| `audit` | `entries` |
+| `bootstrap` | `manifest` |
+| `devices` | `deviceId` `email` `label` `op` |
+| `download` | `fileId` |
+| `folders` | — |
+| `mail` | `limit` `query` |
+| `members` | `emails` `ownerPersonId` |
+| `ping` | — |
+| `pull` | `cursors` `limit` |
+| `push` | `changes` |
+| `schema` | `manifest` |
+| `signin` | `email` `key` `name` `op` `personId` `phone` `wrapped` |
+| `trash` | `fileId` |
+| `upload` | `category` `content` `documentId` `mimeType` `name` `ocr` `person` |
+| `verify` | — |
+| `versions` | `fileId` |
+
+**Not compared for `members` and `upload`.** At least one
+call site builds the payload from a variable rather than a literal, so this
+cannot read the field names — and says so rather than assuming there are none.
+
 ## What this does not tell you
 
 **Whether the deployed backend is this one.** `apps-script/` is source that
@@ -43,6 +73,7 @@ somebody pastes into a script editor; nothing in this repository can reach the
 deployment to ask what version it is running. `ping` and `verify` exist so the
 application can ask at runtime.
 
-**Anything about payloads.** The action name is the part that fails loudly and
-immediately. A payload that has grown a field fails somewhere further in, and
-this check does not pretend to cover it.
+**Names are not shapes.** That a field is called `changes` on both sides says
+nothing about it being a list, or its elements being objects — which is exactly
+what LIST-01 turned out to be, one level in from here. Types and required-ness
+are not derived, and this does not pretend to.
