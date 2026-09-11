@@ -29,6 +29,7 @@
 
 import { Outbox } from './outbox.js';
 import { merge, conflictRecord } from './conflict.js';
+import { decryptRecord, encryptRecord } from '../security/fieldcrypto.js';
 import { entities, sheetManifest } from '../data/schema.js';
 import { indexEntry, indexKey } from '../data/search.js';
 import { schemaFingerprint } from '../data/migrations.js';
@@ -49,6 +50,24 @@ const CURSOR_KEY = 'sync.cursors';
 const HELD_KEY = 'sync.held';
 const FINGERPRINT_KEY = 'sync.schemaFingerprint';
 const LAST_RUN_KEY = 'sync.lastRun';
+
+/**
+ * The cursors to persist: what the pull reached, except for stores that left a
+ * row unsettled, which keep the cursor they had before it.
+ *
+ * A store with no earlier cursor has the key removed rather than set to
+ * `undefined`, so the next run reads it as never-pulled instead of as a
+ * cursor that happens to be empty.
+ */
+function keeping(cursors, rewind) {
+  if (!rewind.size) return cursors;
+  const out = { ...cursors };
+  for (const [store, before] of rewind) {
+    if (before === undefined) delete out[store];
+    else out[store] = before;
+  }
+  return out;
+}
 
 export const SYNC_STATE = Object.freeze({
   idle: 'idle',
@@ -268,6 +287,17 @@ export class SyncEngine {
     /** What this pull applied, for the integrity check once it has finished. */
     const applied = new Map();
 
+    /*
+     * Stores holding a row `#resolve` could not settle, and the cursor each
+     * had before it was read.
+     *
+     * A deferral is only worth anything if the row comes back. The cursor is
+     * what decides that, so a store that deferred keeps its old one in what is
+     * written to meta — while the in-flight `cursors` advances as normal, or
+     * paging this same run would never terminate.
+     */
+    const rewind = new Map();
+
     for (;;) {
       const response = await this.#transport.pull(cursors, this.#batchSize);
       const byStore = response.records ?? {};
@@ -275,7 +305,9 @@ export class SyncEngine {
       for (const [store, rows] of Object.entries(byStore)) {
         if (!entities[store]) continue; // a tab this client does not know about
         for (const remote of rows) {
+          const before = cursors[store];
           const outcome = await this.#resolve(store, remote);
+          if (outcome.outcome === 'deferred' && !rewind.has(store)) rewind.set(store, before);
           if (outcome.conflicted.length) conflicts++;
           pulled++;
           if (!remote.deletedAt) {
@@ -288,7 +320,7 @@ export class SyncEngine {
       Object.assign(cursors, response.cursors ?? {});
       // Written after the batch is applied, so an interruption re-fetches
       // these rows rather than losing them.
-      await this.#db.setMeta(CURSOR_KEY, cursors);
+      await this.#db.setMeta(CURSOR_KEY, keeping(cursors, rewind));
 
       bus.emit(TOPIC.syncProgress, { phase: 'pull', pulled });
       if (!response.more) break;
@@ -425,14 +457,80 @@ export class SyncEngine {
     }
 
     const shadow = await adapter.read('shadow', `${store}:${remote.id}`);
-    const outcome = merge({ base: shadow?.record ?? null, local, remote });
+
+    /*
+     * The merge runs on **plaintext**, and until now it did not.
+     *
+     * `local` is the sealed row off the adapter, `remote` arrives sealed from
+     * the server, and the shadow keeps the sealed original — so a field-by-
+     * field merge was comparing ciphertexts. `encryptRecord` gives every
+     * encrypted field a fresh IV on every save, so those ciphertexts differ
+     * whenever either side has saved, whatever the plaintext did. Every
+     * encrypted field therefore looked "changed on both sides, differently"
+     * and went to arbitration, which takes one side's value whole.
+     *
+     * Measured: device A edits a diagnosis, device B edits only the title, and
+     * A's edit is discarded — the field-by-field merge collapsing into
+     * whole-record arbitration for exactly the forty-five most sensitive
+     * fields in the schema.
+     *
+     * Locked, this defers rather than falling back to comparing sealed rows:
+     * the fallback is the bug, and taking it silently would be worse than
+     * waiting. Nothing is lost — the local row stays `pending`, and `pullOnce`
+     * holds that store's cursor where it was, so the same row is offered again
+     * on the next sync and settled once a keyring is open.
+     */
+    if (!this.#db.keyring.isUnlocked) {
+      return { conflicted: [], outcome: 'deferred', why: 'locked' };
+    }
+
+    const key = this.#db.keyring.key;
+    const open = async (row) => (row ? decryptRecord(store, row, key) : null);
+    const base = await open(shadow?.record ?? null);
+    const localClear = await open(local);
+    const remoteClear = await open(remote);
+
+    /*
+     * A field that would not open is not an edit, and must not merge as one.
+     *
+     * `decryptRecord` blanks what it cannot decrypt, and a blank compares as a
+     * deliberate clearing — the same fault `stageUpdate` had one layer up,
+     * where the fix was to never let an unreadable field lose its value.
+     *
+     * So each side's unreadable fields are filled from the other side first,
+     * which makes that side read as unchanged there and lets the readable
+     * value through untouched. Where neither side can be read there is nothing
+     * to compare, and this device's ciphertext is carried across sealed on the
+     * same rule as that fix: never destroy a ciphertext you cannot read,
+     * because a key may yet arrive that opens it.
+     *
+     * `base` is left exactly as it decrypted. An unreadable base means the
+     * last synced value is genuinely unknown, so both sides read as changed
+     * and the field is reported as conflicted rather than guessed at — what
+     * this module does everywhere else it has no base to work from.
+     */
+    const blind = new Set();
+    for (const [side, other] of [[localClear, remoteClear], [remoteClear, localClear]]) {
+      for (const field of side._undecryptable ?? []) {
+        if ((other._undecryptable ?? []).includes(field)) blind.add(field);
+        else side[field] = other[field];
+      }
+    }
+
+    const outcome = merge({ base, local: localClear, remote: remoteClear });
 
     if (outcome.outcome === 'converged') {
       await this.#db.repo(store).applyRemote(remote);
       return { conflicted: [], outcome: 'converged' };
     }
 
-    const record = { ...outcome.record, syncState: 'pending' };
+    // Sealed again before anything is written. `_undecryptable` is what one
+    // read found, not part of the record, and never belongs in a stored row.
+    const sealed = await encryptRecord(store, outcome.record, key);
+    delete sealed._undecryptable;
+    for (const field of blind) sealed[field] = local[field];
+
+    const record = { ...sealed, syncState: 'pending' };
     const note = outcome.conflicted.length
       ? conflictRecord({
         store, local, remote, merged: record,
