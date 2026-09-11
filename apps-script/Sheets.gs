@@ -62,6 +62,20 @@ function isRecordLike(one) {
   return Boolean(one) && typeof one === 'object' && !Array.isArray(one);
 }
 
+/*
+ * A fourth caller, outside this file.
+ *
+ * `manageMembers` in `Code.gs` walks `payload.emails` by index, and LIST-01
+ * never reached it: that finding fixed the three lists here. At deploy time
+ * every `.gs` shares one global scope, so it calls this one rather than
+ * growing a second copy — and a second copy of this guard is exactly how the
+ * household's access list came to be emptied by a request answering `ok: true`.
+ *
+ * It stays here rather than moving beside `fail`, because `tests/policy.test.mjs`
+ * loads `['Policy.gs', 'Sheets.gs']` without `Code.gs` — a subset the
+ * deployment never has, but one that would break on a helper that moved.
+ */
+
 /* ------------------------------------------------------------- migration */
 
 /**

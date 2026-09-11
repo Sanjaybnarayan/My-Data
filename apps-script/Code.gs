@@ -731,10 +731,15 @@ function manageMembers(payload, context) {
       throw fail('only the account that deployed this backend can change who may use it', 403);
     }
 
+    // Asked rather than assumed — see `requestList` and the fourth list it
+    // names. A string walked by index here emptied the household's own
+    // access list and answered `ok: true`.
+    var wanted = requestList(payload.emails, 'the list of accounts');
+
     var clean = [];
     var seen = {};
-    for (var i = 0; i < payload.emails.length && i < 50; i++) {
-      var given = payload.emails[i];
+    for (var i = 0; i < wanted.length && i < 50; i++) {
+      var given = wanted[i];
       var email = String((given && given.email) || given || '').trim().toLowerCase();
       // An unnamed or unknown role is `guest`, never the most privileged one.
       // A typo in a role should narrow what somebody may do, not widen it.
