@@ -34,6 +34,9 @@ const decoder = new TextDecoder();
 export const ENVELOPE_PREFIX = 'enc:v1:';
 const IV_BYTES = 12;   // 96 bits, the size GCM is defined for
 const SALT_BYTES = 16;
+/** A 12-byte IV is 16 base64 characters, and 12 % 3 === 0 so none of them is padding. */
+const IV_BASE64_LENGTH = Math.ceil(IV_BYTES / 3) * 4;
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const KEY_BITS = 256;
 
 /* ------------------------------------------------------------- encodings */
@@ -161,8 +164,51 @@ export async function decryptText(key, envelope, aad = '') {
   return decoder.decode(plain);
 }
 
+/**
+ * Whether this is an envelope **this application produced** — not merely a
+ * string that begins like one.
+ *
+ * ## What a prefix test cost
+ *
+ * This was `value.startsWith(ENVELOPE_PREFIX)` and nothing else, and it is
+ * asked on both sides of the boundary. `fieldcrypto.js` skips a value that
+ * "is encrypted" on the way in, so as not to double-wrap, and tries to decrypt
+ * one on the way out. Seven characters decided both.
+ *
+ * A household typing `enc:v1:AAAA:BBBB` into any free-text encrypted field —
+ * a diagnosis, a nominee, a vault secret — got this, measured:
+ *
+ *     stored   "enc:v1:AAAA:BBBB"    ← verbatim, in the clear
+ *     read     ""                     ← decryption failed; blanked
+ *
+ * Both halves are wrong and they compound. A field the schema marks
+ * `encrypted` was persisted unencrypted, so it syncs to the spreadsheet in the
+ * clear — the one thing encrypting it was for. And the read replaced it with
+ * the empty string, so the next update merged that blank over the row and the
+ * text was gone for good, with `_undecryptable` the only trace.
+ *
+ * ## What it checks now
+ *
+ * The shape it claims: `enc:v1:` then exactly two base64 parts, the first
+ * being an IV of exactly `IV_BYTES`. Twelve bytes is sixteen base64 characters
+ * with no padding, which `AAAA` is not, so the value above is plaintext again
+ * — encrypted on the way in and returned intact on the way out.
+ *
+ * **The residual, stated rather than implied.** A crafted string with a
+ * well-formed sixteen-character IV still passes this, because nothing short of
+ * attempting decryption can tell it from a real envelope, and the encrypt side
+ * cannot afford that. Such a value is still stored in the clear and still
+ * blanks on read. It is not something anybody types by accident, and the
+ * common case — any prefix-shaped text at all — is closed.
+ */
 export function isEncrypted(value) {
-  return typeof value === 'string' && value.startsWith(ENVELOPE_PREFIX);
+  if (typeof value !== 'string' || !value.startsWith(ENVELOPE_PREFIX)) return false;
+
+  const parts = value.slice(ENVELOPE_PREFIX.length).split(':');
+  if (parts.length !== 2) return false;
+
+  const [iv, body] = parts;
+  return iv.length === IV_BASE64_LENGTH && BASE64.test(iv) && body.length > 0 && BASE64.test(body);
 }
 
 /** Binary payloads — document blobs held on the device before upload. */

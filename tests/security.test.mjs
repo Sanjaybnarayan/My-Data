@@ -48,6 +48,116 @@ describe('crypto', () => {
     assert.notEqual(a, b, 'a repeated nonce would leak that two fields are equal');
   });
 
+  /*
+   * A prefix is not an envelope, and `isEncrypted` is asked on both sides.
+   *
+   * `fieldcrypto.js` skips a value that "is encrypted" on the way in so as not
+   * to double-wrap, and tries to decrypt one on the way out. When seven
+   * characters decided both, a household typing `enc:v1:AAAA:BBBB` into a free
+   * text encrypted field — a diagnosis, a nominee, a vault secret — had it
+   * stored **verbatim in the clear** and read back as **the empty string**.
+   *
+   * Both halves wrong, and they compound: the field the schema marks encrypted
+   * syncs to the spreadsheet unencrypted, and the blank the read produced is
+   * merged over the row by the next update, so the text is gone for good.
+   */
+  describe('a value that only looks like an envelope', () => {
+    const SHAPED = 'enc:v1:AAAA:BBBB';
+
+    test('is not mistaken for one', () => {
+      assert.not(isEncrypted(SHAPED), 'a four-character IV passed as a twelve-byte one');
+      assert.not(isEncrypted('enc:v1:'), 'the bare prefix passed');
+      assert.not(isEncrypted('enc:v1:AAAAAAAAAAAAAAAA'), 'an envelope with no body passed');
+      assert.not(isEncrypted('enc:v1:AAAAAAAAAAAAAAAA:AA:AA'), 'three parts passed as two');
+      assert.not(isEncrypted('enc:v1:................:AAAA'), 'a non-base64 IV passed');
+    });
+
+    test('and what this application really produces still is', async () => {
+      // The half that matters more. A check tightened until it rejects
+      // everything would satisfy the test above and take the feature with it.
+      const key = await generateDataKey();
+      for (const text of ['', 'x', 'a longer secret with ₹ and a newline\n', SHAPED]) {
+        assert.ok(isEncrypted(await encryptText(key, text, 'ctx')),
+          `a real envelope for ${JSON.stringify(text)} was not recognised`);
+      }
+    });
+
+    test('so it is sealed on the way in and returned intact on the way out', async () => {
+      const db = await makeDb();
+      const person = await makePerson(db);
+      const record = await db.repo('healthRecord').create({
+        person: person.id, kind: 'diagnosis', title: 'Shaped', diagnosis: SHAPED,
+      });
+
+      const raw = await db.adapter.read('healthRecord', record.id);
+      assert.notEqual(raw.diagnosis, SHAPED,
+        'a field the schema marks encrypted was stored in the clear');
+      assert.ok(isEncrypted(raw.diagnosis), 'it was not sealed at all');
+
+      const back = await db.repo('healthRecord').get(record.id);
+      assert.equal(back.diagnosis, SHAPED, 'what the household typed did not come back');
+      assert.not(back._undecryptable, 'it was reported as damaged');
+    });
+  });
+
+  /*
+   * A field this device cannot open is not a field the household emptied.
+   *
+   * `decryptRecord` blanks what it cannot decrypt and names it in
+   * `_undecryptable` — the right call on the read path, and its own comment
+   * says why. The write path then carried that blank back to disk: `current`
+   * holds `''`, the merge holds `''`, and the row was sealed over the
+   * ciphertext. Renaming a title destroyed a diagnosis nobody had seen, and no
+   * key recovers it afterwards.
+   *
+   * It needs no crafted input — a restore with the wrong phrase, a rotated
+   * key, or a row from a device holding another one all look like this.
+   */
+  describe('a field that would not open', () => {
+    /** What a row sealed under some other key looks like from here. */
+    const FOREIGN = `enc:v1:${'A'.repeat(16)}:${'B'.repeat(44)}`;
+
+    const damaged = async () => {
+      const db = await makeDb();
+      const person = await makePerson(db);
+      const rec = await db.repo('healthRecord').create({
+        person: person.id, kind: 'diagnosis', title: 'Real', diagnosis: 'a genuine diagnosis',
+      });
+      const raw = await db.adapter.read('healthRecord', rec.id);
+      await db.adapter.write('healthRecord', { ...raw, diagnosis: FOREIGN });
+      return { db, id: rec.id };
+    };
+
+    test('reads as blank and says so, which is the read path working', async () => {
+      const { db, id } = await damaged();
+      const read = await db.repo('healthRecord').get(id);
+
+      assert.equal(read.diagnosis, '');
+      assert.deep(read._undecryptable, ['diagnosis']);
+    });
+
+    test('but survives an edit to another field on the same record', async () => {
+      const { db, id } = await damaged();
+      await db.repo('healthRecord').update(id, { title: 'Renamed' });
+
+      const after = await db.adapter.read('healthRecord', id);
+      assert.equal(after.diagnosis, FOREIGN,
+        'the blank the reader produced was sealed over the ciphertext');
+      assert.equal(after.title, 'Renamed', 'the edit the household asked for did not apply');
+    });
+
+    test('and is still overwritable when the household asks for that', async () => {
+      // The other half. A guard that refused every write to the field would
+      // satisfy the check above and leave the household unable to repair it.
+      const { db, id } = await damaged();
+      await db.repo('healthRecord').update(id, { diagnosis: 'typed afresh' });
+
+      const after = await db.repo('healthRecord').get(id);
+      assert.equal(after.diagnosis, 'typed afresh');
+      assert.not(after._undecryptable, 'the repaired field is still reported as damaged');
+    });
+  });
+
   test('the wrong context will not decrypt', async () => {
     const key = await generateDataKey();
     const sealed = await encryptText(key, 'secret', 'person:1:pan');
