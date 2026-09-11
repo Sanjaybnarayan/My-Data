@@ -122,7 +122,7 @@ const RULES = [
   },
   {
     id: 'screens-read-through-the-repository',
-    only: ['js/modules/', 'js/ui/', 'js/services/'],
+    only: ['js/modules/', 'js/ui/', 'js/services/', 'js/app.js'],
     pattern: /\bdb\s*\??\s*\.\s*adapter\b/,
     why: '`js/services/service.js` states the rule in its own words — "a '
       + 'service reads through `db.repo(...)` and never through `db.adapter`" '
@@ -152,6 +152,15 @@ const RULES = [
         + 'row this device already holds, and the screen that shows them is '
         + 'the restore screen; `destroy()` empties the database rather than '
         + 'reading it.',
+      'js/app.js':
+        'The shell, which mounts the screens and is the same layer as far as '
+        + 'this rule is concerned. Neither call reads a row: `adapter.persist()` '
+        + 'asks the browser not to evict this origin, which is a question about '
+        + 'the device rather than about the household, and the other records a '
+        + 'diagnostic about a share that never arrived. It was out of scope '
+        + 'until `js/data/database.js` was read and found claiming that nothing '
+        + 'above the data layer holds an adapter, which was two calls short of '
+        + 'true.',
     },
   },
 ];

@@ -3,8 +3,18 @@
  *
  * Owns the adapter, the keyring, the current actor and the outbox sequence,
  * and hands out one repository per entity. Everything above the data layer
- * holds a `Database`, never an adapter, so no module can reach past the
- * permission and encryption checks by accident.
+ * reads its rows through a repository — that is where `rowFilter` is applied
+ * and where records are decrypted — so no module can reach past the permission
+ * and encryption checks by accident.
+ *
+ * `adapter` is reachable from here, and a handful of callers above this layer
+ * do reach it: the system stores that have no per-row ACL at all (the outbox,
+ * the conflicts, the diagnostics log) and one question about the device rather
+ * than the household. Every one of them is named, with its reason, by
+ * `screens-read-through-the-repository` in `tools/lint.mjs`, and anything not
+ * on that list fails the check. This paragraph used to say nothing above the
+ * data layer holds an adapter, which was a stronger claim than the rule made
+ * and two calls short of true — `js/app.js` was outside its scope.
  */
 
 import { openDatabase } from './migrations.js';
