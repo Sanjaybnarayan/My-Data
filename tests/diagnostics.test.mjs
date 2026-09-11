@@ -80,6 +80,86 @@ describe('what an event holds', () => {
     assert.not(/50000/.test(e.message), e.message);
   });
 
+  /*
+   * The half of the redaction story the other tests do not tell.
+   *
+   * `message` is cleaned and three fields are not, because cleaning them
+   * would destroy what they are for: `redact` turns any run of three digits
+   * into a marker, so an `http-500` and an `http-404` would be filed under
+   * one heading and the summary would stop separating a backend that is down
+   * from one that refused. What keeps those three safe is not being cleaned
+   * but being **labels** — and until this, nothing said so anywhere but a
+   * comment.
+   */
+  describe('the three fields that are not redacted', () => {
+    const shapes = [
+      'shareIntake', 'repository.update', 'sync.pull', 'drive.upload',
+      'http-501', 'transport', 'QuotaExceededError', 'not_found', 'vaultItem',
+    ];
+
+    test('every label this codebase writes passes through untouched', () => {
+      for (const shape of shapes) {
+        const e = event({ kind: KIND.error, where: shape, code: shape, entity: shape });
+        assert.equal(e.where, shape, `${shape} was not kept as written`);
+        assert.equal(e.code, shape);
+        assert.equal(e.entity, shape);
+      }
+    });
+
+    test('a status code keeps its digits, or the summary stops grouping', () => {
+      // The reason these are not simply run through `redact`, stated as a
+      // check: `\d{3,}` would make every failed request read `http-«number»`.
+      assert.equal(event({ kind: KIND.error, code: 'http-404' }).code, 'http-404');
+      assert.not(redact('http-404') === 'http-404', 'redact would have flattened it');
+    });
+
+    const data = [
+      'asha@example.com', 'Asha Narayan', '123412341234', '₹1,20,000',
+      'could not write the row', '"a quoted value"', '/etc/passwd',
+    ];
+
+    test('and nothing shaped like something out of a record does', () => {
+      for (const value of data) {
+        const e = event({ kind: KIND.error, where: value, code: value, entity: value });
+        assert.equal(e.where, '«unlabelled»', `${value} reached the log as a label`);
+        assert.equal(e.code, '«unlabelled»');
+        assert.equal(e.entity, '«unlabelled»');
+      }
+    });
+
+    test('a record id keeps its type and loses which record', () => {
+      // The one thing shaped like a label that is still a pointer at a person.
+      // `sync.pull` avoided writing one by hand and said so in a comment; this
+      // is that comment as a guard.
+      const e = event({ kind: KIND.error, code: 'per_01JAKPQ2', where: 'repository.per_01JAKPQ2' });
+      assert.equal(e.code, 'per_«id»');
+      assert.equal(e.where, 'repository.per_«id»', 'an id inside a longer label too');
+    });
+
+    test('but a code that merely looks like one survives', () => {
+      // The collision `redact` accepts in a message is not accepted here: a
+      // code is the whole of what this field carries, so `not_found` losing
+      // its second half would cost the grouping these fields exist for.
+      for (const code of ['not_found', 'acc_gone', 'rate_limited']) {
+        assert.equal(event({ kind: KIND.error, code }).code, code);
+      }
+    });
+
+    test('a label is replaced whole rather than repaired', () => {
+      // Half of a value is still a value. `Asha Narayan` must not become
+      // `Asha`, which would read as a diagnosable label and be a name.
+      const e = event({ kind: KIND.error, where: 'Asha Narayan' });
+      assert.not(/Asha/.test(e.where), e.where);
+    });
+
+    test('an absent one stays absent rather than becoming a marker', () => {
+      const e = event({ kind: KIND.error });
+      assert.equal(e.where, '');
+      assert.equal(e.code, '');
+      assert.equal(e.entity, '');
+    });
+  });
+
   test('two events in the same millisecond still have an order', () => {
     const at = '2026-08-22T10:00:00.000Z';
     const a = event({ kind: KIND.error, at });

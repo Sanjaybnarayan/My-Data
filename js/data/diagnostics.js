@@ -160,11 +160,56 @@ export function redact(text) {
 /* ------------------------------------------------------------------ events */
 
 /**
+ * What `where`, `code` and `entity` are allowed to look like.
+ *
+ * Those three are **not** redacted, and must not be: `redact` turns any run
+ * of three digits into `«number»`, so running it over `code` would file every
+ * `http-500`, `http-404` and `http-503` under one heading and take grouping —
+ * the entire point of these two fields — away. The comment on the digit rule
+ * says as much, and trades readability in the message for exactly that.
+ *
+ * So they are held to a shape instead. A label is what this codebase writes:
+ * `repository.update`, `sync.pull`, `drive.upload`, `http-501`, `transport`,
+ * `QuotaExceededError`, a schema entity name. It starts with a letter and
+ * carries no spaces, quotes, `@`, slashes or padding characters, which is what
+ * an address, a name, a sentence, a token or an amount all need.
+ *
+ * This is a **structural** guard, not a cleaning one. Nothing is rewritten:
+ * a value of the right shape passes through untouched, and one of the wrong
+ * shape is replaced whole, because a label that is not a label is not partly
+ * salvageable — it is something that came out of a record.
+ */
+const LABEL = /^[A-Za-z][A-Za-z0-9]*(?:[.\-_:][A-Za-z0-9]+)*$/;
+
+/**
+ * The one thing shaped like a label that is still a pointer at somebody: a
+ * record id. `per_01JAKPQ2` passes `LABEL`, and `sync.pull` already had to
+ * avoid writing one by hand — its comment says why, and a comment is not a
+ * guard.
+ *
+ * The type is kept and the id is dropped, the same trade `redact` makes for
+ * messages: `per_` is a fact about the shape of the problem, the rest is a
+ * person. A digit is what separates an id from a code, so `not_found` and
+ * `acc_gone` survive where `per_01JAKPQ2` does not — the collision `redact`
+ * accepts knowingly in a message is not accepted here, because here the code
+ * is the whole of what the field carries.
+ */
+const ID_IN_LABEL = /\b([a-z]{2,6})_[A-Za-z0-9]*\d[A-Za-z0-9]*\b/g;
+
+function label(value, max) {
+  const text = String(value ?? '').slice(0, max);
+  if (!text) return '';
+  if (!LABEL.test(text)) return '«unlabelled»';
+  return text.replace(ID_IN_LABEL, '$1_«id»');
+}
+
+/**
  * One thing that went wrong, in the shape it is stored.
  *
- * `where` and `code` are the diagnosable parts and are **not** redacted:
- * they are written by this codebase, not derived from anybody's data. Every
- * free-text field is.
+ * `where`, `code` and `entity` are the diagnosable parts and are not
+ * redacted — they are labels this codebase writes, and `LABEL` above is what
+ * keeps that true rather than a comment saying it is. Every free-text field
+ * is redacted.
  */
 export function event({
   kind, where = '', code = '', message = '', entity = '', at = new Date().toISOString(),
@@ -175,9 +220,9 @@ export function event({
     id: `${at}-${Math.random().toString(36).slice(2, 8)}`,
     at,
     kind,
-    where: String(where).slice(0, 60),
-    code: String(code).slice(0, 60),
-    entity: String(entity).slice(0, 40),
+    where: label(where, 60),
+    code: label(code, 60),
+    entity: label(entity, 40),
     message: redact(message),
   };
 }
