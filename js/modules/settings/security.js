@@ -135,11 +135,33 @@ async function turnOff(db, repaint) {
 
   try {
     const { escrow } = await connectGoogleUnlock();
-    await escrow.drop();
-    toast('The key file is gone from Drive.', { kind: 'success' });
+    const { text, kind } = keyDropMessage(await escrow.drop());
+    toast(text, { kind });
   } catch (err) {
     if (err.code !== 'cancelled') toast(userMessage(err), { kind: 'error' });
   }
+}
+
+/**
+ * What to tell somebody who has just deleted the key from Drive.
+ *
+ * Not "it is gone" unless it is. Where the key lives follows what Google
+ * granted at sign-in, so a household can hold a copy in the app's hidden
+ * folder that this application can no longer see or delete — and the one thing
+ * that does remove it is worth saying, since they cannot see the file to
+ * delete it themselves either.
+ *
+ * Exported because it is the sentence, and the sentence was the bug: `drop`
+ * deleted one file and this line said the key was gone from Drive. A screen
+ * nobody can question is how that stood.
+ *
+ * @param {{unreachable: boolean}} outcome
+ * @returns {{text: string, kind: 'success'|'warning'}}
+ */
+export function keyDropMessage({ unreachable }) {
+  return unreachable
+    ? { text: t('settings.security.keyPartlyDropped'), kind: 'warning' }
+    : { text: t('settings.security.keyDropped'), kind: 'success' };
 }
 
 /**

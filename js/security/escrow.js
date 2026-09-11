@@ -200,18 +200,57 @@ export class DriveEscrow {
   }
 
   /**
-   * Remove it.
+   * Remove it — every copy of it this account will show us.
    *
    * Turning the option off has to actually take the key out of Drive. Leaving
    * it there and merely forgetting about it locally would mean a household
    * that decided against this still had their key sitting in their Google
    * account, which is precisely the thing they decided against.
+   *
+   * This deleted **one** file, and `#find` right beside it already knew there
+   * could be two. The key lives in the hidden app folder or in an ordinary
+   * visible file depending on what Google granted at sign-in, and that answer
+   * changes: take `drive.appdata` off the consent screen and the next sign-in
+   * cannot see the hidden file, so `put` writes a visible one and the household
+   * has both. Turning the feature off then deleted the visible copy, reported
+   * success, and left a key that unwraps the data key in a folder the household
+   * cannot see in their own Drive.
+   *
+   * So both places are swept, and each until it is empty rather than once:
+   * duplicate names are legal in Drive and `#findIn` answers with one file.
+   *
+   * `unreachable` is the honest half. A search of the app folder without the
+   * scope is refused, and a refusal is not an answer about whether a file is
+   * there — it means this application can no longer tell, and can no longer
+   * delete it either. The household is told that, and told what does remove it:
+   * disconnecting FamilyOS from their Google account takes `appDataFolder`
+   * with it. Reporting a clean removal here would be the comfortable half of
+   * the truth, which is the thing this file's own note refuses to do.
+   *
+   * @returns {Promise<{removed: number, unreachable: boolean}>}
    */
   async drop() {
-    const id = await this.#find();
-    if (!id) return false;
-    await this.#call(`${FILES}/${id}`, { method: 'DELETE' });
-    return true;
+    let removed = 0;
+    let unreachable = false;
+
+    for (const hidden of [this.#hidden, !this.#hidden]) {
+      try {
+        for (let id = await this.#findIn(hidden); id; id = await this.#findIn(hidden)) {
+          await this.#call(`${FILES}/${id}`, { method: 'DELETE' });
+          removed += 1;
+        }
+      } catch (err) {
+        // The other space, refused: see above. The one this instance writes to
+        // failing is a real error and is not swallowed.
+        if (hidden !== this.#hidden) {
+          unreachable = true;
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    return { removed, unreachable };
   }
 
   /**
@@ -225,17 +264,9 @@ export class DriveEscrow {
    */
   async #find() {
     for (const hidden of [this.#hidden, !this.#hidden]) {
-      const params = new URLSearchParams({
-        q: `name = '${hidden ? HIDDEN_NAME : VISIBLE_NAME}' and trashed = false`,
-        fields: 'files(id)',
-        pageSize: '1',
-      });
-      if (hidden) params.set('spaces', 'appDataFolder');
-
       try {
-        const response = await this.#call(`${FILES}?${params}`);
-        const body = await response.json();
-        if (body.files?.[0]?.id) return body.files[0].id;
+        const id = await this.#findIn(hidden);
+        if (id) return id;
       } catch (err) {
         // Searching the app folder without the scope is a refusal, and it is
         // not an answer about the file this instance actually writes.
@@ -244,6 +275,20 @@ export class DriveEscrow {
       }
     }
     return null;
+  }
+
+  /** One place, asked once. Split out so `drop` can sweep each on its own. */
+  async #findIn(hidden) {
+    const params = new URLSearchParams({
+      q: `name = '${hidden ? HIDDEN_NAME : VISIBLE_NAME}' and trashed = false`,
+      fields: 'files(id)',
+      pageSize: '1',
+    });
+    if (hidden) params.set('spaces', 'appDataFolder');
+
+    const response = await this.#call(`${FILES}?${params}`);
+    const body = await response.json();
+    return body.files?.[0]?.id ?? null;
   }
 
   async #createFile() {

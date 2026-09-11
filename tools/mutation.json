@@ -1092,6 +1092,34 @@
       "find": "    only: ['js/modules/', 'js/ui/', 'js/services/', 'js/app.js'],",
       "replace": "    only: ['js/modules/', 'js/ui/', 'js/services/'],",
       "suite": "modules"
+    },
+    {
+      "label": "turning the key off sweeps one place and calls it done",
+      "file": "js/security/escrow.js",
+      "find": "    for (const hidden of [this.#hidden, !this.#hidden]) {\n      try {\n        for (let id = await this.#findIn(hidden); id; id = await this.#findIn(hidden)) {",
+      "replace": "    for (const hidden of [this.#hidden]) {\n      try {\n        for (let id = await this.#findIn(hidden); id; id = await this.#findIn(hidden)) {",
+      "suite": "escrow"
+    },
+    {
+      "label": "a place holding two key files is sampled rather than emptied",
+      "file": "js/security/escrow.js",
+      "find": "        for (let id = await this.#findIn(hidden); id; id = await this.#findIn(hidden)) {",
+      "replace": "        for (let id = await this.#findIn(hidden); id; id = null) {",
+      "suite": "escrow"
+    },
+    {
+      "label": "a key the application can no longer reach is reported as removed",
+      "file": "js/security/escrow.js",
+      "find": "          unreachable = true;\n",
+      "replace": "",
+      "suite": "escrow"
+    },
+    {
+      "label": "the household is told the key is gone whatever was left behind",
+      "file": "js/modules/settings/security.js",
+      "find": "  return unreachable\n    ? { text: t('settings.security.keyPartlyDropped'), kind: 'warning' }\n    : { text: t('settings.security.keyDropped'), kind: 'success' };",
+      "replace": "  return { text: t('settings.security.keyDropped'), kind: 'success' };",
+      "suite": "escrow"
     }
   ]
 }
