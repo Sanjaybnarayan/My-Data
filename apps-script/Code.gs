@@ -229,7 +229,7 @@ function doGet() {
 function dispatch(action, payload, context) {
   switch (action) {
     case 'bootstrap': return withLock(function () { return bootstrap(payload, context); });
-    case 'schema':    return withLock(function () { return schemaEnsure(payload.manifest, workbook()); });
+    case 'schema':    return withLock(function () { return schemaEnsure(payload.manifest, workbook(), context); });
     case 'push':      return withLock(function () { return sheetPush(payload.changes, workbook(), context); });
     case 'pull':      return sheetPull(payload.cursors || {}, payload.limit || 500, workbook(), context);
     case 'audit':     return withLock(function () { return auditAppend(payload.entries, workbook(), context); });
@@ -851,7 +851,11 @@ function bootstrap(payload, context) {
   }
 
   var tree = driveEnsureTree();
-  schemaEnsure(payload.manifest, book);
+  // The caller, here too. `dispatch` is not the only way into `schemaEnsure`,
+  // and passing the manifest without the context made every bootstrap read as
+  // a non-owner's — fail-closed, so no hole, but an owner reshaping their own
+  // workbook this way was refused in the name of a rule about everybody else.
+  schemaEnsure(payload.manifest, book, context);
 
   // The workbook belongs in the FamilyOS folder, not loose in My Drive.
   try {

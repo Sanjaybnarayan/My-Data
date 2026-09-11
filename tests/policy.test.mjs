@@ -14,7 +14,7 @@
 
 import { readFileSync } from 'node:fs';
 import { test, describe, assert, setSuite } from './harness.mjs';
-import { loadAppsScript, propertyStore, cacheStore } from './appsscript.mjs';
+import { loadAppsScript, propertyStore, cacheStore, backend } from './appsscript.mjs';
 import { generate, POLICY_FILE } from '../tools/policy.mjs';
 import { entities } from '../js/data/schema.js';
 import { OWN_RECORD_ENTITIES, SUBJECT_FIELD } from '../js/security/rbac.js';
@@ -635,5 +635,183 @@ describe('a row count is a read', () => {
     const api = sheets(map);
     const counts = api.sheetCounts(fakeBook(['Mystery']), { role: 'owner', personId: 'p-owner' });
     assert.not(Object.prototype.hasOwnProperty.call(counts, 'Mystery'));
+  });
+});
+
+/* ------------------------------------------------- the map the ACL reads */
+
+/**
+ * Who may say which tab is which entity.
+ *
+ * Every check above asks whether the policy refuses a role an entity. This one
+ * asks the question underneath them: **where does the entity name come from?**
+ *
+ * It came from the client. `dispatch` handed `schemaEnsure` the manifest and
+ * the workbook and not the context — the one handler of sixteen that ran
+ * without knowing who was asking — `rememberManifest` wrote the entity→sheet
+ * map verbatim, and `sheetPull` decides what a caller may read by asking
+ * `entityForSheet(name)` and putting the answer to `policyAllows`.
+ *
+ * So a caller chose the name their own ACL was applied to, and the properties
+ * are shared: `appsscript.json` deploys `executeAs: USER_DEPLOYING`, so one
+ * member remapping it remapped it for everybody.
+ *
+ * These run through `doPost` rather than calling the function, because the
+ * hole was in the wiring between the dispatch and the handler and a test that
+ * called the handler directly would have passed.
+ */
+describe('who may say which tab is which entity', () => {
+  const OWNER = 'owner@example.com';
+  const CHILD = 'kid@example.com';
+  const CLIENT = '1-familyos.apps.googleusercontent.com';
+
+  const tokens = {
+    'owner-token': { email: OWNER, aud: CLIENT, expires_in: '3599' },
+    'child-token': { email: CHILD, aud: CLIENT, expires_in: '3599' },
+  };
+
+  const VAULT = ['_id', '_rev', '_updatedAt', '_deletedAt', 'name', 'password'];
+  const SEALED = ['v1', 1, '2026-08-01T00:00:00.000Z', '', 'HDFC NetBanking',
+    'enc:v1:tQnxuE9nwT/BZSb/:HDwWbhM+zaF9uNrp4Rld'];
+
+  function workbook(names = ['Vault']) {
+    const tabs = [...names];
+    const sheet = (name) => ({
+      getName: () => name,
+      getLastRow: () => 2,
+      getLastColumn: () => VAULT.length,
+      getMaxRows: () => 100,
+      getRange: (row) => ({
+        getValues: () => (row === 1 ? [VAULT] : [SEALED]),
+        setValues: () => {}, setValue: () => {},
+        setFontWeight: () => {}, setNumberFormat: () => {},
+      }),
+      setFrozenRows: () => {},
+      appendRow: () => {},
+    });
+    return {
+      // `bootstrap` reads both, and a stub without them refuses for a reason
+      // that has nothing to do with the rule under test.
+      getId: () => 'wb1',
+      getUrl: () => 'https://example.invalid/wb1',
+      getSheets: () => tabs.map(sheet),
+      getSheetByName: (n) => (tabs.includes(n) ? sheet(n) : null),
+      insertSheet: (n) => { tabs.push(n); return sheet(n); },
+    };
+  }
+
+  const household = (sheetMap = { vaultItem: 'Vault' }) => backend({
+    owner: OWNER,
+    tokens,
+    workbook: workbook(),
+    properties: {
+      members: JSON.stringify([{ email: CHILD, role: 'child', personId: 'p-child' }]),
+      sheetMap: JSON.stringify(sheetMap),
+      workbookId: 'wb1',
+    },
+  });
+
+  test('a child may not point an entity they can read at a tab that holds one they cannot', () => {
+    // The measurement this was built from. A child may read `task` and may not
+    // read `vaultItem`; mapping `task` onto the vault tab handed them the vault
+    // — name and sealed password — and the household shares one data key.
+    const api = household();
+    assert.length(Object.keys(api.post('pull', 'child-token', { cursors: {} }).data.records), 0);
+
+    const answer = api.post('schema', 'child-token', {
+      manifest: [{ entity: 'task', sheet: 'Vault', version: 1, columns: ['name', 'password'] }],
+    });
+
+    assert.not(answer.ok, 'the remapping was accepted');
+    assert.equal(answer.status, 403);
+    assert.deep(JSON.parse(api.props.getProperty('sheetMap')), { vaultItem: 'Vault' },
+      'the map was changed despite the refusal');
+    assert.length(Object.keys(api.post('pull', 'child-token', { cursors: {} }).data.records), 0,
+      'the vault reached a child');
+  });
+
+  test('nor move an entity that is already mapped somewhere else', () => {
+    const api = household();
+    const answer = api.post('schema', 'child-token', {
+      manifest: [{ entity: 'vaultItem', sheet: 'Notes', version: 1, columns: ['name'] }],
+    });
+    assert.not(answer.ok);
+    assert.equal(answer.status, 403);
+  });
+
+  test('but the mapping a device already has is sent on every upgrade and must pass', () => {
+    // `#ensureSchema` runs on any device whose stored fingerprint has moved,
+    // whatever its role. A rule that refused this would stop a child's device
+    // syncing at all, which is a worse outcome than the one being prevented.
+    const api = household();
+    const answer = api.post('schema', 'child-token', {
+      manifest: [{ entity: 'vaultItem', sheet: 'Vault', version: 1, columns: ['name', 'password'] }],
+    });
+    assert.ok(answer.ok, answer.error);
+  });
+
+  test('and an entity new to the schema still maps, from whoever gets there first', () => {
+    const api = household();
+    const answer = api.post('schema', 'child-token', {
+      manifest: [{ entity: 'note', sheet: 'Notes', version: 1, columns: ['body'] }],
+    });
+    assert.ok(answer.ok, answer.error);
+    assert.equal(JSON.parse(api.props.getProperty('sheetMap')).note, 'Notes');
+  });
+
+  test('an owner may still reshape the workbook, which is whose it is', () => {
+    const api = household();
+    const answer = api.post('schema', 'owner-token', {
+      manifest: [{ entity: 'task', sheet: 'Vault', version: 1, columns: ['name'] }],
+    });
+    assert.ok(answer.ok, answer.error);
+  });
+
+  test('and the other way into the same function is checked too', () => {
+    // `dispatch` is not the only caller: `bootstrap` reaches `schemaEnsure` as
+    // well, and passing the manifest without the context made every bootstrap
+    // read as a non-owner's. Fail-closed, so no hole — but an owner reshaping
+    // their own workbook that way was refused in the name of a rule about
+    // everybody else, and a child refused for the right reason by accident is
+    // not a child refused.
+    const api = household();
+    const hostile = [{ entity: 'task', sheet: 'Vault', version: 1, columns: ['name'] }];
+
+    const refused = api.post('bootstrap', 'child-token', { manifest: hostile });
+    assert.not(refused.ok, 'bootstrap let a child do what schema would not');
+    assert.equal(refused.status, 403, `refused for the wrong reason: ${refused.error}`);
+    assert.deep(JSON.parse(api.props.getProperty('sheetMap')), { vaultItem: 'Vault' });
+
+    assert.ok(api.post('bootstrap', 'owner-token', { manifest: hostile }).ok,
+      'an owner was refused their own workbook');
+  });
+
+  test('an entity the policy has never heard of is refused, from anyone', () => {
+    // A tab mapped to it would be read under a rule that does not exist, and
+    // `policyAllows` already states this for itself: a store the schema has
+    // never seen is either a typo or somebody probing.
+    for (const token of ['owner-token', 'child-token']) {
+      const answer = household().post('schema', token, {
+        manifest: [{ entity: 'nonsense', sheet: 'Nonsense', version: 1, columns: [] }],
+      });
+      assert.not(answer.ok, `${token} was allowed to map an unknown entity`);
+      assert.equal(answer.status, 400);
+    }
+  });
+
+  test('a manifest naming three entities does not unmap the other fifty', () => {
+    // `rememberManifest` assigned a fresh object. An unmapped tab is skipped by
+    // every read and write, so one short manifest took the household's whole
+    // workbook out of reach until a full one arrived.
+    const api = household({ vaultItem: 'Vault', account: 'Accounts', will: 'Wills' });
+    api.post('schema', 'owner-token', {
+      manifest: [{ entity: 'note', sheet: 'Notes', version: 1, columns: ['body'] }],
+    });
+
+    const map = JSON.parse(api.props.getProperty('sheetMap'));
+    assert.equal(map.vaultItem, 'Vault');
+    assert.equal(map.account, 'Accounts');
+    assert.equal(map.will, 'Wills');
+    assert.equal(map.note, 'Notes');
   });
 });
