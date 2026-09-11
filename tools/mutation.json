@@ -490,6 +490,41 @@
       "find": " * case, and it is why `security/session.js` also enforces an attempt limit —",
       "replace": " * case, and it is why `unlock.js` also enforces an attempt limit —",
       "suite": "modules"
+    },
+    {
+      "label": "a Gradle version Gradle resolves at build time is accepted",
+      "file": "tools/supply-chain.mjs",
+      "find": "    } else if (DYNAMIC.test(dep.version)) {",
+      "replace": "    } else if (false) {",
+      "suite": "native"
+    },
+    {
+      "label": "a runtime package the lock pins without an integrity hash is accepted",
+      "file": "tools/supply-chain.mjs",
+      "find": "    else if (!dep.integrity) found.push(`${dep.name} is pinned to ${dep.locked} with no integrity hash`);",
+      "replace": "",
+      "suite": "native"
+    },
+    {
+      "label": "a parser that matched nothing would let the pinning check pass on anything",
+      "file": "tools/supply-chain.mjs",
+      "find": "  if (!mavenDeps.length) found.push('no Maven coordinates parsed — this check would pass on anything');\n",
+      "replace": "",
+      "suite": "native"
+    },
+    {
+      "label": "a committed credential is not reported",
+      "file": "tools/secrets.mjs",
+      "find": "        if (p.pattern.test(line)) found.push(`${file}:${i + 1} looks like ${p.what}`);",
+      "replace": "        if (false) found.push(`${file}:${i + 1} looks like ${p.what}`);",
+      "suite": "security"
+    },
+    {
+      "label": "a credential pattern that matches nothing is scanned with anyway",
+      "file": "tools/secrets.mjs",
+      "find": "    .filter((p) => !p.pattern.test(p.sample))",
+      "replace": "    .filter(() => false)",
+      "suite": "security"
     }
   ]
 }
