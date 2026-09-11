@@ -55,7 +55,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
  * that cannot match its own sample stops the run.
  *
  * Samples are assembled from pieces so that this file does not itself contain
- * a string any scanner would have to flag.
+ * a string any scanner would have to flag. Two of them were not, and this
+ * tool's first finding was itself: it could not say so until the file was
+ * committed, because the scan reads `git ls-files` and an untracked file is
+ * not committed. The check worked; the author did not read his own header.
  */
 export const PATTERNS = [
   {
@@ -71,12 +74,12 @@ export const PATTERNS = [
   {
     what: 'a private key of any kind',
     pattern: /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----/,
-    sample: '-----BEGIN RSA PRIVATE KEY-----',
+    sample: `-----BEGIN RSA PRIVATE ${'KEY'}-----`,
   },
   {
     what: 'a Google service-account file',
     pattern: /"type"\s*:\s*"service_account"/,
-    sample: '"type": "service_account"',
+    sample: `"type": "service_${'account'}"`,
   },
   {
     what: 'an AWS access key id',
