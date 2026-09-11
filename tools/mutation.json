@@ -469,6 +469,27 @@
       "find": "    for (const call of body.matchAll(/([a-zA-Z_$][A-Za-z0-9_$]*)\\(\\s*payload\\s*[,)]/g)) {",
       "replace": "    for (const call of body.matchAll(/([a-zA-Z_$][A-Za-z0-9_$]*)\\(\\s*payload\\b/g)) {",
       "suite": "apicontract"
+    },
+    {
+      "label": "a comment may name a file that is not in the tree",
+      "file": "tools/self-description.mjs",
+      "find": "        unresolved.push(`${rel}:${i + 1} names \\`${token}\\`, which is not in the tree`);",
+      "replace": "        continue;",
+      "suite": "modules"
+    },
+    {
+      "label": "the deliberately-absent list is not checked for having rotted",
+      "file": "tools/self-description.mjs",
+      "find": "    if (every.some((real) => real === name || real.endsWith(`/${name}`))) {",
+      "replace": "    if (false) {",
+      "suite": "modules"
+    },
+    {
+      "label": "a security claim's pointer at the attempt limiter goes back to a file that never existed",
+      "file": "js/security/crypto.js",
+      "find": " * case, and it is why `security/session.js` also enforces an attempt limit —",
+      "replace": " * case, and it is why `unlock.js` also enforces an attempt limit —",
+      "suite": "modules"
     }
   ]
 }

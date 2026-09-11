@@ -138,6 +138,85 @@ describe('every module', () => {
     assert.ok(sites > 10, `only ${sites} live numbers — the check has little to check`);
   });
 
+  test('and every file a comment names is a file that is there', async () => {
+    /*
+     * The other half, and the half that tool's own header says it cannot do:
+     * *"it cannot find a new stale claim that nobody marked."*
+     *
+     * A claim's **reference** needs no marking to be checkable. TOK-01 was a
+     * line reading "Encrypted; see `data/schema.js` meta rules" when there
+     * were no such rules — the most expensive instance this repository had,
+     * because anybody auditing that file read the claim and moved on. The
+     * same shape turned up in `js/security/crypto.js`, which explains that
+     * PBKDF2 iterations are only half the defence against somebody holding
+     * the device and pointed at a file for the other half that has never
+     * existed in this repository. The limiter is real; the pointer was not.
+     */
+    const { references, DELIBERATELY_ABSENT } = await import('../tools/self-description.mjs');
+    const { checked, problems } = references();
+
+    assert.length(problems, 0, problems.join('; '));
+    assert.ok(checked > 300, `only ${checked} references — the check has little to check`);
+    assert.ok(Object.keys(DELIBERATELY_ABSENT).length > 0,
+      'the allowlist is empty, so its own rot checks can never fire');
+  });
+
+  test('a comment naming a file that is not there is reported', async () => {
+    /*
+     * Driven against a tree built for the purpose, because the real one is
+     * clean — so deleting the line that reports a bad reference changed
+     * nothing, and the mutation ratchet correctly refused to call it held.
+     * A check that cannot fail on the code as it stands has to be shown
+     * failing on code that should fail it.
+     */
+    const { references } = await import('../tools/self-description.mjs');
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+
+    const root = mkdtempSync(join(tmpdir(), 'refs-'));
+    try {
+      mkdirSync(join(root, 'js'));
+      writeFileSync(join(root, 'js', 'real.js'), '// nothing to see\n');
+      writeFileSync(join(root, 'js', 'claims.js'),
+        '/**\n * The key is sealed — see `never-written.js` for the rules.\n'
+        + ' * And `real.js` is right here, which must not be reported.\n */\n');
+
+      // No allowlist: this tree is not the repository, so its deliberate
+      // absences do not apply and would otherwise all report as orphaned.
+      const { checked, problems } = references(root, {});
+      assert.equal(checked, 2, 'both references should have been examined');
+      assert.length(problems, 1, problems.join('; '));
+      assert.ok(problems[0].includes('never-written.js'), problems[0]);
+      assert.ok(problems[0].includes('js/claims.js:2'), problems[0]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('and the list of deliberate absences cannot quietly rot', async () => {
+    /*
+     * An allowlist nobody maintains becomes a list of things nobody checks —
+     * the fault this whole area exists to catch, one level up. Both ways it
+     * can go wrong are driven here rather than asserted about, because the
+     * mutation ratchet showed the real-tree version could not fail: disabling
+     * the "it exists now" branch broke nothing, since in this repository none
+     * of them exists.
+     */
+    const { rot } = await import('../tools/self-description.mjs');
+    const absent = { 'ghost.js': 'named to explain something that is not there' };
+
+    assert.length(rot([], new Set(['ghost.js']), absent), 0, 'a live entry was called rot');
+
+    const appeared = rot(['js/core/ghost.js'], new Set(['ghost.js']), absent);
+    assert.length(appeared, 1);
+    assert.ok(appeared[0].includes('is in the tree now'), appeared[0]);
+
+    const orphaned = rot([], new Set(), absent);
+    assert.length(orphaned, 1);
+    assert.ok(orphaned[0].includes('nothing names'), orphaned[0]);
+  });
+
   test('is precached by the service worker', async () => {
     // The deploy workflow already checks one direction — that nothing
     // precached was left unpublished. Nothing checked the other, and the
