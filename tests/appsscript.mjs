@@ -35,6 +35,21 @@ export function propertyStore(initial = {}) {
   return {
     getProperty: (key) => (map.has(key) ? map.get(key) : null),
     setProperty: (key, value) => map.set(key, String(value)),
+    /*
+     * The plural form, which `Drive.gs` uses to record the folder tree it just
+     * built. Missing until now, so every path that reached `driveEnsureTree`
+     * ended in `setProperties is not a function` — a third fixture gap of the
+     * same kind as the two the audit named, found by sweeping rather than by
+     * reading, which is the argument for sweeping.
+     *
+     * Stringifies like its singular sibling, because Apps Script properties
+     * are a string map and a stub that kept numbers would let a test pass on a
+     * value the deployment could never hold.
+     */
+    setProperties: (values) => {
+      for (const [key, value] of Object.entries(values ?? {})) map.set(key, String(value));
+      return undefined;
+    },
     deleteProperty: (key) => map.delete(key),
     getProperties: () => Object.fromEntries(map),
     /** For assertions: what the script actually wrote. */
@@ -102,9 +117,105 @@ export function loadAppsScript(files, globals, exports) {
  *          workbook?: object|null, randomBytes?: () => number[],
  *          now?: () => number}} setup
  */
+/**
+ * A Drive folder that behaves like one: it nests, it remembers its files, and
+ * it keeps a description.
+ *
+ * `folderNamed` looks a folder up by name and creates it when missing, and
+ * `personFolderFor` finds one by the marker it wrote into the description. A
+ * stub returning a bare object satisfies neither, and a stub that always
+ * "finds" a folder would hide a `createFolder` that never runs.
+ */
+export function driveFolder(name, description = '') {
+  const folders = new Map();
+  const files = [];
+  let note = description;
+
+  const self = {
+    getName: () => name,
+    getId: () => `folder-${name}`,
+    getDescription: () => note,
+    setDescription(value) { note = value; return self; },
+    getFoldersByName(wanted) {
+      const found = folders.has(wanted) ? [folders.get(wanted)] : [];
+      let i = 0;
+      return { hasNext: () => i < found.length, next: () => found[i++] };
+    },
+    createFolder(wanted) {
+      const made = driveFolder(wanted);
+      folders.set(wanted, made);
+      return made;
+    },
+    getFolders() {
+      const all = [...folders.values()];
+      let i = 0;
+      return { hasNext: () => i < all.length, next: () => all[i++] };
+    },
+    createFile(blob) {
+      const file = driveFile(blob?.getName?.() ?? 'document', self);
+      files.push(file);
+      return file;
+    },
+    getFiles() {
+      let i = 0;
+      return { hasNext: () => i < files.length, next: () => files[i++] };
+    },
+    addFile(file) { files.push(file); return self; },
+    removeFile(file) {
+      const at = files.indexOf(file);
+      if (at >= 0) files.splice(at, 1);
+      return self;
+    },
+  };
+  return self;
+}
+
+/** A Drive file, knowing the folder it sits in — `driveUpload` reparents. */
+export function driveFile(name, parent) {
+  let note = '';
+  let parents = parent ? [parent] : [];
+  const self = {
+    getName: () => name,
+    getId: () => `file-${name}`,
+    getUrl: () => `https://drive.example/${name}`,
+    getSize: () => 3,
+    getBlob: () => ({ getBytes: () => [1, 2, 3] }),
+    getDescription: () => note,
+    setDescription(value) { note = value; return self; },
+    setTrashed() { return self; },
+    getParents() {
+      let i = 0;
+      return { hasNext: () => i < parents.length, next: () => parents[i++] };
+    },
+    setParents(next) { parents = next; return self; },
+  };
+  return self;
+}
+
+/**
+ * Every `.gs` the deployment has, which is what `doPost` runs against.
+ *
+ * The default here was `['Policy.gs', 'Code.gs', 'Drive.gs']` — a subset no
+ * deployment ever has, since Apps Script evaluates every file in the project
+ * into one global scope. That made a helper's *file* matter when at runtime it
+ * does not, and it cost an afternoon: `manageMembers` in `Code.gs` needs the
+ * list guard that lives in `Sheets.gs`, and with a partial default there was
+ * no placement that satisfied every test — one suite loads `Code.gs` without
+ * `Sheets.gs`, another loads `Sheets.gs` without `Code.gs`, and the deployment
+ * loads both.
+ *
+ * The rule at the top of this file already settles it: a stub more convenient
+ * than the real thing tests something that was never deployed. So `backend()`
+ * — the harness that drives the real entry point — gets the real file set.
+ *
+ * `loadAppsScript` is left alone. A test naming two files is asking a narrower
+ * question on purpose, and `tests/policy.test.mjs` does exactly that.
+ */
+const DEPLOYED = ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs', 'Gmail.gs', 'Otp.gs'];
+
 export function backend({
   owner = 'owner@example.com', tokens = {}, properties = {},
-  driveFiles = {}, files = ['Policy.gs', 'Code.gs', 'Drive.gs'],
+  driveFiles = {}, files = DEPLOYED,
   workbook = null,
   randomBytes = () => [0, 0, 0, 0],
   now = () => Date.now(),
@@ -235,7 +346,30 @@ export function backend({
           setTrashed(trashed) { file.trashed = trashed; return this; },
         };
       },
+      /*
+       * The folder tree `Drive.gs` builds, as a real tree.
+       *
+       * Absent until now, and `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md` records
+       * what that cost: the hostile-payload sweep behind LIST-01 reported
+       * `bootstrap` and `folders` as failing, and both were *"my fixture, not
+       * the code — an incomplete `DriveApp`"*. A gap named once in prose and
+       * left in place is a gap the next sweep pays for again, so it is a stub
+       * now rather than a caveat.
+       *
+       * Deliberately literal, per the rule at the top of this file: folders
+       * really nest, `getFoldersByName` really returns an iterator that can be
+       * empty, and a description really survives being set — which is what
+       * `personFolderFor` looks a folder up by.
+       */
+      getRootFolder: () => driveFolder('My Drive'),
     },
+    /*
+     * `Drive.gs` asks for an OAuth token to call the Drive REST API directly,
+     * because `DriveApp` has no way to add a revision to an existing file.
+     * Absent here, every path through `driveUpload` ended in `ScriptApp is not
+     * defined` — the audit's second named fixture gap.
+     */
+    ScriptApp: { getOAuthToken: () => 'stub-oauth-token' },
     GmailApp: {},
     console: { log: (...args) => logged.push(args.join(' ')), warn() {}, error() {} },
 

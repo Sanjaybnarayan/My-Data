@@ -34,6 +34,9 @@
 
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { backend } from './appsscript.mjs';
+// The action list, derived from the backend's own dispatch rather than
+// written out here — see the sweep at the foot of this file.
+import { served } from '../tools/api-contract.mjs';
 
 setSuite('fuzz');
 
@@ -526,5 +529,235 @@ describe('hostile payloads through the authenticated actions', () => {
     assert.ok(said.ok, said.error);
     assert.deep(said.data.created, ['Vehicles']);
     assert.ok(workbook.getSheetByName('Vehicles'), 'the tab was not created');
+  });
+});
+
+/**
+ * Every action the backend serves, swept with hostile payloads.
+ *
+ * ## Why this exists rather than the prose that used to stand for it
+ *
+ * `docs/PHONE_OTP_CHAT_SECURITY_AUDIT.md` records the sweep that found
+ * LIST-01: *"Twelve authenticated actions were driven with 24 malformed
+ * payloads each. Seven of 288 were mishandled and they are all above; `pull`,
+ * `upload`, `download`, `trash`, `signin`, `members`, `devices` and `verify`
+ * held against every one."*
+ *
+ * The seven faults were fixed and are checked above. **The sweep itself was
+ * not kept.** So the negative result — eight actions holding against every
+ * hostile shape — became a sentence in a document, measured once, by hand,
+ * with nothing holding it since. `tools/secrets.mjs` names that habit in its
+ * own header as the shape this repository has found more often than any
+ * other, and this is an instance of it inside the very audit that says so.
+ *
+ * ## Derived, not listed
+ *
+ * The action list comes from `served()` — the same function
+ * `tools/api-contract.mjs` uses to read the backend's `dispatch`. A
+ * hand-written list here would be the tenth in this repository to drift from a
+ * derivable one, and it would drift in the direction that matters: a new
+ * action is exactly the one nobody remembers to sweep.
+ *
+ * ## What it asserts
+ *
+ * The invariant this file already states at the top: **a malformed request
+ * must be refused as malformed.** Never a 5xx, which claims the deployment
+ * broke when the request was at fault; never a runtime message quoted back at
+ * the caller; and never `retryable` on a 4xx, which has the sender's outbox
+ * repeat a permanently invalid request until it gives up.
+ *
+ * Succeeding is allowed. Several of these actions take no payload at all, and
+ * ignoring a payload that makes no sense is a perfectly good answer — the
+ * claim here is about how a refusal is made, not that one must be.
+ *
+ * ## The fixture gaps this cost
+ *
+ * That same audit paragraph ends: *"Three apparent failures were my fixture,
+ * not the code — an incomplete `DriveApp`, an absent `ScriptApp`, and a
+ * workbook stub that did not register the tab it had just inserted."* Both
+ * named gaps were still there. Running this found a third, `setProperties`,
+ * the same way. All three are stubs now rather than caveats, because a gap
+ * named in prose and left in place is one the next sweep pays for again.
+ */
+describe('every action the backend serves, against payloads that make no sense', () => {
+  const HOSTILE = [
+    ['null', null],
+    ['a string', 'nope'],
+    ['a number', 42],
+    ['a boolean', true],
+    ['a list', []],
+    ['an empty object', {}],
+    ['a list of nulls', [null, null]],
+    ['an array-like object', { length: 3 }],
+    // Not an injection attempt so much as the shape a half-written outbox
+    // entry has: keys the handler knows, values it does not expect.
+    ['known keys holding nothing', { changes: null, entries: null, manifest: null, fileId: null }],
+  ];
+
+  const OWNER_EMAIL = 'owner@example.com';
+  const HEADS = ['_id', '_rev', '_updatedAt', '_deletedAt'];
+
+  /** A workbook that registers the tab it inserts — the audit's third gap. */
+  const workbookStub = () => {
+    const tabs = new Map();
+    const make = (name) => ({
+      getName: () => name,
+      getLastRow: () => 1,
+      getLastColumn: () => HEADS.length,
+      getMaxRows: () => 100,
+      setFrozenRows: () => {},
+      getRange: () => ({
+        getValues: () => [HEADS],
+        setValues: () => {},
+        setValue: () => {},
+        setFontWeight: () => {},
+        setNumberFormat: () => {},
+      }),
+      appendRow: () => {},
+    });
+    tabs.set('Accounts', make('Accounts'));
+    return {
+      getSheets: () => [...tabs.values()],
+      getSheetByName: (name) => tabs.get(String(name)) || null,
+      insertSheet: (name) => {
+        const made = make(String(name));
+        tabs.set(String(name), made);
+        return made;
+      },
+    };
+  };
+
+  /** A fresh backend per request: a sweep must not let one call poison the next. */
+  const drive = () => backend({
+    owner: OWNER_EMAIL,
+    tokens,
+    workbook: workbookStub(),
+    files: ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs', 'Gmail.gs', 'Otp.gs'],
+    properties: {
+      members: JSON.stringify([{ email: OWNER_EMAIL, role: 'owner', personId: 'p1' }]),
+      workbookId: 'book-1',
+      sheetMap: JSON.stringify({ account: 'Accounts' }),
+    },
+  });
+
+  const send = (api, action, payload) => post(api,
+    JSON.stringify({ action, token: 'owner-token', payload, deviceId: 'device-1' }));
+
+  const RUNTIME = /Cannot read propert|Cannot convert|undefined is not|is not a function|is not iterable|TypeError|RangeError|Maximum call stack/;
+
+  test('answers a client error, never a server one', () => {
+    for (const action of served()) {
+      for (const [what, payload] of HOSTILE) {
+        const said = send(drive(), action, payload);
+        assert.ok(said.status === undefined || said.status < 500,
+          `${action} answered ${said.status} for a payload that is ${what}: ${said.error}`);
+      }
+    }
+  });
+
+  test('and never quotes the runtime back at the caller', () => {
+    for (const action of served()) {
+      for (const [what, payload] of HOSTILE) {
+        const said = send(drive(), action, payload);
+        assert.not(RUNTIME.test(String(said.error ?? '')),
+          `${action} leaked for a payload that is ${what}: ${said.error}`);
+      }
+    }
+  });
+
+  test('and never tells the outbox to resend something permanently invalid', () => {
+    for (const action of served()) {
+      for (const [what, payload] of HOSTILE) {
+        const said = send(drive(), action, payload);
+        if (said.ok !== false) continue;
+        assert.not(said.retryable,
+          `${action} asked for a resend of a payload that is ${what}`);
+      }
+    }
+  });
+
+  /*
+   * The fourth list, and what it cost.
+   *
+   * LIST-01 fixed the three lists in `Sheets.gs`. `manageMembers` is in
+   * `Code.gs` and walks `payload.emails` by index, and the sweep that found
+   * LIST-01 recorded `members` among the actions that *"held against every
+   * one"* — true of the payloads it sent, which were hostile as a whole
+   * rather than in one field.
+   *
+   * This is the whole household's access list, so the check is the outcome
+   * rather than the status code: can the spouse still reach the backend.
+   */
+  describe('the list of accounts', () => {
+    const WITH_SPOUSE = [
+      { email: OWNER_EMAIL, role: 'owner', personId: 'p1' },
+      { email: 'spouse@example.com', role: 'spouse', personId: 'p2' },
+    ];
+
+    const household = (members = WITH_SPOUSE) => backend({
+      owner: OWNER_EMAIL,
+      tokens: {
+        ...tokens,
+        'spouse-token': { email: 'spouse@example.com', aud: 'client-id', expires_in: '3599' },
+      },
+      workbook: workbookStub(),
+      files: ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs'],
+      properties: { members: JSON.stringify(members), workbookId: 'book-1' },
+    });
+
+    const reaches = (api, token) => post(api,
+      JSON.stringify({ action: 'ping', token, payload: {}, deviceId: 'd1' })).ok;
+
+    test('is refused when it is not a list, rather than emptied', () => {
+      for (const [what, emails] of [
+        ['a string', 'a half-written string'],
+        ['a number', 42],
+        ['an array-like object', { length: 2 }],
+      ]) {
+        const api = household();
+        assert.ok(reaches(api, 'spouse-token'), 'the spouse could not reach it to begin with');
+
+        const said = send(api, 'members', { emails });
+
+        assert.equal(said.ok, false, `emails as ${what} was accepted`);
+        assert.equal(said.status, 400, `emails as ${what} answered ${said.status}`);
+        assert.ok(reaches(api, 'spouse-token'),
+          `emails as ${what} signed the spouse out of the household`);
+      }
+    });
+
+    test('but an empty list still means what it says', () => {
+      // The other half. A guard that refused everything would satisfy the
+      // check above and take a real request with it: an owner removing the
+      // last member sends exactly this.
+      const api = household();
+      const said = send(api, 'members', { emails: [] });
+
+      assert.ok(said.ok, said.error);
+      assert.length(said.data.members, 0, 'the owner could not remove anybody');
+      assert.not(reaches(api, 'spouse-token'), 'a removed member still reached the backend');
+    });
+
+    test('and a real list of accounts still goes through', () => {
+      const api = household([{ email: OWNER_EMAIL, role: 'owner', personId: 'p1' }]);
+      const said = send(api, 'members', {
+        emails: [{ email: 'spouse@example.com', role: 'spouse', personId: 'p2' }],
+      });
+
+      assert.ok(said.ok, said.error);
+      assert.ok(reaches(api, 'spouse-token'), 'a member the owner added could not reach it');
+    });
+  });
+
+  test('and the sweep covers every action the dispatch names', () => {
+    // The half that keeps the three checks above from quietly covering less
+    // than they claim. `served()` reads the backend; if it ever returns an
+    // empty list — a renamed `dispatch`, a changed `case` shape — the loops
+    // above would pass over nothing at all and say so to nobody.
+    const actions = served();
+    assert.ok(actions.length >= 16, `the dispatch reader found only ${actions.length} actions`);
+    assert.includes(actions, 'push');
+    assert.includes(actions, 'upload');
+    assert.includes(actions, 'bootstrap');
   });
 });

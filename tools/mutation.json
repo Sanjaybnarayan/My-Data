@@ -910,6 +910,27 @@
       "find": "    const forgotten = await settlePending();\n    if (forgotten) throw forgotten;",
       "replace": "    const forgotten = null;\n    if (forgotten) throw forgotten;",
       "suite": "harness"
+    },
+    {
+      "label": "the sweep stops covering the actions the dispatch names",
+      "file": "tools/api-contract.mjs",
+      "find": "  return [...dispatch.matchAll(/case '([a-zA-Z]+)':/g)].map((m) => m[1]).sort();",
+      "replace": "  return [];",
+      "suite": "fuzz"
+    },
+    {
+      "label": "the list of accounts is walked without asking whether it is one",
+      "file": "apps-script/Code.gs",
+      "find": "    var wanted = requestList(payload.emails, 'the list of accounts');",
+      "replace": "    var wanted = payload.emails;",
+      "suite": "fuzz"
+    },
+    {
+      "label": "an empty list of accounts is refused along with the malformed ones",
+      "file": "apps-script/Sheets.gs",
+      "find": "function requestList(value, what) {\n  if (value === undefined || value === null) return [];",
+      "replace": "function requestList(value, what) {\n  if (!value || !value.length) throw fail(what + ' must be a list', 400);\n  if (value === undefined || value === null) return [];",
+      "suite": "fuzz"
     }
   ]
 }

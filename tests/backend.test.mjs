@@ -543,7 +543,18 @@ describe('the request contract', () => {
   test('mail is refused when Gmail.gs was not deployed', () => {
     // A household that would rather not grant the Gmail scope deletes the
     // file. That has to read as a clear refusal, not a reference error.
-    const body = start().post('mail', 'owner-token', { query: 'from:zomato.com' });
+    //
+    // The file set is named here rather than inherited. `backend()` now
+    // defaults to every `.gs` the deployment has, because a partial default
+    // made a helper's file matter when at runtime it does not — and this is
+    // the one check whose whole subject is a file being absent, so it asks
+    // for that deliberately instead of relying on a default to withhold it.
+    const absent = backend({
+      owner: OWNER,
+      tokens,
+      files: ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs', 'Otp.gs'],
+    });
+    const body = absent.post('mail', 'owner-token', { query: 'from:zomato.com' });
     assert.not(body.ok);
     assert.equal(body.status, 501);
     assert.includes(body.error, 'Gmail.gs');
