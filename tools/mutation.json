@@ -966,6 +966,48 @@
       "find": "      if (!(key in asked)) record[key] = existing[key];",
       "replace": "      record[key] = existing[key];",
       "suite": "security"
+    },
+    {
+      "label": "the merge compares sealed rows instead of what they say",
+      "file": "js/sync/engine.js",
+      "find": "    const outcome = merge({ base, local: localClear, remote: remoteClear });",
+      "replace": "    const outcome = merge({ base: shadow?.record ?? null, local, remote });",
+      "suite": "sync"
+    },
+    {
+      "label": "a row left unsettled is never offered again",
+      "file": "js/sync/engine.js",
+      "find": "          if (outcome.outcome === 'deferred' && !rewind.has(store)) rewind.set(store, before);\n",
+      "replace": "",
+      "suite": "sync"
+    },
+    {
+      "label": "a blank from a failed decrypt is merged as an edit",
+      "file": "js/sync/engine.js",
+      "find": "        else side[field] = other[field];",
+      "replace": "        else side[field] = side[field];",
+      "suite": "sync"
+    },
+    {
+      "label": "a ciphertext neither side could open is written over by the merge",
+      "file": "js/sync/engine.js",
+      "find": "    for (const field of blind) sealed[field] = local[field];\n",
+      "replace": "",
+      "suite": "sync"
+    },
+    {
+      "label": "what one read could not open is stored on the record and pushed",
+      "file": "js/sync/engine.js",
+      "find": "    delete sealed._undecryptable;\n",
+      "replace": "",
+      "suite": "sync"
+    },
+    {
+      "label": "a locked keyring merges the ciphertext it cannot read",
+      "file": "js/sync/engine.js",
+      "find": "    if (!this.#db.keyring.isUnlocked) {",
+      "replace": "    if (false) {",
+      "suite": "sync"
     }
   ]
 }

@@ -1,6 +1,8 @@
 import { test, describe, assert, setSuite, fakeClock } from './harness.mjs';
 import { makeDb, outbox, makePerson, makeAccount } from './fixture.mjs';
 import { merge, arbitrate, conflictRecord } from '../js/sync/conflict.js';
+import { encryptRecord, decryptRecord } from '../js/security/fieldcrypto.js';
+import { isEncrypted } from '../js/security/crypto.js';
 import { Outbox, backoffMs, MAX_ATTEMPTS } from '../js/sync/outbox.js';
 import { SyncEngine, SYNC_STATE } from '../js/sync/engine.js';
 import { FakeTransport } from '../js/sync/transport.js';
@@ -440,6 +442,188 @@ describe('engine', () => {
     assert.equal(onServer.occupation, 'Architect');
     assert.equal(onServer.nickname, 'other');
     assert.length(await outbox(db), 0, 'the queue must eventually empty');
+  });
+
+  /*
+   * The merge is a plaintext operation, and these are the checks that say so.
+   *
+   * Every check above uses `person`, whose `name`, `nickname` and `occupation`
+   * are stored in the clear — which is why none of them could see that the
+   * merge was comparing ciphertexts. `healthRecord` has one of each: `title`
+   * is clear and `diagnosis` is sealed.
+   */
+  describe('a sealed field in a merge', () => {
+    /**
+     * A second device's copy of a row: opened and sealed again, so every
+     * encrypted field carries a fresh IV, which is what any edit leaves
+     * behind. Re-sealing the sealed row instead would be a no-op —
+     * `encryptRecord` skips what is already an envelope — and would hide
+     * exactly the thing these checks are about.
+     */
+    async function fromAnotherDevice(db, row, changes) {
+      const clear = await decryptRecord('healthRecord', row, db.keyring.key);
+      return encryptRecord('healthRecord', {
+        ...clear, rev: (row.rev ?? 1) + 1,
+        origin: 'dev_other', updatedAt: '2030-01-01T00:00:00.000Z',
+        ...changes,
+      }, db.keyring.key);
+    }
+
+    async function visit(db, over = {}) {
+      const person = await makePerson(db);
+      return db.repo('healthRecord').create({
+        person: person.id, date: '2025-04-02', kind: 'consultation',
+        title: 'Annual checkup', diagnosis: 'asthma', prescription: 'inhaler',
+        ...over,
+      });
+    }
+
+    const raw = (db, id) => db.adapter.read('healthRecord', id);
+
+    test('an edit to it survives an edit to a clear field elsewhere', async () => {
+      const db = await makeDb();
+      const server = fakeServer();
+      const engine = new SyncEngine({ db, transport: server.transport });
+
+      const record = await visit(db);
+      await engine.run();
+
+      const key = `healthRecord/${record.id}`;
+      server.rows.set(key, await fromAnotherDevice(db, server.rows.get(key), {
+        title: 'Annual check-up',
+      }));
+
+      await db.repo('healthRecord').update(record.id, { diagnosis: 'asthma, mild' });
+      await engine.run();
+
+      const merged = await db.repo('healthRecord').get(record.id);
+      assert.equal(merged.title, 'Annual check-up', 'the other device edit must survive');
+      assert.equal(merged.diagnosis, 'asthma, mild', 'this device edit must survive');
+      assert.length(
+        await db.adapter.query('conflicts', {}), 0,
+        'a fresh IV is not an edit, and two different fields are not a conflict',
+      );
+    });
+
+    test('the same one edited on two devices is still a reviewable conflict', async () => {
+      const db = await makeDb();
+      const server = fakeServer();
+      const engine = new SyncEngine({ db, transport: server.transport });
+
+      const record = await visit(db);
+      await engine.run();
+
+      const key = `healthRecord/${record.id}`;
+      server.rows.set(key, await fromAnotherDevice(db, server.rows.get(key), {
+        diagnosis: 'asthma, moderate',
+      }));
+      await db.repo('healthRecord').update(record.id, { diagnosis: 'asthma, mild' });
+      await engine.run();
+
+      const conflicts = await db.adapter.query('conflicts', {});
+      assert.length(conflicts, 1);
+      assert.deep(conflicts[0].fields, ['diagnosis']);
+      assert.ok(
+        isEncrypted(conflicts[0].localValues.diagnosis),
+        'the conflicts store is not encrypted, so what it keeps must already be sealed',
+      );
+      assert.ok(isEncrypted(conflicts[0].remoteValues.diagnosis));
+    });
+
+    test('a locked keyring waits instead of merging what it cannot read', async () => {
+      const db = await makeDb();
+      const server = fakeServer();
+      const engine = new SyncEngine({ db, transport: server.transport });
+
+      const record = await visit(db);
+      await engine.run();
+
+      const key = `healthRecord/${record.id}`;
+      server.rows.set(key, await fromAnotherDevice(db, server.rows.get(key), {
+        title: 'Annual check-up',
+      }));
+      await db.repo('healthRecord').update(record.id, { diagnosis: 'asthma, mild' });
+
+      // `pullOnce` rather than `run`, so this is the pull path and only the
+      // pull path. A whole run would push the pending row, the server would
+      // answer with a conflict, and that second route would settle the record
+      // whatever the cursor did — which is the wrong thing to be measuring
+      // here, and would leave the cursor untested.
+      const before = await raw(db, record.id);
+      db.keyring.lock();
+      await engine.pullOnce();
+
+      const after = await raw(db, record.id);
+      assert.equal(after.diagnosis, before.diagnosis, 'nothing may be decided while locked');
+      assert.equal(after.title, before.title);
+      assert.equal(after.syncState, 'pending', 'the row is still waiting to be settled');
+      assert.length(await db.adapter.query('conflicts', {}), 0);
+
+      // The deferral is only worth anything if the row comes back: the cursor
+      // has to have stayed where it was.
+      await db.keyring.unlockWithPin('482913');
+      assert.equal((await engine.pullOnce()).pulled, 1, 'the deferred row must be offered again');
+
+      const merged = await db.repo('healthRecord').get(record.id);
+      assert.equal(merged.title, 'Annual check-up');
+      assert.equal(merged.diagnosis, 'asthma, mild');
+    });
+
+    test('one side that will not open loses to the side that will', async () => {
+      const db = await makeDb();
+      const server = fakeServer();
+      const engine = new SyncEngine({ db, transport: server.transport });
+
+      const record = await visit(db);
+      await engine.run();
+
+      // A ciphertext moved between two cells fails its authentication tag,
+      // which is how a field that will not open is made here rather than by
+      // inventing bytes that were never an envelope.
+      const key = `healthRecord/${record.id}`;
+      const sent = await fromAnotherDevice(db, server.rows.get(key), { title: 'Annual check-up' });
+      server.rows.set(key, { ...sent, diagnosis: sent.prescription });
+
+      await db.repo('healthRecord').update(record.id, { doctor: 'Dr Rao' });
+      await engine.run();
+
+      const merged = await db.repo('healthRecord').get(record.id);
+      assert.equal(merged.title, 'Annual check-up');
+      assert.equal(merged.doctor, 'Dr Rao');
+      assert.equal(merged.diagnosis, 'asthma', 'a blank from a failed decrypt must not win');
+    });
+
+    test('a field neither side can open keeps the ciphertext this device holds', async () => {
+      const db = await makeDb();
+      const server = fakeServer();
+      const engine = new SyncEngine({ db, transport: server.transport });
+
+      const record = await visit(db);
+      await engine.run();
+
+      const key = `healthRecord/${record.id}`;
+      const sent = await fromAnotherDevice(db, server.rows.get(key), { title: 'Annual check-up' });
+      server.rows.set(key, { ...sent, diagnosis: sent.prescription });
+
+      await db.repo('healthRecord').update(record.id, { doctor: 'Dr Rao' });
+      const mine = await raw(db, record.id);
+      await db.adapter.tx(['healthRecord'], 'readwrite', async (t) => {
+        await t.put('healthRecord', { ...mine, diagnosis: mine.prescription });
+      });
+      const unreadable = (await raw(db, record.id)).diagnosis;
+
+      await engine.run();
+
+      const stored = await raw(db, record.id);
+      assert.equal(
+        stored.diagnosis, unreadable,
+        'never destroy a ciphertext you cannot read: a key may yet arrive that opens it',
+      );
+      assert.ok(
+        !('_undecryptable' in stored),
+        'what one read could not open is not part of the record, and this row is pushed',
+      );
+    });
   });
 
   test('a transport failure leaves the queue intact and does not throw', async () => {
