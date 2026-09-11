@@ -595,6 +595,55 @@
       "find": "  if (field.required && missing) return issue(t('validate.required', { field: name }));",
       "replace": "  if (field.required && missing) return issue(`${field.label} is required.`);",
       "suite": "locale"
+    },
+    {
+      "label": "a catalogue sentence counts as a field being read",
+      "file": "tools/field-coverage.mjs",
+      "find": "    .filter(([rel]) => !isCatalogue(rel))",
+      "replace": "    .filter(([rel]) => Boolean(rel))",
+      "suite": "data"
+    },
+    {
+      "label": "a regex body counts as a field being read",
+      "file": "tools/field-coverage.mjs",
+      "find": "  const haystack = sources.map((one) => withoutRegexBodies(withoutComments(one))).join('\\n');",
+      "replace": "  const haystack = sources.map(withoutComments).join('\\n');",
+      "suite": "data"
+    },
+    {
+      "label": "a field the search index reads is reported as read by nothing",
+      "file": "tools/field-coverage.mjs",
+      "find": "      if (field.search && !field.encrypted) continue;",
+      "replace": "      if (false) continue;",
+      "suite": "data"
+    },
+    {
+      "label": "the two tools stop agreeing which files are catalogues",
+      "file": "tools/strings.mjs",
+      "find": "  return isCatalogue(rel) || rel === 'js/core/locale.js';",
+      "replace": "  return rel === 'js/core/locale.js';",
+      "suite": "locale"
+    },
+    {
+      "label": "a revoked will or superseded deed is still counted as registered",
+      "file": "js/domain/estate.js",
+      "find": "    ...live(data?.wills ?? []).filter(inForce).map((row) => ({\n      entity: 'will',",
+      "replace": "    ...live(data?.wills ?? []).map((row) => ({\n      entity: 'will',",
+      "suite": "estate"
+    },
+    {
+      "label": "a sealed registration number reads as no number at all",
+      "file": "js/domain/estate.js",
+      "find": "const recorded = (value) => plain(value) !== '';",
+      "replace": "const recorded = (value) => plain(value) !== '' && !sealed(value);",
+      "suite": "estate"
+    },
+    {
+      "label": "a will with no registration number is reported as disagreeing with itself",
+      "file": "js/domain/estate.js",
+      "find": "    ...items.filter((one) => one.registered && one.number === false)",
+      "replace": "    ...items.filter((one) => one.registered && !one.number)",
+      "suite": "estate"
     }
   ]
 }

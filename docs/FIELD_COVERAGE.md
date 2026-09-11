@@ -54,9 +54,98 @@ fetched by a quoted key is still a field being read. The limitation is recorded
 here instead: **this inventory can shrink for the wrong reason**, and a field
 leaving the list is worth a glance at what made it leave.
 
+## Three local fixes, and the class left open
+
+That is the third time this fault was met and the third time the *instance*
+was fixed. The comment in `domain/timeline.js` that cleared `account.upiId`
+was answered by stripping comments. The phrase in `domain/compliance.js` that
+cleared `person.employer` was answered by rewording the phrase. The exported
+`registered` in `core/locale.js` that cleared `will.registered` was answered by
+renaming the function.
+
+Each fix was right and none of them closed the class, because the class is not
+"this sentence" — it is **text that is not code sitting in the haystack**. Two
+more doors were still open, and both were measured rather than argued:
+
+**Catalogue files.** Every user-facing sentence in `js/locale/` was in the
+haystack. `will.registered` and `legalDocument.registered` were cleared by a
+line about geofencing — *"They are not registered with the phone"* — and
+`healthRecord.diagnosis` by one about health advice — *"No advice, no
+diagnosis and no score."* The rename in `core/locale.js` had therefore changed
+nothing: both fields stayed off the list, and the comment there went on saying
+the name was the fix. A catalogue file is nothing but sentences, and this
+search already strips comments on exactly that reasoning.
+
+**Regex bodies.** A pattern is made of English words.
+`/fuel|petrol|…|filling station|petro/i` in `domain/categorise.js` sorts a bank
+narration; it cleared `fuelLog.station`. `/report|prescription|scan|x-?ray|…/`
+in `domain/filing.js` sorts an uploaded file; it cleared
+`healthRecord.prescription`. The tool's header had said regex literals were
+untracked and that the failure would be "a field reported unread when code
+names it — **loud**". It was the opposite and it was silent.
+
+**String bodies stay.** Measured before deciding: dropping them would report 12
+more fields, and at least seven are genuine — `domain/profile.js` lists
+`emergencyContactName` and `emergencyContactPhone` in a `fields:` array it
+reads by key, and `domain/kyc.js` names all five `kycRecord.held*` fields the
+same way and reads `record[field.key]`. The paragraph above was right; it now
+has a number behind it.
+
+## The other direction: eleven fields the search index reads
+
+The tool exempts three schema flags as generic wiring — `expiry`,
+`anniversary`, and the keys an entity's `sort` names. There is a fourth it did
+not know about. `searchableValues()` in `js/security/fieldcrypto.js` filters on
+`f.search && !f.encrypted` and reads `record[f.key]`, for 140 fields, on every
+write.
+
+Eleven of them were on this inventory, described as collected and read by
+nothing, while the local search index read them on every keystroke:
+`account.upiId`, `certificate.issuedBy`, `digitalAsset.accountIdentifier`,
+`education.achievements`, `education.qualification`, `person.nickname`,
+`purchase.seller`, `trip.stayingAt`, `vaultItem.username`,
+`vehicleService.workDone` and `vehicleService.workshop`.
+
+`account.upiId` is the field this tool's own header cites as the reason
+comments are stripped. Putting it back on the list was the right fix to the
+wrong question: it never belonged there.
+
+So the inventory moves **63 → 57**: five added that nothing reads, eleven
+removed that something always did.
+
+### And then two of the five were wired
+
+`will.registered` and `legalDocument.registered` are the reason this whole
+section exists — the pair whose clearing by a geofencing sentence proved the
+rename in `core/locale.js` had never worked. Being reported was the point, and
+what came of it is `registrationStatus()` in `js/domain/estate.js`.
+
+That module opens by recording that two documents called `account.nominee`,
+`holding.nominee` and `policy.nominee` reference data needing no derivation,
+and that measuring it said otherwise in one line. `registered` is the same
+claim one step along.
+
+What it derives is deliberately thin, because the subject is not.
+**Registration is not validity**: an unregistered will is still a will —
+registration is optional in India and makes one harder to challenge, not
+lawful — while for a deed it is frequently compulsory, and which deeds under
+which statute is a question this application cannot answer and must not appear
+to. So the screen reports which instruments in force the household has
+**recorded as registered**, and separately where the household's own record
+disagrees with itself: a document marked registered with no registration
+number, or a number recorded against one not marked registered. That second
+half needs no legal opinion at all.
+
+The list is called `notRecorded` rather than `unregistered` on purpose. The
+field is a boolean, so it has two states and a household has three — yes, no,
+and never asked. A form nobody opened says no in the same voice as a person
+who did.
+
+Inventory **57 → 55**.
+
 ## What a finding does *not* mean
 
-**63<!--live:unreadFields--> of 617<!--live:fields--> fields are unread, and that is not 63 bugs.** A vehicle's chassis
+**55<!--live:unreadFields--> of 617<!--live:fields--> fields are unread, and that is not 55 bugs.** A vehicle's chassis
 number and a medication's dosage are reference data: you record them, you read
 them on screen, and nothing should compute with them.
 

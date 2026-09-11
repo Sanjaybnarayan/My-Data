@@ -82,7 +82,16 @@ export function forget() {
  * tools/field-coverage.mjs finds a field by searching for its name in code. An
  * exported function called `registered` moved both of those off the unread
  * list without a line of code reading either — a ratchet loosened by a
- * coincidence of naming. The tool caught it; the name is the fix.
+ * coincidence of naming.
+ *
+ * **The rename was not the fix, and this comment said it was for months.**
+ * Both fields stayed off the list afterwards, cleared instead by a sentence in
+ * `js/locale/en.js` explaining that geofence zones "are not registered with
+ * the phone". Renaming one function changed nothing the instrument could see,
+ * so nothing said so. The tool now treats a catalogue file as the prose it is,
+ * and both fields are back on the inventory where they belong. The name stays
+ * — it is still the better name — but the class of fault was closed there,
+ * not here.
  */
 export function catalogueTags() {
   return [...catalogues.keys()];

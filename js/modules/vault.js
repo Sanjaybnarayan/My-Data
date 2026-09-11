@@ -21,8 +21,12 @@ import { entitiesOfModule } from '../data/schema.js';
 import { tabLabel } from '../core/labels.js';
 import { EstateService } from '../services/estate.js';
 import { A_NOTE_IS_NOT_THE_WILL } from '../domain/estate.js';
+import { t } from '../core/locale.js';
 import { formatDay } from '../core/dates.js';
 import { slidingRow } from '../ui/components/slidingrow.js';
+
+/** Indent for a line that sits inside a card beside a list, not in one. */
+const ASIDE = { padding: '0 var(--space-5)' };
 
 const TABS = ['vaultItem', 'will', 'beneficiary', 'legalDocument'];
 
@@ -86,6 +90,8 @@ async function willBanner() {
 
   const { coverage } = review;
   if (coverage.willOnly.length) cards.push(coverageCard(coverage.willOnly));
+  const registration = registrationCard(review.registration);
+  if (registration) cards.push(registration);
 
   return cards;
 }
@@ -108,7 +114,7 @@ function duplicateWillsCard(rows, people) {
       + 'no longer apply as revoked, and the comparison below will stop using '
       + 'them.'),
     ...rows.map((row) => h('div', { class: 'list' }, [
-      h('p', { class: 'small', style: { padding: '0 var(--space-5)' } },
+      h('p', { class: 'small', style: ASIDE },
         `${nameOf(row.testator)} — ${row.wills.length} in force`),
       ...row.wills.map((one) => listItem({
         title: one.title,
@@ -157,6 +163,49 @@ function unclearCard(rows) {
 }
 
 /** The will speaks to it and no nominee was ever recorded. */
+/**
+ * Which instruments are recorded as registered.
+ *
+ * The refusal leads, because this is the card most likely to be read as an
+ * instruction and it is not one: an unregistered will is still a will, and
+ * which deeds must be registered is a question of statute this application
+ * does not answer.
+ *
+ * Drawn only when the household's record disagrees with itself, or when
+ * something is recorded as registered. A card that appeared merely because a
+ * will exists and nobody has filled the box in would be a to-do list wearing a
+ * notice, and it would appear for every household on the day they record their
+ * first will.
+ */
+function registrationCard(registration) {
+  if (!registration) return null;
+  const { registered, disagreeing } = registration;
+  if (!registered.length && !disagreeing.length) return null;
+
+  const reason = (row) => (row.why === 'noNumber'
+    ? t('estate.registration.noNumber')
+    : t('estate.registration.numberOnly'));
+
+  return card({ class: 'will-registration' }, [
+    cardHeader(t('estate.registration.title'),
+      registered.length
+        ? badge(t('estate.registration.recorded', { n: registered.length }))
+        : null),
+    h('p', { class: 'small muted' }, t(registration.noticeKey)),
+    disagreeing.length
+      ? h('div', {}, [
+        h('p', { class: 'small', style: ASIDE },
+          t('estate.registration.disagrees')),
+        h('div', { class: 'list' }, disagreeing.map((row) => listItem({
+          title: row.title,
+          subtitle: reason(row),
+          href: Router.href({ module: 'vault', entity: row.entity, id: row.id }),
+        }))),
+      ])
+      : null,
+  ]);
+}
+
 function coverageCard(rows) {
   return card({ class: 'will-coverage' }, [
     cardHeader('The will names these, and the institution was never told',

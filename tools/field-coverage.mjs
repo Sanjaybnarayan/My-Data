@@ -86,12 +86,36 @@ const HOUSEKEEPING = new Set([
  * that reads `document.confidential`. A scanner that knows it is inside a
  * string cannot make that mistake.
  *
- * Regex literals are still not tracked. A comment opener inside one would
- * mis-strip, and the failure would be a field reported unread when code names
- * it — loud, and unlike the failure this replaces, which was silent.
+ * Regex literals are tracked here only well enough not to mis-strip: a comment
+ * opener inside one used to swallow the code after it. This paragraph then said
+ * the remaining risk was "a field reported unread when code names it — loud,
+ * and unlike the failure this replaces, which was silent."
+ *
+ * **That was the wrong way round, and it was the silent one.** A regex body is
+ * a pattern, and the patterns here are made of English words:
+ * `/fuel|petrol|…|filling station|petro/i` sorts a bank narration and
+ * `/report|prescription|scan|x-?ray|…/` sorts an uploaded file. Three fields
+ * were reported **read** on the strength of those words and nothing else.
+ * `withoutRegexBodies` below blanks them, and the note is kept rather than
+ * deleted because a stated failure mode that does not happen is worse than an
+ * unstated one — a reader who checks it finds nothing and concludes the gap is
+ * closed.
  *
  * This comment cannot spell out the sequence it is about, for the same reason.
  */
+/**
+ * A file that is a catalogue rather than code.
+ *
+ * Owned here rather than in `tools/strings.mjs` because this module is already
+ * where "what counts as code" is decided — `withoutComments` lives here and
+ * that tool imports it. `notCounted()` there is this plus `js/core/locale.js`,
+ * which is machinery holding catalogue-shaped English and is real code to this
+ * search. One notion, one owner, and each tool's extra visible at its own site.
+ */
+export function isCatalogue(rel) {
+  return rel.split('\\').join('/').startsWith('js/locale/');
+}
+
 /** Whether a `/` here can only be a regex, rather than division. */
 function startsValue(out) {
   const before = out.replace(/\s+$/, '');
@@ -176,6 +200,79 @@ export function withoutComments(source) {
   return out;
 }
 
+/**
+ * Source with the body of every regex literal blanked, the delimiters kept.
+ *
+ * `withoutComments` deliberately keeps regex literals whole — it only needs to
+ * know where one starts so a `/` inside it does not open a comment. But a
+ * regex body is a *pattern*, and the patterns in this application are made of
+ * English words: `/fuel|petrol|…|filling station|petro/i` matches a bank
+ * narration, and `/report|prescription|scan|x-?ray|…/` sorts an uploaded file
+ * into a folder. Neither reads a field.
+ *
+ * Three fields were cleared by exactly that and nothing else:
+ * `fuelLog.station` by "filling station", `healthRecord.prescription` by
+ * "prescription", and `healthRecord.hospital` by "hospital" — which is
+ * genuinely read, but by the search index, for a reason this tool did not
+ * know either.
+ *
+ * The header of this file said regex literals were untracked and that the
+ * resulting failure would be "a field reported unread when code names it —
+ * loud". It was the other way round, and silent: fields reported **read**
+ * because a matching pattern contains the word. Stated wrongly is worse than
+ * not stated, because a reader who checks the stated failure mode finds
+ * nothing and concludes the gap is closed.
+ *
+ * The same start-of-value heuristic as `withoutComments`, for the same reason
+ * and with the same limit: whether a `/` opens a regex cannot be decided
+ * without parsing.
+ */
+export function withoutRegexBodies(source) {
+  const text = String(source ?? '');
+  let out = '';
+  let quote = null;
+  let i = 0;
+
+  while (i < text.length) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (quote) {
+      if (ch === '\\') { out += ch + (next ?? ''); i += 2; continue; }
+      if (ch === quote) quote = null;
+      out += ch;
+      i += 1;
+      continue;
+    }
+
+    if (ch === "'" || ch === '"' || ch === '`') { quote = ch; out += ch; i += 1; continue; }
+
+    if (ch === '/' && next !== '/' && next !== '*' && startsValue(out)) {
+      out += '/';
+      i += 1;
+      // A `/` inside a character class does not close the literal, and a
+      // newline means this was division after all.
+      let inClass = false;
+      while (i < text.length) {
+        if (text[i] === '\\') { i += 2; continue; }
+        if (text[i] === '\n') break;
+        if (text[i] === '[') inClass = true;
+        else if (text[i] === ']') inClass = false;
+        else if (text[i] === '/' && !inClass) break;
+        i += 1;
+      }
+      out += '/';
+      i += 1;
+      continue;
+    }
+
+    out += ch;
+    i += 1;
+  }
+
+  return out;
+}
+
 function walk(dir) {
   const out = [];
   for (const name of readdirSync(dir)) {
@@ -198,6 +295,14 @@ export function unreadFields() {
   const sources = walk(join(ROOT, 'js'))
     .map((path) => [path.slice(ROOT.length + 1), readFileSync(path, 'utf8')])
     .filter(([rel]) => !GENERIC.has(rel.split('\\').join('/')))
+    // A catalogue file is nothing but sentences, and this search already
+    // strips comments because "a field name in a comment is a field name in a
+    // sentence". The same argument, and it had cost three fields:
+    // `will.registered` and `legalDocument.registered` were cleared by a line
+    // about geofencing saying zones "are not registered with the phone", and
+    // `healthRecord.diagnosis` by one saying the app offers "no advice, no
+    // diagnosis and no score".
+    .filter(([rel]) => !isCatalogue(rel))
     .map(([, src]) => src);
 
   // The backend and the tooling read fields by name too.
@@ -205,7 +310,7 @@ export function unreadFields() {
     try { sources.push(readFileSync(join(ROOT, extra), 'utf8')); } catch { /* absent is fine */ }
   }
 
-  const haystack = sources.map(withoutComments).join('\n');
+  const haystack = sources.map((one) => withoutRegexBodies(withoutComments(one))).join('\n');
   const found = [];
 
   for (const name of entityNames()) {
@@ -220,6 +325,16 @@ export function unreadFields() {
       // string, and `sortBy` reads them generically. A field a list is ordered
       // by is read on every screen that draws the list.
       if (sortKeys(entities[name]).includes(field.key)) continue;
+
+      // And the fourth of those flags, which this tool did not know about:
+      // `searchableValues()` in `js/security/fieldcrypto.js` filters on
+      // `f.search && !f.encrypted` and reads `record[f.key]` — on every write,
+      // for 140 fields. Eleven of them sat on the unread inventory, described
+      // there as collected and read by nothing, while the local search index
+      // read them on every keystroke. `account.upiId` was one, and it is the
+      // field this file's own header cites as the reason comments are
+      // stripped: the fix put it back on a list it never belonged on.
+      if (field.search && !field.encrypted) continue;
 
       const escaped = field.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       if (!new RegExp(`\\b${escaped}\\b`).test(haystack)) found.push(`${name}.${field.key}`);

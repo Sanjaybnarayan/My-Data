@@ -58,6 +58,7 @@ const SHELL = [
   './js/locale/en-finance-screen.js',
   './js/locale/en-calendar.js',
   './js/locale/en-biometric.js',
+  './js/locale/en-estate.js',
   './js/locale/en-example.js',
   './js/locale/en.js',
   './js/core/native.js',

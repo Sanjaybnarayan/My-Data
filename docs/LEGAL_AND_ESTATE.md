@@ -96,7 +96,7 @@ not a disagreement with the current one; it is a decision already replaced.
 ## What the field-coverage ratchet was right about
 
 Fourteen new fields were read by nothing. Most are reference data and fine — a
-custodian's name, whether a deed was registered. Three were not:
+custodian's name, for instance. Three were not:
 
 - **`will.testator` and `will.executedOn`** unread meant two wills for one
   person went unnoticed. That became `willsInConflict`.
@@ -108,7 +108,59 @@ custodian's name, whether a deed was registered. Three were not:
   beside it is the second source of truth this project has now found three
   times. Removed rather than accounted for.
 
-Six remain, all genuine reference data, and they are in the inventory.
+Six remained, and this paragraph called them "all genuine reference data".
+Two of them were not, and the sentence above them had already named one:
+*whether a deed was registered*.
+
+## The fourth one, and why it took a broken instrument to find
+
+`will.registered` and `legalDocument.registered` were on the inventory, and for
+months the tool that put them there had been reporting them as **read** — on
+the strength of a sentence in `js/locale/en.js` explaining that geofence zones
+"are not registered with the phone". `docs/FIELD_COVERAGE.md` tells that story;
+what matters here is that the claim at the top of this file applies to itself.
+Two documents once said a nominee needs no derivation, and measuring it said
+otherwise in one line. *Whether a deed was registered* was the same claim, made
+in this document, about a field nothing could see.
+
+`registrationStatus()` is what came of it, and it is deliberately thin because
+the subject is not.
+
+**Registration is not validity, and this is the strictest refusal in the
+module.** An unregistered will is still a will — registration is optional in
+India and makes one harder to challenge, not lawful. For a deed it is
+frequently compulsory, and which deeds, under which statute, turning on what
+the document actually is, are questions this application cannot answer and must
+not appear to. `estate.registration.notice` says so on the screen, above
+everything else the card draws.
+
+So it reports two things and neither is advice:
+
+- **Which instruments in force are recorded as registered**, and which are not.
+  The second list is `notRecorded`, not `unregistered`, because `registered` is
+  a boolean with two states and a household has three — yes, no, and never
+  asked. A form nobody opened answers no in the same voice as a person who did,
+  and the heading on the screen says *not recorded as registered* for the same
+  reason.
+- **Where the record disagrees with itself**: a legal document marked
+  registered with no registration number, or a registration number recorded
+  against one not marked registered. That half needs no legal opinion at all,
+  which is why it is the half the card leads with. A will is never in it — the
+  schema gives it no registration number to disagree with.
+
+A revoked will and a superseded deed are in neither list. `inForce` and
+`currentLegalDocuments` already existed for that, and an instrument that
+decides nothing should not be reported as registered or otherwise.
+
+`registrationNumber` is `encrypted: true` and this screen's data is loaded with
+`decrypt: false`. That is safe here and worth saying why: presence survives
+sealing even when the value does not, and presence is the whole question.
+Contrast `sealed()` in the same module, where the value itself was needed and
+reading a ciphertext as a name would have emptied the nominee gap list and told
+a household there was nothing to fix.
+
+Four remain in the inventory, and this time the sentence is narrower: they are
+reference data **as far as anything here has thought to ask**.
 
 ## A recovery phrase is not a recovery code
 

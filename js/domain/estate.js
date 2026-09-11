@@ -519,6 +519,105 @@ export function willCoverage(data) {
   };
 }
 
+/**
+ * The refusal that governs registration, and it is the strictest of the three.
+ *
+ * `NOMINEE_IS_NOT_HEIR` says a nomination does not decide who inherits.
+ * `A_NOTE_IS_NOT_THE_WILL` says the note is not the instrument. This one says
+ * the application has no opinion on whether a document *ought* to be
+ * registered.
+ *
+ * **An unregistered will is not an invalid will.** In India registration of a
+ * will is optional; it makes one harder to challenge, not lawful. For a deed
+ * it is frequently compulsory — and which deeds, under which statute, turning
+ * on what the document actually is, are questions this application cannot
+ * answer and must not appear to.
+ *
+ * So nothing here calls a document defective, and nothing here is a to-do
+ * list. It reports which instruments the household has recorded as registered
+ * and which it has not, and it reports where the household's own record
+ * disagrees with itself. What any of it means is for a solicitor.
+ *
+ * **A catalogue key, where its two siblings above are sentences.** They were
+ * written before the catalogue existed and are counted by `tools/strings.mjs`
+ * as English a translator cannot reach; that count is a ratchet and may only
+ * fall, so a third sentence written here would be a new one of exactly the
+ * kind the phase exists to stop. The refusal itself is no less binding for
+ * living in `js/locale/en.js` — and unlike the other two, it can be
+ * translated.
+ */
+export const REGISTRATION_IS_NOT_VALIDITY = 'estate.registration.notice';
+
+/** A value that is present, whether or not this pass could read it. */
+const recorded = (value) => plain(value) !== '';
+
+/**
+ * Which instruments in force are recorded as registered, and which are not.
+ *
+ * ## Why `notRecorded` is not called `unregistered`
+ *
+ * `registered` is a boolean, so it has two states and the household has
+ * three: yes, no, and never asked. A form that has never been opened says
+ * `false` in exactly the same way as one where somebody answered no. Calling
+ * that list *unregistered* would state a fact about the world on the strength
+ * of a default, so it states a fact about the record instead — nothing here
+ * has been recorded as registered — and the screen says the same.
+ *
+ * ## The half that is certain
+ *
+ * `disagreeing` needs no legal opinion at all: a legal document marked
+ * registered with no registration number beside it, or a registration number
+ * recorded against a document not marked registered. That is the household's
+ * record contradicting itself, which is always worth a look and never a
+ * question of statute.
+ *
+ * A will is excluded from that half because the schema gives it no
+ * registration number to disagree with — `number` is null for one, and the
+ * comparisons below test for `false` and `true` rather than falsiness so that
+ * null stays out of both.
+ *
+ * `registrationNumber` is `encrypted: true` and this data is loaded with
+ * `decrypt: false`, which is deliberate and harmless here: presence survives
+ * sealing even when the value does not, and presence is the whole question.
+ * Contrast `sealed()` above, where the value itself was needed and reading a
+ * ciphertext as a name would have emptied the gap list.
+ */
+export function registrationStatus(data) {
+  const items = [
+    ...live(data?.wills ?? []).filter(inForce).map((row) => ({
+      entity: 'will',
+      id: row.id,
+      title: plain(row.title),
+      kind: null,
+      registered: row.registered === true,
+      number: null,
+    })),
+    ...currentLegalDocuments(data).map((row) => ({
+      entity: 'legalDocument',
+      id: row.id,
+      title: plain(row.title),
+      kind: plain(row.kind) || null,
+      registered: row.registered === true,
+      number: recorded(row.registrationNumber),
+    })),
+  ];
+
+  const disagreeing = [
+    ...items.filter((one) => one.registered && one.number === false)
+      .map((one) => ({ ...one, why: 'noNumber' })),
+    ...items.filter((one) => !one.registered && one.number === true)
+      .map((one) => ({ ...one, why: 'numberOnly' })),
+  ];
+
+  return {
+    /** A catalogue key — see `REGISTRATION_IS_NOT_VALIDITY`. */
+    noticeKey: REGISTRATION_IS_NOT_VALIDITY,
+    registered: items.filter((one) => one.registered),
+    notRecorded: items.filter((one) => !one.registered),
+    disagreeing,
+  };
+}
+
 export function describeNomination(row, nameOf = (id) => id) {
   if (!row) return null;
 

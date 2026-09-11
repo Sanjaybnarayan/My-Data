@@ -22,6 +22,7 @@
 import { Service, HOLDING_LIMIT } from './service.js';
 import {
   estate, bequestConflicts, willCoverage, willsInConflict, currentLegalDocuments,
+  registrationStatus,
 } from '../domain/estate.js';
 
 /** @type {Record<string, import('./service.js').Load>} */
@@ -67,6 +68,7 @@ export class EstateService extends Service {
       coverage: willCoverage(data),
       duplicates: willsInConflict(data),
       documents: currentLegalDocuments(data),
+      registration: registrationStatus(data),
       people: data.people ?? [],
       any: conflicts.length > 0
         || willsInConflict(data).length > 0
