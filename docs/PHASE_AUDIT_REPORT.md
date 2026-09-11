@@ -5,6 +5,16 @@
 status below is supported by a file path, a command output, or a script that was
 run. Where something could not be executed, it says so.
 
+> **One path in this dated report was corrected rather than left standing.** The
+> Calendar row cited a js/sync/calsync.js, and `git log --diff-filter=AD` finds
+> no such file in this repository's history — it was wrong when written, not
+> stale by drift. The implementation is `js/sync/calendar.js` and the row's
+> verdict was right. A dated measurement stays as written; a path that was never
+> true is an error, and leaving it would preserve the error rather than the
+> record. `tools/self-description.mjs` now checks that source paths cited in
+> `docs/` resolve, so the next one fails the build instead of being read and
+> believed.
+
 > **In flight and not included:** PR #99 (`claude/phase-25-locale`, commit
 > `4e8e235`) adds the localisation layer and is not merged. Phase 25 is audited
 > against `main`, where it does not exist. The one place this matters is called
@@ -408,7 +418,7 @@ That is a real integration, and `docs/STATUS.md` states it plainly.
 | Google OAuth | **REAL** | `js/auth/google.js`, `js/auth/googlenative.js`, PKCE S256 |
 | Gmail | **REAL** | `apps-script/Gmail.gs`, optional by deployment (`Code.gs:114–120`) |
 | Drive | **REAL** | `apps-script/Drive.gs`, `DriveApp` + `UrlFetchApp` |
-| Calendar | **REAL** | `js/sync/calsync.js`, `CALENDAR_SCOPE` |
+| Calendar | **REAL** | `js/sync/calendar.js`, `CALENDAR_SCOPE` |
 | Sheets | **REAL but blocked** | `apps-script/Sheets.gs` — see §8.1 |
 | SMS | **ABSTRACTION ONLY** | `js/domain/sms.js`; `SOURCE.NATIVE` returns `NOT_SUPPORTED` |
 | Android | **REAL shell** | Capacitor; APK builds in CI |

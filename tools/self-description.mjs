@@ -284,6 +284,7 @@ export const DELIBERATELY_ABSENT = {
   'security.mjs': 'a hypothetical rename, named to explain what would stop being run',
   'hi-example.js': 'the second-language file a translator would add beside en-example.js',
   'mut-lint.mjs': 'a hypothetical file, named to explain why a suffix test is not enough',
+  'mask-check.tmp.mjs': 'a scratch script two dated reports name as what they ran; it was never committed',
 };
 
 /**
@@ -310,6 +311,22 @@ export const DELIBERATELY_ABSENT = {
  * forty-five findings where there are none. It did, on its first run.
  */
 export function references(root = ROOT, absent = DELIBERATELY_ABSENT) {
+  /*
+   * Documents cite source files too, and the documents are where it bit.
+   * `docs/CONNECTOR_AUDIT.md`, `docs/PHASE_STATUS.md` and a dated audit whose
+   * method line reads "every status below is supported by a file path" all
+   * cited a js/sync/calsync.js as the evidence that Calendar is REAL. No such
+   * file has ever been in this repository — the implementation is
+   * `js/sync/calendar.js`, so the verdict was right and the evidence was not.
+   * `docs/ARCHITECTURE.md` did the same twice, for an apps-script/Schema.gs and
+   * a windowed renderer that lives in `ui/components/table.js`.
+   *
+   * Scoped to **source** paths, not every path: a `.md` that names a document
+   * this repository has not written yet is tracked by the audit on purpose,
+   * and a build output is absent because it has not been built. Neither is a
+   * stale citation, and sweeping them in would need an allowlist longer than
+   * the findings.
+   */
   const every = [];
   (function walk(dir) {
     for (const name of readdirSync(dir)) {
@@ -326,13 +343,19 @@ export function references(root = ROOT, absent = DELIBERATELY_ABSENT) {
   let checked = 0;
 
   for (const rel of every) {
-    if (!/^(js|apps-script|tools)\//.test(rel) || !/\.(js|mjs|gs)$/.test(rel)) continue;
+    const isSource = /^(js|apps-script|tools)\//.test(rel) && /\.(js|mjs|gs)$/.test(rel);
+    const isDoc = /^docs\/.*\.md$/.test(rel);
+    if (!isSource && !isDoc) continue;
     const lines = readFileSync(join(root, rel), 'utf8').split('\n');
     lines.forEach((line, i) => {
-      if (!/^\s*(\*|\/\/)/.test(line)) return;
+      // In source, only comments. In a document, every line is prose.
+      if (isSource && !/^\s*(\*|\/\/)/.test(line)) return;
       for (const match of line.matchAll(/`([^`\s]+)`/g)) {
         const token = match[1].replace(/[.,;:)]+$/, '');
         if (!pathish.test(token)) continue;
+        // A document naming a document it hopes somebody writes is the audit's
+        // business, not this tool's. Source citations are what went wrong.
+        if (isDoc && !/\.(js|mjs|gs)$/.test(token)) continue;
         checked += 1;
         if (every.some((real) => real === token || real.endsWith(`/${token}`))) continue;
         const base = token.split('/').pop();

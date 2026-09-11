@@ -12,7 +12,7 @@ be an API.
 | Google OAuth | **REAL** | `js/auth/google.js`, `js/auth/googlenative.js` — PKCE S256, installed-app client, system browser |
 | Gmail | **REAL** | `apps-script/Gmail.gs`, `GmailApp`; optional per deployment (`Code.gs:114-120` returns 501 if absent) |
 | Drive | **REAL** | `apps-script/Drive.gs` — `DriveApp`, `UrlFetchApp`, versions, trash, per-person folders |
-| Calendar | **REAL** | `js/sync/calsync.js`, `CALENDAR_SCOPE` = `calendar.app.created` |
+| Calendar | **REAL** | `js/sync/calendar.js`, `CALENDAR_SCOPE` = `calendar.app.created` |
 | Google Sheets | **REAL, BLOCKED** | `apps-script/Sheets.gs` — works, but every call is refused; see `docs/SECURITY_AUDIT.md` P0 |
 | SMS | **ABSTRACTION ONLY** | `js/domain/sms.js`, `js/services/sms.js`, `smsMessage` entity. `SOURCE.NATIVE` reports `NOT_SUPPORTED` |
 | Android | **REAL shell** | Capacitor 8.5.0; debug APK builds in CI |
