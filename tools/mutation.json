@@ -882,6 +882,34 @@
       "find": "  if (source[i] !== '{') return conditionalKeys(source, from);",
       "replace": "  if (source[i] !== '{') return null;",
       "suite": "apicontract"
+    },
+    {
+      "label": "an assertion about a refusal goes back to being invisible",
+      "file": "tests/harness.mjs",
+      "find": "    if (!returned || typeof returned.then !== 'function') return check(null);",
+      "replace": "    if (false) return check(null);",
+      "suite": "harness"
+    },
+    {
+      "label": "a refusal that never happened is not noticed at all",
+      "file": "tests/harness.mjs",
+      "find": "      if (!thrown) fail(message, 'no error thrown');",
+      "replace": "      if (false) fail(message, 'no error thrown');",
+      "suite": "harness"
+    },
+    {
+      "label": "an assertion nobody awaited is dropped instead of failing its test",
+      "file": "tests/harness.mjs",
+      "find": "    if (result.status === 'rejected') return result.reason;",
+      "replace": "    if (false) return result.reason;",
+      "suite": "harness"
+    },
+    {
+      "label": "the runner stops asking what a forgotten assertion decided",
+      "file": "tests/harness.mjs",
+      "find": "    const forgotten = await settlePending();\n    if (forgotten) throw forgotten;",
+      "replace": "    const forgotten = null;\n    if (forgotten) throw forgotten;",
+      "suite": "harness"
     }
   ]
 }
