@@ -16,7 +16,7 @@ does is make a second language *possible* and make an incomplete one
 | Piece | What it is |
 | --- | --- |
 | `js/core/locale.js` | `t()`, catalogue registration, the active language, and the measurements below |
-| `js/locale/en.js` | The authoritative catalogue. 957<!--live:localeKeys--> keys today |
+| `js/locale/en.js` | The authoritative catalogue. 958<!--live:localeKeys--> keys today |
 | `js/core/labels.js` | The one door the schema's English passes through on its way to a screen |
 | `tools/strings.mjs` | Counts the English still written directly into the source |
 
@@ -115,7 +115,7 @@ convention to prevent, and the reason the first pass here left them alone.
 So both halves were routed: **eleven `validate.*` keys**, each a whole
 sentence, with the field name arriving through `fieldLabel()` as a
 placeholder. The unrouted count falls from 3,024 to 3,013<!--live:unroutedStrings-->
-and the catalogue grows to 957<!--live:localeKeys--> keys.
+and the catalogue grows to 958<!--live:localeKeys--> keys.
 
 The other nine — the detail screen's masked-value control, the reference lists
 in `domain/connections.js` and `services/records.js`, reminder rows, the
@@ -220,7 +220,7 @@ relationship: the untranslated remainder is exactly the schema labels.
 
 What *is* reachable today:
 
-- 957<!--live:localeKeys--> UI message keys — dates, the generic record screens, the language card
+- 958<!--live:localeKeys--> UI message keys — dates, the generic record screens, the language card
 - 748<!--live:labelKeys--> schema label keys — 25<!--live:modules--> modules, 53<!--live:entities--> entities in two forms each, 617<!--live:fields--> fields
 
 748<!--live:labelKeys--> of those are derived from the schema by `labelKeys()`, so a new entity is
@@ -246,7 +246,7 @@ being empty.
 
 ## What a translator would need
 
-1. `js/locale/en.js` — 957<!--live:localeKeys--> strings, whole sentences, with `{placeholders}`
+1. `js/locale/en.js` — 958<!--live:localeKeys--> strings, whole sentences, with `{placeholders}`
    intact. Every placeholder must survive or the line is refused.
 2. The 748<!--live:labelKeys--> label keys from `labelKeys()` — entity names, field names, module
    names.

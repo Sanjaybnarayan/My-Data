@@ -68,6 +68,7 @@ export const settingsDataStrings = {
   'settings.data.noConflicts': 'No conflicts',
   'settings.data.conflictValues': 'this device: {local} · other device: {remote}',
   'settings.data.conflictKept': 'kept: {value}',
+  'settings.data.conflictSealed': 'this device cannot read this value',
   'settings.data.useThisDevice': 'Use this device’s version',
   'settings.data.reverted': 'Reverted to this device’s values',
   'settings.data.nothingConflicted': 'Nothing has conflicted',

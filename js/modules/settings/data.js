@@ -19,6 +19,7 @@ import { toast } from '../../ui/components/toast.js';
 import { userMessage } from '../../core/errors.js';
 import { ExampleService, loadedExample } from '../../services/example.js';
 import { exampleStrings } from '../../locale/en-example.js';
+import { openFields } from '../../security/fieldcrypto.js';
 
 /* ------------------------------------------------------------------ data */
 
@@ -168,6 +169,49 @@ export function deletedCard(db) {
 
 /* ------------------------------------------------------------- conflicts */
 
+/**
+ * The three sides of one conflict, as a person can read them.
+ *
+ * A conflict row holds what was stored, which for an encrypted field is the
+ * envelope — see `openFields`, which explains why that is right to keep and
+ * wrong to show. Opening happens here, for the screen, and the row itself is
+ * left alone.
+ *
+ * Exported so the suite can ask what the three sentences on that screen
+ * actually say. Nothing else imports it: the card below is its only caller,
+ * and a screen nobody can question is how the envelopes got printed for as
+ * long as they did.
+ */
+export async function readable(db, conflict) {
+  const open = (values) =>
+    openFields(conflict.store, conflict.recordId, values, db.keyring.key);
+  const [local, remote, resolved] = await Promise.all([
+    open(conflict.localValues), open(conflict.remoteValues), open(conflict.resolvedValues),
+  ]);
+  const say = (side) => (field) =>
+    (side.sealed.includes(field) ? t('settings.data.conflictSealed') : side.values[field]);
+  return { local: say(local), remote: say(remote), resolved: say(resolved) };
+}
+
+/**
+ * Undo the merge's choice for one conflict, and mark the row reviewed.
+ *
+ * It sends the **stored** values, not the ones `readable` opened for the
+ * screen. An envelope passes back through `encryptRecord` untouched — it is
+ * already sealed, and bound to this entity, this record and this field, so it
+ * lands in the slot it came out of. Sending the opened map would send the
+ * "cannot read this" sentence for a field that would not open, and write it
+ * over a ciphertext a later key may still open.
+ *
+ * Exported for the same reason `readable` is: this is the one button on this
+ * screen that changes a record, and a button nobody can question is not a
+ * button anybody should trust.
+ */
+export async function revertToThisDevice(db, conflict) {
+  await db.repo(conflict.store).update(conflict.recordId, conflict.localValues);
+  await db.adapter.write('conflicts', { ...conflict, reviewed: true });
+}
+
 export function conflictsCard(db) {
   return card({}, [
     cardHeader('Conflicts', null, { iconName: 'swap' }),
@@ -176,13 +220,14 @@ export function conflictsCard(db) {
       variant: 'subtle',
       onClick: async () => {
         const conflicts = await db.adapter.query('conflicts', { limit: 200 });
+        const shown = await Promise.all(conflicts.map((one) => readable(db, one)));
         modal({
           title: conflicts.length
             ? t('settings.data.conflictCount', { n: conflicts.length })
             : t('settings.data.noConflicts'),
           wide: true,
           body: conflicts.length
-            ? h('div', { class: 'stack' }, conflicts.map((conflict) => card({ variant: 'quiet' }, [
+            ? h('div', { class: 'stack' }, conflicts.map((conflict, i) => card({ variant: 'quiet' }, [
               h('div', { class: 'row row--between' }, [
                 h('strong', {}, entityLabel(entity(conflict.store))),
                 badge(conflict.outcome),
@@ -190,18 +235,17 @@ export function conflictsCard(db) {
               h('div', { class: 'list' }, conflict.fields.map((field) => listItem({
                 title: field,
                 subtitle: t('settings.data.conflictValues', {
-                  local: conflict.localValues[field],
-                  remote: conflict.remoteValues[field],
+                  local: shown[i].local(field),
+                  remote: shown[i].remote(field),
                 }),
-                value: t('settings.data.conflictKept', { value: conflict.resolvedValues[field] }),
+                value: t('settings.data.conflictKept', { value: shown[i].resolved(field) }),
               }))),
               h('div', { class: 'row row--end' }, [
                 button(t('settings.data.useThisDevice'), {
                   class: 'btn--small',
                   variant: 'subtle',
                   onClick: async () => {
-                    await db.repo(conflict.store).update(conflict.recordId, conflict.localValues);
-                    await db.adapter.write('conflicts', { ...conflict, reviewed: true });
+                    await revertToThisDevice(db, conflict);
                     toast(t('settings.data.reverted'), { kind: 'success' });
                   },
                 }),

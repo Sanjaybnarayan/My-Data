@@ -10,6 +10,7 @@ import {
   passwordEntropy, passwordStrength, timingSafeEqual, toBase64, fromBase64,
 } from '../js/security/crypto.js';
 import { Keyring } from '../js/security/keyring.js';
+import { openFields } from '../js/security/fieldcrypto.js';
 import {
   can, assertCan, rowFilter, readScope, visibleEntities, visibleModules, atLeast, SUBJECT_FIELD,
 } from '../js/security/rbac.js';
@@ -144,6 +145,20 @@ describe('crypto', () => {
       assert.equal(after.diagnosis, FOREIGN,
         'the blank the reader produced was sealed over the ciphertext');
       assert.equal(after.title, 'Renamed', 'the edit the household asked for did not apply');
+    });
+
+    test('is named rather than blanked when a screen asks for it by field', async () => {
+      // `openFields` is what the conflict review screen uses. A blank there
+      // would read as "the other device cleared it", which is a different
+      // statement about the household's records and an untrue one.
+      const { db, id } = await damaged();
+      const opened = await openFields(
+        'healthRecord', id, { title: 'Real', diagnosis: FOREIGN }, db.keyring.key,
+      );
+
+      assert.deep(opened.sealed, ['diagnosis']);
+      assert.equal(opened.values.title, 'Real', 'a clear field beside it still reads');
+      assert.not('id' in opened.values, 'the id was borrowed to bind the ciphertext, not shown');
     });
 
     test('and is still overwritable when the household asks for that', async () => {
