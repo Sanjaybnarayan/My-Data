@@ -66,6 +66,40 @@ export async function decryptRecord(entityName, record, key) {
   return out;
 }
 
+/**
+ * Open a named set of one record's fields, rather than a whole record.
+ *
+ * The `conflicts` store keeps the two sides of a disagreement exactly as they
+ * were stored, which for an encrypted field is the envelope. That is the right
+ * thing to *keep* — the store is not encrypted, and putting plaintext in it
+ * would write a diagnosis or an account number in the clear next to the
+ * ciphertext everywhere else.
+ *
+ * It is the wrong thing to *show*. The screen that reviews conflicts printed
+ * those envelopes: "this device: enc:v1:76qcmszATSg… · other device:
+ * enc:v1:WTI6xw6ucm…", under a blurb promising a record of decisions the
+ * household can reverse. For the forty-five sealed fields — a diagnosis, an
+ * account number, a vault password — the two sides were indistinguishable,
+ * and the button that reverses the decision was a coin flip.
+ *
+ * So they are opened here, on the way to the screen and nowhere else. The
+ * fields that would not open are named rather than blanked, because a screen
+ * saying "this device cannot read this" is true, and an empty one reads as
+ * "the value was cleared".
+ *
+ * @param {string} entityName
+ * @param {string} recordId the id the values belong to — the ciphertext is
+ *   bound to it, so a map opened against the wrong record opens nothing
+ * @param {Record<string, any>} values field key to stored value
+ * @param {CryptoKey} key
+ * @returns {Promise<{values: Record<string, any>, sealed: string[]}>}
+ */
+export async function openFields(entityName, recordId, values, key) {
+  const opened = await decryptRecord(entityName, { ...values, id: recordId }, key);
+  const { id, _undecryptable, ...rest } = opened;
+  return { values: rest, sealed: _undecryptable ?? [] };
+}
+
 export async function decryptMany(entityName, records, key) {
   const out = [];
   for (const r of records) out.push(await decryptRecord(entityName, r, key));

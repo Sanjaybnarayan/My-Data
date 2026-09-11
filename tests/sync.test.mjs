@@ -1,12 +1,13 @@
 import { test, describe, assert, setSuite, fakeClock } from './harness.mjs';
 import { makeDb, outbox, makePerson, makeAccount } from './fixture.mjs';
 import { merge, arbitrate, conflictRecord } from '../js/sync/conflict.js';
-import { encryptRecord, decryptRecord } from '../js/security/fieldcrypto.js';
+import { encryptRecord, decryptRecord, openFields } from '../js/security/fieldcrypto.js';
 import { isEncrypted } from '../js/security/crypto.js';
 import { Outbox, backoffMs, MAX_ATTEMPTS } from '../js/sync/outbox.js';
 import { SyncEngine, SYNC_STATE } from '../js/sync/engine.js';
 import { FakeTransport } from '../js/sync/transport.js';
 import { totals } from '../js/domain/finance.js';
+import { readable, revertToThisDevice } from '../js/modules/settings/data.js';
 import { TransportError } from '../js/core/errors.js';
 
 setSuite('sync');
@@ -528,6 +529,87 @@ describe('engine', () => {
         'the conflicts store is not encrypted, so what it keeps must already be sealed',
       );
       assert.ok(isEncrypted(conflicts[0].remoteValues.diagnosis));
+    });
+
+    test('the conflict a person reviews opens back to what each device typed', async () => {
+      const db = await makeDb();
+      const server = fakeServer();
+      const engine = new SyncEngine({ db, transport: server.transport });
+
+      const record = await visit(db);
+      await engine.run();
+
+      const key = `healthRecord/${record.id}`;
+      server.rows.set(key, await fromAnotherDevice(db, server.rows.get(key), {
+        diagnosis: 'asthma, moderate',
+      }));
+      await db.repo('healthRecord').update(record.id, { diagnosis: 'asthma, mild' });
+      await engine.run();
+
+      // What the Settings screen does with the row it just read.
+      const [conflict] = await db.adapter.query('conflicts', {});
+      const open = (values) =>
+        openFields(conflict.store, conflict.recordId, values, db.keyring.key);
+
+      assert.equal((await open(conflict.localValues)).values.diagnosis, 'asthma, mild');
+      assert.equal((await open(conflict.remoteValues)).values.diagnosis, 'asthma, moderate');
+      assert.equal((await open(conflict.resolvedValues)).values.diagnosis, 'asthma, moderate');
+      assert.length((await open(conflict.localValues)).sealed, 0);
+
+      // And what the screen itself puts on the line, rather than only what the
+      // function under it returns.
+      const shown = await readable(db, conflict);
+      assert.equal(shown.local('diagnosis'), 'asthma, mild');
+      assert.equal(shown.remote('diagnosis'), 'asthma, moderate');
+      assert.equal(shown.resolved('diagnosis'), 'asthma, moderate');
+    });
+
+    test('a value this device cannot open says so on that screen', async () => {
+      const db = await makeDb();
+      const record = await visit(db);
+
+      // The row as it would be after a key rotation another device made: the
+      // conflict was written when it could still be read, the key it was
+      // sealed under is gone, and the screen is opened afterwards.
+      const shown = await readable(db, {
+        store: 'healthRecord',
+        recordId: record.id,
+        localValues: { diagnosis: `enc:v1:${'A'.repeat(16)}:${'B'.repeat(44)}` },
+        remoteValues: { diagnosis: 'asthma, moderate' },
+        resolvedValues: { diagnosis: 'asthma, moderate' },
+      });
+
+      assert.equal(shown.local('diagnosis'), 'this device cannot read this value');
+      assert.equal(shown.remote('diagnosis'), 'asthma, moderate',
+        'one side that will not open must not take the other side down with it');
+    });
+
+    test('reverting to this device sends the stored value, not the one shown', async () => {
+      const db = await makeDb();
+      const server = fakeServer();
+      const engine = new SyncEngine({ db, transport: server.transport });
+
+      const record = await visit(db);
+      await engine.run();
+
+      const key = `healthRecord/${record.id}`;
+      server.rows.set(key, await fromAnotherDevice(db, server.rows.get(key), {
+        diagnosis: 'asthma, moderate',
+      }));
+      await db.repo('healthRecord').update(record.id, { diagnosis: 'asthma, mild' });
+      await engine.run();
+
+      // The button hands back `localValues` as stored — sealed. An envelope
+      // bound to this entity, record and field goes back into the slot it came
+      // from, so what a person reads afterwards is what their device said.
+      const [conflict] = await db.adapter.query('conflicts', {});
+      await revertToThisDevice(db, conflict);
+
+      assert.equal((await db.repo('healthRecord').get(record.id)).diagnosis, 'asthma, mild');
+      assert.ok(
+        (await db.adapter.read('conflicts', conflict.id)).reviewed,
+        'a decision somebody has already reversed must not be offered again',
+      );
     });
 
     test('a locked keyring waits instead of merging what it cannot read', async () => {

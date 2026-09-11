@@ -1008,6 +1008,48 @@
       "find": "    if (!this.#db.keyring.isUnlocked) {",
       "replace": "    if (false) {",
       "suite": "sync"
+    },
+    {
+      "label": "the conflict screen prints the envelope again",
+      "file": "js/modules/settings/data.js",
+      "find": "    openFields(conflict.store, conflict.recordId, values, db.keyring.key);",
+      "replace": "    ({ values, sealed: [] });",
+      "suite": "sync"
+    },
+    {
+      "label": "a value nobody on this device can open is shown as a blank",
+      "file": "js/modules/settings/data.js",
+      "find": "    (side.sealed.includes(field) ? t('settings.data.conflictSealed') : side.values[field]);",
+      "replace": "    (side.values[field]);",
+      "suite": "sync"
+    },
+    {
+      "label": "reverting to this device sends nothing at all",
+      "file": "js/modules/settings/data.js",
+      "find": "  await db.repo(conflict.store).update(conflict.recordId, conflict.localValues);",
+      "replace": "  await db.repo(conflict.store).update(conflict.recordId, {});",
+      "suite": "sync"
+    },
+    {
+      "label": "the fields a screen asked for are opened against no record at all",
+      "file": "js/security/fieldcrypto.js",
+      "find": "  const opened = await decryptRecord(entityName, { ...values, id: recordId }, key);",
+      "replace": "  const opened = await decryptRecord(entityName, { ...values }, key);",
+      "suite": "sync"
+    },
+    {
+      "label": "a field a screen could not open is reported as having opened",
+      "file": "js/security/fieldcrypto.js",
+      "find": "  return { values: rest, sealed: _undecryptable ?? [] };",
+      "replace": "  return { values: rest, sealed: [] };",
+      "suite": "security"
+    },
+    {
+      "label": "a conflict somebody has already reversed is offered again",
+      "file": "js/modules/settings/data.js",
+      "find": "  await db.adapter.write('conflicts', { ...conflict, reviewed: true });\n",
+      "replace": "",
+      "suite": "sync"
     }
   ]
 }
