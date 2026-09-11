@@ -1085,6 +1085,13 @@
       "find": "  if (!text) return '';\n",
       "replace": "",
       "suite": "diagnostics"
+    },
+    {
+      "label": "the shell may reach the adapter without anything looking",
+      "file": "tools/lint.mjs",
+      "find": "    only: ['js/modules/', 'js/ui/', 'js/services/', 'js/app.js'],",
+      "replace": "    only: ['js/modules/', 'js/ui/', 'js/services/'],",
+      "suite": "modules"
     }
   ]
 }

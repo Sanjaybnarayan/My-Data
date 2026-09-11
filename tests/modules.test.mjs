@@ -337,6 +337,16 @@ describe('what ships to a browser', () => {
     // report eleven lines that are not findings.
     const sync = matches().some((one) => one.file.startsWith('js/sync/'));
     assert.not(sync, 'the sync engine is inside a scope that was meant to exclude it');
+
+    // And the shell, which is not a screen but mounts them and is the same
+    // layer as far as this rule is concerned. It was outside the scope until
+    // `js/data/database.js` was read and found saying that nothing above the
+    // data layer holds an adapter — which `js/app.js` does, twice. Neither
+    // call reads a row, so nothing was wrong; a row read added there would
+    // have been invisible to the one instrument whose subject is that
+    // sentence.
+    assert.ok(matches().some((one) => one.file === 'js/app.js'),
+      'the shell is back outside the rule that says what it may reach');
   });
 
   test('and stay quiet on the things they must not flag', async () => {

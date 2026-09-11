@@ -197,10 +197,21 @@ another caller to migrate.
 > A screen cannot forget the permission check, then, but it *could* walk past
 > the layer that applies it — and the paragraph asserting otherwise had been
 > counted once, by hand, inside a correction. Now
-> 8<!--live:screenAdapterCalls--> remain, every one of them a system store with
-> no per-row ACL; the number is derived by `tools/self-description.mjs` from
+> 10<!--live:screenAdapterCalls--> remain, every one of them either a system
+> store with no per-row ACL or a question about the device rather than about
+> the household; the number is derived by `tools/self-description.mjs` from
 > the `screens-read-through-the-repository` rule in `tools/lint.mjs`, which
 > names each remaining call and re-checks that its excuse still applies.
+>
+> **Eight of those ten were the whole count until `js/data/database.js` was
+> read.** Its header says everything above the data layer holds a `Database`
+> and never an adapter — and `js/app.js` holds one twice, to ask the browser
+> not to evict this origin and to record a diagnostic. Neither reads a row, so
+> nothing was wrong; but the shell was outside the rule's scope, so a row read
+> added there would have been invisible to the instrument whose whole subject
+> is that sentence. The scope now covers it and the two calls are excused by
+> name, which is the difference between a sentence being true and a sentence
+> being held.
 >
 > The real gap is narrower and different, and it is what the service layer is
 > actually for:
