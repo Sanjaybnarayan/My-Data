@@ -1120,6 +1120,41 @@
       "find": "  return unreachable\n    ? { text: t('settings.security.keyPartlyDropped'), kind: 'warning' }\n    : { text: t('settings.security.keyDropped'), kind: 'success' };",
       "replace": "  return { text: t('settings.security.keyDropped'), kind: 'success' };",
       "suite": "escrow"
+    },
+    {
+      "label": "the log may stop short of where the device says it reached",
+      "file": "js/data/chain.js",
+      "find": "  if (expectedEnd && expectedEnd !== end) {",
+      "replace": "  if (false) {",
+      "suite": "chain"
+    },
+    {
+      "label": "a device whose every entry was removed has nothing said about it",
+      "file": "js/data/chain.js",
+      "find": "  for (const deviceId of Object.keys(heads)) {\n    if (!byDevice.has(deviceId)) byDevice.set(deviceId, []);\n  }\n",
+      "replace": "",
+      "suite": "chain"
+    },
+    {
+      "label": "the walk stops tracking where it actually ended",
+      "file": "js/data/chain.js",
+      "find": "    end = current.hash;\n",
+      "replace": "",
+      "suite": "chain"
+    },
+    {
+      "label": "the verifier is never handed the heads it needs to see the end",
+      "file": "js/data/database.js",
+      "find": "    return verifyChain(await this.adapter.query('audit', {}), await this.#auditHeads());",
+      "replace": "    return verifyChain(await this.adapter.query('audit', {}));",
+      "suite": "chain"
+    },
+    {
+      "label": "a head recorded before anything was written reads as a cut-short log",
+      "file": "js/data/chain.js",
+      "find": "  const expectedEnd = head && head !== GENESIS ? head : null;",
+      "replace": "  const expectedEnd = head ?? null;",
+      "suite": "chain"
     }
   ]
 }

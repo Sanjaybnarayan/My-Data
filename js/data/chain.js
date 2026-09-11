@@ -21,6 +21,15 @@
  * an entry and its hash stops matching. Delete one and the chain breaks where
  * it used to be. Insert one and it has no place in the links.
  *
+ * **Except at the end, where the links say nothing.** Delete the last few
+ * entries and what remains still adds up from the beginning — the chain has no
+ * opinion about how far it should have reached. That is the cheapest tamper
+ * there is, and it is the shape a dropped sync or a half-finished restore
+ * takes; the verifier called it intact and reported the count it was left
+ * with. So the head each device records in `meta`, in the same transaction as
+ * the entry, is compared with where the walk stops. It is in a different store
+ * from the rows it is about, which is what makes it worth anything here.
+ *
  * **It does not stop anybody doing any of those things.** It makes them
  * visible afterwards. That is the whole of the claim, and the word is
  * *evidence*, never *proof*.
@@ -47,6 +56,8 @@
  *
  * So each device chains its own entries. `deviceId` was already on every row.
  */
+
+import { t } from '../core/locale.js';
 
 const GENESIS = 'genesis';
 
@@ -112,13 +123,33 @@ export async function link(entry, prev = GENESIS) {
  * everything downstream is unverifiable and listing it all would bury the one
  * fact that matters.
  *
+ * `head` is where this device last recorded itself — see `Chain`, which writes
+ * it to `meta` in the same transaction as the entry. Walking the links catches
+ * a row altered or removed from the **middle**, and cannot catch one removed
+ * from the **end**: the chain from the beginning still adds up, and nothing in
+ * the entries says how far it should have reached. The head does, it is in a
+ * different store, and until now nothing compared them.
+ *
  * @param {object[]} entries every audit entry for one device, any order
+ * @param {string|null} [head] the hash this device last committed, if known
  * @returns {Promise<{ok: boolean, checked: number, why: string|null,
  *                    at: string|null, kind: string|null}>}
  */
-export async function verifyDevice(entries) {
+export async function verifyDevice(entries, head = null) {
   const rows = entries ?? [];
-  if (!rows.length) return { ok: true, checked: 0, why: null, at: null, kind: null };
+  const expectedEnd = head && head !== GENESIS ? head : null;
+
+  if (!rows.length) {
+    return expectedEnd
+      ? {
+        ok: false,
+        checked: 0,
+        kind: 'truncated',
+        at: null,
+        why: t('chain.why.truncatedAll'),
+      }
+      : { ok: true, checked: 0, why: null, at: null, kind: null };
+  }
 
   const byPrev = new Map();
   for (const row of rows) {
@@ -130,8 +161,7 @@ export async function verifyDevice(entries) {
         checked: 0,
         kind: 'forked',
         at: row.id,
-        why: 'two entries claim the same place in the log, so one of them was '
-          + 'inserted or altered',
+        why: t('chain.why.forked'),
       };
     }
     byPrev.set(row.prev, row);
@@ -144,12 +174,13 @@ export async function verifyDevice(entries) {
       checked: 0,
       kind: 'noStart',
       at: null,
-      why: 'the log has no beginning, so the entries before these were removed',
+      why: t('chain.why.noStart'),
     };
   }
 
   let current = start;
   let checked = 0;
+  let end = GENESIS;
 
   while (current) {
     const expected = await hashEntry(current, current.prev);
@@ -159,11 +190,11 @@ export async function verifyDevice(entries) {
         checked,
         kind: 'altered',
         at: current.id,
-        why: 'an entry does not match its own fingerprint, so it was changed '
-          + 'after it was written',
+        why: t('chain.why.altered'),
       };
     }
     checked += 1;
+    end = current.hash;
     current = byPrev.get(current.hash);
   }
 
@@ -173,8 +204,23 @@ export async function verifyDevice(entries) {
       checked,
       kind: 'orphaned',
       at: null,
-      why: `${rows.length - checked} ${rows.length - checked === 1 ? 'entry is' : 'entries are'} `
-        + 'not attached to the log, so something between them was removed',
+      why: rows.length - checked === 1
+        ? t('chain.why.orphaned.one')
+        : t('chain.why.orphaned.many', { n: rows.length - checked }),
+    };
+  }
+
+  // The links add up from the beginning; the head says where they should have
+  // stopped. Checked last, because "the log ends early" is a less specific
+  // thing to be told than "this entry was altered", and the more specific
+  // answer should win when both are true.
+  if (expectedEnd && expectedEnd !== end) {
+    return {
+      ok: false,
+      checked,
+      kind: 'truncated',
+      at: null,
+      why: t('chain.why.truncated'),
     };
   }
 
@@ -187,8 +233,16 @@ export async function verifyDevice(entries) {
  * An unchained entry — one written before this existed — is counted and
  * reported rather than treated as tampering. A verifier that calls every old
  * database broken tells nobody anything.
+ *
+ * `heads` maps a device id to the hash it last recorded, as `Chain` wrote it
+ * to `meta`. Without it the walk is blind to entries removed from the end —
+ * see `verifyDevice`. It is optional so that a caller holding only entries
+ * still gets the checks that need nothing else.
+ *
+ * @param {object[]} entries
+ * @param {Record<string, string>} [heads]
  */
-export async function verify(entries) {
+export async function verify(entries, heads = {}) {
   const rows = entries ?? [];
   const legacy = rows.filter((r) => !r.hash);
   const chained = rows.filter((r) => r.hash);
@@ -200,9 +254,16 @@ export async function verify(entries) {
     byDevice.get(key).push(row);
   }
 
+  // A device with a recorded head and no entries left is the loudest version
+  // of the gap the head closes, and grouping by entry alone would skip it
+  // entirely — there would be nothing to group.
+  for (const deviceId of Object.keys(heads)) {
+    if (!byDevice.has(deviceId)) byDevice.set(deviceId, []);
+  }
+
   const devices = [];
   for (const [deviceId, rowsFor] of byDevice) {
-    devices.push({ deviceId, ...(await verifyDevice(rowsFor)) });
+    devices.push({ deviceId, ...(await verifyDevice(rowsFor, heads[deviceId] ?? null)) });
   }
 
   return {

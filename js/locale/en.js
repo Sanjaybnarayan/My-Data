@@ -27,6 +27,7 @@ import { chatSettingsStrings } from './en-chat-settings.js';
 import { periodStrings } from './en-periods.js';
 import { settingsDataStrings } from './en-settings-data.js';
 import { settingsSecurityStrings } from './en-settings-security.js';
+import { chainStrings } from './en-chain.js';
 import { instalmentStrings } from './en-instalments.js';
 import { financeScreenStrings } from './en-finance-screen.js';
 import { calendarStrings } from './en-calendar.js';
@@ -45,6 +46,7 @@ export const strings = {
   ...periodStrings,
   ...settingsDataStrings,
   ...settingsSecurityStrings,
+  ...chainStrings,
   ...instalmentStrings,
   ...financeScreenStrings,
   ...calendarStrings,

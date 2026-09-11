@@ -20,6 +20,12 @@ all along: the audit trail established **history**, not **tamper-evidence**.
 Each audit entry carries the hash of the entry before it from the same device,
 so altering one, deleting one, or inserting one can be **detected afterwards**.
 
+The links alone say nothing about the **end** of a log: delete the last few
+entries and what remains still adds up from the beginning. The head each device
+records in `meta` is what closes that, by saying how far the chain should have
+reached — see "The head, and why it lives in `meta`" below, which is now also
+why it is read back.
+
 ## What it does not do — read this before repeating the claim anywhere
 
 **It does not prevent anything.** It makes tampering visible. The word is
@@ -35,6 +41,12 @@ What it *does* defend against is everything else, which is most of what
 actually happens: a careless edit, a buggy migration, a sync that drops rows,
 a restore that half-completes, and somebody quietly deleting the line that
 records what they did without realising it is chained.
+
+That list was written before the head was read back, and three of its five
+entries take the shape the links could not see. A sync that drops rows drops
+the newest ones; a restore that half-completes stops partway; and the line
+somebody wants gone is usually the last one they wrote. The claim held for the
+middle of a log and not for its end, which is where all three land.
 
 `tests/chain.test.mjs` asserts the limit as well as the capability. One test
 recomputes a chain around an altered entry and requires verification to
