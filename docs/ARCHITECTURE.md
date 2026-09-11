@@ -77,7 +77,7 @@ From that one declaration the system derives:
 | List columns, filters, sort | `ui/components/table.js` |
 | Add/edit form + input types | `ui/components/form.js` |
 | Which fields are encrypted at rest | `security/fieldcrypto.js` |
-| Google Sheet tab + header row + column order | `apps-script/Schema.gs` |
+| Google Sheet tab + header row + column order | `apps-script/Sheets.gs` |
 | Expiry/renewal reminders | `domain/reminders.js` |
 | CSV / XLSX / PDF report columns | `reports/*` |
 | What the AI assistant can answer questions about | `ai/intents.js` |
@@ -218,7 +218,7 @@ Every sheet gets `_id`, `_rev`, `_updatedAt`, `_updatedBy`, `_deletedAt`,
 No framework. `ui/dom.js` exposes `h(tag, props, children)` returning real
 DOM nodes, and components are functions returning nodes plus an optional
 `update(state)`. Lists over 200 rows switch to a windowed renderer
-(`ui/components/virtual-list.js`) that keeps the DOM at ~30 nodes regardless of
+(`ui/components/table.js`) that keeps the DOM at ~30 nodes regardless of
 row count. Module code is loaded with dynamic `import()` on first navigation,
 so the initial payload is the shell plus the dashboard.
 

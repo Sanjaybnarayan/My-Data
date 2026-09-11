@@ -156,9 +156,45 @@ describe('every module', () => {
     const { checked, problems } = references();
 
     assert.length(problems, 0, problems.join('; '));
-    assert.ok(checked > 300, `only ${checked} references — the check has little to check`);
+    assert.ok(checked > 1500, `only ${checked} references — the check has little to check`);
     assert.ok(Object.keys(DELIBERATELY_ABSENT).length > 0,
       'the allowlist is empty, so its own rot checks can never fire');
+  });
+
+  test('a document citing a source file that is not there is reported too', async () => {
+    /*
+     * Where this actually bit. Three documents — including a dated audit whose
+     * method line reads "every status below is supported by a file path" —
+     * cited a js/sync/calsync.js as the evidence that Calendar is REAL. No such
+     * file has ever been in this repository; the implementation is
+     * `js/sync/calendar.js`, so the verdict was right and the evidence was not.
+     *
+     * Scoped to source citations: a document naming a document nobody has
+     * written yet is the audit's own business, and a build output is absent
+     * because it has not been built.
+     */
+    const { references } = await import('../tools/self-description.mjs');
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+
+    const root = mkdtempSync(join(tmpdir(), 'docrefs-'));
+    try {
+      mkdirSync(join(root, 'docs'));
+      mkdirSync(join(root, 'js'));
+      writeFileSync(join(root, 'js', 'real.js'), '// here\n');
+      writeFileSync(join(root, 'docs', 'CLAIMS.md'),
+        '| Calendar | **REAL** | `js/sync/gone.js` |\n'
+        + '| Other | **REAL** | `js/real.js` |\n'
+        + 'And `BACKUP.md`, which nobody has written, is not this check\'s business.\n');
+
+      const { problems } = references(root, {});
+      assert.length(problems, 1, problems.join('; '));
+      assert.ok(problems[0].includes('js/sync/gone.js'), problems[0]);
+      assert.ok(problems[0].includes('docs/CLAIMS.md:1'), problems[0]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test('a comment naming a file that is not there is reported', async () => {

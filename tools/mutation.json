@@ -525,6 +525,20 @@
       "find": "    .filter((p) => !p.pattern.test(p.sample))",
       "replace": "    .filter(() => false)",
       "suite": "security"
+    },
+    {
+      "label": "a document may cite a source file that is not in the tree",
+      "file": "tools/self-description.mjs",
+      "find": "    const isDoc = /^docs\\/.*\\.md$/.test(rel);",
+      "replace": "    const isDoc = false;",
+      "suite": "modules"
+    },
+    {
+      "label": "a document's prose is read only where it looks like a comment",
+      "file": "tools/self-description.mjs",
+      "find": "      if (isSource && !/^\\s*(\\*|\\/\\/)/.test(line)) return;",
+      "replace": "      if (!/^\\s*(\\*|\\/\\/)/.test(line)) return;",
+      "suite": "modules"
     }
   ]
 }
