@@ -1169,6 +1169,48 @@
       "find": "      kind: behind ? 'behind' : 'truncated',\n      at: null,\n      why: behind ? t('chain.why.behind') : t('chain.why.truncated'),",
       "replace": "      kind: 'behind',\n      at: null,\n      why: t('chain.why.behind'),",
       "suite": "chain"
+    },
+    {
+      "label": "the schema handler runs again without knowing who is asking",
+      "file": "apps-script/Code.gs",
+      "find": "    case 'schema':    return withLock(function () { return schemaEnsure(payload.manifest, workbook(), context); });",
+      "replace": "    case 'schema':    return withLock(function () { return schemaEnsure(payload.manifest, workbook()); });",
+      "suite": "policy"
+    },
+    {
+      "label": "a member may point an entity at a tab another entity already holds",
+      "file": "apps-script/Sheets.gs",
+      "find": "    for (var other in map) {\n      if (other !== entity && map[other] === sheet) {",
+      "replace": "    for (var other in map) {\n      if (false) {",
+      "suite": "policy"
+    },
+    {
+      "label": "a member may move an entity to a tab of their choosing",
+      "file": "apps-script/Sheets.gs",
+      "find": "    if (map[entity] && map[entity] !== sheet) {",
+      "replace": "    if (false) {",
+      "suite": "policy"
+    },
+    {
+      "label": "a tab is mapped to an entity the policy has no rule for",
+      "file": "apps-script/Sheets.gs",
+      "find": "    if (!POLICY[entity]) {",
+      "replace": "    if (false) {",
+      "suite": "policy"
+    },
+    {
+      "label": "a short manifest unmaps every entity it does not name",
+      "file": "apps-script/Sheets.gs",
+      "find": "function rememberManifest(manifest) {\n  var map = manifestMap();",
+      "replace": "function rememberManifest(manifest) {\n  var map = {};",
+      "suite": "policy"
+    },
+    {
+      "label": "the owner is held to the rule that exists to stop everybody else",
+      "file": "apps-script/Sheets.gs",
+      "find": "    if (isOwner) continue;\n",
+      "replace": "",
+      "suite": "policy"
     }
   ]
 }

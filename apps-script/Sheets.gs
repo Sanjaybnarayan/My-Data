@@ -79,12 +79,63 @@ function isRecordLike(one) {
 /* ------------------------------------------------------------- migration */
 
 /**
+ * Create the tabs the schema asks for, and remember which tab is which entity.
+ *
+ * ## The caller is checked here, and was not
+ *
+ * `dispatch` handed this the manifest and the workbook and **not the context**
+ * — the one handler of the sixteen that ran without knowing who was asking.
+ * The manifest carries the entity→sheet map, `rememberManifest` wrote it
+ * verbatim, and `sheetPull` decides what a caller may read by asking
+ * `entityForSheet(name)` and putting the answer to `policyAllows`.
+ *
+ * So the client chose the name the ACL was applied to. Measured against this
+ * file and `Policy.gs`, unchanged:
+ *
+ *     POLICY says a child may read vaultItem?  false
+ *     as deployed, a child pulls            :  {}
+ *
+ *     after the child calls schema, the map :  {"task":"Vault"}
+ *     the same child pulls                  :  1 row under "task"
+ *       {"id":"v1","name":"HDFC NetBanking","password":"enc:v1:tQnx..."}
+ *
+ * A child may read `task`; pointing `task` at the vault tab handed them the
+ * vault. The same move reaches `will`, `identityDocument`, `kycRecord`,
+ * `legalDocument` and `beneficiary`, and `sheetPush` resolves its target the
+ * same way, so it worked for writes too. Field encryption does not contain it:
+ * one data key per household, held by every enrolled device.
+ *
+ * The properties are shared, not per-caller — `appsscript.json` deploys
+ * `executeAs: USER_DEPLOYING`, so `getUserProperties()` is the owner's store
+ * whoever is calling. One member remapping it remapped it for everybody.
+ *
+ * ## What is refused now
+ *
+ * An entry naming an entity the policy has never heard of, from anyone: that
+ * is a typo or somebody probing, which is the rule `policyAllows` already
+ * states for itself.
+ *
+ * A **change** to an existing mapping, or an entity pointed at a tab another
+ * entity already holds, from anyone but an owner. A device syncing after a
+ * client upgrade sends the mapping that is already there and is untouched; an
+ * entity genuinely new to the schema has no mapping to change and is allowed,
+ * so a non-owner's device is still the first to report one if it gets there
+ * first. What it cannot do is move an entity onto a tab that holds data.
+ *
+ * Not covered, and worth saying: a household whose map does not exist yet. The
+ * first device to call this establishes it, and on an empty workbook there is
+ * nothing yet to point at.
+ *
  * @param {Array<{entity, sheet, version, columns}>} manifest
+ * @param {object} book
+ * @param {{role?: string, isOwner?: boolean}} [context]
  * @returns {{created: string[], columnsAdded: object}}
  */
-function schemaEnsure(manifest, book) {
+function schemaEnsure(manifest, book, context) {
   manifest = requestList(manifest, 'the schema manifest');
   if (!manifest.length) throw fail('no schema manifest was supplied', 400);
+
+  assertManifestAllowed(manifest, context);
 
   var created = [];
   var columnsAdded = {};
@@ -520,9 +571,56 @@ function manifestMap() {
   return raw ? JSON.parse(raw) : {};
 }
 
+/**
+ * May this caller's manifest touch the map?
+ *
+ * Read `schemaEnsure` above for what this is for. Two rules, and the first
+ * applies to everyone including the owner.
+ */
+function assertManifestAllowed(manifest, context) {
+  var isOwner = Boolean(context && context.isOwner);
+  var map = manifestMap();
+
+  for (var i = 0; i < manifest.length; i++) {
+    var entity = manifest[i] && manifest[i].entity;
+    var sheet = manifest[i] && manifest[i].sheet;
+    if (!entity || !sheet) continue; // `schemaEnsure` reports the shape itself
+
+    // An entity with no entry in the policy has no ACL to apply, so a tab
+    // mapped to it would be read under a rule that does not exist.
+    if (!POLICY[entity]) {
+      throw fail('the schema manifest names an entity this deployment does not know: '
+        + String(entity).slice(0, 40), 400);
+    }
+
+    if (isOwner) continue;
+
+    if (map[entity] && map[entity] !== sheet) {
+      throw fail('only an owner may move ' + entity + ' to another tab', 403);
+    }
+    for (var other in map) {
+      if (other !== entity && map[other] === sheet) {
+        throw fail('only an owner may point ' + entity + ' at a tab that already holds '
+          + other, 403);
+      }
+    }
+  }
+}
+
+/**
+ * Merged, not replaced.
+ *
+ * This assigned a fresh object, so a manifest naming three entities left the
+ * other fifty unmapped — and an unmapped tab is skipped by every read and
+ * write, so one short manifest took the household's whole workbook out of
+ * reach until a full one arrived. Merging also means a refused entry cannot
+ * take the rest of the map with it.
+ */
 function rememberManifest(manifest) {
-  var map = {};
-  for (var i = 0; i < manifest.length; i++) map[manifest[i].entity] = manifest[i].sheet;
+  var map = manifestMap();
+  for (var i = 0; i < manifest.length; i++) {
+    if (manifest[i] && manifest[i].entity) map[manifest[i].entity] = manifest[i].sheet;
+  }
   PropertiesService.getUserProperties().setProperty('sheetMap', JSON.stringify(map));
 }
 

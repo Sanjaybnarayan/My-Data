@@ -198,3 +198,82 @@ nothing passes against a stub that returns nothing to anybody.
 
 That is the fourth tranche running where the tell was the same: **the test
 passed on the first run.**
+
+## The map the whole of it rested on
+
+Everything above asks whether the policy refuses a role an entity. None of it
+asked the question underneath: **where does the entity name come from?**
+
+It came from the client. `dispatch` handed `schemaEnsure` the manifest and the
+workbook and **not the context** — the one handler of sixteen that ran without
+knowing who was asking. `rememberManifest` wrote the entity→sheet map verbatim.
+And `sheetPull` decides what a caller may read by asking `entityForSheet(name)`
+and putting the answer to `policyAllows`.
+
+So the caller chose the name their own ACL was applied to. Measured against
+`Policy.gs` and `Sheets.gs` unchanged, through `doPost`:
+
+```
+POLICY says a child may read vaultItem?  false
+as deployed, a child pulls            :  {}
+
+the child calls schema                :  ACCEPTED
+the map now reads                     :  {"task":"Vault"}
+the child pulls again                 :  1 row under "task"
+  {"id":"v1","name":"HDFC NetBanking","password":"enc:v1:tQnx..."}
+```
+
+A child may read `task`. Pointing `task` at the vault tab handed them the
+vault. The same move reaches `will`, `identityDocument`, `kycRecord`,
+`legalDocument` and `beneficiary`, and `sheetPush` resolves its target the same
+way, so it worked for writes too.
+
+**Field encryption does not contain it.** One data key per household, held by
+every enrolled device: the row the child receives is a row the child's device
+opens.
+
+And the properties are shared rather than per-caller — `appsscript.json`
+deploys `executeAs: USER_DEPLOYING`, so `getUserProperties()` is the owner's
+store whoever is calling. One member remapping it remapped it for everybody.
+
+### What is refused now
+
+- An entry naming an entity the policy has no rule for, **from anyone**. A tab
+  mapped to it would be read under a rule that does not exist, which is what
+  `policyAllows` already says for itself about a store the schema has never
+  seen.
+- A **change** to an existing mapping, or an entity pointed at a tab another
+  entity already holds, from anyone but an owner.
+
+A device syncing after a client upgrade sends the mapping that is already there
+and is untouched. An entity genuinely new to the schema has no mapping to
+change and is allowed, so a non-owner's device is still the first to report one
+if it gets there first. What it cannot do is move an entity onto a tab that
+holds data.
+
+`rememberManifest` also merges rather than replacing. It assigned a fresh
+object, so a manifest naming three entities left the other fifty unmapped — and
+an unmapped tab is skipped by every read and write, so one short manifest took
+the household's whole workbook out of reach until a full one arrived.
+
+### Not covered
+
+A household whose map does not exist yet. The first device to call this
+establishes it, and on an empty workbook there is nothing yet to point at.
+
+### How it was found
+
+`docs/FAMILY_OS_MASTER_ARCHITECTURE.md` carries the row
+
+    | RBAC | **exists, server-authoritative** | `file:apps-script/Policy.gs` |
+
+and `tools/architecture.mjs` says plainly what it cannot check: *"it verifies
+that a claim is backed by evidence of the kind it names — not that the words in
+the component column are true of the code."* The probe asserted that a file
+exists. The words "server-authoritative" were held by nothing, and were not
+true.
+
+Seven checks in `tests/policy.test.mjs` hold them now, run through `doPost`
+rather than against the handler, because the hole was in the wiring between the
+dispatch and the handler and a test that called the handler directly would have
+passed.

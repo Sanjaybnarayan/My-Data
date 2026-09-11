@@ -229,7 +229,7 @@ function doGet() {
 function dispatch(action, payload, context) {
   switch (action) {
     case 'bootstrap': return withLock(function () { return bootstrap(payload, context); });
-    case 'schema':    return withLock(function () { return schemaEnsure(payload.manifest, workbook()); });
+    case 'schema':    return withLock(function () { return schemaEnsure(payload.manifest, workbook(), context); });
     case 'push':      return withLock(function () { return sheetPush(payload.changes, workbook(), context); });
     case 'pull':      return sheetPull(payload.cursors || {}, payload.limit || 500, workbook(), context);
     case 'audit':     return withLock(function () { return auditAppend(payload.entries, workbook(), context); });
