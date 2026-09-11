@@ -30,6 +30,7 @@ import { instalmentStrings } from './en-instalments.js';
 import { financeScreenStrings } from './en-finance-screen.js';
 import { calendarStrings } from './en-calendar.js';
 import { biometricStrings } from './en-biometric.js';
+import { estateStrings } from './en-estate.js';
 
 export const strings = {
   // A valuation that is real but old. `domain/networth.js` says why twelve
@@ -45,6 +46,7 @@ export const strings = {
   ...instalmentStrings,
   ...financeScreenStrings,
   ...calendarStrings,
+  ...estateStrings,
   ...biometricStrings,
 
   // Dates. Abbreviated month names, because a table column has no room for

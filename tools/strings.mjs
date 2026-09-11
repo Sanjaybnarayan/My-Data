@@ -39,7 +39,7 @@
 import { readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { withoutComments } from './field-coverage.mjs';
+import { withoutComments, isCatalogue } from './field-coverage.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const INVENTORY = join(ROOT, 'tools', 'strings.json');
@@ -72,7 +72,7 @@ const INVENTORY = join(ROOT, 'tools', 'strings.json');
  * catalogue.
  */
 export function notCounted(rel) {
-  return rel.startsWith('js/locale/') || rel === 'js/core/locale.js';
+  return isCatalogue(rel) || rel === 'js/core/locale.js';
 }
 
 /** A literal that is plainly machinery rather than something a person reads. */

@@ -9,7 +9,10 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   estate, nominations, nominationGaps, nomineeGroups, unnominable, unreadable,
   legacyInstructions, describeNomination, describeGap, NOMINEE_IS_NOT_HEIR,
+  registrationStatus, REGISTRATION_IS_NOT_VALIDITY,
 } from '../js/domain/estate.js';
+import { strings as english } from '../js/locale/en.js';
+import { ENVELOPE_PREFIX } from '../js/security/crypto.js';
 
 setSuite('estate');
 
@@ -236,5 +239,89 @@ describe('a sealed nominee is neither a name nor a gap', () => {
       accounts: [{ ...sealedRow, nominee: 'enc: Meera Narayan' }],
     });
     assert.equal(row.nominee, 'enc: Meera Narayan');
+  });
+});
+
+describe('which instruments are recorded as registered', () => {
+  // `will.registered` and `legalDocument.registered` sat on the unread
+  // inventory, and the tool that listed them had been reporting them as read
+  // for months on the strength of a sentence about geofencing. Once that was
+  // corrected they were genuinely unread — collected on a form and touched by
+  // nothing — which is the question this answers.
+
+  const data = () => ({
+    wills: [
+      { id: 'w1', title: 'Will of Ravi', registered: true },
+      { id: 'w2', title: 'Will of Meera', registered: false },
+      { id: 'w3', title: 'Revoked will', registered: true, revokedOn: '2024-01-01' },
+    ],
+    legalDocuments: [
+      { id: 'd1', title: 'Sale deed', kind: 'deed', registered: true, registrationNumber: 'REG-1' },
+      { id: 'd2', title: 'Gift deed', kind: 'deed', registered: true, registrationNumber: '' },
+      { id: 'd3', title: 'Power of attorney', kind: 'poa', registered: false, registrationNumber: 'REG-9' },
+      { id: 'd4', title: 'Superseded deed', registered: true, supersededOn: '2024-06-01' },
+    ],
+  });
+
+  test('an instrument no longer in force is not counted either way', () => {
+    const out = registrationStatus(data());
+    const ids = [...out.registered, ...out.notRecorded].map((one) => one.id);
+    assert.not(ids.includes('w3'), 'a revoked will decides nothing');
+    assert.not(ids.includes('d4'), 'a superseded deed decides nothing');
+  });
+
+  test('it reports the record, not the world', () => {
+    const out = registrationStatus(data());
+    assert.deep(out.registered.map((one) => one.id).sort(), ['d1', 'd2', 'w1']);
+    assert.deep(out.notRecorded.map((one) => one.id).sort(), ['d3', 'w2']);
+  });
+
+  test('and the record disagreeing with itself needs no legal opinion', () => {
+    const out = registrationStatus(data());
+    assert.deep(
+      out.disagreeing.map((one) => `${one.id}:${one.why}`).sort(),
+      ['d2:noNumber', 'd3:numberOnly'],
+    );
+  });
+
+  test('a will is never in that half, having no number to disagree with', () => {
+    const out = registrationStatus(data());
+    assert.not(out.disagreeing.some((one) => one.entity === 'will'));
+    assert.ok(out.registered.concat(out.notRecorded)
+      .filter((one) => one.entity === 'will')
+      .every((one) => one.number === null));
+  });
+
+  test('a sealed registration number still counts as one being there', () => {
+    // Loaded with `decrypt: false`, so the value is ciphertext. Presence
+    // survives sealing and presence is the whole question — unlike `sealed()`
+    // above, where reading a ciphertext as a name would have emptied the gap
+    // list and told a household there was nothing to fix.
+    const out = registrationStatus({
+      legalDocuments: [{ id: 'd5', title: 'Lease', registered: true, registrationNumber: `${ENVELOPE_PREFIX}abc:def` }],
+    });
+    assert.length(out.disagreeing, 0);
+  });
+
+  test('the refusal is a catalogue key, and the catalogue has it', () => {
+    // Its two siblings are sentences written before the catalogue existed. A
+    // third would have raised a count that may only fall.
+    assert.equal(typeof REGISTRATION_IS_NOT_VALIDITY, 'string');
+    assert.ok(english[REGISTRATION_IS_NOT_VALIDITY], REGISTRATION_IS_NOT_VALIDITY);
+    assert.equal(registrationStatus({}).noticeKey, REGISTRATION_IS_NOT_VALIDITY);
+  });
+
+  test('and it says an unregistered will is still a will', () => {
+    // The one sentence this feature must never lose. Registration of a will is
+    // optional in India; a screen implying otherwise would frighten a
+    // household about a document that is perfectly good.
+    assert.includes(english[REGISTRATION_IS_NOT_VALIDITY], 'unregistered will is still a will');
+  });
+
+  test('nothing recorded anywhere reports nothing', () => {
+    const out = registrationStatus({});
+    assert.length(out.registered, 0);
+    assert.length(out.notRecorded, 0);
+    assert.length(out.disagreeing, 0);
   });
 });

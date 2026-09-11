@@ -9,7 +9,10 @@ import { tokenize, prefixes } from '../js/data/search.js';
 import { changedFields, shouldLogRead } from '../js/data/audit.js';
 import { isEncrypted } from '../js/security/crypto.js';
 import { sortBy } from '../js/data/repository.js';
-import { withoutComments } from '../tools/field-coverage.mjs';
+import {
+  withoutComments, withoutRegexBodies, isCatalogue, unreadFields,
+} from '../tools/field-coverage.mjs';
+import { notCounted } from '../tools/strings.mjs';
 
 setSuite('data');
 
@@ -798,6 +801,85 @@ describe('sorting by more than one key', () => {
     const rows = [{ id: 'a', n: 2 }, { id: 'b', n: 1 }];
     assert.deep(sortBy(rows, 'n').map((r) => r.id), ['b', 'a']);
     assert.deep(sortBy(rows, '-n').map((r) => r.id), ['a', 'b']);
+  });
+});
+
+describe('a field name in a pattern is not a field being read either', () => {
+  // Three local fixes had been applied to this class — strip comments, reword
+  // a phrase, rename a function — and each fixed its instance. The class is
+  // text that is not code sitting in the haystack, and two doors were open.
+
+  test('a regex body is a pattern, not a read', () => {
+    // `/fuel|petrol|…|filling station|petro/i` sorts a bank narration. It was
+    // the only thing in the tree naming `fuelLog.station`.
+    const out = withoutRegexBodies("const m = /fuel|filling station|petro/i;");
+    assert.not(out.includes('station'), out);
+  });
+
+  test('and a character class does not close it early', () => {
+    const out = withoutRegexBodies('const m = /report|x-?ray|[/-]|prescription/;');
+    assert.not(out.includes('prescription'), out);
+  });
+
+  test('but a string beside one survives, because a quoted key is a real read', () => {
+    // `js/domain/kyc.js` names all five `kycRecord.held*` fields as strings
+    // and reads `record[field.key]`. Dropping string bodies would report
+    // twelve more fields unread, at least seven of them wrongly.
+    const out = withoutRegexBodies("const m = /petro/i; const k = { key: 'heldName' };");
+    assert.includes(out, 'heldName');
+  });
+
+  test('and division is still division', () => {
+    const out = withoutRegexBodies('const rate = total / count;\nconst k = record.station;');
+    assert.includes(out, 'station');
+  });
+
+  test('a catalogue file is prose, and both tools agree which files those are', () => {
+    // `will.registered` and `legalDocument.registered` were cleared by a
+    // sentence about geofencing. One notion of "this file is a catalogue",
+    // owned by field-coverage and extended by strings — not two lists.
+    assert.ok(isCatalogue('js/locale/en.js'));
+    assert.ok(isCatalogue('js/locale/en-signin.js'));
+    assert.not(isCatalogue('js/core/locale.js'));
+    assert.not(isCatalogue('js/domain/categorise.js'));
+
+    // strings.mjs adds exactly one file of its own and no more.
+    assert.ok(notCounted('js/locale/en.js'));
+    assert.ok(notCounted('js/core/locale.js'));
+    assert.not(notCounted('js/domain/categorise.js'));
+  });
+
+  test('and the inventory actually goes through both of them', () => {
+    // The helpers above can be perfect while nothing calls them. The mutation
+    // ratchet reported exactly that: blanking the catalogue filter and the
+    // regex pass in `unreadFields()` left every unit test above green. So the
+    // five fields each door was hiding are named here, against the real tree.
+    const unread = new Set(unreadFields());
+
+    // Cleared by a sentence in the catalogue and nothing else.
+    //
+    // `will.registered` and `legalDocument.registered` were the other two, and
+    // they are gone from here because they are now genuinely read — being
+    // reported was the point, and `registrationStatus()` in
+    // `js/domain/estate.js` is what came of it. One field is a thinner
+    // demonstration than three, and it is the honest one.
+    assert.ok(unread.has('healthRecord.diagnosis'),
+      'healthRecord.diagnosis is named only by catalogue prose');
+
+    // Cleared by a matching pattern and nothing else.
+    for (const key of ['fuelLog.station', 'healthRecord.prescription']) {
+      assert.ok(unread.has(key), `${key} is named only inside a regex body`);
+    }
+  });
+
+  test('a field the search index reads is not a field nothing reads', () => {
+    // `searchableValues()` filters on `f.search && !f.encrypted` and reads
+    // `record[f.key]`. Eleven fields sat on the inventory described as read by
+    // nothing while the search index read them on every keystroke.
+    const unread = new Set(unreadFields());
+    for (const key of ['account.upiId', 'person.nickname', 'vaultItem.username']) {
+      assert.not(unread.has(key), `${key} is read by the search index`);
+    }
   });
 });
 
