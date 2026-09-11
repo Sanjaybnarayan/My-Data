@@ -45,7 +45,7 @@ function sheets(sheetMap = { vaultItem: 'Vault', note: 'Notes', task: 'Tasks', a
       console: { log() {}, warn() {}, error() {} },
     },
     ['policyAllows', 'readableEntities', 'roleRank', 'sheetPush', 'sheetPull',
-      'ownRecordAllows', 'ownRecordEntities'],
+      'ownRecordAllows', 'ownRecordEntities', 'sheetCounts'],
   );
 }
 
@@ -570,5 +570,70 @@ describe('a message may only be sent as the person the account belongs to', () =
 
     assert.length(result.rejected, 0, result.rejected[0]?.reason ?? '');
     assert.length(result.applied, 1);
+  });
+});
+
+describe('a row count is a read', () => {
+  /*
+   * `dispatch` called `sheetCounts(workbook())` with no caller attached, so it
+   * consulted no policy and counted every tab. `will`, `legalDocument`,
+   * `identityDocument`, `vaultItem`, `beneficiary` and `kycRecord` are all
+   * `read: ["owner","spouse"]` — a child, an adult, a guest or a member of
+   * staff may not read one row of any of them, and could learn exactly how
+   * many rows each held.
+   *
+   * Nothing was wrong with the policy table. `tools/policy.mjs` generates it
+   * from the schema and the test at the top of this file proves the two agree.
+   * What nothing checked was whether every handler asks it.
+   */
+  const HEALTH = ['_id', '_rev', '_updatedAt', '_deletedAt', 'person'];
+  const map = { vaultItem: 'Vault', healthRecord: 'Health' };
+
+  test('an owner is counted everything', () => {
+    const api = sheets(map);
+    const counts = api.sheetCounts(fakeBook(['Vault']), { role: 'owner', personId: 'p-owner' });
+    assert.equal(counts.Vault, 1);
+  });
+
+  test('a role that may not read the entity is told nothing about it', () => {
+    const api = sheets(map);
+    const counts = api.sheetCounts(fakeBook(['Vault']), { role: 'child', personId: 'p-me' });
+    // Absent, not zero. Zero says there are none; absent says nothing, and
+    // only one of those is true.
+    assert.not(Object.prototype.hasOwnProperty.call(counts, 'Vault'),
+      `child was told Vault holds ${counts.Vault}`);
+  });
+
+  test('and a caller with no context at all is treated as a guest', () => {
+    // The shape the defect had: no context reached this at all.
+    const api = sheets(map);
+    assert.deep(api.sheetCounts(fakeBook(['Vault'])), {});
+  });
+
+  test('an own-record entity counts the caller\'s own rows and no others', () => {
+    const api = sheets(map);
+    const rows = [
+      ['h1', 1, '2026-08-01T00:00:00.000Z', '', 'p-me'],
+      ['h2', 1, '2026-08-02T00:00:00.000Z', '', 'p-other'],
+      ['h3', 1, '2026-08-03T00:00:00.000Z', '', 'p-me'],
+    ];
+    const counts = api.sheetCounts(fakeBook(['Health'], { headers: HEALTH, rows }),
+      { role: 'child', personId: 'p-me' });
+    assert.equal(counts.Health, 2);
+  });
+
+  test('an own-record entity with no person to match sends no count', () => {
+    const api = sheets(map);
+    const counts = api.sheetCounts(fakeBook(['Health'], { headers: HEALTH, rows: [] }),
+      { role: 'child', personId: '' });
+    assert.not(Object.prototype.hasOwnProperty.call(counts, 'Health'));
+  });
+
+  test('a tab the manifest does not map to an entity has no ACL, so it is not counted', () => {
+    // Guessing that an unmapped tab is safe to disclose is the one mistake
+    // worth avoiding here.
+    const api = sheets(map);
+    const counts = api.sheetCounts(fakeBook(['Mystery']), { role: 'owner', personId: 'p-owner' });
+    assert.not(Object.prototype.hasOwnProperty.call(counts, 'Mystery'));
   });
 });

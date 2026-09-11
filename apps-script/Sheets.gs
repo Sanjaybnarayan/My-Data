@@ -404,14 +404,77 @@ function auditAppend(entries, book, context) {
 
 /* ----------------------------------------------------------------- counts */
 
-function sheetCounts(book) {
+/**
+ * Row counts, for the weekly backup check.
+ *
+ * ## Why this takes a context
+ *
+ * It did not, and that was the defect. `dispatch` called `sheetCounts(workbook())`
+ * with no caller attached, so this consulted no policy and counted every tab.
+ * `will`, `legalDocument`, `identityDocument`, `vaultItem`, `beneficiary` and
+ * `kycRecord` are all `read: ["owner","spouse"]` — a child, an adult, a guest
+ * or a member of staff may not read one row of any of them, and could learn
+ * exactly how many rows each held. That a household keeps two wills and
+ * fourteen vault items is the kind of thing the `staff` role exists to
+ * withhold.
+ *
+ * Nothing was wrong with the policy table; `tools/policy.mjs` generates it from
+ * the schema and `tests/backend.test.mjs` proves the two agree. What nothing
+ * checked was whether every handler *asks* it. This one did not.
+ *
+ * ## The rule, which is `sheetPull`'s rule
+ *
+ * Blanket read, else rows about the caller, else nothing — the same three
+ * lines, deliberately, because two answers to "may this role see this entity"
+ * is how they come to differ.
+ *
+ * **An entity the caller may not read is absent, not zero.** Zero says there
+ * are none; absent says nothing. `js/data/database.js` makes the same
+ * distinction for the same reason: *your records are damaged* and *you are not
+ * shown that one* are different sentences and only one of them is true.
+ */
+function sheetCounts(book, context) {
+  var role = (context && context.role) || 'guest';
+  var personId = (context && context.personId) || '';
   var sheets = book.getSheets();
   var counts = {};
+
   for (var i = 0; i < sheets.length; i++) {
     var name = sheets[i].getName();
     if (name.charAt(0) === '_') continue;
-    counts[name] = Math.max(0, sheets[i].getLastRow() - 1);
+
+    var entityName = entityForSheet(name);
+    // A tab the manifest does not map to an entity has no ACL to consult, so
+    // it is not counted. Guessing that an unmapped tab is safe to disclose is
+    // the one mistake worth avoiding here.
+    if (!entityName) continue;
+
+    var blanket = policyAllows(role, 'read', entityName);
+    var ownField = blanket ? '' : OWN_RECORD[entityName];
+    if (!blanket && !(ownField && personId)) continue;
+
+    var lastRow = sheets[i].getLastRow();
+    if (lastRow < 2) { counts[name] = 0; continue; }
+
+    if (blanket) {
+      counts[name] = lastRow - 1;
+      continue;
+    }
+
+    var headers = headerRow(sheets[i]);
+    var subjectColumn = headers.indexOf(ownField);
+    // Same rule as `sheetPull`: a workbook older than the own-record rule
+    // counts nothing rather than everything.
+    if (subjectColumn < 0) continue;
+
+    var values = sheets[i].getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var mine = 0;
+    for (var r = 0; r < values.length; r++) {
+      if (String(values[r][subjectColumn]) === personId) mine += 1;
+    }
+    counts[name] = mine;
   }
+
   return counts;
 }
 

@@ -27,7 +27,62 @@
  */
 
 /* eslint-env googleappsscript */
-/* global DriveApp, Utilities, PropertiesService, fail, log */
+/* global DriveApp, Utilities, PropertiesService, fail, log, policyAllows */
+
+/**
+ * May this caller touch the document tree at all?
+ *
+ * ## The gap this closes
+ *
+ * Every action here was authenticated and none was authorized. `download`,
+ * `trash`, `versions` and `folders` were dispatched with no caller attached at
+ * all, and `upload` took a context and used it only to write a log line. So
+ * any household member at any role could fetch the bytes of any file this
+ * application created, bin it, list its revisions, enumerate every person
+ * folder, or overwrite an existing file's content by naming its document id.
+ *
+ * Twenty-one entities carry a `files` field, `identityDocument`, `kycRecord`,
+ * `healthRecord`, `legalDocument` and `will` among them.
+ *
+ * ## What contained it, and what did not
+ *
+ * The manifest asks for `drive.file`, not `drive`, so this reaches only files
+ * the application itself created — never the owner's wider Drive. Ids are
+ * ULID-shaped: time-ordered, randomly suffixed, not guessable.
+ *
+ * What was not contained is that **a role change revoked nothing**. A member
+ * demoted from adult to guest keeps every file id they ever synced, and the
+ * entity ACL that stopped them reading the row did not stop them fetching —
+ * or binning — its attachment.
+ *
+ * ## The rule
+ *
+ * `document` is the entity these files belong to, so its ACL decides: read for
+ * fetching and listing, write for uploading and binning. That is the same
+ * blanket rule `sheetPull` and `sheetCounts` apply, and it needs no reverse
+ * index from a file back to whichever of the twenty-one records references it.
+ *
+ * **There is no own-record half, because `document` has no own-record rule.**
+ * `SUBJECT_FIELD` in `js/security/rbac.js` does not list it, so a child cannot
+ * read a `document` row today by any path. A child *can* hold document ids —
+ * their own health record's `documents` field carries them — and after this
+ * they can no longer fetch those attachments. That is the schema's existing
+ * answer applied where it was not being asked, rather than a new policy
+ * invented here.
+ *
+ * If a household wants children to reach the attachments on their own
+ * records, the change is one line — `document: 'person'` in `SUBJECT_FIELD` —
+ * and `tools/policy.mjs` carries it across to this file. It is deliberately
+ * not a special case written into Drive.gs, because a second place that
+ * decides who may read what is how the two come to disagree.
+ */
+function driveAllows(context, action) {
+  var role = (context && context.role) || 'guest';
+  if (!policyAllows(role, action, 'document')) {
+    throw fail('your role may not ' + (action === 'read' ? 'read' : 'change')
+      + ' the household documents', 403);
+  }
+}
 
 var CATEGORY_FOLDERS = ['Identity', 'Financial', 'Property', 'Vehicle', 'Insurance',
   'Health', 'Education', 'Legal', 'Tax', 'Employment', 'Warranty', 'Other'];
@@ -127,6 +182,7 @@ var MAX_OCR_BYTES = 8 * 1024 * 1024;
 var MAX_OCR_CHARS = 20000;
 
 function driveUpload(payload, context) {
+  driveAllows(context, 'write');
   if (!payload.content) throw fail('no file content was supplied', 400);
   if (!payload.documentId) throw fail('no document id was supplied', 400);
 
@@ -290,7 +346,8 @@ function findByDocumentId(root, documentId) {
 }
 
 /** Every person folder that exists, for the setup screen and for reporting. */
-function drivePersonFolders() {
+function drivePersonFolders(context) {
+  driveAllows(context, 'read');
   var tree = driveEnsureTree();
   var folders = tree.documents.getFolders();
   var out = [];
@@ -306,7 +363,8 @@ function drivePersonFolders() {
   return out;
 }
 
-function driveDownload(fileId) {
+function driveDownload(fileId, context) {
+  driveAllows(context, 'read');
   if (!fileId) throw fail('no file id was supplied', 400);
   var file;
   try {
@@ -342,7 +400,8 @@ function driveDownload(fileId) {
  * A file that is already gone is a success, not an error: the caller wanted it
  * absent and it is absent.
  */
-function driveTrash(fileId) {
+function driveTrash(fileId, context) {
+  driveAllows(context, 'write');
   if (!fileId) throw fail('no file id was supplied', 400);
 
   try {
@@ -354,7 +413,8 @@ function driveTrash(fileId) {
   }
 }
 
-function driveVersions(fileId) {
+function driveVersions(fileId, context) {
+  driveAllows(context, 'read');
   var url = 'https://www.googleapis.com/drive/v3/files/' + fileId
     + '/revisions?fields=revisions(id,modifiedTime,size)';
   var response = UrlFetchApp.fetch(url, {

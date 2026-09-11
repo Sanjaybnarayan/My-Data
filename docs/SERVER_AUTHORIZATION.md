@@ -118,6 +118,67 @@ workbook and stay so. This decides who may *reach* rows, not who can read the
 sealed fields inside them — that has always been the data key, which never goes
 near Google.
 
+## The handler that never asked
+
+Everything above is about the rules being **right**. This is about a handler
+not **asking** them.
+
+`verify` — the weekly backup check — dispatched as `sheetCounts(workbook())`,
+with no caller attached. So it consulted no policy and counted every tab whose
+name does not begin with `_`, for anybody authenticated at any role.
+
+These are all `read: ["owner","spouse"]`:
+
+`will` · `legalDocument` · `identityDocument` · `vaultItem` · `beneficiary` ·
+`kycRecord`
+
+A child, an adult, a guest or a member of staff may not read one row of any of
+them, and could learn exactly how many rows each held. That a household keeps
+two wills and fourteen vault items is the kind of thing the `staff` role exists
+to withhold from a domestic worker.
+
+**The policy table was never wrong.** `tools/policy.mjs` generates it from the
+schema and the first test in `tests/policy.test.mjs` proves the two agree. What
+nothing checked was whether every handler asks it — a correct artefact, and no
+check that the code goes through it.
+
+`sheetCounts` now takes a context and applies `sheetPull`'s rule, deliberately
+the same three lines: blanket read, else rows about the caller, else nothing.
+**An entity the caller may not read is absent, not zero** — zero says there are
+none, absent says nothing, and only one of those is true.
+
+### The same wiring gap, in the same place
+
+The mutation ratchet refused to record the fix as held. `policy.test.mjs` calls
+`sheetCounts` with a context it builds itself, so breaking the *dispatch* line
+that supplies one broke nothing — exactly the gap this document already
+records for `sheetPush`, one action along. A request through `doPost` now
+proves the caller reaches the handler.
+
+The first draft of that end-to-end test asserted an **adult** is refused the
+count of `account`, and failed: `account` is `read: ["owner","spouse","adult"]`
+and an adult may have it. The role this turns on is `child`, and the test was
+wrong rather than the code.
+
+### The client half, and why both had to move together
+
+`database.statistics()` — the same numbers, for the settings screen — read
+`this.adapter.query()` directly for every entity, around the repository, which
+is where `rowFilter` is applied. So the screen showed the same counts to the
+same roles.
+
+Both halves had to change at once. The backup check compares them, so a device
+that filtered against a sheet that did not would report every restricted entity
+as missing from the backup. `verifyBackup` now counts those entities as
+`unverifiable` rather than comparing absent against absent and calling the
+result verified — a row reading *0 local, 0 remote, ok* claims a check that
+never happened.
+
+**Inert until the Apps Script is redeployed**, like everything else in
+`apps-script/`. And **not verified against a running deployment** — none is
+reachable from here. It rests on reading `Code.gs`, `Sheets.gs` and `Policy.gs`
+against the ACLs in the schema, which is the gap phase 12 already names.
+
 ## What mutation testing found
 
 Eight mutations. **Two survived the first run, and they were the two that

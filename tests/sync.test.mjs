@@ -514,6 +514,24 @@ describe('engine', () => {
     assert.equal(people.remote, 0);
   });
 
+  test('and does not claim to have verified what the role cannot see', async () => {
+    // Both halves of this count are now filtered by role, so an entity the
+    // signed-in person may not read is absent from each. Compared as 0 against
+    // 0 it would produce a row reading "ok" for a check that never happened,
+    // and the settings screen would say the backup was verified on the
+    // strength of it.
+    const db = await makeDb();
+    await makePerson(db);
+    db.setActor({ personId: 'p-kid', role: 'child' });
+
+    const transport = new FakeTransport({ verify: () => ({ counts: {} }) });
+    const report = await new SyncEngine({ db, transport }).verifyBackup();
+
+    assert.ok(report.unverifiable > 0, 'entities the child cannot read are counted, not compared');
+    assert.not(report.rows.some((r) => r.entity === 'vaultItem'),
+      'an entity the caller cannot read is not reported as verified');
+  });
+
   test('deleting a record replicates the deletion', async () => {
     const db = await makeDb();
     const server = fakeServer();

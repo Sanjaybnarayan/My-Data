@@ -644,6 +644,69 @@
       "find": "    ...items.filter((one) => one.registered && one.number === false)",
       "replace": "    ...items.filter((one) => one.registered && !one.number)",
       "suite": "estate"
+    },
+    {
+      "label": "a row count is returned for every sheet whatever the caller's role",
+      "file": "apps-script/Sheets.gs",
+      "find": "    var blanket = policyAllows(role, 'read', entityName);\n    var ownField = blanket ? '' : OWN_RECORD[entityName];\n    if (!blanket && !(ownField && personId)) continue;\n\n    var lastRow = sheets[i].getLastRow();",
+      "replace": "    var blanket = true;\n    var ownField = '';\n    if (false) continue;\n\n    var lastRow = sheets[i].getLastRow();",
+      "suite": "policy"
+    },
+    {
+      "label": "an own-record count includes rows about other people",
+      "file": "apps-script/Sheets.gs",
+      "find": "      if (String(values[r][subjectColumn]) === personId) mine += 1;",
+      "replace": "      if (true) mine += 1;",
+      "suite": "policy"
+    },
+    {
+      "label": "the row-count handler is called without the caller attached",
+      "file": "apps-script/Code.gs",
+      "find": "    case 'verify':    return { counts: sheetCounts(workbook(), context) };",
+      "replace": "    case 'verify':    return { counts: sheetCounts(workbook()) };",
+      "suite": "backend"
+    },
+    {
+      "label": "the settings screen counts rows the signed-in role may not read",
+      "file": "js/data/database.js",
+      "find": "      const scope = readScope(this.#actor, name);\n      if (scope === 'none') continue;\n      const keep = rowFilter(this.#actor, name);\n      const rows = (await this.adapter.query(name, {})).filter(keep);",
+      "replace": "      const rows = await this.adapter.query(name, {});",
+      "suite": "data"
+    },
+    {
+      "label": "the backup check reports an unreadable entity as verified",
+      "file": "js/sync/engine.js",
+      "find": "      if (!local[name]) { unverifiable += 1; continue; }\n      const here = local[name].total;",
+      "replace": "      const here = local[name]?.total ?? 0;",
+      "suite": "sync"
+    },
+    {
+      "label": "any role may fetch the bytes of a household document",
+      "file": "apps-script/Drive.gs",
+      "find": "function driveDownload(fileId, context) {\n  driveAllows(context, 'read');",
+      "replace": "function driveDownload(fileId, context) {\n  if (context) { /* checked elsewhere */ }",
+      "suite": "backend"
+    },
+    {
+      "label": "any role may bin a household document",
+      "file": "apps-script/Drive.gs",
+      "find": "function driveTrash(fileId, context) {\n  driveAllows(context, 'write');",
+      "replace": "function driveTrash(fileId, context) {\n  if (context) { /* checked elsewhere */ }",
+      "suite": "backend"
+    },
+    {
+      "label": "a read of the document tree is allowed to anyone a write would be",
+      "file": "apps-script/Drive.gs",
+      "find": "  if (!policyAllows(role, action, 'document')) {",
+      "replace": "  if (!policyAllows(role, 'read', 'document')) {",
+      "suite": "backend"
+    },
+    {
+      "label": "the Drive actions are dispatched without the caller attached",
+      "file": "apps-script/Code.gs",
+      "find": "    case 'trash':     return driveTrash(payload.fileId, context);",
+      "replace": "    case 'trash':     return driveTrash(payload.fileId);",
+      "suite": "imports"
     }
   ]
 }
