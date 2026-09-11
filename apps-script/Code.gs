@@ -842,9 +842,39 @@ function bootstrap(payload, context) {
     }
   }
 
+  /*
+   * Making a workbook, and saying where the household's records live, is an
+   * owner's act. This asked nobody.
+   *
+   * Everybody signed in calls `bootstrap` — `settings/connection.js` does on
+   * "Sign in with Google" and again on "Set up the workbook" — and what a
+   * non-owner needs from it is the *answer*: the workbook and folder ids their
+   * uploads go to. Creating is a different act, and it was reached by the same
+   * request.
+   *
+   * Measured, with the workbook id pointing somewhere that will not open,
+   * which is what a household sees when it is in the bin or briefly
+   * unreachable:
+   *
+   *     workbookId before      : the-household-workbook
+   *     a child calls bootstrap: refused — no schema manifest was supplied
+   *     workbookId after       : created-1
+   *
+   * Two faults in four lines. A member repointed the household at a new empty
+   * workbook; and the request was **refused** and had repointed it anyway,
+   * because the property was written before the rest of the bootstrap ran. The
+   * records were still in Drive and nothing pointed at them.
+   *
+   * `doPost` already states the rule this broke, about a revoked device: "a
+   * revoked device that got its write in and was refused the reply would still
+   * have written."
+   */
+  if (!book && !(context && context.isOwner)) {
+    throw fail('this household has no workbook yet, and only its owner can make one', 403);
+  }
+
   if (!book) {
     book = SpreadsheetApp.create('FamilyOS Data');
-    PROP.setProperty('workbookId', book.getId());
     // The default sheet has no place in the schema and confuses the migration.
     var first = book.getSheets()[0];
     if (first.getName() === 'Sheet1') first.setName('_Meta');
@@ -856,6 +886,11 @@ function bootstrap(payload, context) {
   // a non-owner's — fail-closed, so no hole, but an owner reshaping their own
   // workbook this way was refused in the name of a rule about everybody else.
   schemaEnsure(payload.manifest, book, context);
+
+  // Written once the bootstrap has actually worked. Before this it was written
+  // the moment the workbook was made, so a request that went on to fail left
+  // the household pointing at an empty spreadsheet and their records orphaned.
+  PROP.setProperty('workbookId', book.getId());
 
   // The workbook belongs in the FamilyOS folder, not loose in My Drive.
   try {

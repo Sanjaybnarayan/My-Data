@@ -815,3 +815,109 @@ describe('who may say which tab is which entity', () => {
     assert.equal(map.note, 'Notes');
   });
 });
+
+/* ------------------------------------------------ where the records live */
+
+/**
+ * Who may say where the household's records are.
+ *
+ * `bootstrap` makes a workbook when the id it holds will not open — which is
+ * what a household sees when theirs is in the bin, or briefly unreachable —
+ * and it asked nobody. Everybody signed in calls it: `settings/connection.js`
+ * does on "Sign in with Google" and again on "Set up the workbook". What a
+ * non-owner needs from it is the *answer*, the workbook and folder ids their
+ * uploads go to; creating is a different act reached by the same request.
+ *
+ * None of this could be tested before, because the fixture had no
+ * `SpreadsheetApp.create` and every attempt died on the missing method and
+ * read as a refusal. A stub less capable than the real thing hides a path as
+ * surely as one more capable tests a path that was never deployed.
+ */
+describe('who may say where the records live', () => {
+  const OWNER = 'owner@example.com';
+  const CHILD = 'kid@example.com';
+  const CLIENT = '1-familyos.apps.googleusercontent.com';
+  const tokens = {
+    'owner-token': { email: OWNER, aud: CLIENT, expires_in: '3599' },
+    'child-token': { email: CHILD, aud: CLIENT, expires_in: '3599' },
+  };
+  const members = JSON.stringify([{ email: CHILD, role: 'child', personId: 'p-child' }]);
+  const manifest = [{ entity: 'note', sheet: 'Notes', version: 1, columns: ['body'] }];
+
+  /** A household whose workbook id resolves to nothing. */
+  const gone = (properties = {}) => backend({
+    owner: OWNER, tokens, workbook: null, properties: { members, ...properties },
+  });
+
+  /** A household that is set up and working. */
+  function working() {
+    const tabs = ['Notes'];
+    const sheet = (n) => ({
+      getName: () => n, getLastRow: () => 1, getLastColumn: () => 0, getMaxRows: () => 100,
+      getRange: () => ({
+        getValues: () => [[]], setValues: () => {}, setValue: () => {},
+        setFontWeight: () => {}, setNumberFormat: () => {},
+      }),
+      setFrozenRows: () => {}, appendRow: () => {},
+    });
+    return backend({
+      owner: OWNER,
+      tokens,
+      workbook: {
+        getId: () => 'wb1', getUrl: () => 'https://example.invalid/wb1',
+        getSheets: () => tabs.map(sheet),
+        getSheetByName: (n) => (tabs.includes(n) ? sheet(n) : null),
+        insertSheet: (n) => { tabs.push(n); return sheet(n); },
+      },
+      properties: { members, workbookId: 'wb1', sheetMap: JSON.stringify({ note: 'Notes' }) },
+    });
+  }
+
+  test('a member cannot point the household at a workbook of their own', () => {
+    // Measured before this was closed: the child's request was *refused* and
+    // the pointer had moved anyway, because it was written the moment the
+    // workbook was made. The records were still in Drive and nothing pointed
+    // at them.
+    const api = gone({ workbookId: 'the-household-workbook' });
+    const answer = api.post('bootstrap', 'child-token', { manifest });
+
+    assert.not(answer.ok);
+    assert.equal(answer.status, 403, `refused for the wrong reason: ${answer.error}`);
+    assert.equal(api.props.getProperty('workbookId'), 'the-household-workbook');
+    assert.length(api.created, 0, 'a workbook was made for a caller who may not make one');
+  });
+
+  test('but is told where the records are when the household has them', () => {
+    // The half that matters just as much: a non-owner's uploads need the
+    // folder ids, and a rule that refused this would stop them syncing at all.
+    const api = working();
+    const answer = api.post('bootstrap', 'child-token', { manifest });
+
+    assert.ok(answer.ok, answer.error);
+    assert.equal(answer.data.workbookId, 'wb1');
+    assert.ok(answer.data.documentsFolderId);
+    assert.length(api.created, 0, 'an existing household had a second workbook made for it');
+  });
+
+  test('an owner sets one up, which is whose act it is', () => {
+    const api = gone();
+    const answer = api.post('bootstrap', 'owner-token', { manifest });
+
+    assert.ok(answer.ok, answer.error);
+    assert.length(api.created, 1);
+    assert.equal(api.props.getProperty('workbookId'), answer.data.workbookId);
+  });
+
+  test('and a bootstrap that fails leaves the household pointing nowhere new', () => {
+    // `doPost` already states this rule about a revoked device: "a revoked
+    // device that got its write in and was refused the reply would still have
+    // written."
+    const api = gone();
+    const answer = api.post('bootstrap', 'owner-token', { manifest: [] });
+
+    assert.not(answer.ok);
+    assert.length(api.created, 1, 'the workbook was not the thing that failed');
+    assert.not(api.props.getProperty('workbookId'),
+      'a refused bootstrap recorded the workbook it had just made');
+  });
+});
