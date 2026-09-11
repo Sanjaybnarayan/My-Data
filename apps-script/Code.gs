@@ -257,7 +257,7 @@ function dispatch(action, payload, context) {
       return otpEscrowManage(payload, context);
     case 'members':   return manageMembers(payload, context);
     case 'devices':   return manageDevices(payload, context);
-    case 'verify':    return { counts: sheetCounts(workbook()) };
+    case 'verify':    return { counts: sheetCounts(workbook(), context) };
     case 'ping':      return {
       ok: true, user: context.email, role: context.role, at: new Date().toISOString(),
       // Devices this person has never said they recognise, not counting the one

@@ -512,11 +512,32 @@ export class Database {
 
   /* --------------------------------------------------------------- counts */
 
-  /** Row counts per entity, for the settings screen and the backup check. */
+  /**
+   * Row counts per entity, for the settings screen and the backup check.
+   *
+   * Filtered by role, which it was not. This read `this.adapter.query()`
+   * directly for every entity — around the repository, which is where
+   * `rowFilter` is applied — so the settings screen showed a member of staff
+   * how many wills and identity documents the household keeps, of entities
+   * their role may not read one row of.
+   *
+   * **An entity this actor cannot read is absent, not zero**, for the reason
+   * `#absenceMeansSomething` already gives below: zero says there are none,
+   * and absent says nothing. Only one of those is true.
+   *
+   * The server half of the same count (`sheetCounts` in `apps-script/Sheets.gs`)
+   * now applies the same rule, and it has to be the same rule — the backup
+   * check compares the two, so a household whose device filtered and whose
+   * sheet did not would be told every restricted entity was missing from its
+   * backup.
+   */
   async statistics() {
     const stats = {};
     for (const name of Object.keys(entities)) {
-      const rows = await this.adapter.query(name, {});
+      const scope = readScope(this.#actor, name);
+      if (scope === 'none') continue;
+      const keep = rowFilter(this.#actor, name);
+      const rows = (await this.adapter.query(name, {})).filter(keep);
       stats[name] = {
         label: entityLabel(entity(name), 'many'),
         total: rows.length,

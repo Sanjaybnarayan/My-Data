@@ -516,17 +516,25 @@ export class SyncEngine {
     const local = await this.#db.statistics();
     const rows = [];
 
+    // Entities this actor cannot read are absent from `statistics()` and from
+    // the server's counts, both by role, so there is nothing here to compare.
+    // Counted and named rather than compared as 0 against 0: a row reading
+    // "0 local, 0 remote, ok" claims a check that never happened, and the
+    // screen would say a backup was verified on the strength of it.
+    let unverifiable = 0;
+
     for (const [name, def] of Object.entries(entities)) {
-      const here = local[name]?.total ?? 0;
+      if (!local[name]) { unverifiable += 1; continue; }
+      const here = local[name].total;
       const there = remote.counts?.[def.sheet] ?? 0;
       rows.push({ entity: name, sheet: def.sheet, local: here, remote: there, ok: here === there });
     }
 
     const verified = rows.every((r) => r.ok);
     await this.#db.setMeta('sync.lastVerification', {
-      at: new Date(this.#clock()).toISOString(), verified, rows,
+      at: new Date(this.#clock()).toISOString(), verified, rows, unverifiable,
     });
-    return { verified, rows, at: new Date(this.#clock()).toISOString() };
+    return { verified, rows, unverifiable, at: new Date(this.#clock()).toISOString() };
   }
 
   /* -------------------------------------------------------------- schedule */

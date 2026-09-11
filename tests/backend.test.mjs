@@ -1006,6 +1006,34 @@ describe('the identity that reaches the action', () => {
     }],
   }, { deviceId: 'device-1' });
 
+  test('a row count is a read, and reaches the action with the caller attached', () => {
+    /*
+     * The same wiring gap as the one this section was written for, in the same
+     * place, for a different action — and found by the mutation ratchet
+     * refusing to let the fix be recorded as held.
+     *
+     * `dispatch` called `sheetCounts(workbook())` with no context, so it
+     * consulted no policy and counted every tab. `policy.test.mjs` now proves
+     * `sheetCounts` filters when handed a role; only a request through
+     * `doPost` can prove it is handed one.
+     *
+     * `account` is `read: ["owner","spouse","adult"]`, so a child is the role
+     * this turns on — the first draft used an adult and the test duly failed,
+     * because an adult may read accounts and being told the count is correct.
+     */
+    const { api } = household([
+      { email: SPOUSE, role: 'child', personId: 'p-asha' },
+    ]);
+
+    const forChild = api.post('verify', 'spouse-token', {}, { deviceId: 'device-1' });
+    assert.ok(forChild.ok, forChild.error);
+    assert.not(Object.prototype.hasOwnProperty.call(forChild.data.counts, 'Accounts'),
+      `a child was told Accounts holds ${forChild.data.counts.Accounts}`);
+
+    const forOwner = api.post('verify', 'owner-token', {}, { deviceId: 'device-1' });
+    assert.equal(forOwner.data.counts.Accounts, 1);
+  });
+
   test('a write is serialised by the script lock, not a per-user one', () => {
     /*
      * Nothing checked which lock the write path took, so changing it changed

@@ -773,6 +773,28 @@ describe('repository', () => {
     assert.equal(stats.person.live, 1);
     assert.equal(stats._outbox.pending, 3);
   });
+
+  test('and count only what the signed-in role may read', async () => {
+    // This read `this.adapter.query()` directly for every entity — around the
+    // repository, which is where `rowFilter` is applied — so the settings
+    // screen told a member of staff how many wills and identity documents the
+    // household keeps, of entities their role may not read one row of.
+    const db = await makeDb();
+    await makePerson(db);
+
+    const owner = await db.statistics();
+    assert.ok(owner.vaultItem, 'an owner sees the entity at all');
+
+    db.setActor({ personId: 'p-kid', role: 'child' });
+    const child = await db.statistics();
+
+    // Absent, not zero, for the reason `#absenceMeansSomething` already gives:
+    // zero says there are none, absent says nothing, and only one is true.
+    assert.not(Object.prototype.hasOwnProperty.call(child, 'vaultItem'),
+      'a child was told how many vault items the household keeps');
+    assert.ok(Object.prototype.hasOwnProperty.call(child, 'healthRecord'),
+      'an own-record entity stays, counted to the caller\'s own rows');
+  });
 });
 
 describe('sorting by more than one key', () => {

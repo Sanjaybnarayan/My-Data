@@ -623,6 +623,8 @@ until it is redeployed.
 4. **OTP-02** — a wrong guess no longer buys the code more time. Same redeploy.
 5. **LIST-01** — `push`, `schema` and `audit` no longer walk a list that is not
    one. Same redeploy.
+6. **COUNT-01** — `verify` now reaches `sheetCounts` with the caller attached,
+   and row counts are filtered by the same rule as `pull`. Same redeploy.
 
 ---
 
@@ -720,6 +722,7 @@ Following the brief's phase structure, restricted to what exists here:
 | — | SEARCH-01 | **Done** — the read path that never met the authorisation rule |
 | — | LOCK-01 | **Done** — the write path's lock, raised as an open question under OTP-01 and settled by the owner |
 | — | MANIFEST-01 | **Done** — two manifest attributes, and two absences, that nothing checked |
+| — | COUNT-01 | **Done** — the weekly backup check answered a row count for every tab to any authenticated caller, including the six entities that are `read: ["owner","spouse"]`. The policy table was never wrong; the handler never asked it |
 | — | ID-01 | **Accepted**, with the reason corrected — see above |
 
 The table stopped at 10 for as long as this document existed, and the brief has
