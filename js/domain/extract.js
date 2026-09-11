@@ -39,7 +39,7 @@ import {
 // The identity reader lives beside the rest of the identity-document code.
 // `tools/module-size.mjs` moved it there when this file refused to grow, the
 // same way the scalar readers went to `extract-values.js`.
-import { readIdentity } from './identifiers.js';
+import { readIdentity, readPersonDetails } from './identifiers.js';
 
 /* ------------------------------------------------------------ identifiers */
 
@@ -667,7 +667,8 @@ export function readVehicle(text) {
  * from the part that is safe to index.
  *
  * @param {string} text
- * @returns {{kind: string, fields: object, identifiers: Array, indexable: string}}
+ * @returns {{kind: string, fields: object, identifiers: Array, person: object,
+ *   indexable: string}}
  */
 export function readDocument(text) {
   const source = String(text ?? '');
@@ -689,6 +690,12 @@ export function readDocument(text) {
     kind,
     fields,
     identifiers: readIdentifiers(source),
+    // What the document says about the *person* it belongs to, carried the
+    // same way `identifiers` is and for the same reason: the raw string never
+    // leaves this call, and a caller that wants a name has to be handed the
+    // name rather than the page. Only for an identity document — every other
+    // kind is about a thing, not a person.
+    person: kind === 'identity' ? readPersonDetails(source) : {},
     // The only string a caller should ever store in a searchable field.
     indexable: redact(source),
   };

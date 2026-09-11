@@ -757,6 +757,41 @@ describe('cross-entity writes a document causes', () => {
     const back = await db.repo('identityDocument').get(created.id);
     assert.equal(back.kind, 'PAN');
   });
+
+  test('a detail a scan read fills an empty field on the person', async () => {
+    const db = await makeDb();
+    const person = await db.repo('person').create({ name: 'Asha', role: 'adult' });
+
+    await new DocumentsService(db).recordPersonDetail(person.id, 'birthday', '1994-03-02');
+    assert.equal((await db.repo('person').get(person.id)).birthday, '1994-03-02');
+  });
+
+  test('and refuses a field the person already answered', async () => {
+    // The failure worth preventing: a name recovered from a PDF's text layer
+    // by position, written over one somebody typed. The screen only offers
+    // empty fields, and this refuses rather than trusting the screen.
+    const db = await makeDb();
+    const person = await db.repo('person').create({ name: 'Asha', role: 'adult' });
+
+    await assert.throws(
+      () => new DocumentsService(db).recordPersonDetail(person.id, 'name', 'ASHA A R'),
+      'already recorded',
+      'a scan overwrote a name somebody typed',
+    );
+    assert.equal((await db.repo('person').get(person.id)).name, 'Asha');
+  });
+
+  test('and refuses a field no document offers', async () => {
+    const db = await makeDb();
+    const person = await db.repo('person').create({ name: 'Asha', role: 'adult' });
+
+    await assert.throws(
+      () => new DocumentsService(db).recordPersonDetail(person.id, 'role', 'owner'),
+      'not something a document offers',
+      'a scan wrote a field outside the four it may touch',
+    );
+    assert.equal((await db.repo('person').get(person.id)).role, 'adult');
+  });
 });
 
 /*

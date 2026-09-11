@@ -278,7 +278,7 @@ export class DocumentStore {
    * later, is the thing the redaction exists to prevent. The encrypted file is
    * already on the device; reading it again costs a parse and stores nothing.
    *
-   * @returns {Promise<{identifiers: Array, readable: boolean}>}
+   * @returns {Promise<{identifiers: Array, person: object, readable: boolean}>}
    *   `readable` is false when nothing on this device could get text out of
    *   the file. That is not the same as a document with no identifiers in it,
    *   and callers must not report it as one.
@@ -290,17 +290,20 @@ export class DocumentStore {
    */
   async identifiersIn(documentId) {
     const document = await this.#db.repo('document').get(documentId);
-    if (!document) return { identifiers: [], readable: false };
-    if (!mayRead(document.mimeType, document.fileName)) return { identifiers: [], readable: false };
+    if (!document) return { identifiers: [], person: {}, readable: false };
+    if (!mayRead(document.mimeType, document.fileName)) {
+      return { identifiers: [], person: {}, readable: false };
+    }
 
     const blob = await this.read(documentId);
-    if (!blob) return { identifiers: [], readable: false };
+    if (!blob) return { identifiers: [], person: {}, readable: false };
 
     const read = await this.#readText(
       new Uint8Array(await blob.arrayBuffer()), document.mimeType, document.fileName,
     );
-    return read ? { identifiers: read.identifiers, readable: true }
-      : { identifiers: [], readable: false };
+    return read
+      ? { identifiers: read.identifiers, person: read.person ?? {}, readable: true }
+      : { identifiers: [], person: {}, readable: false };
   }
 
   /**

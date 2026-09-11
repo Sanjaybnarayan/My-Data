@@ -53,6 +53,8 @@
 // carry a second copy of it as a run of mime-type branches — see `textState`.
 import { readerFor, READER } from './filing.js';
 import { readLabelledDate } from './extract-values.js';
+import { fieldLabel } from '../core/labels.js';
+import { entity } from '../data/schema.js';
 import { t } from '../core/locale.js';
 
 export const IDENTIFIER_KINDS = {
@@ -326,3 +328,143 @@ function kept(object) {
     Object.entries(object).filter(([, v]) => v !== null && v !== undefined && v !== ''),
   );
 }
+
+/**
+ * What an identity document says about the **person** it belongs to.
+ *
+ * `readIdentity` above reads what belongs on the document record. This reads
+ * the four things an eAadhaar prints about its holder — name, date of birth,
+ * gender and address — which belong on `person` and nowhere else.
+ *
+ * ## Offered, never written
+ *
+ * Nothing here writes. `personOffers` below compares what was read against
+ * what the person record already holds and proposes only the empty ones, and a
+ * human presses the button. Three reasons, and the first is enough on its own:
+ *
+ * **These are read off a scan and can be wrong.** A name is recovered from a
+ * PDF's text layer by position; the same document that carries it also carries
+ * a year with a digit missing. Writing a misread name over a correct one is a
+ * worse outcome than leaving a field empty.
+ *
+ * **A value somebody typed is a decision.** `suggestions()` in `extract.js`
+ * says the same thing about dates: "nothing overwrites a value a person
+ * typed". An empty field is the only safe target.
+ *
+ * **The household knows which person.** The document is filed under one
+ * already, and that is the only person these can be about — but `identifiers`
+ * refuses to resolve a nominee to a person for exactly this reason, and this
+ * follows it rather than inventing a second answer.
+ *
+ * ## The anchors, measured on a real eAadhaar
+ *
+ * The page prints the holder's name twice, once in the local script and once
+ * in Latin, then the address, then a bilingual DOB and gender line. The
+ * layout is what makes each readable:
+ *
+ *     To
+ *     <name, local script>
+ *     <name, Latin>            ← the first Latin line after `To`
+ *     C/O …                    ← the address begins, so the name has ended
+ *     …
+ *     DOB : dd/mm/yyyy
+ *     / FEMALE Address:
+ *     C/O … 560001             ← to the PIN, which ends it
+ */
+export function readPersonDetails(text) {
+  const source = String(text ?? '');
+
+  return kept({
+    name: readHolderName(source),
+    birthday: readLabelledDate(source, ['dob', 'birth']),
+    gender: readGender(source),
+    address: readHolderAddress(source),
+  });
+}
+
+/** Address markers, which are where a name has stopped. */
+const RELATION = /^(C\/O|S\/O|D\/O|W\/O)\b/i;
+
+/**
+ * The line after `To` that is written in Latin letters.
+ *
+ * Anchored on `To` rather than on "the first name-shaped line", because a name
+ * has no shape: two words, three, an initial, a single word are all names, and
+ * so is half the rest of the page.
+ */
+function readHolderName(source) {
+  const lines = source.split('\n').map((one) => one.trim());
+  const start = lines.findIndex((one) => /^to$/i.test(one));
+  if (start < 0) return null;
+
+  for (const line of lines.slice(start + 1, start + 6)) {
+    if (!line) continue;
+    if (RELATION.test(line)) return null;          // the address began first
+    if (/\d/.test(line)) return null;              // and so did the numbers
+    if (/^[A-Za-z][A-Za-z.\s]*$/.test(line) && line.replace(/[^A-Za-z]/g, '').length >= 2) {
+      return line.replace(/\s+/g, ' ');
+    }
+  }
+  return null;
+}
+
+/**
+ * Gender, mapped onto the four the schema offers.
+ *
+ * `FEMALE` is checked first and every alternative is bounded, because `MALE`
+ * is a substring of it — a rule that read them in the other order would call
+ * every woman on every Aadhaar a man.
+ *
+ * `TRANSGENDER` maps to `other`, which is the closest the schema has. Saying
+ * so here rather than silently dropping it: a person whose document says one
+ * thing and whose record says another deserves the mapping written down.
+ */
+function readGender(source) {
+  if (/\bFEMALE\b/i.test(source)) return 'female';
+  if (/\bTRANSGENDER\b/i.test(source)) return 'other';
+  if (/\bMALE\b/i.test(source)) return 'male';
+  return null;
+}
+
+/** From the `Address:` label to the PIN code, which is where an address ends. */
+function readHolderAddress(source) {
+  const at = source.search(/\bAddress\s*:/i);
+  if (at < 0) return null;
+
+  const after = source.slice(at).replace(/^[^:]*:/, '');
+  const end = after.search(/\b\d{6}\b/);
+  if (end < 0) return null;
+
+  const block = after.slice(0, end + 6).replace(/\s+/g, ' ').trim();
+  return block.length >= 10 ? block : null;
+}
+
+/**
+ * Which of those a person record has no answer for yet.
+ *
+ * Only the empty ones, and the value is carried so the screen can show what it
+ * proposes to write. A field the person already filled is not offered at all —
+ * not offered-and-marked-different, which would invite somebody to overwrite
+ * their own correction with a scan.
+ */
+export function personOffers(details, person) {
+  if (!person) return [];
+
+  return [...PERSON_DETAIL_FIELDS]
+    .filter((key) => details?.[key])
+    .filter((key) => {
+      const held = person[key];
+      return held === undefined || held === null || String(held).trim() === '';
+    })
+    .map((key) => ({
+      field: key,
+      // Through the door, like every other schema label on a screen: the
+      // person entity already names these four, and a second copy here would
+      // be four more English strings and a fifth place to keep in step.
+      label: fieldLabel('person', entity('person').fields.find((f) => f.key === key) ?? { key }),
+      value: details[key],
+    }));
+}
+
+/** The four an identity document can speak to, in the order a form shows them. */
+export const PERSON_DETAIL_FIELDS = Object.freeze(['name', 'birthday', 'gender', 'address']);

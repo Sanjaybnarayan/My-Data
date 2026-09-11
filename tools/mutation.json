@@ -735,6 +735,41 @@
       "find": "    identity: 'identity',\n  };",
       "replace": "  };",
       "suite": "extract"
+    },
+    {
+      "label": "a scan overwrites a person detail somebody typed",
+      "file": "js/services/documents.js",
+      "find": "    if (held !== undefined && held !== null && String(held).trim() !== '') {",
+      "replace": "    if (false) {",
+      "suite": "services"
+    },
+    {
+      "label": "a scan writes any field it is handed, not only the four",
+      "file": "js/services/documents.js",
+      "find": "    if (!PERSON_DETAILS.has(field)) throw new Error(t('identity.person.notOffered', { field }));",
+      "replace": "    if (false) throw new Error(t('identity.person.notOffered', { field }));",
+      "suite": "services"
+    },
+    {
+      "label": "every woman on every Aadhaar is recorded as a man",
+      "file": "js/domain/identifiers.js",
+      "find": "  if (/\\bFEMALE\\b/i.test(source)) return 'female';\n  if (/\\bTRANSGENDER\\b/i.test(source)) return 'other';\n  if (/\\bMALE\\b/i.test(source)) return 'male';",
+      "replace": "  if (/MALE/i.test(source)) return 'male';\n  if (/\\bTRANSGENDER\\b/i.test(source)) return 'other';\n  if (/\\bFEMALE\\b/i.test(source)) return 'female';",
+      "suite": "extract"
+    },
+    {
+      "label": "a person detail already answered is offered for overwriting",
+      "file": "js/domain/identifiers.js",
+      "find": "      return held === undefined || held === null || String(held).trim() === '';",
+      "replace": "      return true;",
+      "suite": "extract"
+    },
+    {
+      "label": "the holder's name is taken from the address that follows it",
+      "file": "js/domain/identifiers.js",
+      "find": "    if (RELATION.test(line)) return null;          // the address began first",
+      "replace": "    if (false) return null;",
+      "suite": "extract"
     }
   ]
 }

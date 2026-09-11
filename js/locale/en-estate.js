@@ -15,6 +15,17 @@
  */
 
 export const estateStrings = {
+  // What an identity document says about the person it is filed under. Whole
+  // sentences, and `{field}` is a schema label that arrives already
+  // translated — the same shape as the `validate.*` keys.
+  'identity.person.intro': '{who} has no answer recorded for these, and a scan only ever fills a blank one.',
+  'identity.person.record': 'Record it',
+  'identity.person.recorded': '{field} recorded',
+  'identity.person.thatPerson': 'That person',
+  'identity.person.needsPerson': 'An identity detail has to belong to somebody.',
+  'identity.person.notOffered': '{field} is not something a document offers.',
+  'identity.person.alreadySet': 'That is already recorded, and a scan does not overwrite it.',
+
   // Registration of wills and deeds. Whole sentences, and the heading says
   // "not recorded as registered" rather than "unregistered" because the field
   // is a boolean and a form nobody opened answers no in the same voice as a

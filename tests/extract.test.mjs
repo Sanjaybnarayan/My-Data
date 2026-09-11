@@ -9,7 +9,7 @@ import {
 import { readDate, readAmount } from '../js/domain/extract-values.js';
 // `readIdentity` lives beside the rest of the identity-document code; the
 // module-size ratchet moved it there when `extract.js` refused to grow.
-import { readIdentity } from '../js/domain/identifiers.js';
+import { readIdentity, readPersonDetails, personOffers } from '../js/domain/identifiers.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
 
@@ -1141,5 +1141,92 @@ describe('an identity document', () => {
     // recognisable on its own, and an invoice may be numbered anything.
     const invoice = 'Invoice 1234/56789/01234';
     assert.ok(redact(invoice).includes('1234/56789/01234'));
+  });
+});
+
+describe('what an identity document says about its holder', () => {
+  /*
+   * Name, date of birth, gender and address are on the page and belong to
+   * `person`, not to the document. They are **offered**, never written: read
+   * off a text layer by position, they can be wrong, and the same document
+   * that carries them also carries a year with a digit missing.
+   *
+   * Synthetic, with the layout measured from a real eAadhaar — the holder's
+   * name twice, once in the local script and once in Latin, then the address,
+   * then a bilingual DOB and gender line.
+   */
+  const AADHAAR = [
+    'Enrolment No.: 1234/56789/01234',
+    'To',
+    'ಹೆಸರು ಎ ಆರ್',
+    'ASHA A R',
+    'C/O Ravi B N, 123/4',
+    'PIN Code: 560001',
+    'DOB : 02/03/1994',
+    '/ FEMALE Address:',
+    'C/O Ravi B N, 123/4, Some Road, Bengaluru, KA - 560001',
+  ].join('\n');
+
+  test('all four are read', () => {
+    const said = readPersonDetails(AADHAAR);
+    assert.equal(said.name, 'ASHA A R');
+    assert.equal(said.birthday, '1994-03-02');
+    assert.equal(said.gender, 'female');
+    assert.ok(said.address.endsWith('560001'), said.address);
+  });
+
+  test('the name is the Latin line after To, not the address that follows it', () => {
+    // A name has no shape — one word, three, an initial are all names, and so
+    // is half the rest of the page. The layout is the only anchor.
+    assert.equal(readPersonDetails('To\nC/O Ravi B N, 123/4').name ?? null, null);
+    assert.equal(readPersonDetails('ASHA A R\nC/O Ravi').name ?? null, null, 'no To, no anchor');
+
+    // Once the address has begun the name has ended, and the search stops
+    // there rather than walking on. Without that, the first later line made
+    // of plain letters wins — and on this layout that is a place, not a
+    // person.
+    assert.equal(
+      readPersonDetails(['To', 'ಹೆಸರು', 'C/O Ravi B N', 'VTC Somewhere'].join('\n')).name ?? null,
+      null,
+      'a village was read as the holder',
+    );
+  });
+
+  test('FEMALE is not read as MALE', () => {
+    // `MALE` is a substring of `FEMALE`. A rule that tested them in the other
+    // order would call every woman on every Aadhaar a man.
+    assert.equal(readPersonDetails('/ FEMALE').gender, 'female');
+    assert.equal(readPersonDetails('/ MALE').gender, 'male');
+    assert.equal(readPersonDetails('/ TRANSGENDER').gender, 'other');
+  });
+
+  test('the gender it reads is one the schema offers', () => {
+    const allowed = ['female', 'male', 'other', 'prefer not to say'];
+    for (const word of ['FEMALE', 'MALE', 'TRANSGENDER']) {
+      assert.ok(allowed.includes(readPersonDetails(`/ ${word}`).gender));
+    }
+  });
+
+  test('an empty field is offered and a filled one is not', () => {
+    // Not offered-and-marked-different, which would invite somebody to
+    // overwrite their own correction with a scan.
+    const said = readPersonDetails(AADHAAR);
+    const empty = personOffers(said, { name: '', birthday: '', gender: '', address: '' });
+    assert.deep(empty.map((one) => one.field), ['name', 'birthday', 'gender', 'address']);
+
+    const filled = personOffers(said, {
+      name: 'Typed by hand', birthday: '1990-01-01', gender: 'female', address: 'Typed',
+    });
+    assert.length(filled, 0);
+  });
+
+  test('the labels come from the schema, not from a second copy here', () => {
+    const [first] = personOffers(readPersonDetails(AADHAAR), { name: '' });
+    assert.equal(first.label, 'Full name');
+  });
+
+  test('and nothing is read from a document that is not an identity one', () => {
+    // `readDocument` only asks for these when the kind says to.
+    assert.deep(readDocument('Invoice 42\nAmount due 100').person, {});
   });
 });
