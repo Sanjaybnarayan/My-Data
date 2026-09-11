@@ -210,17 +210,32 @@ export async function verifyDevice(entries, head = null) {
     };
   }
 
-  // The links add up from the beginning; the head says where they should have
-  // stopped. Checked last, because "the log ends early" is a less specific
-  // thing to be told than "this entry was altered", and the more specific
-  // answer should win when both are true.
+  /*
+   * The links add up from the beginning; the head says where they should have
+   * stopped. Checked last, because "the log ends early" is a less specific
+   * thing to be told than "this entry was altered", and the more specific
+   * answer should win when both are true.
+   *
+   * Which way they disagree matters, because the two mean opposite things and
+   * a household reads the sentence. If the entry the head names is nowhere in
+   * the log, it was removed. If it is here and the walk went past it, nothing
+   * was removed at all — the head is behind what the log holds, which is what
+   * restoring an older archive onto a device that has kept working produces:
+   * `writeSystemStoreRows` puts the archive's head back while the entries
+   * written since it stay where they are.
+   *
+   * Saying "the most recent entries were removed" there would be exactly
+   * backwards, and this check exists because a sentence about somebody's audit
+   * trail was not true.
+   */
   if (expectedEnd && expectedEnd !== end) {
+    const behind = rows.some((row) => row.hash === expectedEnd);
     return {
       ok: false,
       checked,
-      kind: 'truncated',
+      kind: behind ? 'behind' : 'truncated',
       at: null,
-      why: t('chain.why.truncated'),
+      why: behind ? t('chain.why.behind') : t('chain.why.truncated'),
     };
   }
 

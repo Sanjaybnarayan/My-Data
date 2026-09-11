@@ -1155,6 +1155,20 @@
       "find": "  const expectedEnd = head && head !== GENESIS ? head : null;",
       "replace": "  const expectedEnd = head ?? null;",
       "suite": "chain"
+    },
+    {
+      "label": "a head older than the log is reported as entries having been removed",
+      "file": "js/data/chain.js",
+      "find": "    const behind = rows.some((row) => row.hash === expectedEnd);",
+      "replace": "    const behind = false;",
+      "suite": "chain"
+    },
+    {
+      "label": "a log actually cut short is excused as a stale head",
+      "file": "js/data/chain.js",
+      "find": "      kind: behind ? 'behind' : 'truncated',\n      at: null,\n      why: behind ? t('chain.why.behind') : t('chain.why.truncated'),",
+      "replace": "      kind: 'behind',\n      at: null,\n      why: t('chain.why.behind'),",
+      "suite": "chain"
     }
   ]
 }

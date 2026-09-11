@@ -254,6 +254,26 @@ describe('the real write path', () => {
       assert.equal(result.devices[0].checked, 0);
     });
 
+    test('a head older than the log is named as that, not as a log cut short', async () => {
+      // Back up, keep using the device, restore your own archive: the archive's
+      // head goes back and the entries written since stay where they are. The
+      // log is longer than the head, nothing was removed, and telling somebody
+      // their audit trail lost its most recent entries would be backwards.
+      const db = await makeDb();
+      const rows = await threeThenDrop(db, () => []);
+      const older = rows[rows.length - 2].hash;
+      await db.adapter.write('meta', {
+        key: headKey(db.deviceId), value: older, updatedAt: new Date().toISOString(),
+      });
+
+      const result = await db.verifyAudit();
+      assert.not(result.ok);
+      assert.equal(result.devices[0].kind, 'behind');
+      assert.ok(/runs past/.test(result.devices[0].why), result.devices[0].why);
+      assert.ok(!/removed/.test(result.devices[0].why.split('\u2014')[0]),
+        'the first half of the sentence must not say anything was removed');
+    });
+
     test('and a device that has written nothing is not a device cut short', async () => {
       // `headRow` writes `GENESIS` when nothing has been linked yet. Read back
       // as a place the log should have reached, it would call every empty
