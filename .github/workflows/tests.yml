@@ -96,6 +96,17 @@ jobs:
       - name: Check nothing that ships has a known vulnerability
         run: npm audit --omit=dev --audit-level=high
 
+      # The audit records section 48 as a PASS — "no API keys, no secrets, no
+      # service-account files" — on the strength of one hand measurement. This
+      # is what holds it. Credential formats only, never the words: `token` and
+      # `apiKey` appear hundreds of times in the prose, and a scanner that
+      # flagged those would be switched off within a week.
+      #
+      # It refuses to run at all if a pattern stops matching its own sample,
+      # because a broken regex reports a clean repository whatever is in it.
+      - name: Check nothing committed is a credential
+        run: node tools/secrets.mjs
+
       # Not a linter — see `tools/lint.mjs` for why there is deliberately none.
       # Five patterns a type checker cannot see, every one of them at zero, and
       # the value is in the direction this fails: a `console.log` pasted into a

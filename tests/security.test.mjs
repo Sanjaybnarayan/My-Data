@@ -1138,3 +1138,80 @@ describe('the floor a PIN has to clear', () => {
       + 'before it was raised would be locked out of their own records');
   });
 });
+
+/**
+ * Section 48 of the brief, held rather than measured once.
+ *
+ * The audit records it as a PASS: *"Repository-wide scan: no API keys, no
+ * secrets, no service-account files."* That was a hand measurement, and
+ * nothing has held it since — the shape this repository has found more often
+ * than any other. The way such a claim stops being true is somebody pasting a
+ * key into a config file at midnight, not a decision anybody would review.
+ */
+describe('nothing committed is a credential', () => {
+  test('no tracked file contains one', async () => {
+    const { scan } = await import('../tools/secrets.mjs');
+    assert.deep(scan(), [], 'rotate it first — it is in the history, not only the tree');
+  });
+
+  test('and every pattern still matches its own sample', async () => {
+    /*
+     * The guard that keeps the check above from being decorative. A regex that
+     * stopped matching — an escape mangled by a refactor, a quantifier
+     * fat-fingered — leaves a scanner reporting a clean repository whatever is
+     * in it, and the run is green either way.
+     *
+     * This is not hypothetical: while proving the scanner could fail, the
+     * deliberately broken pattern was nearly left in, because the file was
+     * untracked and `git checkout` silently restored nothing.
+     */
+    const { selfTest, PATTERNS } = await import('../tools/secrets.mjs');
+    assert.deep(selfTest(), []);
+    assert.ok(PATTERNS.length >= 6, `only ${PATTERNS.length} credential formats`);
+  });
+
+  test('and a pattern that cannot match its own sample is reported', async () => {
+    /*
+     * Asserting `selfTest()` comes back empty cannot tell a working guard from
+     * one that returns empty unconditionally — the mutation ratchet made
+     * exactly that point and refused to call this held. So the broken case is
+     * driven rather than hoped for.
+     */
+    const { selfTest } = await import('../tools/secrets.mjs');
+    const broken = [{ what: 'a key of some kind', pattern: /NEVERMATCHES/, sample: 'AIzaxxxx' }];
+
+    const found = selfTest(broken);
+    assert.length(found, 1);
+    assert.ok(found[0].includes('no longer matches its own sample'), found[0]);
+  });
+
+  test('a planted credential is found, with its file and line', async () => {
+    // Driven rather than asserted about the repository as it stands: it is
+    // clean, so the branch that reports a hit could not otherwise fail.
+    const { scan, PATTERNS } = await import('../tools/secrets.mjs');
+    const planted = `const key = '${PATTERNS[0].sample}';`;
+    const found = scan(['js/fake.js'], () => `// fine\n${planted}\n`);
+
+    assert.length(found, 1, found.join('; '));
+    assert.ok(found[0].startsWith('js/fake.js:2'), found[0]);
+    assert.ok(found[0].includes(PATTERNS[0].what), found[0]);
+  });
+
+  test('and the words people write about secrets are not credentials', async () => {
+    /*
+     * The half that decides whether anybody leaves this switched on. This
+     * repository says `token`, `secret` and `apiKey` hundreds of times in
+     * prose, schema and fixtures, and a scanner that flagged those would be
+     * turned off inside a week. Formats only.
+     */
+    const { scan } = await import('../tools/secrets.mjs');
+    const prose = [
+      'The SMS provider credentials must remain server-side.',
+      "const tokens = { 'owner-token': { email } };",
+      'apiKey: config.apiKey, // never a literal',
+      '* `otpSmsToken` is a property somebody sets, not a value stored here.',
+    ].join('\n');
+
+    assert.deep(scan(['js/prose.js'], () => prose), []);
+  });
+});

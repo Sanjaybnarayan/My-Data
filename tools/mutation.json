@@ -511,6 +511,20 @@
       "find": "  if (!mavenDeps.length) found.push('no Maven coordinates parsed — this check would pass on anything');\n",
       "replace": "",
       "suite": "native"
+    },
+    {
+      "label": "a committed credential is not reported",
+      "file": "tools/secrets.mjs",
+      "find": "        if (p.pattern.test(line)) found.push(`${file}:${i + 1} looks like ${p.what}`);",
+      "replace": "        if (false) found.push(`${file}:${i + 1} looks like ${p.what}`);",
+      "suite": "security"
+    },
+    {
+      "label": "a credential pattern that matches nothing is scanned with anyway",
+      "file": "tools/secrets.mjs",
+      "find": "    .filter((p) => !p.pattern.test(p.sample))",
+      "replace": "    .filter(() => false)",
+      "suite": "security"
     }
   ]
 }
