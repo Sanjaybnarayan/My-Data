@@ -1050,6 +1050,41 @@
       "find": "  await db.adapter.write('conflicts', { ...conflict, reviewed: true });\n",
       "replace": "",
       "suite": "sync"
+    },
+    {
+      "label": "a field nothing redacts takes whatever it is given",
+      "file": "js/data/diagnostics.js",
+      "find": "  if (!LABEL.test(text)) return '«unlabelled»';\n",
+      "replace": "",
+      "suite": "diagnostics"
+    },
+    {
+      "label": "the label shape is tightened until nothing passes it",
+      "file": "js/data/diagnostics.js",
+      "find": "const LABEL = /^[A-Za-z][A-Za-z0-9]*(?:[.\\-_:][A-Za-z0-9]+)*$/;",
+      "replace": "const LABEL = /^$/;",
+      "suite": "diagnostics"
+    },
+    {
+      "label": "a record id reaches the diagnostics log whole",
+      "file": "js/data/diagnostics.js",
+      "find": "  return text.replace(ID_IN_LABEL, '$1_«id»');",
+      "replace": "  return text;",
+      "suite": "diagnostics"
+    },
+    {
+      "label": "a code that merely looks like an id is masked along with the ids",
+      "file": "js/data/diagnostics.js",
+      "find": "const ID_IN_LABEL = /\\b([a-z]{2,6})_[A-Za-z0-9]*\\d[A-Za-z0-9]*\\b/g;",
+      "replace": "const ID_IN_LABEL = /\\b([a-z]{2,6})_[A-Za-z0-9]{3,}\\b/g;",
+      "suite": "diagnostics"
+    },
+    {
+      "label": "a diagnostic with nowhere to file it is filed under a marker",
+      "file": "js/data/diagnostics.js",
+      "find": "  if (!text) return '';\n",
+      "replace": "",
+      "suite": "diagnostics"
     }
   ]
 }

@@ -137,8 +137,12 @@ const RULES = [
       'js/modules/settings.js':
         'Two system stores with no per-row ACL: `adapter.usage()`, which is a '
         + 'figure about the browser rather than about the household, and the '
-        + 'diagnostics log, whose every string has already been through '
-        + '`data/diagnostics.js#redact`.',
+        + 'diagnostics log. Its `message` has been through '
+        + '`data/diagnostics.js#redact`; its `where`, `code` and `entity` '
+        + 'deliberately have not — redaction would file every `http-500` and '
+        + '`http-404` under one heading and take away the grouping they exist '
+        + 'for — and are held to a label shape instead, which is what stops '
+        + 'those three carrying anything out of a record.',
       'js/modules/settings/connection.js':
         'The outbox — this device\'s own unsent writes. `Outbox` takes the '
         + 'adapter by construction, and a queue entry is not a record anybody '
