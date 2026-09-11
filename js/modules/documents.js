@@ -24,6 +24,7 @@ import {
 } from '../ui/components/basics.js';
 import { modal } from '../ui/components/modal.js';
 import { toast } from '../ui/components/toast.js';
+import { t } from '../core/locale.js';
 import { entityForm } from '../ui/components/form.js';
 import { recordDetail } from './crud.js';
 import { MATCH } from '../domain/receiptmatch.js';
@@ -36,7 +37,10 @@ import {
   CATEGORIES, HOUSEHOLD_FOLDER, guessCategory, categoryForEntity, matches, titleFromFileName,
   iconForMime, formatSize, personFolderName,
 } from '../domain/filing.js';
-import { identifierOffers, identityRecordFor, textState } from '../domain/identifiers.js';
+import {
+  identifierOffers, identityRecordFor, personOffers, textState,
+} from '../domain/identifiers.js';
+import { offerRow, detailRow } from './documents-parts.js';
 import { formatDay, daysUntil } from '../core/dates.js';
 import { available as canRecogniseText } from '../core/ocr.js';
 import { userMessage } from '../core/errors.js';
@@ -443,14 +447,20 @@ async function documentDetail(id) {
     // Read on demand from the encrypted file rather than kept anywhere. A
     // second copy of an unrecorded identifier is exactly what the redaction
     // exists to prevent.
-    const { identifiers, readable } = await store.identifiersIn(id).catch(
-      () => ({ identifiers: [], readable: false }),
+    const { identifiers, person: said, readable } = await store.identifiersIn(id).catch(
+      () => ({ identifiers: [], person: {}, readable: false }),
     );
 
     const existing = await db.repo('identityDocument').list({ limit: 500 }).catch(() => []);
     const offers = identifierOffers(identifiers, record, existing);
 
-    if (state.read && !offers.length) { replace(reading, null); return; }
+    // What the document says about the person it is filed under, minus
+    // everything that person record already answers. An empty field is the
+    // only thing a scan is allowed to fill.
+    const holder = await new DocumentsService(db).personFor(record);
+    const details = personOffers(said, holder);
+
+    if (state.read && !offers.length && !details.length) { replace(reading, null); return; }
 
     replace(reading, card({ class: 'card--quiet' }, [
       cardHeader('What was read from this file'),
@@ -468,7 +478,24 @@ async function documentDetail(id) {
           + 'for identity numbers.')
         : null,
 
-      ...offers.map((offer) => offerRow(offer)),
+      ...offers.map((offer) => offerRow(offer, {
+        onRecord: async (one) => {
+          await new DocumentsService(db).recordIdentifier(identityRecordFor(one, record));
+          toast(`${one.kind} recorded, encrypted`, { kind: 'success' });
+          await paintReading();
+        },
+      })),
+      ...(details.length
+        ? [h('p', { class: 'small muted' },
+          t('identity.person.intro', { who: holder?.name || t('identity.person.thatPerson') }))]
+        : []),
+      ...details.map((detail) => detailRow(detail, {
+        onRecord: async (one) => {
+          await new DocumentsService(db).recordPersonDetail(holder.id, one.field, one.value);
+          toast(t('identity.person.recorded', { field: one.label }), { kind: 'success' });
+          await paintReading();
+        },
+      })),
     ].filter(Boolean)));
   }
 
@@ -561,35 +588,6 @@ async function documentDetail(id) {
     } catch (err) {
       toast(userMessage(err), { kind: 'error' });
     }
-  }
-
-  function offerRow(offer) {
-    const line = (text, tone) => h('p', { class: `small ${tone}` }, text);
-
-    if (offer.state === 'recorded') {
-      return line(`The ${offer.kind} on this document is already recorded — ${offer.masked}.`, 'faint');
-    }
-    if (offer.state !== 'offer') {
-      return line(`${offer.kind} ${offer.masked}: ${offer.why}.`, 'muted');
-    }
-
-    return h('div', { class: 'row row--between', style: { gap: 'var(--space-3)' } }, [
-      h('span', { class: 'small' },
-        `A ${offer.kind} — ${offer.masked} — is on this document and is not recorded anywhere.`),
-      button('Record it', {
-        variant: 'subtle',
-        onClick: async () => {
-          try {
-            await new DocumentsService(db)
-              .recordIdentifier(identityRecordFor(offer, record));
-            toast(`${offer.kind} recorded, encrypted`, { kind: 'success' });
-            await paintReading();
-          } catch (err) {
-            toast(userMessage(err), { kind: 'error' });
-          }
-        },
-      }),
-    ]);
   }
 
   async function open() {

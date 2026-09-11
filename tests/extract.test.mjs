@@ -7,6 +7,9 @@ import {
 // `extract.js` grow. Imported from where they live rather than re-exported
 // through their old home, so the seam is visible here too.
 import { readDate, readAmount } from '../js/domain/extract-values.js';
+// `readIdentity` lives beside the rest of the identity-document code; the
+// module-size ratchet moved it there when `extract.js` refused to grow.
+import { readIdentity, readPersonDetails, personOffers } from '../js/domain/identifiers.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
 
@@ -1073,5 +1076,157 @@ describe('a date is not an amount', () => {
     assert.equal(readDate('Due Date: 18/10/2026'), '2026-10-18');
     assert.equal(readDate('payable by 18 Oct 2026'), '2026-10-18');
     assert.equal(readDate('04/03/2027'), '2027-03-04');
+  });
+});
+
+describe('an identity document', () => {
+  /*
+   * `READERS` in `extract.js` had an entry for a policy, a receipt, a bill, an
+   * agreement, a vehicle registration, a no-dues letter and a tax certificate,
+   * and none for `identity`. So a document `detectKind` classified as one came
+   * back with `fields: {}` — an eAadhaar was read, classified, had its number
+   * found and offered, and everything else printed on it was dropped.
+   *
+   * The fixtures here are synthetic. Measured against a real eAadhaar, which
+   * is where the labels come from.
+   */
+  const AADHAAR = [
+    'Enrolment No: 1234/56789/01234',
+    'DOB : 01/01/1990',
+    'Details as on: 05/06/2024',
+    'Aadhaar no. issued: 14/03/2019',
+  ].join('\n');
+
+  test('the issue date is read, and the download date is not', () => {
+    // The page carries two dates and only one of them is an issue date.
+    // Reading "Details as on" would record the day somebody pressed a button.
+    assert.equal(readIdentity(AADHAAR).issuedOn, '2019-03-14');
+    assert.equal(readIdentity('Details as on: 05/06/2024').issuedOn ?? null, null);
+  });
+
+  test('a year the text layer truncated yields nothing, not a guess', () => {
+    // Not hypothetical. On the eAadhaar this was written against, that row is
+    // a single text run whose year has three digits, with no stray glyph
+    // anywhere on the row to recover. A reader that returned a date anyway
+    // would have invented a year.
+    assert.deep(readIdentity('Aadhaar no. issued: 14/03/201'), {});
+  });
+
+  test('and the reader is reached through readDocument', () => {
+    // The gap was the wiring as much as the reader: `detectKind` said
+    // `identity` and `READERS` had nowhere to send it.
+    const read = readDocument(AADHAAR);
+    assert.equal(read.kind, 'identity');
+    assert.equal(read.fields.issuedOn, '2019-03-14');
+  });
+
+  test('an identity document is filed under identity', () => {
+    // `domain/filing.js` already sorted a file *named* "aadhaar" into this
+    // folder. One whose text says so was filed nowhere, because `CATEGORY` had
+    // no entry for the kind either.
+    assert.equal(suggestions(readDocument(AADHAAR), {}).category, 'identity');
+  });
+
+  test('an enrolment id is kept out of the searchable text', () => {
+    // It survived into the index on a real document while the Aadhaar number
+    // three lines below it was correctly removed. It is not an Aadhaar number
+    // and cannot be turned into one, but UIDAI's own status and reprint
+    // services take it, so it belongs on the same side of the line.
+    assert.ok(readIdentifiers(AADHAAR).some((one) => one.kind === 'Enrolment'));
+    assert.not(redact(AADHAAR).includes('1234/56789/01234'));
+  });
+
+  test('and fourteen digits in that grouping without the word are left alone', () => {
+    // Shape and label, not shape alone: nothing about `1234/56789/01234` is
+    // recognisable on its own, and an invoice may be numbered anything.
+    const invoice = 'Invoice 1234/56789/01234';
+    assert.ok(redact(invoice).includes('1234/56789/01234'));
+  });
+});
+
+describe('what an identity document says about its holder', () => {
+  /*
+   * Name, date of birth, gender and address are on the page and belong to
+   * `person`, not to the document. They are **offered**, never written: read
+   * off a text layer by position, they can be wrong, and the same document
+   * that carries them also carries a year with a digit missing.
+   *
+   * Synthetic, with the layout measured from a real eAadhaar — the holder's
+   * name twice, once in the local script and once in Latin, then the address,
+   * then a bilingual DOB and gender line.
+   */
+  const AADHAAR = [
+    'Enrolment No.: 1234/56789/01234',
+    'To',
+    'ಹೆಸರು ಎ ಆರ್',
+    'ASHA A R',
+    'C/O Ravi B N, 123/4',
+    'PIN Code: 560001',
+    'DOB : 02/03/1994',
+    '/ FEMALE Address:',
+    'C/O Ravi B N, 123/4, Some Road, Bengaluru, KA - 560001',
+  ].join('\n');
+
+  test('all four are read', () => {
+    const said = readPersonDetails(AADHAAR);
+    assert.equal(said.name, 'ASHA A R');
+    assert.equal(said.birthday, '1994-03-02');
+    assert.equal(said.gender, 'female');
+    assert.ok(said.address.endsWith('560001'), said.address);
+  });
+
+  test('the name is the Latin line after To, not the address that follows it', () => {
+    // A name has no shape — one word, three, an initial are all names, and so
+    // is half the rest of the page. The layout is the only anchor.
+    assert.equal(readPersonDetails('To\nC/O Ravi B N, 123/4').name ?? null, null);
+    assert.equal(readPersonDetails('ASHA A R\nC/O Ravi').name ?? null, null, 'no To, no anchor');
+
+    // Once the address has begun the name has ended, and the search stops
+    // there rather than walking on. Without that, the first later line made
+    // of plain letters wins — and on this layout that is a place, not a
+    // person.
+    assert.equal(
+      readPersonDetails(['To', 'ಹೆಸರು', 'C/O Ravi B N', 'VTC Somewhere'].join('\n')).name ?? null,
+      null,
+      'a village was read as the holder',
+    );
+  });
+
+  test('FEMALE is not read as MALE', () => {
+    // `MALE` is a substring of `FEMALE`. A rule that tested them in the other
+    // order would call every woman on every Aadhaar a man.
+    assert.equal(readPersonDetails('/ FEMALE').gender, 'female');
+    assert.equal(readPersonDetails('/ MALE').gender, 'male');
+    assert.equal(readPersonDetails('/ TRANSGENDER').gender, 'other');
+  });
+
+  test('the gender it reads is one the schema offers', () => {
+    const allowed = ['female', 'male', 'other', 'prefer not to say'];
+    for (const word of ['FEMALE', 'MALE', 'TRANSGENDER']) {
+      assert.ok(allowed.includes(readPersonDetails(`/ ${word}`).gender));
+    }
+  });
+
+  test('an empty field is offered and a filled one is not', () => {
+    // Not offered-and-marked-different, which would invite somebody to
+    // overwrite their own correction with a scan.
+    const said = readPersonDetails(AADHAAR);
+    const empty = personOffers(said, { name: '', birthday: '', gender: '', address: '' });
+    assert.deep(empty.map((one) => one.field), ['name', 'birthday', 'gender', 'address']);
+
+    const filled = personOffers(said, {
+      name: 'Typed by hand', birthday: '1990-01-01', gender: 'female', address: 'Typed',
+    });
+    assert.length(filled, 0);
+  });
+
+  test('the labels come from the schema, not from a second copy here', () => {
+    const [first] = personOffers(readPersonDetails(AADHAAR), { name: '' });
+    assert.equal(first.label, 'Full name');
+  });
+
+  test('and nothing is read from a document that is not an identity one', () => {
+    // `readDocument` only asks for these when the kind says to.
+    assert.deep(readDocument('Invoice 42\nAmount due 100').person, {});
   });
 });

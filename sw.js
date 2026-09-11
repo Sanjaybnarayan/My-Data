@@ -68,6 +68,7 @@ const SHELL = [
   './js/core/sharetarget.js',
   './js/core/smsinbox.js',
 
+  './js/modules/documents-parts.js',
   './js/data/audit.js',
   './js/data/chain.js',
   './js/data/classification.js',
