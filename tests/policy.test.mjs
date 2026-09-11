@@ -690,6 +690,10 @@ describe('who may say which tab is which entity', () => {
       appendRow: () => {},
     });
     return {
+      // `bootstrap` reads both, and a stub without them refuses for a reason
+      // that has nothing to do with the rule under test.
+      getId: () => 'wb1',
+      getUrl: () => 'https://example.invalid/wb1',
       getSheets: () => tabs.map(sheet),
       getSheetByName: (n) => (tabs.includes(n) ? sheet(n) : null),
       insertSheet: (n) => { tabs.push(n); return sheet(n); },
@@ -761,6 +765,25 @@ describe('who may say which tab is which entity', () => {
       manifest: [{ entity: 'task', sheet: 'Vault', version: 1, columns: ['name'] }],
     });
     assert.ok(answer.ok, answer.error);
+  });
+
+  test('and the other way into the same function is checked too', () => {
+    // `dispatch` is not the only caller: `bootstrap` reaches `schemaEnsure` as
+    // well, and passing the manifest without the context made every bootstrap
+    // read as a non-owner's. Fail-closed, so no hole — but an owner reshaping
+    // their own workbook that way was refused in the name of a rule about
+    // everybody else, and a child refused for the right reason by accident is
+    // not a child refused.
+    const api = household();
+    const hostile = [{ entity: 'task', sheet: 'Vault', version: 1, columns: ['name'] }];
+
+    const refused = api.post('bootstrap', 'child-token', { manifest: hostile });
+    assert.not(refused.ok, 'bootstrap let a child do what schema would not');
+    assert.equal(refused.status, 403, `refused for the wrong reason: ${refused.error}`);
+    assert.deep(JSON.parse(api.props.getProperty('sheetMap')), { vaultItem: 'Vault' });
+
+    assert.ok(api.post('bootstrap', 'owner-token', { manifest: hostile }).ok,
+      'an owner was refused their own workbook');
   });
 
   test('an entity the policy has never heard of is refused, from anyone', () => {

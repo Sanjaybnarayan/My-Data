@@ -851,7 +851,11 @@ function bootstrap(payload, context) {
   }
 
   var tree = driveEnsureTree();
-  schemaEnsure(payload.manifest, book);
+  // The caller, here too. `dispatch` is not the only way into `schemaEnsure`,
+  // and passing the manifest without the context made every bootstrap read as
+  // a non-owner's — fail-closed, so no hole, but an owner reshaping their own
+  // workbook this way was refused in the name of a rule about everybody else.
+  schemaEnsure(payload.manifest, book, context);
 
   // The workbook belongs in the FamilyOS folder, not loose in My Drive.
   try {

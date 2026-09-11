@@ -1211,6 +1211,13 @@
       "find": "    if (isOwner) continue;\n",
       "replace": "",
       "suite": "policy"
+    },
+    {
+      "label": "the other way into the schema handler forgets who is asking",
+      "file": "apps-script/Code.gs",
+      "find": "  schemaEnsure(payload.manifest, book, context);",
+      "replace": "  schemaEnsure(payload.manifest, book);",
+      "suite": "policy"
     }
   ]
 }
