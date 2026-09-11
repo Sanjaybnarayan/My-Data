@@ -393,6 +393,39 @@ export class Repository {
       schemaVersion: this.#def.version,
       syncState: 'pending',
     };
+
+    /*
+     * A field this device could not open is not a field the household emptied.
+     *
+     * `decryptRecord` replaces a value it cannot decrypt with `''` and names it
+     * in `_undecryptable`, deliberately and for the reason its own comment
+     * gives: one corrupt cell must not make a whole list view unreachable. The
+     * read is fine. The **write** was not — `current` carries that `''`, the
+     * merge above carries it into `record`, and the row went back to disk with
+     * the blank sealed over the ciphertext. Measured: a household that renamed
+     * the title of a health record destroyed a diagnosis it had never seen,
+     * and no key recovers it afterwards.
+     *
+     * That is an ordinary event rather than an attack — a restore with the
+     * wrong phrase, a rotated key, a row synced from a device holding another
+     * one. `js/modules/crud.js` already tells the household "N field(s) on
+     * this record could not be decrypted", so the application said so and then
+     * overwrote them anyway.
+     *
+     * So the sealed value is carried through untouched, and stays readable the
+     * moment the right key comes back. It survives `encryptRecord` because
+     * `isEncrypted` skips a real envelope — and this is the caller that skip
+     * was written for, which until now did not exist.
+     *
+     * A field the patch names is excluded: asking to overwrite something
+     * unreadable is a thing somebody may deliberately do, and the blank in
+     * that case is theirs rather than the reader's.
+     */
+    const asked = strip(patch);
+    for (const key of current._undecryptable ?? []) {
+      if (!(key in asked)) record[key] = existing[key];
+    }
+
     assertCan(actor, 'write', this.#name, record);
     await this.#assertReferencesResolve(record, pending);
 

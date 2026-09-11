@@ -952,6 +952,20 @@
       "find": "  if (typeof value !== 'string' || !value.startsWith(ENVELOPE_PREFIX)) return false;",
       "replace": "  if (typeof value !== 'string' || !value.startsWith(ENVELOPE_PREFIX)) return false;\n  if (value) return false;",
       "suite": "security"
+    },
+    {
+      "label": "a field that would not open is overwritten by the blank the reader made",
+      "file": "js/data/repository.js",
+      "find": "    const asked = strip(patch);\n    for (const key of current._undecryptable ?? []) {\n      if (!(key in asked)) record[key] = existing[key];\n    }",
+      "replace": "",
+      "suite": "security"
+    },
+    {
+      "label": "a field the household deliberately rewrote is held back as damaged",
+      "file": "js/data/repository.js",
+      "find": "      if (!(key in asked)) record[key] = existing[key];",
+      "replace": "      record[key] = existing[key];",
+      "suite": "security"
     }
   ]
 }
