@@ -8,6 +8,7 @@ import {
 import {
   unlockFreshDevice, linkExistingDevice, unlinkGoogleUnlock,
 } from '../js/auth/google-unlock.js';
+import { keyDropMessage } from '../js/modules/settings/security.js';
 
 setSuite('escrow');
 
@@ -18,9 +19,14 @@ setSuite('escrow');
  * first, bytes second — because a stub that accepted the bytes in one call
  * would pass while the shipped code failed.
  */
-function fakeDrive({ files = new Map(), status = 200 } = {}) {
+function fakeDrive({ files = new Map(), status = 200, appdata = true } = {}) {
   const calls = [];
-  const state = { lastBody: null };
+  const state = { lastBody: null, appdata };
+  // Where each file is, beside what is in it. The search used to ignore the
+  // query entirely and answer with the first file that had a body, which made
+  // the two places one place — and the two places being different is the whole
+  // of what `drop` has to get right.
+  const where = new Map();
   let next = 1;
 
   const respond = (body, code = status) => ({
@@ -47,8 +53,13 @@ function fakeDrive({ files = new Map(), status = 200 } = {}) {
 
     if (options.method === 'POST') {
       state.lastBody = options.body;
+      const meta = JSON.parse(options.body ?? '{}');
       const id = `file${next++}`;
       files.set(id, null);
+      where.set(id, {
+        name: meta.name,
+        space: meta.parents?.[0] === 'appDataFolder' ? 'appDataFolder' : 'drive',
+      });
       return respond({ id });
     }
 
@@ -57,14 +68,28 @@ function fakeDrive({ files = new Map(), status = 200 } = {}) {
       return respond(JSON.parse(files.get(id)));
     }
 
-    // A search of the app folder.
-    const found = [...files.keys()].filter((id) => files.get(id));
+    // A search, answered by name and by space the way Drive answers it.
+    const params = new URLSearchParams(url.split('?')[1] ?? '');
+    const space = params.get('spaces') === 'appDataFolder' ? 'appDataFolder' : 'drive';
+    // Without the scope, Google refuses rather than replying "no files" — and
+    // a refusal is not an answer about whether the file is there.
+    if (space === 'appDataFolder' && !state.appdata) return respond({ error: 'scope' }, 403);
+
+    const name = /name = '([^']*)'/.exec(params.get('q') ?? '')?.[1];
+    const found = [...files.keys()]
+      .filter((id) => files.get(id))
+      .filter((id) => where.get(id)?.name === name && where.get(id)?.space === space);
     return respond({ files: found.length ? [{ id: found[0] }] : [] });
   };
 
   return {
     files,
+    where,
     calls,
+    /** Take `drive.appdata` off the consent screen, as a household may. */
+    revokeAppData() { state.appdata = false; },
+    /** And put it back, which is the half that makes the first one a switch. */
+    grantAppData() { state.appdata = true; },
     get lastBody() { return state.lastBody; },
     escrow: (token = 'tok', hidden = false) => new DriveEscrow({
       getToken: async () => token, fetchImpl, hidden,
@@ -196,8 +221,90 @@ describe('a key kept in the household own Drive', () => {
     assert.length([...drive.files.keys()], 0);
   });
 
+  /*
+   * Two places, one switch.
+   *
+   * Where the key lives follows what Google granted at sign-in, and that
+   * answer changes: `drive.appdata` has to be on the consent screen, and a
+   * household can take it off. `#find` knew there could be two files and
+   * looked in both; `drop` deleted one and said it was done.
+   */
+  describe('a household that has ended up with two copies', () => {
+    async function twoCopies() {
+      const drive = fakeDrive();
+
+      // Signed in while `drive.appdata` was granted: the key goes hidden.
+      await drive.seed('tok', true);
+
+      // The scope comes off the consent screen. Google grants the rest, so the
+      // next sign-in builds the escrow visible — and cannot see the hidden
+      // file to reuse it, so it writes a second one.
+      drive.revokeAppData();
+      await drive.seed('tok', false);
+
+      return drive;
+    }
+
+    test('really has two, which is what makes this worth checking', async () => {
+      const drive = await twoCopies();
+      assert.length([...drive.files.values()].filter(Boolean), 2);
+    });
+
+    test('is not told the key is gone while one is out of reach', async () => {
+      const drive = await twoCopies();
+      const outcome = await drive.escrow('tok', false).drop();
+
+      assert.equal(outcome.removed, 1, 'the copy it can reach must go');
+      assert.ok(outcome.unreachable,
+        'a refused search is not an answer, and must not read as a clean removal');
+      assert.length([...drive.files.values()].filter(Boolean), 1);
+    });
+
+    test('and loses both once the permission is back', async () => {
+      // The other half. A `drop` that only ever reported trouble would be as
+      // useless as one that never did: with both places readable, both go.
+      const drive = await twoCopies();
+      drive.grantAppData();
+      const outcome = await drive.escrow('tok', true).drop();
+
+      assert.equal(outcome.removed, 2);
+      assert.not(outcome.unreachable);
+      assert.length([...drive.files.values()].filter(Boolean), 0);
+    });
+
+    test('and what the screen says follows what was actually deleted', async () => {
+      // The sentence was the bug: `drop` removed one file and Settings said
+      // the key was gone from Drive.
+      const drive = await twoCopies();
+
+      const partly = keyDropMessage(await drive.escrow('tok', false).drop());
+      assert.ok(/copy may remain/.test(partly.text), partly.text);
+      assert.equal(partly.kind, 'warning');
+
+      drive.grantAppData();
+      const clean = keyDropMessage(await drive.escrow('tok', true).drop());
+      assert.ok(/gone from Drive/.test(clean.text), clean.text);
+      assert.equal(clean.kind, 'success');
+    });
+
+    test('and a place holding more than one file is emptied, not sampled', async () => {
+      // Duplicate names are legal in Drive and the search answers with one
+      // file, so sweeping each place once is not sweeping it.
+      const drive = fakeDrive();
+      await drive.seed();
+      drive.files.set('extra', JSON.stringify({ key: 'a2V5' }));
+      drive.where.set('extra', { name: 'FamilyOS unlock key.json', space: 'drive' });
+
+      const outcome = await drive.escrow().drop();
+      assert.equal(outcome.removed, 2);
+      assert.length([...drive.files.values()].filter(Boolean), 0);
+    });
+  });
+
   test('dropping a key that is not there is not an error', async () => {
-    assert.not(await fakeDrive().escrow().drop());
+    const outcome = await fakeDrive().escrow().drop();
+    assert.equal(outcome.removed, 0);
+    assert.not(outcome.unreachable);
   });
 });
 
