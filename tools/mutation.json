@@ -679,6 +679,34 @@
       "find": "      if (!local[name]) { unverifiable += 1; continue; }\n      const here = local[name].total;",
       "replace": "      const here = local[name]?.total ?? 0;",
       "suite": "sync"
+    },
+    {
+      "label": "any role may fetch the bytes of a household document",
+      "file": "apps-script/Drive.gs",
+      "find": "function driveDownload(fileId, context) {\n  driveAllows(context, 'read');",
+      "replace": "function driveDownload(fileId, context) {\n  if (context) { /* checked elsewhere */ }",
+      "suite": "backend"
+    },
+    {
+      "label": "any role may bin a household document",
+      "file": "apps-script/Drive.gs",
+      "find": "function driveTrash(fileId, context) {\n  driveAllows(context, 'write');",
+      "replace": "function driveTrash(fileId, context) {\n  if (context) { /* checked elsewhere */ }",
+      "suite": "backend"
+    },
+    {
+      "label": "a read of the document tree is allowed to anyone a write would be",
+      "file": "apps-script/Drive.gs",
+      "find": "  if (!policyAllows(role, action, 'document')) {",
+      "replace": "  if (!policyAllows(role, 'read', 'document')) {",
+      "suite": "backend"
+    },
+    {
+      "label": "the Drive actions are dispatched without the caller attached",
+      "file": "apps-script/Code.gs",
+      "find": "    case 'trash':     return driveTrash(payload.fileId, context);",
+      "replace": "    case 'trash':     return driveTrash(payload.fileId);",
+      "suite": "imports"
     }
   ]
 }

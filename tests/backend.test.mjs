@@ -1006,6 +1006,61 @@ describe('the identity that reaches the action', () => {
     }],
   }, { deviceId: 'device-1' });
 
+  test('the document tree is authorised, not merely authenticated', () => {
+    /*
+     * Every Drive action was authenticated and none was authorised.
+     * `download`, `trash`, `versions` and `folders` were dispatched with no
+     * caller at all, and `upload` took a context and used it only to write a
+     * log line. Twenty-one entities carry a `files` field, `identityDocument`,
+     * `kycRecord`, `healthRecord`, `legalDocument` and `will` among them.
+     *
+     * The manifest asks for `drive.file` rather than `drive`, so this never
+     * reached the owner's wider Drive, and ids are not guessable. What it
+     * meant is that **a role change revoked nothing**: a member demoted from
+     * adult to guest keeps every id they ever synced, and could still fetch —
+     * or bin — the attachment behind a record their role no longer reads.
+     *
+     * `document` is `read: ["owner","spouse","adult"]`, `write:
+     * ["owner","spouse"]`, and has no own-record rule, so its ACL decides.
+     */
+    const withFiles = (members) => backend({
+      owner: OWNER,
+      tokens,
+      files: ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs'],
+      driveFiles: { abc: { name: 'passport.pdf' } },
+      properties: { members: JSON.stringify(members), workbookId: 'book-1' },
+    });
+
+    const guest = withFiles([{ email: SPOUSE, role: 'guest', personId: 'p-asha' }]);
+    for (const action of ['download', 'versions', 'folders']) {
+      const body = guest.post(action, 'spouse-token', { fileId: 'abc' }, { deviceId: 'd1' });
+      assert.not(body.ok, `${action} answered a guest`);
+      assert.equal(body.status, 403, `${action} refused for the wrong reason`);
+    }
+
+    // Destructive, and the one that matters most: the file must survive.
+    const binned = guest.post('trash', 'spouse-token', { fileId: 'abc' }, { deviceId: 'd1' });
+    assert.equal(binned.status, 403);
+    assert.not(guest.driveFiles.abc.trashed, 'a refused request binned the file anyway');
+
+    // An adult may read documents and may not write them, which is what the
+    // schema already says — so the same caller passes the read guard and is
+    // refused the write.
+    //
+    // The read is asserted as "not refused by policy" rather than as a
+    // success: `driveVersions` reaches `ScriptApp` and `UrlFetchApp`, which
+    // this harness does not stub, so it fails at 500 for a reason that has
+    // nothing to do with the rule under test. Asserting `ok` here would be
+    // asserting the stub.
+    const adult = withFiles([{ email: SPOUSE, role: 'adult', personId: 'p-asha' }]);
+    assert.not(
+      adult.post('versions', 'spouse-token', { fileId: 'abc' }, { deviceId: 'd1' }).status === 403,
+      'an adult was refused a read the document ACL allows');
+    assert.equal(
+      adult.post('trash', 'spouse-token', { fileId: 'abc' }, { deviceId: 'd1' }).status, 403);
+    assert.not(adult.driveFiles.abc.trashed);
+  });
+
   test('a row count is a read, and reaches the action with the caller attached', () => {
     /*
      * The same wiring gap as the one this section was written for, in the same

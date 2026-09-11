@@ -234,10 +234,10 @@ function dispatch(action, payload, context) {
     case 'pull':      return sheetPull(payload.cursors || {}, payload.limit || 500, workbook(), context);
     case 'audit':     return withLock(function () { return auditAppend(payload.entries, workbook(), context); });
     case 'upload':    return driveUpload(payload, context);
-    case 'download':  return driveDownload(payload.fileId);
-    case 'versions':  return driveVersions(payload.fileId);
-    case 'trash':     return driveTrash(payload.fileId);
-    case 'folders':   return { folders: drivePersonFolders() };
+    case 'download':  return driveDownload(payload.fileId, context);
+    case 'versions':  return driveVersions(payload.fileId, context);
+    case 'trash':     return driveTrash(payload.fileId, context);
+    case 'folders':   return { folders: drivePersonFolders(context) };
     // Reading mail is opt-in: a household that would rather not grant the
     // Gmail scope deletes Gmail.gs and its line in the manifest, and this
     // says so rather than failing with a reference error. See Gmail.gs for
