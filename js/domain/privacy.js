@@ -28,6 +28,7 @@
  */
 
 import { entities } from '../data/schema.js';
+import { entityLabel, fieldLabel } from '../core/labels.js';
 import { census, classified, atLeast, LEVELS } from '../data/classification.js';
 
 /** Fields that exist for the machinery rather than the household. */
@@ -60,13 +61,13 @@ export function entityPrivacy(name) {
 
   return {
     name,
-    label: def.labels.many,
+    label: entityLabel(def, 'many'),
     module: def.module,
     icon: def.icon,
-    sealed: sealed.map((field) => ({ key: field.key, label: field.label ?? field.key })),
+    sealed: sealed.map((field) => ({ key: field.key, label: fieldLabel(name, field) })),
     plain: plain.map((field) => ({
       key: field.key,
-      label: field.label ?? field.key,
+      label: fieldLabel(name, field),
       why: whyPlain(field),
     })),
     total: fields.length,

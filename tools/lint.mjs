@@ -38,7 +38,7 @@
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -89,7 +89,41 @@ const RULES = [
       + 'native dialog blocks the thread and cannot be styled, tested or '
       + 'translated.',
   },
+  {
+    id: 'labels-through-the-door',
+    pattern: /\.labels\s*\??\s*[.[]|\b(?:field|fields)\s*\??\s*\.\s*label\b/,
+    why: '`js/core/labels.js` calls itself "the one door" the schema\'s English '
+      + 'passes through on the way to a screen, and that is what makes a '
+      + 'catalogue able to replace it. Reading `def.labels.one` directly walks '
+      + 'around the door: the label reaches the screen in English however '
+      + 'completely the locale is translated, and `coverage()` still reports '
+      + '1.0 because the key was translated — it was just never asked for. Use '
+      + '`entityLabel(def)` / `entityLabel(def, \'many\')`, `fieldLabel(entity, '
+      + 'field)` for a field\'s label, and `noun()` rather than '
+      + '`.toLowerCase()` for one going mid-sentence.',
+    allowed: {
+      'js/core/labels.js':
+        'The door itself. This is the file that reads the schema label so '
+        + 'nothing else has to.',
+      'js/core/locale.js':
+        'A catalogue\'s own `labels` map — the translations, not the schema '
+        + 'English. Same property name, opposite side of the door.',
+      'js/domain/kyc.js':
+        'Its `field` is a local list of KYC comparisons with hand-written '
+        + 'English labels, not a schema field — the one place the shape of '
+        + 'this rule cannot tell apart from the thing it is looking for. That '
+        + 'English is counted by tools/strings.mjs like any other.',
+      'js/modules/reports.js':
+        'One call: the entity label written into the export audit entry. That '
+        + 'row is read back months later, possibly in another language, and a '
+        + 'record of what the exporter\'s screen said that afternoon is a '
+        + 'record of the screen rather than of the export.',
+    },
+  },
 ];
+
+/** The rules, for a test that needs one by name. */
+export const rules = () => RULES;
 
 /** Only what ships to a browser. Tools and tests are not shipped. */
 const SHIPPED = ['js'];
@@ -151,23 +185,73 @@ export function findingsIn(text) {
   return out;
 }
 
-export function lint() {
-  const findings = [];
+/**
+ * Every line of shipped code that matches a rule, allowed or not.
+ *
+ * Separate from `lint()` because the allowlist has to be checked in both
+ * directions and the second direction needs the raw matches: a file listed as
+ * a deliberate exception that no longer matches is a stale exception, and a
+ * list nobody prunes is how an exception outlives its reason. The pattern has
+ * shown up six times in this repository — a hand-maintained list beside a
+ * derivable one — and the answer each time is to derive the disagreement.
+ *
+ * @returns {{ rule: typeof RULES[number], file: string, line: number, text: string }[]}
+ */
+export function matches() {
+  const out = [];
 
   for (const dir of SHIPPED) {
     for (const path of files(join(ROOT, dir))) {
-      const lines = codeLines(readFileSync(path, 'utf8'));
-      for (const { number, text } of lines) {
+      const file = relative(ROOT, path).split(sep).join('/');
+      for (const { number, text } of codeLines(readFileSync(path, 'utf8'))) {
         for (const rule of RULES) {
-          if (rule.pattern.test(text)) {
-            findings.push({ rule, file: relative(ROOT, path), line: number, text: text.trim() });
-          }
+          if (rule.pattern.test(text)) out.push({ rule, file, line: number, text: text.trim() });
         }
       }
     }
   }
 
-  return findings;
+  return out;
+}
+
+/**
+ * Allowed files that no longer match the rule they are excused from.
+ *
+ * Reported as findings of their own rather than ignored, because an exception
+ * that has stopped being needed is a line of documentation asserting something
+ * untrue about the code.
+ *
+ * @param {ReturnType<typeof matches>} found
+ */
+export function staleAllowances(found) {
+  const out = [];
+  for (const rule of RULES) {
+    for (const file of Object.keys(rule.allowed ?? {})) {
+      if (found.some((one) => one.rule === rule && one.file === file)) continue;
+      out.push({ rule, file });
+    }
+  }
+  return out;
+}
+
+/**
+ * The matches a rule has not excused, given where they are.
+ *
+ * Separate from `lint()` and taking its input rather than reading the tree,
+ * because with every allowance currently matching there is no unexcused
+ * finding anywhere in `js/` — so a filter that excused *every* file would
+ * behave identically against the real tree and nothing would say so. The
+ * mutation ratchet reported exactly that before this was extracted. A control
+ * that cannot fail is not held, however carefully it is written.
+ *
+ * @param {ReturnType<typeof matches>} found
+ */
+export function unallowed(found) {
+  return found.filter(({ rule, file }) => !(rule.allowed && file in rule.allowed));
+}
+
+export function lint() {
+  return unallowed(matches());
 }
 
 /** Importable without running: `tests/modules.test.mjs` calls `lint()` itself. */
@@ -175,9 +259,18 @@ export function lint() {
 // module printed its report in the middle of somebody else's script.
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const findings = lint();
+  const stale = staleAllowances(matches());
 
-  if (!findings.length) {
-    console.log(`no findings across ${RULES.length} rules, in what ships to a browser`);
+  for (const { rule, file } of stale) {
+    console.error(`  ${file}  [${rule.id}] is allowed but no longer matches — remove the allowance`);
+  }
+
+  if (!findings.length && !stale.length) {
+    const allowed = RULES.reduce((n, rule) => n + Object.keys(rule.allowed ?? {}).length, 0);
+    console.log(`no findings across ${RULES.length} rules, in what ships to a browser`
+      + ` (${allowed} allowed by name, each still matching)`);
+  } else if (!findings.length) {
+    process.exit(1);
   } else {
     console.error(`${findings.length} finding${findings.length === 1 ? '' : 's'}:\n`);
     const seen = new Set();
@@ -191,4 +284,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     }
     process.exit(1);
   }
+
+  if (stale.length) process.exit(1);
 }

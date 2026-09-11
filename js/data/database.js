@@ -11,6 +11,7 @@ import { openDatabase } from './migrations.js';
 import { Repository } from './repository.js';
 import { entities, entity, referenceFields, referencedIds,
 } from './schema.js';
+import { entityLabel } from '../core/labels.js';
 import { searchIndex, indexEntry } from './search.js';
 import { Chain, verify as verifyChain } from './chain.js';
 import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
@@ -517,7 +518,7 @@ export class Database {
     for (const name of Object.keys(entities)) {
       const rows = await this.adapter.query(name, {});
       stats[name] = {
-        label: entity(name).labels.many,
+        label: entityLabel(entity(name), 'many'),
         total: rows.length,
         live: rows.filter((r) => !r.deletedAt).length,
         pending: rows.filter((r) => r.syncState === 'pending').length,

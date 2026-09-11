@@ -16,7 +16,7 @@ does is make a second language *possible* and make an incomplete one
 | Piece | What it is |
 | --- | --- |
 | `js/core/locale.js` | `t()`, catalogue registration, the active language, and the measurements below |
-| `js/locale/en.js` | The authoritative catalogue. 931<!--live:localeKeys--> keys today |
+| `js/locale/en.js` | The authoritative catalogue. 942<!--live:localeKeys--> keys today |
 | `js/core/labels.js` | The one door the schema's English passes through on its way to a screen |
 | `tools/strings.mjs` | Counts the English still written directly into the source |
 
@@ -44,9 +44,89 @@ both the household and the translator know which line broke and why.
 Because that check is real, it also means a language cannot raise its coverage
 with strings the application will never show. A refused line counts as zero.
 
+## The one door had thirty-two ways around it
+
+The table above calls `js/core/labels.js` *the one door the schema's English
+passes through on its way to a screen*. That is the sentence the whole label
+design rests on: because there is one door, a catalogue can replace 748<!--live:labelKeys--> names
+without a second copy of them existing anywhere to drift.
+
+It was not true. **Thirty-two call sites read `def.labels.one` or
+`def.labels.many` straight out of the schema** and put the result on a screen —
+module tab strips on five screens, the sync and conflict lists in settings, the
+report picker and the file name a report is saved under, the activity feed, the
+two integrity messages that explain why a delete is refused, the reminder
+titles, the privacy screen's entity list.
+
+The failure this produces is the one `js/core/locale.js` opens by warning
+about — *a language menu and a few hundred translated lines look exactly like a
+translated application until somebody switches language*. Here it would be
+worse than that, because the measurement agrees with the appearance:
+`coverage()` reports **1.0** for a catalogue that has translated every label
+key, and thirty-two places go on rendering English. The key *was* translated.
+It was simply never asked for.
+
+Thirty-one of them now go through `entityLabel()`, and where the label lands
+mid-sentence it goes through `noun()` rather than a hand-written
+`.toLowerCase()` — which is the same argument `noun()` was introduced for, one
+layer further out. The thirty-second is deliberate and is named below.
+
+(Thirty-two sites, thirty-three reads: one line sorts the report picker by
+comparing two labels.)
+
+**Held by `labels-through-the-door` in `tools/lint.mjs`**, which refuses the
+pattern anywhere in what ships to a browser. Three files are allowed by name
+and each says why: the door itself, the catalogue machinery in
+`js/core/locale.js` whose `labels` is the *translations* rather than the schema
+English, and one call in `js/modules/reports.js` that writes the entity label
+into an export audit entry — a row read back months later, possibly in another
+language, where a record of what the exporter's screen said that afternoon
+would be a record of the screen rather than of the export.
+
+The allowance list is checked in both directions. A file listed as a deliberate
+exception that no longer matches fails the run, because an exception nobody
+prunes is a line of documentation asserting something untrue about the code.
+
+### The field labels went through the same door
+
+**20 call sites read a field's `label` directly.** A first count said 21; one
+of them — `js/domain/kyc.js` — turned out not to be a schema field at all but a
+local list of KYC comparisons with hand-written English labels, which is the
+one shape this rule cannot tell from the thing it is looking for. Counting it
+would have been the instrument's error reported as the code's, so it is
+allowed by name with that reason and its English goes on being counted by
+`tools/strings.mjs` like any other.
+
+Eleven of the twenty were in `js/data/validate.js`, and they are the reason
+this was worth doing properly rather than quickly. The label there is one word
+of a sentence that was itself unrouted English:
+
+```
+`${field.label} must be a real date.`
+```
+
+Routing the label alone would give *"Fecha de nacimiento must be a real
+date."* — a half-translated refusal, shown at the moment a person is being
+told their record was rejected, which is the worst moment to demonstrate that
+the application only half speaks their language. That is exactly the
+concatenation fault `js/locale/en.js` sets out its *a sentence is one key*
+convention to prevent, and the reason the first pass here left them alone.
+
+So both halves were routed: **eleven `validate.*` keys**, each a whole
+sentence, with the field name arriving through `fieldLabel()` as a
+placeholder. The unrouted count falls from 3,024 to 3,013<!--live:unroutedStrings-->
+and the catalogue grows to 942<!--live:localeKeys--> keys.
+
+The other nine — the detail screen's masked-value control, the reference lists
+in `domain/connections.js` and `services/records.js`, reminder rows, the
+privacy screen's field lists, and the message naming which field blocks a
+delete — each needed the entity name threaded to the call, since a field's
+label is keyed by entity: `amount` means one thing on a transaction and
+another on a claim.
+
 ## What still cannot be translated
 
-**3,024<!--live:unroutedStrings--> English strings, across 160<!--live:unroutedFiles--> files.** That is the measured count from
+**3,013<!--live:unroutedStrings--> English strings, across 160<!--live:unroutedFiles--> files.** That is the measured count from
 `node tools/strings.mjs`, and it is the number that matters. They are written
 directly into the source, so no catalogue can reach them and no translator will
 ever see them.
@@ -140,7 +220,7 @@ relationship: the untranslated remainder is exactly the schema labels.
 
 What *is* reachable today:
 
-- 931<!--live:localeKeys--> UI message keys — dates, the generic record screens, the language card
+- 942<!--live:localeKeys--> UI message keys — dates, the generic record screens, the language card
 - 748<!--live:labelKeys--> schema label keys — 25<!--live:modules--> modules, 53<!--live:entities--> entities in two forms each, 617<!--live:fields--> fields
 
 748<!--live:labelKeys--> of those are derived from the schema by `labelKeys()`, so a new entity is
@@ -149,7 +229,7 @@ something a translator is told about rather than something they discover.
 ## Why no second language ships
 
 Not because the mechanism is not ready. Because nobody has translated anything,
-and machine-translating 3,024<!--live:unroutedStrings--> strings of Indian financial and legal vocabulary
+and machine-translating 3,013<!--live:unroutedStrings--> strings of Indian financial and legal vocabulary
 would have produced something worse than English.
 
 The application says things like *a credit-card settlement is not an expense*,
@@ -166,7 +246,7 @@ being empty.
 
 ## What a translator would need
 
-1. `js/locale/en.js` — 931<!--live:localeKeys--> strings, whole sentences, with `{placeholders}`
+1. `js/locale/en.js` — 942<!--live:localeKeys--> strings, whole sentences, with `{placeholders}`
    intact. Every placeholder must survive or the line is refused.
 2. The 748<!--live:labelKeys--> label keys from `labelKeys()` — entity names, field names, module
    names.

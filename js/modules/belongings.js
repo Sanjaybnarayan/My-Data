@@ -13,6 +13,7 @@ import { centreChosen } from '../ui/components/slidingrow.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { entitiesOfModule } from '../data/schema.js';
+import { entityLabel } from '../core/labels.js';
 import { BelongingsService } from '../services/belongings.js';
 
 const TABS = ['purchase', 'warranty'];
@@ -63,7 +64,7 @@ function tabStrip(active) {
     // `aria-current="page"` carries the active state for assistive technology.
     // The CSS class conveys it visually; screen readers cannot see CSS.
     'aria-current': def.name === active ? 'page' : null,
-  }, h('span', { class: 'tab-face' }, def.labels.many))));
+  }, h('span', { class: 'tab-face' }, entityLabel(def, 'many')))));
 
   // The chosen tab to the middle, the same as every other sliding row.
   centreChosen(row);

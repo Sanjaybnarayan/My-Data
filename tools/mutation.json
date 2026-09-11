@@ -539,6 +539,62 @@
       "find": "      if (isSource && !/^\\s*(\\*|\\/\\/)/.test(line)) return;",
       "replace": "      if (!/^\\s*(\\*|\\/\\/)/.test(line)) return;",
       "suite": "modules"
+    },
+    {
+      "label": "the label door rule stops matching anything",
+      "file": "tools/lint.mjs",
+      "find": "    pattern: /\\.labels\\s*\\??\\s*[.[]|\\b(?:field|fields)\\s*\\??\\s*\\.\\s*label\\b/,",
+      "replace": "    pattern: /\\.labelsNeverWritten\\s*\\??\\s*[.[]/,",
+      "suite": "modules"
+    },
+    {
+      "label": "every file is treated as an allowed exception to every rule",
+      "file": "tools/lint.mjs",
+      "find": "  return found.filter(({ rule, file }) => !(rule.allowed && file in rule.allowed));",
+      "replace": "  return found.filter(({ rule }) => !rule.allowed);",
+      "suite": "modules"
+    },
+    {
+      "label": "an allowance that no longer matches is never reported",
+      "file": "tools/lint.mjs",
+      "find": "      if (found.some((one) => one.rule === rule && one.file === file)) continue;",
+      "replace": "      if (true) continue;",
+      "suite": "modules"
+    },
+    {
+      "label": "a module tab is named from the schema rather than the catalogue",
+      "file": "js/core/labels.js",
+      "find": "  return def ? entityLabel(def, form) : name;",
+      "replace": "  return def ? (def.labels?.[form] ?? name) : name;",
+      "suite": "locale"
+    },
+    {
+      "label": "an integrity message names the entity in schema English whatever the language",
+      "file": "js/data/integrity.js",
+      "find": "  return `This ${noun(entityLabel(def))} points at a ${target} that is not `",
+      "replace": "  return `This ${def.labels.one.toLowerCase()} points at a ${target} that is not `",
+      "suite": "locale"
+    },
+    {
+      "label": "an activity line names the entity in schema English whatever the language",
+      "file": "js/data/audit.js",
+      "find": "  const label = entry.entity ? noun(entityLabel(entity(entry.entity))) : 'record';",
+      "replace": "  const label = entry.entity ? entity(entry.entity).labels.one.toLowerCase() : 'record';",
+      "suite": "locale"
+    },
+    {
+      "label": "the door rule stops seeing a field label",
+      "file": "tools/lint.mjs",
+      "find": "    pattern: /\\.labels\\s*\\??\\s*[.[]|\\b(?:field|fields)\\s*\\??\\s*\\.\\s*label\\b/,",
+      "replace": "    pattern: /\\.labels\\s*\\??\\s*[.[]/,",
+      "suite": "modules"
+    },
+    {
+      "label": "a validation refusal names the field in schema English whatever the language",
+      "file": "js/data/validate.js",
+      "find": "  if (field.required && missing) return issue(t('validate.required', { field: name }));",
+      "replace": "  if (field.required && missing) return issue(`${field.label} is required.`);",
+      "suite": "locale"
     }
   ]
 }

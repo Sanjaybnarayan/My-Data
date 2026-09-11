@@ -29,6 +29,8 @@ import { Service, TRANSACTION_LIMIT } from './service.js';
 import {
   entities, entity, referenceFields, referencedIds,
 } from '../data/schema.js';
+import { entityLabel, fieldLabel } from '../core/labels.js';
+import { noun } from '../core/locale.js';
 import { connectionsOf } from '../domain/connections.js';
 import { OWN_RECORD_ENTITIES, rowFilter } from '../security/rbac.js';
 import { summariseHistory } from '../data/audit.js';
@@ -189,7 +191,7 @@ export class RecordsService extends Service {
       const keep = rowFilter(actor, name);
       const rows = (await this.repo(name).list({ limit: 500 }).catch(() => []))
         .filter((row) => keep(row));
-      if (rows.length) held.push({ entity: name, label: entity(name).labels.many, rows });
+      if (rows.length) held.push({ entity: name, label: entityLabel(entity(name), 'many'), rows });
     }
 
     return {
@@ -202,7 +204,7 @@ export class RecordsService extends Service {
       notShown: Object.values(entities)
         .filter((def) => !OWN_RECORD_ENTITIES.has(def.name)
           && (def.fields ?? []).some((f) => f.ref === 'staff'))
-        .map((def) => def.labels.many),
+        .map((def) => entityLabel(def, 'many')),
     };
   }
 
@@ -224,13 +226,13 @@ export class RecordsService extends Service {
       if (!groups.has(key)) {
         groups.set(key, {
           entity: ref.entity,
-          label: def.labels.many,
+          label: entityLabel(def, 'many'),
           // Both, because a group of one is the commonest case on this screen
           // and "1 health records" is the sort of sentence that makes somebody
           // stop trusting the rest of the dialog.
-          labelOne: def.labels.one,
+          labelOne: entityLabel(def),
           field: ref.field,
-          fieldLabel: field?.label ?? ref.field,
+          fieldLabel: field ? fieldLabel(ref.entity, field) : ref.field,
           required,
           count: 0,
           examples: [],
@@ -297,7 +299,7 @@ export class RecordsService extends Service {
       // will not perform this delete, so a sentence saying what *would* break
       // describes something that is not going to happen.
       const list = impact.byEntity.filter((g) => g.required)
-        .map((g) => `${g.count} ${(g.count === 1 ? g.labelOne : g.label).toLowerCase()}`)
+        .map((g) => `${g.count} ${noun(g.count === 1 ? g.labelOne : g.label)}`)
         .join(', ');
       parts.push(
         `${records(impact.breaking)} ${impact.breaking === 1 ? 'needs' : 'need'} it — ${list} `

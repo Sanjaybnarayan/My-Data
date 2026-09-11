@@ -30,8 +30,8 @@
  *
  * What this module does not do is translate anything. There is one catalogue
  * and it is English. docs/LOCALISATION.md says what a second one would need
- * and why guessing at 3,059 strings of financial and legal vocabulary would
- * have been worse than shipping none.
+ * and why guessing at several thousand strings of financial and legal
+ * vocabulary would have been worse than shipping none.
  */
 
 import { bus, TOPIC } from './bus.js';
@@ -53,8 +53,8 @@ const refusals = new Map();
  * `entity.<name>.many`, `field.<entity>.<field>` and `module.<id>`.
  *
  * Schema labels are not duplicated into the English catalogue. English *is*
- * the schema — copying 345 labels into a second file would create exactly the
- * pair of lists that drift.
+ * the schema — copying them into a second file would create exactly the pair
+ * of lists that drift.
  */
 export function register(tag, { strings = {}, labels = {}, name = tag, dir = 'ltr', midSentence = 'preserve' } = {}) {
   catalogues.set(tag, { tag, name, dir, strings, labels, midSentence });

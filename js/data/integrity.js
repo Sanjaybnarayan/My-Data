@@ -53,6 +53,8 @@
  */
 
 import { entities, entity, entityNames } from './schema.js';
+import { entityLabel, fieldLabel } from '../core/labels.js';
+import { noun } from '../core/locale.js';
 import { ValidationError } from '../core/errors.js';
 
 /**
@@ -137,9 +139,10 @@ export async function unresolved(entityName, record, exists) {
 export function describeUnresolved(entityName, bad) {
   const def = entity(entityName);
   const one = bad[0];
-  const target = entities[one.entity]?.labels?.one?.toLowerCase() ?? one.entity;
+  const other = entities[one.entity];
+  const target = other ? noun(entityLabel(other)) : one.entity;
   const rest = bad.length > 1 ? `, and ${bad.length - 1} more like it` : '';
-  return `This ${def.labels.one.toLowerCase()} points at a ${target} that is not `
+  return `This ${noun(entityLabel(def))} points at a ${target} that is not `
     + `here — ${one.label} names ${one.id}${rest}. `
     + 'The record it names may have been deleted on another device.';
 }
@@ -177,10 +180,10 @@ export const blocking = (found) => found.filter((d) => d.required);
 export function describeBlocked(entityName, blocked) {
   const def = entity(entityName);
   const first = blocked[0];
-  const owner = entity(first.entity).labels[blocked.length > 1 ? 'many' : 'one'].toLowerCase();
+  const owner = noun(entityLabel(entity(first.entity), blocked.length > 1 ? 'many' : 'one'));
   const count = blocked.length > 1 ? `${blocked.length} ${owner}` : `a ${owner}`;
-  return `This ${def.labels.one.toLowerCase()} cannot be deleted while ${count} `
-    + `still needs it — ${first.field.label} is required there. `
+  return `This ${noun(entityLabel(def))} cannot be deleted while ${count} `
+    + `still needs it — ${fieldLabel(first.entity, first.field)} is required there. `
     + 'Change or delete those first.';
 }
 

@@ -21,6 +21,8 @@ import { app } from '../context.js';
 import { exampleQuestions } from '../ai/assistant.js';
 import { Router } from '../ui/router.js';
 import { entity } from '../data/schema.js';
+import { entityLabel } from '../core/labels.js';
+import { noun } from '../core/locale.js';
 import { formatDay } from '../core/dates.js';
 import { format } from '../core/money.js';
 
@@ -182,7 +184,7 @@ function renderAnswer(question, answer, router) {
     });
     body.push(h('details', {}, [
       h('summary', { class: 'small muted', style: { cursor: 'pointer' } },
-        `Show the ${answer.records.rows.length} ${def.labels.many.toLowerCase()} behind this`),
+        `Show the ${answer.records.rows.length} ${noun(entityLabel(def, 'many'))} behind this`),
       h('div', { style: { marginTop: 'var(--space-3)' } }, table.node),
     ]));
   }

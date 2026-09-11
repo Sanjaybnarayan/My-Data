@@ -31,6 +31,7 @@
  */
 
 import { entity, entityNames, referenceFields, referencedIds } from '../data/schema.js';
+import { entityLabel, fieldLabel } from '../core/labels.js';
 
 /**
  * Where this record points.
@@ -52,7 +53,7 @@ export function outbound(entityName, record, {
         entity: field.ref,
         id,
         field: field.key,
-        label: field.label ?? field.key,
+        label: fieldLabel(entityName, field),
         title,
         missing: title === null,
       });
@@ -77,9 +78,9 @@ export function inbound(references = []) {
       groups.set(key, {
         direction: 'from',
         entity: ref.entity,
-        label: def?.labels.many ?? ref.entity,
+        label: def ? entityLabel(def, 'many') : ref.entity,
         field: ref.field,
-        fieldLabel: field?.label ?? ref.field,
+        fieldLabel: field ? fieldLabel(ref.entity, field) : ref.field,
         records: [],
       });
     }

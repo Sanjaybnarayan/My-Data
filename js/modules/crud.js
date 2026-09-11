@@ -368,7 +368,7 @@ export async function recordDetail(entityName, id, options = {}) {
       h('dl', { class: 'stack stack--tight', style: { margin: 0 } },
         fields.map((field) => h('div', { class: 'row row--between' }, [
           h('dt', { class: 'small muted' }, fieldLabel(def.name, field)),
-          h('dd', { style: { margin: 0, textAlign: 'right' } }, detailValue(field, record, labels)),
+          h('dd', { style: { margin: 0, textAlign: 'right' } }, detailValue(field, record, labels, def.name)),
         ]))),
     ]))),
 
@@ -485,7 +485,7 @@ async function historyCard(entityName, id) {
   ]);
 }
 
-function detailValue(field, record, labels) {
+function detailValue(field, record, labels, entityName) {
   const value = record[field.key];
 
   // Two different reasons to cover a value, both ending at the same control.
@@ -501,7 +501,7 @@ function detailValue(field, record, labels) {
   // care which of the two reasons applies.
   if (value && ((field.encrypted && !isEncrypted(value)) || maskable(field))) {
     return reveal(String(value), {
-      label: (field.label ?? field.key).toLowerCase(),
+      label: noun(fieldLabel(entityName, field)),
       masked: mask(value, classify(field)),
     });
   }

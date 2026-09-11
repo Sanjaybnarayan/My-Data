@@ -32,6 +32,7 @@ import { card, cardHeader, pageHeader, listItem, chip } from '../ui/components/b
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { entity } from '../data/schema.js';
+import { entityLabel } from '../core/labels.js';
 import { TimelineService } from '../services/timeline.js';
 import { relativeDays, formatDay } from '../core/dates.js';
 
@@ -82,7 +83,7 @@ function filters(present, active, onPick) {
     style: { gap: 'var(--space-2)', flexWrap: 'wrap', marginBottom: 'var(--space-4)' },
   }, [
     chip('Everything', { pressed: !active, onClick: () => onPick('') }),
-    ...present.map((name) => chip(entity(name).labels.many, {
+    ...present.map((name) => chip(entityLabel(entity(name), 'many'), {
       pressed: active === name,
       onClick: () => onPick(name),
     })),

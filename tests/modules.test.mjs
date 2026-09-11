@@ -279,7 +279,7 @@ describe('every module', () => {
 describe('what ships to a browser', () => {
   test('contains nothing that can leak a record or execute a string', async () => {
     // Not a linter — `tools/lint.mjs` explains why there deliberately is none,
-    // with the counts that decided it. Five patterns a type checker cannot see,
+    // with the counts that decided it. Six patterns a type checker cannot see,
     // every one at zero, and the value is entirely in the direction this fails:
     // a `console.log` pasted into a screen that renders a PAN prints a
     // household's identity number into a console anybody can open.
@@ -305,6 +305,13 @@ describe('what ships to a browser', () => {
     fires('const d2 = (el, t) => el.insertAdjacentHTML("beforeend", t);', 'no-innerhtml');
     fires('const e = () => window.prompt("pin");', 'no-browser-dialogs');
     fires('const e2 = () => alert("hi");', 'no-browser-dialogs');
+    fires('const f1 = (def) => def.labels.one;', 'labels-through-the-door');
+    fires('const f2 = (def) => def.labels.many;', 'labels-through-the-door');
+    fires('const f3 = (d) => d?.labels?.one ?? d.name;', 'labels-through-the-door');
+    fires("const f4 = (d, n) => d.labels[n ? 'many' : 'one'];", 'labels-through-the-door');
+    fires('const f5 = (field) => field.label;', 'labels-through-the-door');
+    fires('const f6 = (f) => f.fields.label;', 'labels-through-the-door');
+    fires('const f7 = (ref) => ref.field?.label ?? ref.key;', 'labels-through-the-door');
   });
 
   test('and stay quiet on the things they must not flag', async () => {
@@ -322,6 +329,41 @@ describe('what ships to a browser', () => {
     // pattern here. A rule that fires on its own explanation is unusable.
     quiet('// never use eval( or innerHTML = here');
     quiet('/*\n * console.log is banned, see below\n */');
+    // The door itself, and the local variable that is not a schema label.
+    quiet("const i = (def) => entityLabel(def, 'many');");
+    quiet('const j = (row) => row.label;');
+    quiet("const j2 = (name, field) => fieldLabel(name, field);");
+    quiet('const k = (def) => ({ labels: def.labels });');
+  });
+
+  test('and an allowance excuses only the file it names', async () => {
+    // Every allowance currently matches, so there is no unexcused finding
+    // anywhere in `js/` — which means a filter that excused every file would
+    // behave identically against the real tree. The mutation ratchet reported
+    // that before this test existed. Synthetic findings, so the filter can be
+    // shown a case the tree does not contain.
+    const { unallowed, rules } = await import('../tools/lint.mjs');
+    const rule = rules().find((one) => one.id === 'labels-through-the-door');
+    const at = (file) => ({ rule, file, line: 1, text: 'def.labels.one' });
+
+    assert.length(unallowed([at('js/core/labels.js')]), 0);
+    assert.length(unallowed([at('js/modules/somewhere-new.js')]), 1);
+  });
+
+  test('and an allowance that stopped being needed is a finding of its own', async () => {
+    // Three files read a schema label deliberately and say why. A list nobody
+    // prunes is how an exception outlives its reason, so the allowance is
+    // checked in both directions: today every listed file still matches, and
+    // shown a run in which none of them did, each one is reported.
+    const { matches, staleAllowances } = await import('../tools/lint.mjs');
+
+    assert.length(staleAllowances(matches()), 0,
+      staleAllowances(matches()).map((s) => `${s.file} [${s.rule.id}]`).join(' | '));
+
+    const orphaned = staleAllowances([]);
+    assert.ok(orphaned.length >= 3, `expected every allowance reported, got ${orphaned.length}`);
+    assert.ok(orphaned.some((s) => s.file === 'js/core/labels.js'));
+    assert.ok(orphaned.every((s) => s.rule && s.rule.id));
   });
 });
 

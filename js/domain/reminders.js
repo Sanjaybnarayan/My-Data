@@ -12,6 +12,7 @@
  */
 
 import { entities } from '../data/schema.js';
+import { entityLabel, fieldLabel } from '../core/labels.js';
 import { daysUntil, daysBetween, nextAnniversary, today, ageOn } from '../core/dates.js';
 import { format } from '../core/money.js';
 import { upcomingBills } from './finance.js';
@@ -82,8 +83,8 @@ export function expiryReminders(recordsByEntity, { horizonDays = 45, clock = Dat
           module: def.module,
           recordId: record.id,
           field: field.key,
-          label: field.label,
-          title: String(def.title(record) ?? def.labels.one),
+          label: fieldLabel(entityName, field),
+          title: String(def.title(record) ?? entityLabel(def)),
           date,
           days,
           // The window this row was judged against, carried out with it.
@@ -218,8 +219,8 @@ export function datesInRange(recordsByEntity, { from, to }) {
           module: def.module,
           recordId: record.id,
           field: field.key,
-          label: field.label,
-          title: String(def.title(record) ?? def.labels.one),
+          label: fieldLabel(entityName, field),
+          title: String(def.title(record) ?? entityLabel(def)),
           date,
         });
       }

@@ -10,6 +10,7 @@ import { app } from '../../context.js';
 import { card, cardHeader, button, badge, listItem, empty, metric } from '../../ui/components/basics.js';
 import { config, isConfigured, saveStoredConfig } from '../../core/config.js';
 import { entity } from '../../data/schema.js';
+import { entityLabel } from '../../core/labels.js';
 import { formatInstant } from '../../core/dates.js';
 import { h } from '../../ui/dom.js';
 import { modal, confirm } from '../../ui/components/modal.js';
@@ -138,7 +139,7 @@ async function showStuck(db) {
     wide: true,
     body: failed.length
       ? h('div', { class: 'list' }, failed.map((entry) => listItem({
-        title: `${entity(entry.store).labels.one} · ${entry.op}`,
+        title: `${entityLabel(entity(entry.store))} · ${entry.op}`,
         subtitle: entry.lastError || 'no reason recorded',
         trailing: h('div', { class: 'row' }, [
           badge(`${entry.attempts} attempts`),
@@ -177,7 +178,7 @@ function showVerification(report) {
       h('div', { class: 'list' }, report.rows
         .filter((row) => !row.ok || row.local > 0)
         .map((row) => listItem({
-          title: entity(row.entity).labels.many,
+          title: entityLabel(entity(row.entity), 'many'),
           subtitle: row.sheet,
           value: `${row.local} here · ${row.remote} there`,
           trailing: row.ok ? badge('ok', 'positive') : badge('differs', 'danger'),

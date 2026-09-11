@@ -1,14 +1,28 @@
 /**
  * Schema labels, in the reader's language.
  *
- * The English names of the 47 entities, their 566 fields and the 21 modules
- * live in js/data/schema.js and stay there. This module is the one door they
- * pass through on the way to a screen, so a catalogue can replace them without
- * a second copy of all 345 of them existing to drift out of step.
+ * The English names of every entity, every field and every module live in
+ * js/data/schema.js and stay there. This module is the one door they pass
+ * through on the way to a screen, so a catalogue can replace them without a
+ * second copy existing to drift out of step.
+ *
+ * How many there are is deliberately not written here. It was — "the 47
+ * entities, their 566 fields and the 21 modules", and "all 345 of them" — and
+ * by the time anybody read it the schema held 53, 617, 25 and 748. Four
+ * numbers, all stale, in the header of the module whose entire subject is a
+ * second copy drifting from the first. `labelKeys().length` is the count, the
+ * documents carry it under a `live:` marker that tools/self-description.mjs
+ * checks, and a source comment is not a place to keep a number.
  *
  * The key space is derived from the schema — `labelKeys()` is what a
  * translator is given and what `coverage()` measures against, and neither is
  * written by hand.
+ *
+ * **This being the one door is a claim, and it is now checked.** Thirty-two
+ * call sites read `def.labels.one` straight out of the schema and put it on a
+ * screen, which no catalogue could reach however completely it was
+ * translated. `labels-through-the-door` in tools/lint.mjs is what stops the
+ * thirty-third.
  */
 
 import { entities, modules } from '../data/schema.js';
@@ -21,6 +35,21 @@ export const moduleKey = (id) => `module.${id}`;
 /** `def.labels.one` / `.many`, translated. */
 export function entityLabel(def, form = 'one') {
   return label(entityKey(def.name, form), def.labels?.[form] ?? def.name);
+}
+
+/**
+ * The label for a tab, given the module's entity definitions and the name the
+ * router holds.
+ *
+ * Three module screens wrote `entities.find((e) => e.name === name)?.labels.many
+ * ?? name` inline — the same lookup, the same fallback, and the same way past
+ * the door three times over. The fallback matters: the router can hold a name
+ * this module does not define, and a screen that threw on it would be worse
+ * than one showing the raw name.
+ */
+export function tabLabel(defs, name, form = 'many') {
+  const def = defs.find((one) => one.name === name);
+  return def ? entityLabel(def, form) : name;
 }
 
 /**

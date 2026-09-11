@@ -16,6 +16,7 @@ import { modal } from '../ui/components/modal.js';
 import { app } from '../context.js';
 import { reports, produce, exportEntity } from '../reports/build.js';
 import { entities, entity } from '../data/schema.js';
+import { entityLabel } from '../core/labels.js';
 import { range, formatDay, today, addMonths } from '../core/dates.js';
 import { format } from '../core/money.js';
 import { heldRows, describeHeld } from '../domain/amounts.js';
@@ -298,9 +299,9 @@ async function chooseExport() {
         'Include encrypted fields in the clear (document numbers, passwords, medical notes)'),
     ]),
     h('div', { class: 'list' }, Object.values(entities)
-      .sort((a, b) => a.labels.many.localeCompare(b.labels.many))
+      .sort((a, b) => entityLabel(a, 'many').localeCompare(entityLabel(b, 'many')))
       .map((def) => listItem({
-        title: def.labels.many,
+        title: entityLabel(def, 'many'),
         subtitle: def.module,
         trailing: h('div', { class: 'row' }, [
           button('CSV', {
@@ -325,6 +326,11 @@ async function exportOne(db, entityName, format, includeEncrypted) {
     const file = await exportEntity(db, entityName, format, { includeEncrypted });
     download(file);
     await db.logAudit(ACTIONS.export, {
+      // The schema label, deliberately, not the translated one. This is written
+      // into the audit log and read back months later, possibly by somebody
+      // running a different language — a record that says what the exporter's
+      // screen happened to say that afternoon is a record of the screen, not of
+      // the export. tools/lint.mjs holds this exception by name.
       report: entity(entityName).labels.many, format, includeEncrypted,
     });
     toast(`${file.filename} saved`, { kind: 'success' });
