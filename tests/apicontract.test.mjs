@@ -93,7 +93,7 @@ describe('the fields inside the payloads, not only the action names', () => {
       ["'pull' reads 'limit', which the application never sends"]);
   });
 
-  test('an action whose payload cannot be read is skipped, not called drift', () => {
+  test('an action whose payload cannot be read is not called drift for what is missing', () => {
     /*
      * `transport.js` has `upload(file) { return this.call('upload', file); }` —
      * a variable, not a literal. Reading that as "sends nothing" would report
@@ -108,6 +108,59 @@ describe('the fields inside the payloads, not only the action names', () => {
     // And it is genuinely unreadable in this repository, not hypothetically.
     assert.ok(sends().unreadable.has('upload'),
       'upload is no longer built from a variable — this check has gone stale');
+  });
+
+  test('but what such an action is seen to send is still checked', () => {
+    /*
+     * The half that was thrown away with the other. `upload` has a literal
+     * naming all seven fields and a second site passing a variable, and one
+     * opaque site dropped the action entirely — discarding seven field names
+     * the tool had already read.
+     *
+     * Only one direction is actually lost. What an opaque site sends is
+     * unknown, so what this sees is a *subset*: "the backend reads a field
+     * nothing sends" may be the opaque site sending it. "The application sends
+     * a field the backend never reads" is unaffected — the field was seen at a
+     * site that can be read.
+     */
+    const backend = new Map([['upload', new Set(['content', 'documentId'])]]);
+    const partial = {
+      fields: new Map([['upload', new Set(['content', 'thumbnail'])]]),
+      unreadable: new Set(['upload']),
+    };
+
+    assert.deep(fieldDrift(backend, partial),
+      ["'upload' sends 'thumbnail', which the backend never reads"]);
+  });
+
+  test('a payload chosen between two literals is read as the union of both', () => {
+    /*
+     * `members` is built as `cond ? { emails } : { emails, ownerPersonId }`,
+     * and for want of reading that the tool gave up on the whole action. The
+     * union is the truthful answer: a field on either arm is genuinely sent by
+     * some request, and a field on neither is genuinely never sent.
+     *
+     * The same shape `spreadKeys` has always read one level down, read one
+     * level up.
+     */
+    assert.deep(objectKeys('x === undefined ? { emails } : { emails, ownerPersonId })', 0),
+      ['emails', 'ownerPersonId']);
+
+    // And in this repository, not hypothetically: `members` used to sit beside
+    // `upload` on the uncompared list and no longer does.
+    const blind = sends().unreadable;
+    assert.not(blind.has('members'), 'members is uncompared again');
+    assert.deep([...sends().fields.get('members')].sort(), ['emails', 'ownerPersonId']);
+  });
+
+  test('and a bare variable is still not guessed at', () => {
+    // The line this must not cross. Following a name means resolving what it
+    // refers to, and the paragraph at the top of the tool saying what it
+    // cannot check is worth more than a guess that is sometimes wrong.
+    assert.equal(objectKeys('file)', 0), null);
+    assert.equal(objectKeys('payload.body)', 0), null);
+    assert.equal(objectKeys('cond ? left : right)', 0), null,
+      'a ternary between two variables is no more readable than one variable');
   });
 
   test('the backend reads are taken from the handler, not from every payload in the file', () => {

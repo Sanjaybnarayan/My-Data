@@ -114,7 +114,7 @@ export function called(files = jsFiles(), read = readFileSync) {
 export function objectKeys(source, from) {
   let i = from;
   while (i < source.length && /\s/.test(source[i])) i += 1;
-  if (source[i] !== '{') return null;
+  if (source[i] !== '{') return conditionalKeys(source, from);
 
   const keys = [];
   let depth = 0;
@@ -133,6 +133,64 @@ export function objectKeys(source, from) {
     if (m) keys.push(m[1]);
   }
   return keys;
+}
+
+/**
+ * A payload chosen between two literals — `cond ? { a } : { a, b }`.
+ *
+ * The same shape `spreadKeys` already reads one level down, one level up.
+ * `members` is built this way, and for want of reading it the tool gave up on
+ * the whole action:
+ *
+ *     this.call('members', ownerPersonId === undefined
+ *       ? { emails }
+ *       : { emails, ownerPersonId })
+ *
+ * The **union** of the arms, which is the truthful answer to the question this
+ * tool asks. A field on either arm is genuinely sent by some request, so the
+ * backend reading it is not drift; and a field on neither arm is genuinely
+ * never sent, so the backend not reading it is.
+ *
+ * Still `null` for a bare variable. Following one means resolving what a name
+ * refers to, and this file has no business becoming a JavaScript engine — the
+ * paragraph at the top saying what it cannot check is worth more than a guess.
+ */
+function conditionalKeys(source, from) {
+  const text = argumentText(source, from);
+  if (text === null || !/\?\s*\{/.test(text) || !/:\s*\{/.test(text)) return null;
+
+  const keys = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === '{') { if (depth === 0) start = i; depth += 1; continue; }
+    if (text[i] !== '}') continue;
+    depth -= 1;
+    if (depth !== 0) continue;
+    const arm = objectKeys(text, start);
+    if (arm) keys.push(...arm);
+  }
+  return keys.length ? [...new Set(keys)] : null;
+}
+
+/**
+ * Everything between `from` and the `)` that closes the `.call(` it belongs to.
+ *
+ * Depth-tracked rather than read to the first `)`, so a call whose argument
+ * contains parentheses of its own is not cut in half.
+ */
+function argumentText(source, from) {
+  let depth = 0;
+  for (let i = from; i < source.length; i += 1) {
+    const c = source[i];
+    if (c === '(' || c === '{' || c === '[') depth += 1;
+    else if (c === '}' || c === ']') depth -= 1;
+    else if (c === ')') {
+      if (depth === 0) return source.slice(from, i);
+      depth -= 1;
+    }
+  }
+  return null;
 }
 
 /**
@@ -245,12 +303,31 @@ function backendSources(read = readFileSync) {
 export function fieldDrift(backendReads = reads(), client = sends()) {
   const problems = [];
   for (const [action, read] of backendReads) {
-    if (client.unreadable.has(action)) continue;
     const sent = client.fields.get(action);
     if (!sent) continue;
+
+    /*
+     * One opaque call site used to drop the action entirely, and with it the
+     * fields already read from the *other* sites — `upload` has a literal
+     * naming all seven and a second site passing a variable, and the tool knew
+     * the seven and threw them away.
+     *
+     * Only one of the two directions is lost. An opaque site can send fields
+     * this cannot see, so what it sees is a *subset* of what is sent — which
+     * makes "the backend reads a field nothing sends" unsound, because the
+     * opaque site may be sending exactly that. It leaves the other direction
+     * untouched: a field seen at a readable site really is sent, and the
+     * backend really does not read it.
+     *
+     * So the unsound half is skipped and the sound half is kept, rather than
+     * both being given up for the sake of the one.
+     */
+    const partial = client.unreadable.has(action);
+
     for (const f of [...sent].sort()) {
       if (!read.has(f)) problems.push(`'${action}' sends '${f}', which the backend never reads`);
     }
+    if (partial) continue;
     for (const f of [...read].sort()) {
       if (!sent.has(f)) problems.push(`'${action}' reads '${f}', which the application never sends`);
     }
@@ -297,9 +374,15 @@ function document(backend, client, payloads = sends(), backendReads = reads()) {
 
   const skipped = [...payloads.unreadable].sort();
   const uncompared = skipped.length
-    ? `**Not compared for ${skipped.map((a) => `\`${a}\``).join(' and ')}.** At least one\n`
-      + 'call site builds the payload from a variable rather than a literal, so this\n'
-      + 'cannot read the field names — and says so rather than assuming there are none.\n\n'
+    ? `**Half-compared for ${skipped.map((a) => `\`${a}\``).join(' and ')}.** At least one\n`
+      + 'call site builds the payload from a variable rather than a literal, so what the\n'
+      + 'application sends is known only in part — a subset, never the whole.\n\n'
+      + 'That loses exactly one of the two directions. *The backend reads a field nothing\n'
+      + 'sends* cannot be trusted, because the site this cannot read may be sending it.\n'
+      + '*The application sends a field the backend never reads* is unaffected: the field\n'
+      + 'was seen at a site that can be read, so it really is sent. The first is skipped\n'
+      + 'for these actions and the second is not — dropping both for the sake of the one\n'
+      + 'threw away field names this tool had already read.\n\n'
     : '';
 
   return `# The backend contract
@@ -362,12 +445,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
 
-  // Said rather than skipped silently. An action whose payload is built from a
-  // variable at some call site cannot be compared, and a reader is entitled to
-  // know which ones this tool is not covering.
+  // Said rather than skipped silently, and said accurately: these actions are
+  // checked in one direction, not dropped. A reader is entitled to know which
+  // half of the contract is not covered and for which actions.
   if (payloads.unreadable.size) {
-    console.log(`fields not compared for ${[...payloads.unreadable].sort().join(', ')}`
-      + ' — built from a variable at a call site');
+    console.log(`${[...payloads.unreadable].sort().join(', ')}: checked only for fields sent`
+      + ' and never read — a call site builds the payload from a variable, so'
+      + ' what the application sends cannot be known in full');
   }
 
   const text = document(backend, client);

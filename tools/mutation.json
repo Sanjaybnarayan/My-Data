@@ -459,8 +459,8 @@
     {
       "label": "a payload the tool cannot read is scored as sending nothing",
       "file": "tools/api-contract.mjs",
-      "find": "    if (client.unreadable.has(action)) continue;",
-      "replace": "    if (false) continue;",
+      "find": "    if (partial) continue;\n    for (const f of [...read].sort()) {",
+      "replace": "    for (const f of [...read].sort()) {",
       "suite": "apicontract"
     },
     {
@@ -868,6 +868,20 @@
       "find": "function applies(rule, file) {",
       "replace": "function applies(rule, file) {\n  if (rule.only) return false;",
       "suite": "modules"
+    },
+    {
+      "label": "one unreadable call site throws away the fields the others named",
+      "file": "tools/api-contract.mjs",
+      "find": "    const partial = client.unreadable.has(action);\n",
+      "replace": "    const partial = client.unreadable.has(action);\n    if (partial) continue;\n",
+      "suite": "apicontract"
+    },
+    {
+      "label": "a payload chosen between two literals is given up on again",
+      "file": "tools/api-contract.mjs",
+      "find": "  if (source[i] !== '{') return conditionalKeys(source, from);",
+      "replace": "  if (source[i] !== '{') return null;",
+      "suite": "apicontract"
     }
   ]
 }
