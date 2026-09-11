@@ -114,6 +114,15 @@ append-only `_Audit` tab where nothing in the client ever issues an update or a
 delete, and they now carry their hashes with them. Comparing a local chain
 against that copy would close most of the gap.
 
+**That sentence was false when it was written, and is true now.** The client
+had been sending `id`, `prev` and `hash` on every push since the chain was
+built; `auditAppend` wrote nine columns and dropped all three. So the
+comparison described here could not have been written — nothing to compare,
+and nothing to match a row to the entry it came from — and the paragraph
+proposing this tab as the anchor rested on material the backend was throwing
+away. The tab carries twelve columns now, and one made before them is widened
+on the next push rather than left behind.
+
 **It is not built.** Doing it properly means deciding what happens when the two
 disagree — which is a question about trust between a household's devices and
 its own backend, not a question about hashing — and it would touch the sync

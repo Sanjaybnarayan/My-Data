@@ -1424,3 +1424,142 @@ describe('the id that decides whose records a caller may reach', () => {
     assert.equal(c('a'.repeat(65)), '');
   });
 });
+
+/* ------------------------------------------------------- the audit replica */
+
+/**
+ * What the off-device copy of the audit trail actually keeps.
+ *
+ * `docs/AUDIT_CHAIN.md` proposes this tab as the anchor the chain does not
+ * have, and says of it:
+ *
+ *   "Audit entries replicate to an append-only `_Audit` tab where nothing in
+ *    the client ever issues an update or a delete, **and they now carry their
+ *    hashes with them**. Comparing a local chain against that copy would close
+ *    most of the gap."
+ *
+ * They did not. The client has sent `id`, `prev` and `hash` on every push
+ * since the chain was built, and `auditAppend` wrote nine columns and dropped
+ * all three. The comparison that paragraph describes could not have been
+ * written: nothing to compare, and nothing to match a row to the entry it came
+ * from.
+ */
+describe('the copy of the audit trail the household keeps off the device', () => {
+  const OLD = ['at', 'action', 'entity', 'recordId', 'actorId', 'actorRole',
+    'fields', 'deviceId', 'detail'];
+
+  const entry = (over = {}) => ({
+    id: 'aud_1', at: '2026-09-11T00:00:00.000Z', action: 'update', entity: 'person',
+    recordId: 'per_1', actorId: 'p-owner', actorRole: 'owner', fields: ['name'],
+    detail: {}, deviceId: 'dev_a', prev: 'genesis', hash: 'abc123', ...over,
+  });
+
+  /** A `_Audit` tab that remembers what was written, and how wide it is. */
+  function auditBook(headers) {
+    const written = [];
+    let head = headers ? [...headers] : null;
+    const tab = {
+      getName: () => '_Audit',
+      getLastRow: () => (head ? 1 + written.length : 0),
+      getLastColumn: () => (head ? head.length : 0),
+      getMaxRows: () => 100,
+      getRange: (row, col) => ({
+        getValues: () => (row === 1 ? [head] : written),
+        setValues: (values) => {
+          if (row !== 1) { written.push(...values); return; }
+          head = col === 1 ? [...values[0]] : head.slice(0, col - 1).concat(values[0]);
+        },
+        setValue: () => {}, setFontWeight: () => {}, setNumberFormat: () => {},
+      }),
+      setFrozenRows: () => {}, appendRow: () => {},
+    };
+    return {
+      written,
+      get head() { return head; },
+      getId: () => 'wb1',
+      getUrl: () => 'https://example.invalid/wb1',
+      getSheets: () => (head ? [tab] : []),
+      getSheetByName: (n) => (n === '_Audit' && head ? tab : null),
+      insertSheet: (n) => { if (n === '_Audit') head = []; return tab; },
+    };
+  }
+
+  const send = (book, entries) => backend({
+    owner: OWNER, tokens, workbook: book,
+    properties: { workbookId: 'wb1', sheetMap: '{}' },
+  }).post('audit', 'owner-token', { entries });
+
+  test('keeps the hash, which is the only thing worth comparing later', () => {
+    const book = auditBook(OLD);
+    assert.ok(send(book, [entry()]).ok);
+
+    const row = book.written[0];
+    const at = (name) => row[book.head.indexOf(name)];
+    assert.equal(at('hash'), 'abc123');
+    assert.equal(at('prev'), 'genesis');
+    assert.equal(at('id'), 'aud_1', 'without this a row cannot be matched to an entry');
+  });
+
+  test('and widens a tab made before those columns existed', () => {
+    // Appended on the right, for the reason `schemaEnsure` gives about entity
+    // sheets: inserting in place would move every value in every row of a log
+    // whose whole worth is that nothing in it moves.
+    const book = auditBook(OLD);
+    send(book, [entry()]);
+
+    assert.deep(book.head.slice(0, OLD.length), OLD, 'the existing columns moved');
+    assert.deep(book.head.slice(OLD.length), ['id', 'prev', 'hash']);
+  });
+
+  test('without putting a value under the wrong heading', () => {
+    // The row is built against the tab's own header row rather than a fixed
+    // order, so a widened workbook and a fresh one both land each value under
+    // the column that names it.
+    const book = auditBook(OLD);
+    send(book, [entry({ action: 'delete', actorRole: 'spouse' })]);
+
+    const row = book.written[0];
+    const at = (name) => row[book.head.indexOf(name)];
+    assert.equal(at('action'), 'delete');
+    assert.equal(at('actorRole'), 'spouse');
+    assert.equal(at('deviceId'), 'dev_a');
+  });
+
+  test('even when the household has moved the columns about', () => {
+    // It is their spreadsheet. Writing a fixed order into a tab whose headers
+    // have been rearranged would file every value under its neighbour's name,
+    // and an audit log that says the wrong thing confidently is worse than one
+    // that is missing.
+    const shuffled = ['deviceId', 'detail', 'at', 'actorRole', 'action', 'entity',
+      'recordId', 'actorId', 'fields'];
+    const book = auditBook(shuffled);
+    send(book, [entry({ action: 'delete', actorRole: 'spouse' })]);
+
+    const row = book.written[0];
+    const at = (name) => row[book.head.indexOf(name)];
+    assert.equal(at('action'), 'delete');
+    assert.equal(at('actorRole'), 'spouse');
+    assert.equal(at('deviceId'), 'dev_a');
+    assert.equal(at('at'), '2026-09-11T00:00:00.000Z');
+    assert.equal(at('hash'), 'abc123');
+  });
+
+  test('and a workbook with no audit tab yet gets one with every column', () => {
+    const book = auditBook(null);
+    assert.ok(send(book, [entry()]).ok);
+    assert.deep(book.head, [...OLD, 'id', 'prev', 'hash']);
+  });
+
+  test('an entry with no chain on it still lands, rather than the batch failing', () => {
+    // Entries written before the chain existed are `unchained`, which
+    // `chain.js` reports rather than condemns. The replica takes them too.
+    const book = auditBook(OLD);
+    const bare = entry();
+    delete bare.hash;
+    delete bare.prev;
+
+    assert.ok(send(book, [bare]).ok);
+    const row = book.written[0];
+    assert.equal(row[book.head.indexOf('hash')], '');
+  });
+});
