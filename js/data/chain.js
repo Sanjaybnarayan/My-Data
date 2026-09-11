@@ -219,14 +219,21 @@ export async function verifyDevice(entries, head = null) {
    * Which way they disagree matters, because the two mean opposite things and
    * a household reads the sentence. If the entry the head names is nowhere in
    * the log, it was removed. If it is here and the walk went past it, nothing
-   * was removed at all — the head is behind what the log holds, which is what
-   * restoring an older archive onto a device that has kept working produces:
-   * `writeSystemStoreRows` puts the archive's head back while the entries
-   * written since it stay where they are.
+   * was removed at all — the head is behind what the log holds.
    *
-   * Saying "the most recent entries were removed" there would be exactly
-   * backwards, and this check exists because a sentence about somebody's audit
-   * trail was not true.
+   * **No reachable path to the second was found.** It was written for one that
+   * turned out not to exist: restoring an older archive over a device that had
+   * kept working would leave the archive's head above entries written since,
+   * and `planRestore` refuses a restore onto a device holding any record at
+   * all. `Chain` cannot produce it either — the head goes into the same
+   * transaction as the entry — and an interrupted restore lands the other way
+   * round, `meta` being written before `audit`.
+   *
+   * It is kept because the cost is a comparison and the alternative is a
+   * sentence that is wrong whenever it is wrong: this branch exists precisely
+   * so that a check about somebody's audit trail cannot tell them entries were
+   * removed when none were. A defence with no known route to it is worth the
+   * two lines; a false sentence is not worth any.
    */
   if (expectedEnd && expectedEnd !== end) {
     const behind = rows.some((row) => row.hash === expectedEnd);

@@ -31,8 +31,9 @@ export const chainStrings = {
   'chain.why.truncated': 'the log stops before the last entry this device recorded writing, so the most recent entries were removed',
   'chain.why.truncatedAll': 'this device recorded writing to the log and none of them are here, so every entry it wrote was removed',
 
-  // The other direction, and the opposite news: nothing was removed. Restoring
-  // an older archive onto a device that has kept working puts the archive's
-  // head back while the entries written since stay where they are.
-  'chain.why.behind': 'the log runs past the last entry this device recorded writing, so the record of where it stopped is older than the log itself — which is what restoring an older backup over a device still in use leaves behind',
+  // The other direction, and the opposite news: nothing was removed. No
+  // reachable route to it was found — see `verifyDevice` — so the sentence says
+  // what is true of the state rather than naming a cause it cannot stand
+  // behind.
+  'chain.why.behind': 'the log runs past the last entry this device recorded writing, so the record of where it stopped is older than the log itself — nothing appears to have been removed',
 };

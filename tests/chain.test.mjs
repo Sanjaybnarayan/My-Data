@@ -255,10 +255,12 @@ describe('the real write path', () => {
     });
 
     test('a head older than the log is named as that, not as a log cut short', async () => {
-      // Back up, keep using the device, restore your own archive: the archive's
-      // head goes back and the entries written since stay where they are. The
-      // log is longer than the head, nothing was removed, and telling somebody
-      // their audit trail lost its most recent entries would be backwards.
+      // The state, reached directly, because no route to it was found: the one
+      // it was written for — restoring an older archive over a device still in
+      // use — is refused by `planRestore`, which takes no device holding a
+      // record. The log is longer than the head, nothing was removed, and
+      // telling somebody their audit trail lost its most recent entries would
+      // be backwards whatever put them in that state.
       const db = await makeDb();
       const rows = await threeThenDrop(db, () => []);
       const older = rows[rows.length - 2].hash;
@@ -270,8 +272,8 @@ describe('the real write path', () => {
       assert.not(result.ok);
       assert.equal(result.devices[0].kind, 'behind');
       assert.ok(/runs past/.test(result.devices[0].why), result.devices[0].why);
-      assert.ok(!/removed/.test(result.devices[0].why.split('\u2014')[0]),
-        'the first half of the sentence must not say anything was removed');
+      assert.ok(!/were removed/.test(result.devices[0].why),
+        'the sentence must not say anything was removed');
     });
 
     test('and a device that has written nothing is not a device cut short', async () => {
