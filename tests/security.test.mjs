@@ -48,6 +48,58 @@ describe('crypto', () => {
     assert.notEqual(a, b, 'a repeated nonce would leak that two fields are equal');
   });
 
+  /*
+   * A prefix is not an envelope, and `isEncrypted` is asked on both sides.
+   *
+   * `fieldcrypto.js` skips a value that "is encrypted" on the way in so as not
+   * to double-wrap, and tries to decrypt one on the way out. When seven
+   * characters decided both, a household typing `enc:v1:AAAA:BBBB` into a free
+   * text encrypted field — a diagnosis, a nominee, a vault secret — had it
+   * stored **verbatim in the clear** and read back as **the empty string**.
+   *
+   * Both halves wrong, and they compound: the field the schema marks encrypted
+   * syncs to the spreadsheet unencrypted, and the blank the read produced is
+   * merged over the row by the next update, so the text is gone for good.
+   */
+  describe('a value that only looks like an envelope', () => {
+    const SHAPED = 'enc:v1:AAAA:BBBB';
+
+    test('is not mistaken for one', () => {
+      assert.not(isEncrypted(SHAPED), 'a four-character IV passed as a twelve-byte one');
+      assert.not(isEncrypted('enc:v1:'), 'the bare prefix passed');
+      assert.not(isEncrypted('enc:v1:AAAAAAAAAAAAAAAA'), 'an envelope with no body passed');
+      assert.not(isEncrypted('enc:v1:AAAAAAAAAAAAAAAA:AA:AA'), 'three parts passed as two');
+      assert.not(isEncrypted('enc:v1:................:AAAA'), 'a non-base64 IV passed');
+    });
+
+    test('and what this application really produces still is', async () => {
+      // The half that matters more. A check tightened until it rejects
+      // everything would satisfy the test above and take the feature with it.
+      const key = await generateDataKey();
+      for (const text of ['', 'x', 'a longer secret with ₹ and a newline\n', SHAPED]) {
+        assert.ok(isEncrypted(await encryptText(key, text, 'ctx')),
+          `a real envelope for ${JSON.stringify(text)} was not recognised`);
+      }
+    });
+
+    test('so it is sealed on the way in and returned intact on the way out', async () => {
+      const db = await makeDb();
+      const person = await makePerson(db);
+      const record = await db.repo('healthRecord').create({
+        person: person.id, kind: 'diagnosis', title: 'Shaped', diagnosis: SHAPED,
+      });
+
+      const raw = await db.adapter.read('healthRecord', record.id);
+      assert.notEqual(raw.diagnosis, SHAPED,
+        'a field the schema marks encrypted was stored in the clear');
+      assert.ok(isEncrypted(raw.diagnosis), 'it was not sealed at all');
+
+      const back = await db.repo('healthRecord').get(record.id);
+      assert.equal(back.diagnosis, SHAPED, 'what the household typed did not come back');
+      assert.not(back._undecryptable, 'it was reported as damaged');
+    });
+  });
+
   test('the wrong context will not decrypt', async () => {
     const key = await generateDataKey();
     const sealed = await encryptText(key, 'secret', 'person:1:pan');

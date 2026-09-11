@@ -931,6 +931,27 @@
       "find": "function requestList(value, what) {\n  if (value === undefined || value === null) return [];",
       "replace": "function requestList(value, what) {\n  if (!value || !value.length) throw fail(what + ' must be a list', 400);\n  if (value === undefined || value === null) return [];",
       "suite": "fuzz"
+    },
+    {
+      "label": "a prefix counts as an envelope again",
+      "file": "js/security/crypto.js",
+      "find": "  const parts = value.slice(ENVELOPE_PREFIX.length).split(':');\n  if (parts.length !== 2) return false;",
+      "replace": "  return true;\n  // eslint-disable-next-line no-unreachable\n  const parts = value.slice(ENVELOPE_PREFIX.length).split(':');\n  if (parts.length !== 2) return false;",
+      "suite": "security"
+    },
+    {
+      "label": "an IV of any length is accepted as a twelve-byte one",
+      "file": "js/security/crypto.js",
+      "find": "  return iv.length === IV_BASE64_LENGTH && BASE64.test(iv) && body.length > 0 && BASE64.test(body);",
+      "replace": "  return BASE64.test(iv) && body.length > 0 && BASE64.test(body);",
+      "suite": "security"
+    },
+    {
+      "label": "the envelope test is tightened until nothing passes it",
+      "file": "js/security/crypto.js",
+      "find": "  if (typeof value !== 'string' || !value.startsWith(ENVELOPE_PREFIX)) return false;",
+      "replace": "  if (typeof value !== 'string' || !value.startsWith(ENVELOPE_PREFIX)) return false;\n  if (value) return false;",
+      "suite": "security"
     }
   ]
 }
