@@ -826,6 +826,48 @@
       "find": "  Passport: 'Passport',\n};",
       "replace": "  Passport: 'Passport',\n  VID: 'Aadhaar',\n};",
       "suite": "extract"
+    },
+    {
+      "label": "the activity feed is returned without asking who is reading it",
+      "file": "js/data/database.js",
+      "find": "    return recentActivity(this.adapter, { ...options, keep: auditVisible(this.#actor) });",
+      "replace": "    return recentActivity(this.adapter, options);",
+      "suite": "data"
+    },
+    {
+      "label": "an entry about an entity the reader is refused is shown anyway",
+      "file": "js/security/rbac.js",
+      "find": "    return readScope(actor, name) === 'all';",
+      "replace": "    return readScope(actor, name) !== 'nothing-is-ever-this';",
+      "suite": "data"
+    },
+    {
+      "label": "the log is filtered after the limit rather than inside the query",
+      "file": "js/data/audit.js",
+      "find": "  const filter = named && keep ? (e) => named(e) && keep(e) : (named ?? keep ?? undefined);",
+      "replace": "  const filter = named ?? undefined;",
+      "suite": "data"
+    },
+    {
+      "label": "the screens-read-through-the-repository rule stops matching anything",
+      "file": "tools/lint.mjs",
+      "find": "    pattern: /\\bdb\\s*\\??\\s*\\.\\s*adapter\\b/,",
+      "replace": "    pattern: /\\bnothing-matches-this-at-all\\b/,",
+      "suite": "modules"
+    },
+    {
+      "label": "a rule's scope is widened to every file that ships",
+      "file": "tools/lint.mjs",
+      "find": "  return !rule.only || rule.only.some((prefix) => file.startsWith(prefix));",
+      "replace": "  return true;",
+      "suite": "modules"
+    },
+    {
+      "label": "a scoped rule is silenced by a scope that admits no file",
+      "file": "tools/lint.mjs",
+      "find": "function applies(rule, file) {",
+      "replace": "function applies(rule, file) {\n  if (rule.only) return false;",
+      "suite": "modules"
     }
   ]
 }

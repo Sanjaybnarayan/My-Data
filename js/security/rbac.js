@@ -208,6 +208,48 @@ export function rowFilter(actor, entityName) {
 }
 
 /**
+ * Which audit entries this actor may be shown, as a filter for the log query.
+ *
+ * ## Why the log needed one of these at all
+ *
+ * `Database.history(recordId)` says in its own docblock why it is safe without
+ * one: *"a caller has already been permitted to read the record itself; these
+ * are entries about that record and nothing else."* Directly beneath it sat
+ * `activity()` — every entry across every record — with no such argument and
+ * nothing asking this file anything.
+ *
+ * The log is not a second copy of the records, but each line names an entity
+ * and an action, and that is enough. Measured against this schema, a child is
+ * refused 30 of 53 entities outright — `account`, `loan`, `holding`,
+ * `identityDocument`, `kycRecord`, `document`, `bankStatement` among them —
+ * and `visibleModules` gives that child the Settings module, where the Audit
+ * log card prints a sentence for every entry in the household.
+ *
+ * ## Why an `own`-scope entity is dropped rather than resolved
+ *
+ * An entry carries `entity` and `recordId`, and nothing that says *whose*
+ * record it is. Deciding an `own` entry honestly would mean reading the record
+ * — a lookup per line, inside a cursor that has to stay synchronous to filter
+ * before the limit rather than after it.
+ *
+ * So it is dropped, which is the direction that cannot leak. What that costs
+ * is small and already covered: the eleven `own` entities belong to a child
+ * alone (owner and spouse read all 53, an adult 47 and none by `own`), and
+ * "what happened to my health record" is answered on the record itself, by
+ * `history()`, which is where the question is actually asked.
+ *
+ * Entries with no entity — signing in, syncing, exporting, changing a setting
+ * — are about the household rather than about a record, and stay.
+ */
+export function auditVisible(actor) {
+  return (entry) => {
+    const name = entry?.entity;
+    if (!name) return true;
+    return readScope(actor, name) === 'all';
+  };
+}
+
+/**
  * Entities this actor may see at all — drives which nav items are rendered.
  *
  * `readScope` again rather than a third copy of the rule. This function used

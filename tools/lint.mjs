@@ -120,6 +120,36 @@ const RULES = [
         + 'record of the screen rather than of the export.',
     },
   },
+  {
+    id: 'screens-read-through-the-repository',
+    only: ['js/modules/', 'js/ui/', 'js/services/'],
+    pattern: /\bdb\s*\??\s*\.\s*adapter\b/,
+    why: '`js/services/service.js` states the rule in its own words — "a '
+      + 'service reads through `db.repo(...)` and never through `db.adapter`" '
+      + '— because the repository is where `rowFilter` is applied and the '
+      + 'adapter is the layer underneath it, which knows nothing about who is '
+      + 'signed in. Nothing checked it. The Settings screen read the audit log '
+      + 'as `recentActivity(db.adapter, …)` and printed a line naming every '
+      + 'entity in the household to a child who may read twelve of the '
+      + 'fifty-three. Go through `Database` — it has a method for every system '
+      + 'store worth reaching, and adding one is cheaper than a leak.',
+    allowed: {
+      'js/modules/settings.js':
+        'Two system stores with no per-row ACL: `adapter.usage()`, which is a '
+        + 'figure about the browser rather than about the household, and the '
+        + 'diagnostics log, whose every string has already been through '
+        + '`data/diagnostics.js#redact`.',
+      'js/modules/settings/connection.js':
+        'The outbox — this device\'s own unsent writes. `Outbox` takes the '
+        + 'adapter by construction, and a queue entry is not a record anybody '
+        + 'else\'s role has a view on.',
+      'js/modules/settings/data.js':
+        'The conflicts store and `destroy()`. A conflict is two versions of a '
+        + 'row this device already holds, and the screen that shows them is '
+        + 'the restore screen; `destroy()` empties the database rather than '
+        + 'reading it.',
+    },
+  },
 ];
 
 /** The rules, for a test that needs one by name. */
@@ -186,6 +216,23 @@ export function findingsIn(text) {
 }
 
 /**
+ * Whether a rule has anything to say about this file.
+ *
+ * Most rules are about everything that ships. `only` is for a rule whose
+ * *name* already narrows it — `screens-read-through-the-repository` is about
+ * screens and the services behind them, and the sync engine reaching the
+ * adapter is that layer doing its job rather than an exception to be excused.
+ *
+ * A scope, not an allowance: an allowance is a file that matches and is
+ * forgiven, and `staleAllowances` checks each one still matches. Listing the
+ * sync engine there would be claiming it does something it should not, and
+ * would have to be re-read by whoever prunes that list next.
+ */
+function applies(rule, file) {
+  return !rule.only || rule.only.some((prefix) => file.startsWith(prefix));
+}
+
+/**
  * Every line of shipped code that matches a rule, allowed or not.
  *
  * Separate from `lint()` because the allowlist has to be checked in both
@@ -205,6 +252,7 @@ export function matches() {
       const file = relative(ROOT, path).split(sep).join('/');
       for (const { number, text } of codeLines(readFileSync(path, 'utf8'))) {
         for (const rule of RULES) {
+          if (!applies(rule, file)) continue;
           if (rule.pattern.test(text)) out.push({ rule, file, line: number, text: text.trim() });
         }
       }

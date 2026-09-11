@@ -120,16 +120,31 @@ export function describe(entry, nameOf = (id) => id) {
  * Recent entries, newest first. Reads straight off the `byAt` index so the
  * activity widget does not scan the whole log.
  *
+ * `keep` is how the caller says **who is asking**. It is composed into the
+ * query's own filter rather than applied to the result, because the cursor
+ * counts a row towards `limit` only once the filter has kept it: filtering
+ * afterwards would return a short page and call it the whole log — the same
+ * fault `Database.search` was fixed for, and the reason the ratchet carries an
+ * entry named *the search index is filtered after the limit rather than
+ * over-fetched*.
+ *
+ * No default. A caller that wants every entry says so by passing nothing, and
+ * `Database.activity` is the one that decides what a role may be shown.
+ *
  * @param {object} adapter
- * @param {{limit?: number, entityName?: string, since?: string}} [query]
+ * @param {{limit?: number, entityName?: string, since?: string,
+ *          keep?: (entry: object) => boolean}} [query]
  */
-export async function recentActivity(adapter, { limit = 20, entityName, since } = {}) {
+export async function recentActivity(adapter, { limit = 20, entityName, since, keep } = {}) {
+  const named = entityName ? (e) => e.entity === entityName : null;
+  const filter = named && keep ? (e) => named(e) && keep(e) : (named ?? keep ?? undefined);
+
   return adapter.query('audit', {
     index: 'byAt',
     direction: 'prev',
     limit,
     range: since ? { lower: since } : undefined,
-    filter: entityName ? (e) => e.entity === entityName : undefined,
+    filter,
   });
 }
 
