@@ -180,8 +180,27 @@ another caller to migrate.
 > `create`, `update`, `remove` and `restore`, applies `rowFilter` to every
 > `list`, and writes the audit entry **in the same transaction as the change**.
 > A screen cannot forget any of it, because a screen never gets the chance.
-> Traced across the whole codebase: outside `data/` and `sync/` there are three
-> direct `adapter` calls, all in Settings, all on system stores with no ACL.
+>
+> #### Correction to the correction, made in Phase 12
+>
+> The sentence that stood here said: *"Traced across the whole codebase:
+> outside `data/` and `sync/` there are three direct `adapter` calls, all in
+> Settings, all on system stores with no ACL."*
+>
+> **That was wrong too, and in the more expensive direction.** There were
+> nine, not three — and the ninth was the audit log, which is not a store with
+> no ACL: every line of it names an entity that has one. The Settings screen
+> read it as `recentActivity(db.adapter, …)` and printed a sentence for every
+> record in the household to a child who may read twelve of the fifty-three
+> entities those sentences name.
+>
+> A screen cannot forget the permission check, then, but it *could* walk past
+> the layer that applies it — and the paragraph asserting otherwise had been
+> counted once, by hand, inside a correction. Now
+> 8<!--live:screenAdapterCalls--> remain, every one of them a system store with
+> no per-row ACL; the number is derived by `tools/self-description.mjs` from
+> the `screens-read-through-the-repository` rule in `tools/lint.mjs`, which
+> names each remaining call and re-checks that its excuse still applies.
 >
 > The real gap is narrower and different, and it is what the service layer is
 > actually for:

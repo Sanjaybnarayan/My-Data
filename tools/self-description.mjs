@@ -24,6 +24,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { entityNames, entity, modules, systemStores } from '../js/data/schema.js';
+import { matches as lintMatches, rules as lintRules } from './lint.mjs';
 import { datedEntities, BY_NAME } from '../js/domain/reminders.js';
 import coverage from './field-coverage.json' with { type: 'json' };
 import budget from './architecture-budget.json' with { type: 'json' };
@@ -58,6 +59,17 @@ function sourceFiles(dir = join(ROOT, 'js'), out = []) {
  * file imported `record` under, so renaming the import moves the count with it
  * rather than silently zeroing it.
  */
+/**
+ * How many direct `adapter` calls the screens and services still make.
+ *
+ * Asks `tools/lint.mjs` for the rule's own matches rather than re-scanning:
+ * two counts of the same thing are two things to drift.
+ */
+function adapterCalls() {
+  const rule = lintRules().find((one) => one.id === 'screens-read-through-the-repository');
+  return rule ? lintMatches().filter((one) => one.rule === rule).length : 0;
+}
+
 function observability() {
   let sites = 0;
   let recorded = 0;
@@ -161,6 +173,18 @@ export function measure() {
     unexportableFields: unexportable,
     attachmentFields,
     uiDatabaseCalls: budget.uiDatabaseCalls,
+    /*
+     * Screens and services reaching the adapter directly — the layer beneath
+     * the one that applies `rowFilter`.
+     *
+     * `FAMILY_OS_MASTER_ARCHITECTURE.md` stated this as "three direct
+     * `adapter` calls, all in Settings, all on system stores with no ACL",
+     * inside a paragraph written to *correct* an earlier wrong claim. It was
+     * counted once, by hand, and there were nine. The ninth was the audit log,
+     * which is not a store with no ACL: every line of it names an entity that
+     * has one.
+     */
+    screenAdapterCalls: adapterCalls(),
     // `service.js` is the base class the others extend, not a service.
     serviceModules: readdirSync(join(ROOT, 'js', 'services'))
       .filter((f) => f.endsWith('.js') && f !== 'service.js').length,

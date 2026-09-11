@@ -312,6 +312,31 @@ describe('what ships to a browser', () => {
     fires('const f5 = (field) => field.label;', 'labels-through-the-door');
     fires('const f6 = (f) => f.fields.label;', 'labels-through-the-door');
     fires('const f7 = (ref) => ref.field?.label ?? ref.key;', 'labels-through-the-door');
+    fires('const g1 = (db) => db.adapter.query("audit", {});', 'screens-read-through-the-repository');
+    fires('const g2 = (db) => recentActivity(db?.adapter, { limit: 12 });', 'screens-read-through-the-repository');
+  });
+
+  test('and a scoped rule is applied where its name says and nowhere else', async () => {
+    // `screens-read-through-the-repository` is about screens and the services
+    // behind them. `js/sync/engine.js` reaches the adapter eleven times doing
+    // exactly its job, and a scope is how that is said — listing it as an
+    // allowance would be claiming it does something it should not, and would
+    // be re-read by whoever prunes that list next.
+    const { matches, rules } = await import('../tools/lint.mjs');
+    const rule = rules().find((one) => one.id === 'screens-read-through-the-repository');
+
+    assert.ok(rule.only?.length, 'the rule lost the scope its name promises');
+
+    const hit = matches().filter((one) => one.rule === rule);
+    assert.ok(hit.length, 'a scope that matches nothing is a rule that cannot fire');
+    assert.ok(hit.every((one) => rule.only.some((prefix) => one.file.startsWith(prefix))),
+      hit.map((one) => one.file).join(' | '));
+
+    // The layer the scope exists to leave alone. If this ever comes back
+    // empty the rule can be widened; while it does not, widening it would
+    // report eleven lines that are not findings.
+    const sync = matches().some((one) => one.file.startsWith('js/sync/'));
+    assert.not(sync, 'the sync engine is inside a scope that was meant to exclude it');
   });
 
   test('and stay quiet on the things they must not flag', async () => {

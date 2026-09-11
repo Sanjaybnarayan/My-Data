@@ -797,6 +797,101 @@ describe('repository', () => {
   });
 });
 
+/*
+ * The log, and who is reading it.
+ *
+ * `Database.history(recordId)` writes down the argument that makes it safe:
+ * its caller has already been permitted to read the record the entries are
+ * about. `activity()` sat directly beneath it — every entry across every
+ * record — with no such argument, and the Settings screen read it straight off
+ * `db.adapter`, around the one place that knows who is signed in.
+ */
+describe('the activity feed and the role reading it', () => {
+  /** One entry per entity named, newest last. */
+  async function log(db, entities) {
+    for (const [index, name] of entities.entries()) {
+      await db.adapter.write('audit', {
+        id: `aud_${index}`,
+        at: `2026-01-01T00:00:${String(index).padStart(2, '0')}.000Z`,
+        action: 'update',
+        entity: name,
+        recordId: `rec_${index}`,
+        actorId: 'per_owner',
+        actorRole: 'owner',
+        fields: [],
+        detail: {},
+        deviceId: 'dev',
+        synced: true,
+      });
+    }
+  }
+
+  test('an owner sees every entry', async () => {
+    const db = await makeDb();
+    await log(db, ['account', 'loan', 'task']);
+
+    const seen = await db.activity({ limit: 20 });
+    assert.length(seen, 3);
+  });
+
+  test('an own-record entity is dropped rather than guessed at', async () => {
+    // An entry says which entity and which record; it does not say whose. A
+    // child's own health record and a sibling's are the same line here, so the
+    // feed shows neither — and `history()` on the record itself, which the
+    // reader had to be permitted to open, still answers the question.
+    const db = await makeDb();
+    await log(db, ['healthRecord']);
+
+    db.setActor({ personId: 'p-kid', role: 'child' });
+    assert.length(await db.activity({ limit: 20 }), 0);
+  });
+
+  test('and a child sees none about the entities they may not read', async () => {
+    const db = await makeDb();
+    await log(db, ['account', 'loan', 'identityDocument', 'vehicle']);
+
+    db.setActor({ personId: 'p-kid', role: 'child' });
+    const seen = await db.activity({ limit: 20 });
+
+    // A child reads `vehicle` in full and is refused the other three. The
+    // line does not say a balance, but it says the household keeps loans and
+    // identity documents, and which of them somebody touched this morning.
+    assert.deep(seen.map((one) => one.entity), ['vehicle']);
+  });
+
+  test('an entry about no record at all is about the household, and stays', async () => {
+    const db = await makeDb();
+    await db.adapter.write('audit', {
+      id: 'aud_login', at: '2026-01-01T09:00:00.000Z', action: 'login',
+      entity: '', recordId: '', actorId: 'per_owner', actorRole: 'owner',
+      fields: [], detail: {}, deviceId: 'dev', synced: true,
+    });
+
+    db.setActor({ personId: 'p-kid', role: 'child' });
+    const seen = await db.activity({ limit: 20 });
+    assert.length(seen, 1, 'signing in is not a record anybody is refused');
+  });
+
+  /*
+   * The half that a filter applied afterwards would fail.
+   *
+   * `Database.search` had exactly this fault and the ratchet still carries it
+   * — *the search index is filtered after the limit rather than over-fetched*.
+   * Twenty refused entries in front of five readable ones, and a feed asking
+   * for five gets nothing at all while the log is full of things it may show.
+   */
+  test('the limit counts entries the reader may see, not entries walked past', async () => {
+    const db = await makeDb();
+    await log(db, [...Array(20).fill('account'), ...Array(5).fill('vehicle')]);
+
+    db.setActor({ personId: 'p-kid', role: 'child' });
+    const seen = await db.activity({ limit: 5 });
+
+    assert.length(seen, 5, 'the page was cut off by rows the reader may not see');
+    assert.ok(seen.every((one) => one.entity === 'vehicle'));
+  });
+});
+
 describe('sorting by more than one key', () => {
   test('pinned first, then newest', () => {
     // One key was enough until a `pinned` flag had to survive a date sort. A

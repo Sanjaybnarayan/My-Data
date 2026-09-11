@@ -16,7 +16,7 @@ import { searchIndex, indexEntry } from './search.js';
 import { Chain, verify as verifyChain } from './chain.js';
 import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
 import { danglingIn, unresolved } from './integrity.js';
-import { rowFilter, readScope } from '../security/rbac.js';
+import { rowFilter, readScope, auditVisible } from '../security/rbac.js';
 import { Keyring } from '../security/keyring.js';
 import { deviceId as resolveDeviceId } from '../core/ids.js';
 import { memoryStorage } from '../security/session.js';
@@ -238,9 +238,25 @@ export class Database {
     return historyOf(this.adapter, recordId, options);
   }
 
-  /** Recent entries across every record, for the activity feed. */
-  async activity(options) {
-    return recentActivity(this.adapter, options);
+  /**
+   * Recent entries, for the activity feed — those this actor may be shown.
+   *
+   * The sibling above is safe without a filter and says why: its caller has
+   * already been permitted to read the record the entries are about. This one
+   * is about *every* record, so that argument was never available to it, and
+   * it went unfiltered for want of anyone noticing the argument was missing
+   * rather than satisfied.
+   *
+   * `auditVisible` is asked rather than a rule written here. The one place
+   * that decides what a role may read is `security/rbac.js`, and a second
+   * answer living in the database would be a second answer to drift.
+   *
+   * Passed **into the query** rather than applied to what comes back: see
+   * `recentActivity`, which counts a row towards the limit only after the
+   * filter has kept it.
+   */
+  async activity(options = {}) {
+    return recentActivity(this.adapter, { ...options, keep: auditVisible(this.#actor) });
   }
 
   /* --------------------------------------------------------------- archive */

@@ -33,7 +33,6 @@ import { t } from '../core/locale.js';
 import { app } from '../context.js';
 import { bus, TOPIC } from '../core/bus.js';
 import { config, isConfigured } from '../core/config.js';
-import { recentActivity } from '../data/audit.js';
 import { recent as recentDiagnostics } from '../data/diagnostics.js';
 import { attention as connectorsNeedingAttention } from '../data/connectors.js';
 import { readinessFor } from '../data/incident.js';
@@ -153,7 +152,12 @@ const CONTENTS = {
 
   async wrong(db) {
     const [activity, diagnostics, breach, rows] = await Promise.all([
-      recentActivity(db.adapter, { limit: 12 }),
+      // Through `db.activity` rather than `recentActivity(db.adapter, …)`.
+      // Reaching the adapter from a screen goes around the one place that
+      // knows who is signed in, which is exactly how this card came to print
+      // a line for every record in the household to a child who may read
+      // twelve of the fifty-three entities named in it.
+      db.activity({ limit: 12 }),
       recentDiagnostics(db.adapter, { limit: 100 }),
       readinessFor(db),
       db.repo('person').list({ decrypt: false }),
