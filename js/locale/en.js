@@ -4,8 +4,9 @@
  * The authoritative catalogue: every key the application asks for is defined
  * here, and `coverage()` measures every other language against it. There are
  * no schema labels in this file, because English labels already live in
- * js/data/schema.js and a second copy of 345 of them is the drift this
- * repository keeps finding.
+ * js/data/schema.js and a second copy of them is the drift this repository
+ * keeps finding — the count is `labelKeys().length` and is deliberately not
+ * written down here, having already gone stale once where it was.
  *
  * Two conventions worth keeping when a second language arrives.
  *
@@ -90,6 +91,23 @@ export const strings = {
   'record.newTitle': 'New {one}',
   'record.deleteTitle': 'Delete this {one}?',
   'record.deleteBlockedTitle': 'This {one} cannot be deleted yet',
+
+  // Validation. `{field}` is a schema field label, translated by the time it
+  // arrives. Whole sentences rather than a routed label dropped into English
+  // punctuation: a half-translated refusal is the concatenation fault this
+  // file's `a sentence is one key` convention exists to prevent, and a person
+  // being told their record was rejected is the worst moment to prove it.
+  'validate.required': '{field} is required.',
+  'validate.number': '{field} must be a number.',
+  'validate.min': '{field} cannot be below {min}.',
+  'validate.max': '{field} cannot be above {max}.',
+  'validate.amount': '{field} must be an amount.',
+  'validate.precision': '{field} has more precision than the currency allows.',
+  'validate.date': '{field} must be a real date.',
+  'validate.time': '{field} must be a time like 09:30.',
+  'validate.oneOf': '{field} must be one of: {options}.',
+  'validate.notAllowed': '{field} does not allow "{value}".',
+  'validate.tooLong': '{field} is longer than {max} characters.',
 
   // Safety. The first module written after this catalogue existed, and the
   // reason the unrouted count did not go up when Phase 15 landed.

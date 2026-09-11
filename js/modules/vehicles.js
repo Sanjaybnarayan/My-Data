@@ -13,6 +13,7 @@ import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { entitiesOfModule } from '../data/schema.js';
+import { tabLabel } from '../core/labels.js';
 import { VehiclesService } from '../services/vehicles.js';
 import { describeMileage } from '../domain/fuel.js';
 import { format } from '../core/money.js';
@@ -38,7 +39,7 @@ export async function render(route) {
       })],
     }),
     h('div', { class: 'chip-row', role: 'group', 'aria-label': 'Vehicles', style: { marginBottom: 'var(--space-4)' } },
-      TABS.map((name) => chip(entities.find((e) => e.name === name)?.labels.many ?? name, {
+      TABS.map((name) => chip(tabLabel(entities, name), {
         pressed: name === active,
         onClick: () => app().router.navigate({ module: 'vehicles', entity: name }),
       }))),

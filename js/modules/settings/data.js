@@ -9,6 +9,7 @@ import { ArchiveService } from '../../services/archive.js';
 import { card, cardHeader, button, badge, listItem, empty, metric, progress } from '../../ui/components/basics.js';
 import { download } from '../reports.js';
 import { entities, entity, entityNames } from '../../data/schema.js';
+import { entityLabel } from '../../core/labels.js';
 import { formatDay } from '../../core/dates.js';
 import { h } from '../../ui/dom.js';
 import { t } from '../../core/locale.js';
@@ -64,7 +65,7 @@ export function dataCard(db, stats, usage) {
               // row listed here is a row a write would reject.
               ? h('div', { class: 'list' }, broken.slice(0, 100).map((row) => listItem({
                 title: t('settings.data.brokenRow', {
-                  entity: entity(row.entity).labels.one, label: row.label,
+                  entity: entityLabel(entity(row.entity)), label: row.label,
                 }),
                 subtitle: t('settings.data.brokenPoints', { id: row.points.id }),
               })))
@@ -146,7 +147,7 @@ export function deletedCard(db) {
             ? h('div', { class: 'list' }, rows.slice(0, 200).map(({ name, record }) => listItem({
               title: String(entity(name).title(record) ?? record.id),
               subtitle: t('settings.data.deletedRow', {
-                entity: entity(name).labels.one,
+                entity: entityLabel(entity(name)),
                 day: formatDay(record.deletedAt.slice(0, 10)),
               }),
               trailing: button('Restore', {
@@ -183,7 +184,7 @@ export function conflictsCard(db) {
           body: conflicts.length
             ? h('div', { class: 'stack' }, conflicts.map((conflict) => card({ variant: 'quiet' }, [
               h('div', { class: 'row row--between' }, [
-                h('strong', {}, entity(conflict.store).labels.one),
+                h('strong', {}, entityLabel(entity(conflict.store))),
                 badge(conflict.outcome),
               ]),
               h('div', { class: 'list' }, conflict.fields.map((field) => listItem({

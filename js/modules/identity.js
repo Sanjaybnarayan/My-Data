@@ -29,6 +29,7 @@ import { t } from '../core/locale.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { entitiesOfModule } from '../data/schema.js';
+import { tabLabel } from '../core/labels.js';
 import { describeDrift } from '../domain/kyc.js';
 import { describeConflict, SEVERITY, KIND } from '../domain/kycconflict.js';
 import { IdentityService } from '../services/identity.js';
@@ -58,7 +59,7 @@ export async function render(route) {
       })],
     }),
     slidingRow({ role: 'group', 'aria-label': t('identity.title'), style: { marginBottom: 'var(--space-4)' } },
-      TABS.map((name) => chip(entities.find((e) => e.name === name)?.labels.many ?? name, {
+      TABS.map((name) => chip(tabLabel(entities, name), {
         pressed: name === active,
         onClick: () => app().router.navigate({ module: 'identity', entity: name }),
       }))),

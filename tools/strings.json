@@ -1,6 +1,6 @@
 {
   "note": "Unrouted English strings — see tools/strings.mjs. This number may only fall.",
-  "unrouted": 3024,
+  "unrouted": 3013,
   "files": 160,
   "byFile": {
     "js/ai/assistant.js": 4,
@@ -42,7 +42,7 @@
     "js/data/schema.js": 100,
     "js/data/storage.js": 6,
     "js/data/unit.js": 3,
-    "js/data/validate.js": 31,
+    "js/data/validate.js": 20,
     "js/domain/accrual.js": 40,
     "js/domain/amortise.js": 21,
     "js/domain/archive.js": 12,

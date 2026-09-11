@@ -13,6 +13,8 @@
 
 import { newId } from '../core/ids.js';
 import { entity } from './schema.js';
+import { entityLabel } from '../core/labels.js';
+import { noun } from '../core/locale.js';
 import { newestFirst } from '../domain/timeline.js';
 
 export const ACTIONS = Object.freeze({
@@ -88,7 +90,7 @@ export function auditEntry(input) {
 /** A sentence a person can read, for the activity feed. */
 export function describe(entry, nameOf = (id) => id) {
   const who = entry.actorId ? nameOf(entry.actorId) : 'Someone';
-  const label = entry.entity ? entity(entry.entity).labels.one.toLowerCase() : 'record';
+  const label = entry.entity ? noun(entityLabel(entity(entry.entity))) : 'record';
   // "a account" reads as a bug to everyone who sees it, and every entity
   // label passes through here.
   const a = /^[aeiou]/.test(label) ? 'an' : 'a';

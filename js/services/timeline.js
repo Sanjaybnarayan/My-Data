@@ -13,6 +13,8 @@
 
 import { Service } from './service.js';
 import { entity as entityDef } from '../data/schema.js';
+import { entityLabel } from '../core/labels.js';
+import { noun } from '../core/locale.js';
 import { stories, since as entriesSince, describeStory } from '../domain/timeline.js';
 
 /** Where the "since you last looked" mark is kept. */
@@ -52,7 +54,7 @@ export class TimelineService extends Service {
       describe: (story) => describeStory(story, {
         nameOf: (id) => byId.get(id) ?? id,
         titleOf: (name, id) => titles.get(`${name}:${id}`) ?? null,
-        labelOf: (name) => (name ? entityDef(name).labels.one.toLowerCase() : 'record'),
+        labelOf: (name) => (name ? noun(entityLabel(entityDef(name))) : 'record'),
       }),
     };
   }
@@ -92,7 +94,7 @@ export class TimelineService extends Service {
       describe: (story) => describeStory(story, {
         nameOf: (id) => byId.get(id) ?? id,
         titleOf: (name, id) => titles.get(`${name}:${id}`) ?? null,
-        labelOf: (name) => (name ? entityDef(name).labels.one.toLowerCase() : 'record'),
+        labelOf: (name) => (name ? noun(entityLabel(entityDef(name))) : 'record'),
       }),
     };
   }

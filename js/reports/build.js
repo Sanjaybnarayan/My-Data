@@ -16,6 +16,7 @@ import { PdfDocument } from './pdf.js';
 import { format, formatCompact, sum } from '../core/money.js';
 import { formatDay, today, range, startOfFinancialYear, endOfFinancialYear } from '../core/dates.js';
 import { entity } from '../data/schema.js';
+import { entityLabel } from '../core/labels.js';
 import { t } from '../core/locale.js';
 import * as fin from '../domain/finance.js';
 import { netWorth } from '../domain/networth.js';
@@ -610,11 +611,11 @@ export async function exportEntity(db, entityName, formatName, { includeEncrypte
   const def = entity(entityName);
   const rows = await db.repo(entityName).list({ limit: 50_000 });
   const columns = columnsFor(entityName, { includeEncrypted });
-  const base = safeFileName(`FamilyOS ${def.labels.many} ${today()}`);
+  const base = safeFileName(`FamilyOS ${entityLabel(def, 'many')} ${today()}`);
 
   if (formatName === 'xlsx') {
     return {
-      blobParts: toXlsx([{ name: def.labels.many, columns, rows }]),
+      blobParts: toXlsx([{ name: entityLabel(def, 'many'), columns, rows }]),
       mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       filename: `${base}.xlsx`,
     };

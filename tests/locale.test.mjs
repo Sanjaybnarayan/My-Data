@@ -3,7 +3,13 @@ import {
   t, label, noun, register, forget, coverage, locales, missing,
   keepsPlaceholders, catalogueTags, choose, active, FALLBACK,
 } from '../js/core/locale.js';
-import { labelKeys, entityKey, fieldKey, moduleKey } from '../js/core/labels.js';
+import {
+  labelKeys, entityKey, fieldKey, moduleKey, entityLabel, tabLabel, fieldLabel,
+} from '../js/core/labels.js';
+import { describeUnresolved, describeBlocked } from '../js/data/integrity.js';
+import { describe as describeAudit } from '../js/data/audit.js';
+import { entity } from '../js/data/schema.js';
+import { validate } from '../js/data/validate.js';
 import { strings as english } from '../js/locale/en.js';
 import { BLOCKED } from '../js/core/backgroundlocation.js';
 import { UNSUPPORTED, NOT_PERMITTED } from '../js/core/screentime.js';
@@ -180,6 +186,135 @@ describe('the label door', () => {
     // No duplicates — a duplicated key would inflate the denominator and make
     // every language look less complete than it is.
     assert.equal(new Set(keys).size, keys.length);
+  });
+});
+
+/**
+ * A catalogue that is *in use*, not merely registered.
+ *
+ * `withLocale` registers and the tests above pass `{ tag }` explicitly, which
+ * is enough to prove `label()` works and not enough to prove anything reaches
+ * a screen. Every call site below takes the active language, so the language
+ * has to actually be chosen.
+ */
+const inLocale = (tag, catalogue, fn) => {
+  try {
+    register(tag, catalogue);
+    choose(tag, { storage: null, root: null });
+    return fn();
+  } finally {
+    forget();
+    choose(FALLBACK, { storage: null, root: null });
+  }
+};
+
+describe('the door is the only way through', () => {
+  // Thirty-two call sites read `def.labels.one` straight out of the schema and
+  // put it on a screen. Every one of them was English in a fully translated
+  // application, and `coverage()` reported 1.0 the whole time — the key was
+  // translated, it was simply never asked for. These drive the ones that are
+  // reachable without a database; `labels-through-the-door` in tools/lint.mjs
+  // holds the rest by refusing the pattern anywhere in what ships.
+  const persona = {
+    strings: {},
+    midSentence: 'preserve',
+    labels: {
+      [entityKey('person', 'one')]: 'Persona',
+      [entityKey('person', 'many')]: 'Personas',
+      [entityKey('vehicle', 'one')]: 'Vehiculo',
+    },
+  };
+
+  test('an integrity message names the entity in the reader language', () => {
+    const bad = [{ entity: 'person', label: 'Owner', id: 'p1' }];
+    // English first, so the test proves a change rather than a constant.
+    const plain = describeUnresolved('vehicle', bad);
+    assert.ok(plain.includes(noun(entity('vehicle').labels.one)), plain);
+    assert.ok(plain.includes(noun(entity('person').labels.one)), plain);
+
+    inLocale('xx', persona, () => {
+      const said = describeUnresolved('vehicle', bad);
+      assert.ok(said.includes('Vehiculo'), said);
+      assert.ok(said.includes('Persona'), said);
+    });
+  });
+
+  test('and so does the one that refuses a delete', () => {
+    const blocked = [{ entity: 'person', field: { label: 'Owner' } }];
+    inLocale('xx', persona, () => {
+      assert.ok(describeBlocked('vehicle', blocked).includes('Persona'));
+    });
+  });
+
+  test('an activity line names it too', () => {
+    const entry = { entity: 'person', action: 'create', actorId: null };
+    inLocale('xx', persona, () => {
+      assert.ok(describeAudit(entry).includes('Persona'), describeAudit(entry));
+    });
+  });
+
+  test('a schema label that no catalogue translates stays as the schema wrote it', () => {
+    inLocale('xx', persona, () => {
+      assert.equal(entityLabel(entity('trip')), entity('trip').labels.one);
+    });
+  });
+});
+
+describe('a refusal is translated in both halves', () => {
+  // A validation message is one sentence made of two pieces: the field's name
+  // and what is wrong with it. Routing only the name would produce "Nombre
+  // completo is required." — a half-translated refusal, shown at the moment a
+  // person is being told their record was rejected, which is the worst moment
+  // to prove that the application only half speaks their language.
+  const spanish = {
+    strings: { 'validate.required': 'Falta {field}.' },
+    midSentence: 'preserve',
+    labels: { [fieldKey('person', 'name')]: 'Nombre completo' },
+  };
+
+  test('English says what the schema says', () => {
+    const field = entity('person').fields.find((one) => one.key === 'name');
+    const { issues } = validate('person', {});
+    assert.equal(issues[0].message, `${fieldLabel('person', field)} is required.`);
+  });
+
+  test('and a catalogue replaces the sentence and the field name together', () => {
+    inLocale('es', spanish, () => {
+      const { issues } = validate('person', {});
+      assert.equal(issues[0].message, 'Falta Nombre completo.');
+      assert.equal(issues[0].field, 'name');
+    });
+  });
+
+  test('a sentence the catalogue does not have still gets the translated name', () => {
+    // Falls back to English for the frame and keeps the translated label,
+    // which is the honest half-way rather than a key on the screen.
+    inLocale('es', spanish, () => {
+      const { issues } = validate('person', { name: 'x', birthday: 'not-a-date' });
+      const said = issues.find((one) => one.field === 'birthday');
+      assert.ok(said && said.message.includes('must be a real date'), JSON.stringify(issues));
+    });
+  });
+});
+
+describe('a module tab', () => {
+  // Three module screens wrote the same lookup inline, each with its own
+  // `?.labels.many ?? name` fallback. One helper, and the fallback is tested
+  // rather than repeated.
+  test('is named by the catalogue', () => {
+    const defs = [entity('person'), entity('vehicle')];
+    inLocale('xx', {
+      strings: {},
+      labels: { [entityKey('vehicle', 'many')]: 'Vehiculos' },
+    }, () => {
+      assert.equal(tabLabel(defs, 'vehicle'), 'Vehiculos');
+    });
+  });
+
+  test('and falls back to the raw name when the module does not define it', () => {
+    // The router can hold a name this module does not define. Throwing there
+    // would be worse than showing the name.
+    assert.equal(tabLabel([entity('person')], 'spacecraft'), 'spacecraft');
   });
 });
 

@@ -18,6 +18,7 @@ import { listSection, recordDetail } from './crud.js';
 import { app } from '../context.js';
 import { Router } from '../ui/router.js';
 import { entitiesOfModule } from '../data/schema.js';
+import { tabLabel } from '../core/labels.js';
 import { EstateService } from '../services/estate.js';
 import { A_NOTE_IS_NOT_THE_WILL } from '../domain/estate.js';
 import { formatDay } from '../core/dates.js';
@@ -48,7 +49,7 @@ export async function render(route) {
       })],
     }),
     slidingRow({ role: 'group', 'aria-label': 'Vault', style: { marginBottom: 'var(--space-4)' } },
-      TABS.map((name) => chip(entities.find((e) => e.name === name)?.labels.many ?? name, {
+      TABS.map((name) => chip(tabLabel(entities, name), {
         pressed: name === active,
         onClick: () => app().router.navigate({ module: 'vault', entity: name }),
       }))),

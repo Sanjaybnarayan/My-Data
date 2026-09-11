@@ -16,6 +16,8 @@ import { formats, formatForDocumentKind } from './formats.js';
 import { toMinor } from '../core/money.js';
 import { isDay, today } from '../core/dates.js';
 import { ValidationError } from '../core/errors.js';
+import { fieldLabel } from '../core/labels.js';
+import { t } from '../core/locale.js';
 
 const EMPTY = (v) => v === undefined || v === null || v === '';
 
@@ -63,56 +65,68 @@ function toArray(v) {
 
 /* ------------------------------------------------------------ field rules */
 
-function checkField(field, value, currency) {
+/**
+ * @param {object} field the schema field
+ * @param {*} value the coerced value
+ * @param {string|null} currency
+ * @param {string} entityName the entity the field belongs to, so its label can
+ *   be asked for in the reader's language. A field's label is keyed by entity
+ *   because `amount` means one thing on a transaction and another on a claim.
+ */
+function checkField(field, value, currency, entityName) {
   const issue = (message) => ({ field: field.key, message });
+  // Both halves of the sentence go through the catalogue. Routing the label
+  // into English punctuation would half-translate a refusal, which is the
+  // concatenation fault `js/locale/en.js` sets out its conventions to prevent.
+  const name = fieldLabel(entityName, field);
 
   const missing = field.type === 'boolean'
     ? false
     : Array.isArray(value) ? value.length === 0 : EMPTY(value);
 
-  if (field.required && missing) return issue(`${field.label} is required.`);
+  if (field.required && missing) return issue(t('validate.required', { field: name }));
   if (missing) return null;
 
   switch (field.type) {
     case 'number':
-      if (Number.isNaN(value)) return issue(`${field.label} must be a number.`);
+      if (Number.isNaN(value)) return issue(t('validate.number', { field: name }));
       if (field.min !== undefined && value < field.min) {
-        return issue(`${field.label} cannot be below ${field.min}.`);
+        return issue(t('validate.min', { field: name, min: field.min }));
       }
       if (field.max !== undefined && value > field.max) {
-        return issue(`${field.label} cannot be above ${field.max}.`);
+        return issue(t('validate.max', { field: name, max: field.max }));
       }
       break;
 
     case 'currency':
       if (value === null || !Number.isFinite(value)) {
-        return issue(`${field.label} must be an amount.`);
+        return issue(t('validate.amount', { field: name }));
       }
       if (!Number.isInteger(value)) {
-        return issue(`${field.label} has more precision than the currency allows.`);
+        return issue(t('validate.precision', { field: name }));
       }
       break;
 
     case 'date':
-      if (!isDay(value)) return issue(`${field.label} must be a real date.`);
+      if (!isDay(value)) return issue(t('validate.date', { field: name }));
       break;
 
     case 'time':
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
-        return issue(`${field.label} must be a time like 09:30.`);
+        return issue(t('validate.time', { field: name }));
       }
       break;
 
     case 'enum':
       if (field.options && !field.options.includes(value)) {
-        return issue(`${field.label} must be one of: ${field.options.join(', ')}.`);
+        return issue(t('validate.oneOf', { field: name, options: field.options.join(', ') }));
       }
       break;
 
     case 'multienum':
       if (field.options) {
         const bad = value.find((v) => !field.options.includes(v));
-        if (bad) return issue(`${field.label} does not allow "${bad}".`);
+        if (bad) return issue(t('validate.notAllowed', { field: name, value: bad }));
       }
       break;
 
@@ -133,7 +147,7 @@ function checkField(field, value, currency) {
         return issue(formats[field.format].message);
       }
       if (field.maxLength && value.length > field.maxLength) {
-        return issue(`${field.label} is longer than ${field.maxLength} characters.`);
+        return issue(t('validate.tooLong', { field: name, max: field.maxLength }));
       }
       break;
 
@@ -291,7 +305,7 @@ export function validate(entityName, input, options = {}) {
     const value = coerce(raw, f, currency);
     record[f.key] = value;
 
-    const issue = checkField(partial ? { ...f, required: false } : f, value, null);
+    const issue = checkField(partial ? { ...f, required: false } : f, value, null, entityName);
     if (issue) issues.push(issue);
   }
 
