@@ -46,6 +46,30 @@ const INVENTORY = join(ROOT, 'tools', 'field-coverage.json');
  * Files that reference fields generically rather than by name. A hit in one of
  * these proves nothing: they iterate `entity.fields` and would "use" a field
  * no domain logic has ever heard of.
+ *
+ * ## One of them is only half generic
+ *
+ * `js/data/validate.js` is two files in one. The coercers and the type switch
+ * are generic — and they are the reason it is listed, because `case 'number':`
+ * names a *type* that several entities also use as a **field** name, so a bare
+ * search there would clear `identityDocument.number` on the strength of a
+ * switch label.
+ *
+ * `entityRules` in the same file is the opposite: fourteen entities' worth of
+ * hand-written cross-field rules naming twenty-nine fields outright —
+ * `r.endTime`, `r.completedOn`, `r.monthlyLimit`, `r.creditLimit`, `r.upiId`,
+ * `r.deceasedOn`. Those are as by-name as any read in the application.
+ *
+ * Excluding the file wholesale therefore hid them, and `event.endTime` sat on
+ * the unread inventory — described there as collected and read by nothing —
+ * while a rule refused any event whose end time preceded its start. The
+ * inventory said the field was dead; the application rejected records because
+ * of it.
+ *
+ * So the block is put back in by position, the same way `isClassValue` and
+ * `isLabelValue` in `tools/strings.mjs` decide by position rather than by
+ * shape: a rule can be written in any style, and no style test would have
+ * told these two halves apart.
  */
 const GENERIC = new Set([
   'js/data/schema.js',
@@ -273,6 +297,27 @@ export function withoutRegexBodies(source) {
   return out;
 }
 
+/**
+ * The hand-written half of `js/data/validate.js`.
+ *
+ * From `export const entityRules` to the close of the object literal, which is
+ * the whole of it and nothing else in the file. Read as text rather than
+ * imported, because importing would give the functions and this needs the
+ * source they were written in — the field names live in the bodies.
+ *
+ * Absent or unrecognisable, it contributes nothing and the check carries on
+ * over-reporting exactly as it did before, which is the safe direction for a
+ * miss here.
+ */
+export function handWrittenRules(source) {
+  const text = String(source ?? '');
+  const start = text.indexOf('export const entityRules');
+  if (start < 0) return '';
+
+  const end = text.indexOf('\n};', start);
+  return end < 0 ? text.slice(start) : text.slice(start, end);
+}
+
 function walk(dir) {
   const out = [];
   for (const name of readdirSync(dir)) {
@@ -309,6 +354,11 @@ export function unreadFields() {
   for (const extra of ['apps-script/Code.gs', 'apps-script/Sheets.gs', 'tools/statement.mjs']) {
     try { sources.push(readFileSync(join(ROOT, extra), 'utf8')); } catch { /* absent is fine */ }
   }
+
+  // And so does the half of `validate.js` that is not generic — see above.
+  try {
+    sources.push(handWrittenRules(readFileSync(join(ROOT, 'js', 'data', 'validate.js'), 'utf8')));
+  } catch { /* absent is fine */ }
 
   const haystack = sources.map((one) => withoutRegexBodies(withoutComments(one))).join('\n');
   const found = [];

@@ -10,7 +10,7 @@ import { changedFields, shouldLogRead } from '../js/data/audit.js';
 import { isEncrypted } from '../js/security/crypto.js';
 import { sortBy } from '../js/data/repository.js';
 import {
-  withoutComments, withoutRegexBodies, isCatalogue, unreadFields,
+  withoutComments, withoutRegexBodies, isCatalogue, unreadFields, handWrittenRules,
 } from '../tools/field-coverage.mjs';
 import { notCounted } from '../tools/strings.mjs';
 
@@ -892,6 +892,36 @@ describe('a field name in a pattern is not a field being read either', () => {
     for (const key of ['fuelLog.station', 'healthRecord.prescription']) {
       assert.ok(unread.has(key), `${key} is named only inside a regex body`);
     }
+  });
+
+  test('the hand-written half of a generic file is still read', () => {
+    // `validate.js` is excluded because a hit there proves nothing — it
+    // iterates `entity.fields`. True of the coercers and the type switch, and
+    // they are why it must stay listed: `case 'number':` names a *type* that
+    // several entities use as a **field** name.
+    //
+    // `entityRules` is the opposite: fourteen entities of hand-written rules
+    // naming twenty-nine fields outright. Excluding the file wholesale hid
+    // them, and `event.endTime` sat on the unread inventory while a rule
+    // refused any event whose end time preceded its start.
+    const block = handWrittenRules([
+      "const coercers = { number: (v) => v };",
+      "export const entityRules = {",
+      "  event: [(r) => (r.endTime < r.startTime ? issue('endTime') : null)],",
+      "};",
+      "export function validate() {}",
+    ].join('\n'));
+
+    assert.ok(block.includes('endTime'), block);
+    assert.not(block.includes('coercers'), 'the generic half came with it');
+    assert.not(block.includes('export function validate'), 'it ran past the end');
+    assert.equal(handWrittenRules('no rules here'), '');
+  });
+
+  test('and the field that was hidden by it is off the list', async () => {
+    const unread = new Set(unreadFields());
+    assert.not(unread.has('event.endTime'),
+      'a rule refuses records on this field, and the inventory called it unread');
   });
 
   test('a field the search index reads is not a field nothing reads', () => {

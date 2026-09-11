@@ -770,6 +770,20 @@
       "find": "    if (RELATION.test(line)) return null;          // the address began first",
       "replace": "    if (false) return null;",
       "suite": "extract"
+    },
+    {
+      "label": "the hand-written rules are excluded with the generic half",
+      "file": "tools/field-coverage.mjs",
+      "find": "    sources.push(handWrittenRules(readFileSync(join(ROOT, 'js', 'data', 'validate.js'), 'utf8')));",
+      "replace": "    sources.push('');",
+      "suite": "data"
+    },
+    {
+      "label": "the generic half of validate.js comes in with the hand-written one",
+      "file": "tools/field-coverage.mjs",
+      "find": "  const start = text.indexOf('export const entityRules');\n  if (start < 0) return '';",
+      "replace": "  const start = 0;\n  if (start < 0) return '';",
+      "suite": "data"
     }
   ]
 }
