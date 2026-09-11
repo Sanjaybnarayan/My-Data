@@ -1218,6 +1218,27 @@
       "find": "  schemaEnsure(payload.manifest, book, context);",
       "replace": "  schemaEnsure(payload.manifest, book);",
       "suite": "policy"
+    },
+    {
+      "label": "a member may point the household at a workbook of their own making",
+      "file": "apps-script/Code.gs",
+      "find": "  if (!book && !(context && context.isOwner)) {",
+      "replace": "  if (false) {",
+      "suite": "policy"
+    },
+    {
+      "label": "a bootstrap that fails still records the workbook it made",
+      "file": "apps-script/Code.gs",
+      "find": "  schemaEnsure(payload.manifest, book, context);\n\n  // Written once the bootstrap has actually worked. Before this it was written\n  // the moment the workbook was made, so a request that went on to fail left\n  // the household pointing at an empty spreadsheet and their records orphaned.\n  PROP.setProperty('workbookId', book.getId());",
+      "replace": "  PROP.setProperty('workbookId', book.getId());\n  schemaEnsure(payload.manifest, book, context);",
+      "suite": "policy"
+    },
+    {
+      "label": "a household that is set up has a second workbook made for it anyway",
+      "file": "apps-script/Code.gs",
+      "find": "  if (!book) {\n    book = SpreadsheetApp.create('FamilyOS Data');",
+      "replace": "  if (true) {\n    book = SpreadsheetApp.create('FamilyOS Data');",
+      "suite": "policy"
     }
   ]
 }

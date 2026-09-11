@@ -225,6 +225,8 @@ export function backend({
   const fetched = [];
   const logged = [];
   const mailed = [];
+  /** Workbooks the script decided to make, which is a decision worth seeing. */
+  const created = [];
 
   /*
    * A lock that excludes, and a record of which kind was taken.
@@ -334,6 +336,42 @@ export function backend({
         if (!workbook) throw new Error(`No item with the given ID could be found: ${id}`);
         return workbook;
       },
+      /*
+       * The branch nothing could reach.
+       *
+       * `bootstrap` makes a new workbook when the id it holds will not open,
+       * and the stub had no `create` — so every attempt to exercise that path
+       * died on the missing method and read as a refusal. A fixture less
+       * capable than the real thing hides a path as surely as one more capable
+       * tests a path that was never deployed, and this is the first kind: the
+       * code that decides where a household's records live had never run here.
+       */
+      create: (name) => {
+        const tabs = ['Sheet1'];
+        const id = `created-${created.length + 1}`;
+        created.push({ id, name });
+        const sheet = (tab) => ({
+          getName: () => tab,
+          setName(next) { tabs[tabs.indexOf(tab)] = next; return this; },
+          getLastRow: () => 1,
+          getLastColumn: () => 0,
+          getMaxRows: () => 100,
+          getRange: () => ({
+            getValues: () => [[]],
+            setValues: () => {}, setValue: () => {},
+            setFontWeight: () => {}, setNumberFormat: () => {},
+          }),
+          setFrozenRows: () => {},
+          appendRow: () => {},
+        });
+        return {
+          getId: () => id,
+          getUrl: () => `https://example.invalid/${id}`,
+          getSheets: () => tabs.map(sheet),
+          getSheetByName: (n) => (tabs.includes(n) ? sheet(n) : null),
+          insertSheet: (n) => { tabs.push(n); return sheet(n); },
+        };
+      },
     },
     DriveApp: {
       getFileById(id) {
@@ -433,6 +471,6 @@ export function backend({
    * caller of a real overlap sees.
    */
   return Object.assign(api, {
-    props, cache, fetched, logged, owner, driveFiles, mailed, locks, held,
+    props, cache, fetched, logged, owner, driveFiles, mailed, locks, held, created,
   });
 }
