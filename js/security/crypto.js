@@ -78,8 +78,15 @@ export function newSalt() {
  * A four-digit PIN has fourteen bits of entropy; no iteration count fixes
  * that against an attacker who has the wrapped key. What the iterations buy
  * is time against an attacker who has *the device*, which is the realistic
- * case, and it is why `unlock.js` also enforces an attempt limit — the two
- * together are the defence, neither alone.
+ * case, and it is why `security/session.js` also enforces an attempt limit —
+ * the two together are the defence, neither alone.
+ *
+ * That reference named a file called unlock.js for as long as this comment
+ * existed, and no such file has ever been in this repository. The limiter is real
+ * and the claim was true; the pointer was not, so anybody checking the half of
+ * the defence that is not here went looking for a file that does not exist.
+ * The same shape as TOK-01, at lower stakes: a security claim resting on a
+ * reference nothing verified.
  */
 export async function deriveKeyEncryptionKey(secret, salt, iterations) {
   const material = await subtle().importKey(

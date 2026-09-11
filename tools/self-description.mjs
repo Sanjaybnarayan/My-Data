@@ -266,6 +266,109 @@ export async function check() {
   return { truth, sites, problems };
 }
 
+/* ------------------------------------------------- references in comments */
+
+/**
+ * Files a comment names on purpose that are not in the tree, and why.
+ *
+ * Each is a deliberate absence, not a stale pointer, and the check below
+ * fails if one of them stops being either — if the file appears, or if
+ * nothing references it any more. An allowlist nobody maintains becomes a
+ * list of things nobody checks, which is the fault this whole file exists
+ * to catch one level up.
+ */
+/** @type {Record<string, string>} */
+export const DELIBERATELY_ABSENT = {
+  'familyos.config.json': 'a household writes it; it is deliberately not in version control',
+  'tesseract.js': 'an external OCR engine, evaluated and declined — see js/core/ocr.js',
+  'security.mjs': 'a hypothetical rename, named to explain what would stop being run',
+  'hi-example.js': 'the second-language file a translator would add beside en-example.js',
+  'mut-lint.mjs': 'a hypothetical file, named to explain why a suffix test is not enough',
+};
+
+/**
+ * Every path a comment names in backticks, and whether it is there.
+ *
+ * ## Why
+ *
+ * The header of this file says what it cannot do: *"it cannot find a new
+ * stale claim that nobody marked."* This is the mechanically checkable part
+ * of that — a claim's **reference** either names something real or it does
+ * not, and no marking is required to ask.
+ *
+ * The shape is not hypothetical. TOK-01 was a line reading *"Encrypted; see
+ * `data/schema.js` meta rules"* when there were no such rules, and it was the
+ * most expensive instance this repository had precisely because anybody
+ * auditing the file read the claim and moved on. Found again in
+ * `js/security/crypto.js`, which explained that PBKDF2 iterations are only
+ * half the defence and pointed at an unlock.js that has never existed; the
+ * limiter is real and lives in `security/session.js`.
+ *
+ * A basename resolves anywhere in the tree — `repository.js` means
+ * `js/data/repository.js` — because a comment naming a file by its short name
+ * is normal prose, and a checker that called that missing would report
+ * forty-five findings where there are none. It did, on its first run.
+ */
+export function references(root = ROOT, absent = DELIBERATELY_ABSENT) {
+  const every = [];
+  (function walk(dir) {
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name === '.git') continue;
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else every.push(relative(root, full).replace(/\\/g, '/'));
+    }
+  }(root));
+
+  const pathish = /^[A-Za-z0-9_.\-/]+\.(js|mjs|gs|md|json|html|xml|gradle|yml)$/;
+  const unresolved = [];
+  const namedAbsent = new Set();
+  let checked = 0;
+
+  for (const rel of every) {
+    if (!/^(js|apps-script|tools)\//.test(rel) || !/\.(js|mjs|gs)$/.test(rel)) continue;
+    const lines = readFileSync(join(root, rel), 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      if (!/^\s*(\*|\/\/)/.test(line)) return;
+      for (const match of line.matchAll(/`([^`\s]+)`/g)) {
+        const token = match[1].replace(/[.,;:)]+$/, '');
+        if (!pathish.test(token)) continue;
+        checked += 1;
+        if (every.some((real) => real === token || real.endsWith(`/${token}`))) continue;
+        const base = token.split('/').pop();
+        if (base in absent) { namedAbsent.add(base); continue; }
+        unresolved.push(`${rel}:${i + 1} names \`${token}\`, which is not in the tree`);
+      }
+    });
+  }
+
+  return { checked, problems: [...unresolved, ...rot(every, namedAbsent, absent)] };
+}
+
+/**
+ * The allowlist, held against rot in both directions.
+ *
+ * Exported and given its arguments rather than reading the tree itself,
+ * because a check that can only run against the real repository cannot be
+ * driven into either failing state — and a rot check nothing can fail is the
+ * thing it exists to prevent, one level up. The mutation ratchet found exactly
+ * that: `if (false)` here broke nothing until this came out.
+ *
+ * @param {string[]} every every path in the tree
+ * @param {Set<string>} named the absent names some comment still mentions
+ */
+export function rot(every, named, absent = DELIBERATELY_ABSENT) {
+  const problems = [];
+  for (const [name, why] of Object.entries(absent)) {
+    if (every.some((real) => real === name || real.endsWith(`/${name}`))) {
+      problems.push(`\`${name}\` is in the tree now — remove it from DELIBERATELY_ABSENT (${why})`);
+    } else if (!named.has(name)) {
+      problems.push(`nothing names \`${name}\` any more — remove it from DELIBERATELY_ABSENT`);
+    }
+  }
+  return problems;
+}
+
 const invokedDirectly = process.argv[1] && process.argv[1].endsWith('self-description.mjs');
 if (invokedDirectly) {
   const { truth, sites, problems } = await check();
