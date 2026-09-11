@@ -88,30 +88,106 @@ export const assert = {
   length(list, n, message = 'wrong number of items') {
     if ((list?.length ?? -1) !== n) fail(message, list?.length, n);
   },
-  async throws(fn, match, message = 'expected a throw') {
-    let thrown = null;
+  /**
+   * Assert that `fn` throws — **synchronously when `fn` is synchronous.**
+   *
+   * ## Why the shape of this matters more than what it checks
+   *
+   * This used to be `async` unconditionally, so it always returned a promise.
+   * A *synchronous* test body calling it without `await` therefore returned
+   * `undefined`, `runAll`'s `await item.fn()` resolved, and the check was
+   * recorded **`ok: true`** — after which the rejected promise surfaced
+   * unhandled and killed the process before any tally printed.
+   *
+   * Five checks were in that state, and every one of them asserted that
+   * something is *refused*: the keyring handing out a key while locked,
+   * `assertCan` on a child's write, the backend admitting a non-member
+   * (twice), and the unlock limiter locking out.
+   *
+   * Measured rather than reasoned about. With `recordFailure`'s lockout
+   * disabled and the unhandled rejection swallowed, the suite reported:
+   *
+   *     [swallowed unhandled rejection] expected a throw
+   *     FAIL  security › attempt limiting › the lockout doubles each round
+   *     FAIL  security › attempt limiting › the lockout survives a reload
+   *
+   * The test named *"locks out after the fifth wrong PIN"* — the one written
+   * for exactly that break — **passed**. Only its two neighbours, which use
+   * `assert.equal`, noticed anything, and the failure that did escape carried
+   * no test name at all.
+   *
+   * The mutation catalogue recorded this as *caught — the runner did not
+   * finish*, which is true and is the reason nobody looked: an outcome that
+   * reads like success, standing in for a check that cannot fail. This file's
+   * sibling `tools/lint.mjs` states the principle being violated — *a control
+   * that cannot fail is not held, however carefully it is written.*
+   *
+   * ## The fix, and why it is here rather than at five call sites
+   *
+   * Adding `await` five times fixes five tests and nothing about the sixth.
+   * So: when `fn` returns a thenable this stays async and must be awaited;
+   * when it does not, the whole check happens now and any failure is thrown
+   * **synchronously**, where `runAll`'s `try` catches it and attributes it to
+   * the test that made the claim. `runAll` covers the async half — see the
+   * pending-assertion guard there.
+   */
+  throws(fn, match, message = 'expected a throw') {
+    const check = (thrown) => {
+      if (!thrown) fail(message, 'no error thrown');
+      if (match) {
+        const text = `${thrown.name}: ${thrown.message} ${thrown.code ?? ''}`;
+        const ok = match instanceof RegExp ? match.test(text) : text.includes(match);
+        if (!ok) fail(`${message} — wrong error`, text, String(match));
+      }
+      return thrown;
+    };
+
+    let returned;
     try {
-      await fn();
+      returned = fn();
     } catch (err) {
-      thrown = err;
+      // A synchronous throw is the answer already, whatever `fn` was declared
+      // as: an `async` function that throws before its first `await` still
+      // rejects rather than throwing, so this branch only catches real ones.
+      return check(err);
     }
-    if (!thrown) fail(message, 'no error thrown');
-    if (match) {
-      const text = `${thrown.name}: ${thrown.message} ${thrown.code ?? ''}`;
-      const ok = match instanceof RegExp ? match.test(text) : text.includes(match);
-      if (!ok) fail(`${message} — wrong error`, text, String(match));
-    }
-    return thrown;
+
+    if (!returned || typeof returned.then !== 'function') return check(null);
+    return watch(returned.then(() => check(null), (err) => check(err)));
   },
-  async resolves(promise, message = 'expected no throw') {
-    try {
-      return await promise;
-    } catch (err) {
+  resolves(promise, message = 'expected no throw') {
+    return watch(Promise.resolve(promise).catch((err) => {
       fail(`${message}: ${err.message}`, err);
       return undefined;
-    }
+    }));
   },
 };
+
+/**
+ * Assertion promises created during the test now running.
+ *
+ * An async assertion a test forgets to `await` has nowhere to report to. Left
+ * alone it becomes an unhandled rejection, which ends the process — losing the
+ * tally, every test after it, and the name of the one that failed.
+ *
+ * `runAll` settles these after each body, so a forgotten `await` fails the
+ * test that forgot it instead of taking down the run.
+ */
+const pending = [];
+
+function watch(promise) {
+  pending.push(promise);
+  return promise;
+}
+
+/** Whatever an un-awaited assertion decided, or null. Clears the list. */
+export async function settlePending() {
+  const outstanding = pending.splice(0);
+  for (const result of await Promise.allSettled(outstanding)) {
+    if (result.status === 'rejected') return result.reason;
+  }
+  return null;
+}
 
 function sortKeys(value) {
   if (Array.isArray(value)) return value.map(sortKeys);
@@ -149,6 +225,31 @@ if (!globalThis.localStorage) globalThis.localStorage = fakeStorage();
 
 /* -------------------------------------------------------------- execution */
 
+/**
+ * One registered check, run, as `{ label, ok, err }`.
+ *
+ * Extracted from the loop in `run` for the reason `tools/lint.mjs#unallowed`
+ * was: a control nothing can drive is a control nothing holds. The forgotten-
+ * assertion guard below is the whole point of this seam — a test can call
+ * `settlePending()` for itself and prove the *function* works, and prove
+ * nothing at all about the runner remembering to ask.
+ */
+export async function runCheck(item) {
+  const label = item.suite ? `${item.suite} › ${item.name}` : item.name;
+  try {
+    await item.fn();
+    // A test that forgot to `await` an async assertion has finished without
+    // hearing its answer. Asking here turns that into a failure of the test
+    // that forgot rather than an unhandled rejection that ends the run.
+    const forgotten = await settlePending();
+    if (forgotten) throw forgotten;
+    return { label, ok: true };
+  } catch (err) {
+    await settlePending();
+    return { label, ok: false, err };
+  }
+}
+
 export async function run(files) {
   const started = Date.now();
   for (const file of files) {
@@ -157,15 +258,7 @@ export async function run(files) {
     const module = await import(file);
     if (typeof module.default === 'function') module.default();
 
-    for (const item of registry) {
-      const label = item.suite ? `${item.suite} › ${item.name}` : item.name;
-      try {
-        await item.fn();
-        results.push({ label, ok: true });
-      } catch (err) {
-        results.push({ label, ok: false, err });
-      }
-    }
+    for (const item of registry) results.push(await runCheck(item));
   }
 
   const failed = results.filter((r) => !r.ok);
