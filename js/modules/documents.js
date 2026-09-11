@@ -438,18 +438,21 @@ async function documentDetail(id) {
    * and then dropped it, leaving the encrypted place it belongs empty.
    */
   async function paintReading() {
-    // Whether this build reads pictures of text on the device. A browser
-    // does not and is told Drive will; a phone has already tried, and
-    // sending somebody to connect an account that would not have helped
-    // is the wrong sentence.
-    const state = textState(record, { canRecognise: canRecogniseText() });
-
     // Read on demand from the encrypted file rather than kept anywhere. A
     // second copy of an unrecorded identifier is exactly what the redaction
     // exists to prevent.
-    const { identifiers, person: said, readable } = await store.identifiersIn(id).catch(
-      () => ({ identifiers: [], person: {}, readable: false }),
+    const { identifiers, person: said, readable, locked } = await store.identifiersIn(id).catch(
+      () => ({ identifiers: [], person: {}, readable: false, locked: false }),
     );
+
+    // Two facts this cannot guess and one sentence made out of them. Whether
+    // this build reads pictures of text on the device — a browser does not and
+    // is told Drive will; a phone has already tried, and sending somebody to
+    // connect an account that would not have helped is the wrong sentence.
+    // And whether the file is locked, which comes back from the read above:
+    // it is asked after that read rather than before, because only the read
+    // knows.
+    const state = textState(record, { canRecognise: canRecogniseText(), locked });
 
     const existing = await db.repo('identityDocument').list({ limit: 500 }).catch(() => []);
     const offers = identifierOffers(identifiers, record, existing);

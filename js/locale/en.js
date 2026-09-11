@@ -539,6 +539,7 @@ export const strings = {
   'doc.read.imagePending': 'photographs are read when they reach Drive, so nothing has been filled in from this one yet',
   'doc.read.pdfNotRecognised': 'this PDF is a scan rather than a document, and no text could be recognised in the pictures it holds \u2014 this build reads Latin script only',
   'doc.read.pdfNoTextLayer': 'this PDF has no text layer \u2014 it is a scan rather than a document, and it will be read when it reaches Drive',
+  'doc.read.locked': 'this file is password-protected, so nothing here can read it \u2014 an eAadhaar is downloaded locked by default; open it with its password, save an unlocked copy and file that one instead',
   'doc.read.unsupported': 'nothing here can read text out of this kind of file, so its dates and amounts have to be typed in',
   'doc.read.nothingFound': 'nothing was found in this file to fill in, so its dates and amounts have to be typed in',
   'intake.untitled': 'Shared file',

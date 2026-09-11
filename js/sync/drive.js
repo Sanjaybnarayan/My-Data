@@ -278,10 +278,17 @@ export class DocumentStore {
    * later, is the thing the redaction exists to prevent. The encrypted file is
    * already on the device; reading it again costs a parse and stores nothing.
    *
-   * @returns {Promise<{identifiers: Array, person: object, readable: boolean}>}
+   * @returns {Promise<{identifiers: Array, person: object, readable: boolean,
+   *   locked: boolean}>}
    *   `readable` is false when nothing on this device could get text out of
    *   the file. That is not the same as a document with no identifiers in it,
    *   and callers must not report it as one.
+   *
+   *   `locked` splits one cause back out of that `false`. A password-protected
+   *   PDF is not a file this device cannot read — it is one this device was
+   *   not given the key to, and the person holding the key is the one looking
+   *   at the screen. `#pagesFor` has known the difference all along and threw
+   *   it away one line later; this carries it up to where it can be said.
    *
    *   It used to be false for every photograph, because only Drive's OCR could
    *   read one. On a build with `core/ocr.js` behind it a photographed PAN
@@ -289,21 +296,40 @@ export class DocumentStore {
    *   browser, where there is no recogniser, it is false exactly as before.
    */
   async identifiersIn(documentId) {
+    const unread = { identifiers: [], person: {}, readable: false, locked: false };
     const document = await this.#db.repo('document').get(documentId);
-    if (!document) return { identifiers: [], person: {}, readable: false };
-    if (!mayRead(document.mimeType, document.fileName)) {
-      return { identifiers: [], person: {}, readable: false };
-    }
+    if (!document) return unread;
+    if (!mayRead(document.mimeType, document.fileName)) return unread;
 
     const blob = await this.read(documentId);
-    if (!blob) return { identifiers: [], person: {}, readable: false };
+    if (!blob) return unread;
 
-    const read = await this.#readText(
-      new Uint8Array(await blob.arrayBuffer()), document.mimeType, document.fileName,
-    );
-    return read
-      ? { identifiers: read.identifiers, person: read.person ?? {}, readable: true }
-      : { identifiers: [], person: {}, readable: false };
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const read = await this.#readText(bytes, document.mimeType, document.fileName);
+    if (read) {
+      return {
+        identifiers: read.identifiers, person: read.person ?? {}, readable: true, locked: false,
+      };
+    }
+    return { ...unread, locked: await this.#isLocked(bytes, document) };
+  }
+
+  /**
+   * Whether this file gave up nothing because it is sealed rather than blank.
+   *
+   * Only asked once a read has already come back empty, so the second parse
+   * costs nothing on the path that worked — and it is a parse rather than a
+   * pattern, because `pdf-read.js` owns what "encrypted" means in a PDF and a
+   * regex here would be a second, quietly diverging answer to that question.
+   */
+  async #isLocked(bytes, document) {
+    if (readerFor(document.mimeType, document.fileName) !== READER.PDF) return false;
+    try {
+      const { scan } = await import('../data/pdf-read.js');
+      return scan(bytes).encrypted;
+    } catch {
+      return false;
+    }
   }
 
   /**
