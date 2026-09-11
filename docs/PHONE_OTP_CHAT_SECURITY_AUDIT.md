@@ -514,6 +514,40 @@ an absent `ScriptApp`, and a workbook stub that did not register the tab it had
 just inserted — and they are named here because a sweep that reports its own
 gaps as findings is worse than no sweep.
 
+### LIST-02 · MEDIUM · a fourth list, and it was the household's access list
+
+*Found by keeping the sweep that found LIST-01 rather than describing it — see
+the note below on why that sweep had to be run twice.*
+
+| | |
+| --- | --- |
+| **File** | `apps-script/Code.gs` — `manageMembers` |
+| **Vulnerability** | The handler walks `payload.emails` by index, reading `.email`, `.role` and `.personId` off each element, having never asked whether the value was an array. LIST-01 fixed the three lists in `Sheets.gs`; this one is in `Code.gs` and was not reached. |
+| **Impact** | Sent a string, the loop iterates its **characters**. Each becomes a candidate address, each fails `indexOf('@') > 0`, and the empty result is written over `members` — the property the backend reads to decide which Google accounts may reach the household at all. The request answers **`ok: true` with no error**. Measured end to end: a spouse who could reach the backend before was told afterwards *"this Google account has not been added to this household"*. The owner survives, being admitted by identity rather than by list. |
+| **Attack scenario** | `{"action":"members","payload":{"emails":"..."}}` from the owner's own client. It needs no hostile intent — a truncated write or a half-formed request produces the same body, which is the scenario LIST-01 already names. |
+| **Why MEDIUM and not higher** | Only the deploying account may change members, so this is not an escalation; an attacker who could send it could change the list properly. It is integrity and availability against the household's own access list, and it is silent, which is the part that makes it worse than a refusal. |
+| **Why it was missed** | The sweep behind LIST-01 sent payloads that were hostile *as a whole* — `null`, a string, a number in place of the entire payload. `members` ignores those, which is why it was recorded among the actions that "held against every one". A field holding the wrong shape inside a well-formed payload is a different question, and nothing had asked it. |
+| **Backend required** | The fix is in `apps-script/`, so **yes to a redeploy**, no to anything new. |
+| **Status** | **Fixed.** `requestList` — the guard LIST-01 introduced — is called on `payload.emails`. An empty list still means what it says, because removing everybody is a real request. |
+
+**The sweep is kept this time.** LIST-01's entry records that twelve actions
+were driven with 24 malformed payloads each, and names eight that held. That
+sweep was not retained, so its negative result became a sentence in this
+document — measured once, by hand, with nothing holding it since. That is the
+habit `tools/secrets.mjs` names in its own header as the shape this repository
+has found more often than any other, and it happened inside the audit that says
+so. `tests/fuzz.test.mjs` now sweeps **every** action `served()` names, derived
+from the backend's own dispatch rather than listed, because a hand-written list
+here would drift in the direction that matters: a new action is the one nobody
+remembers to sweep.
+
+**And the three fixtures.** LIST-01's entry ends by naming three apparent
+failures that were the fixture rather than the code — an incomplete `DriveApp`,
+an absent `ScriptApp`, and a workbook stub that did not register the tab it had
+just inserted. Both named gaps were still there. Running the sweep found a
+third, `setProperties`, the same way. All are stubs now: a gap named in prose
+and left in place is one the next sweep pays for again.
+
 ### ID-01 · LOW · ids leak creation time · **accepted**
 
 ULIDs are timestamp-prefixed. A `person` id discloses when the record was
@@ -625,6 +659,9 @@ until it is redeployed.
    one. Same redeploy.
 6. **COUNT-01** — `verify` now reaches `sheetCounts` with the caller attached,
    and row counts are filtered by the same rule as `pull`. Same redeploy.
+7. **LIST-02** — `manageMembers` no longer walks `payload.emails` without
+   asking whether it is a list. Until the redeploy, a malformed request still
+   empties the household's access list and answers `ok: true`. Same redeploy.
 
 ---
 
@@ -718,6 +755,7 @@ Following the brief's phase structure, restricted to what exists here:
 | 12 | Security testing | **Partial, and the reason it stays partial is now a different one.** Fuzzing reaches the real `doPost`, every authenticated action and the payload fields either side of it; **scanning exists** — `npm audit --omit=dev` over the 11 runtime packages and `tools/secrets.mjs` over every tracked file, both in CI. What is left is what needs a deployment: **no penetration test, and nothing run against a deployed instance.** Plus one half of scanning that needs a host this build environment cannot reach — the Maven side of the APK, `androidx.*` and ML Kit, is checked for pinning and by no advisory database. See T2.4 |
 | 13 | Final report (§80) | **Written** — `docs/REMEDIATION_REPORT.md`. Eight pull requests, what each closed, what is still open with its threat-model row, what could not be checked without a device, and the corrections in both directions. It does not say *secure* and is not scored 100 |
 | — | LIST-01 | **Done** — three write handlers that walked a list without asking whether it was one |
+| — | LIST-02 | **Done** — a fourth list, in another file, and the one the household's access list is built from. A malformed request emptied it and answered `ok: true` |
 | — | CAL-01 | **Done** — one synced row with a date that is not a date took the whole calendar export down, while the count of what could not be written called it written |
 | — | SEARCH-01 | **Done** — the read path that never met the authorisation rule |
 | — | LOCK-01 | **Done** — the write path's lock, raised as an open question under OTP-01 and settled by the owner |
