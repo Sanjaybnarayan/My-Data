@@ -707,6 +707,34 @@
       "find": "    case 'trash':     return driveTrash(payload.fileId, context);",
       "replace": "    case 'trash':     return driveTrash(payload.fileId);",
       "suite": "imports"
+    },
+    {
+      "label": "an identity document is read by nothing again",
+      "file": "js/domain/extract.js",
+      "find": "    identity: readIdentity,\n  };",
+      "replace": "  };",
+      "suite": "extract"
+    },
+    {
+      "label": "an Aadhaar enrolment id reaches the searchable text",
+      "file": "js/domain/extract.js",
+      "find": "    kind: 'Enrolment',\n    near: /enrolment|enrollment|\\bEID\\b/i,",
+      "replace": "    kind: 'Enrolment',\n    near: /this-word-appears-on-no-document/i,",
+      "suite": "extract"
+    },
+    {
+      "label": "the download date is recorded as the date the document was issued",
+      "file": "js/domain/identifiers.js",
+      "find": "    issuedOn: readLabelledDate(source, ['issue']),",
+      "replace": "    issuedOn: readLabelledDate(source, ['as on']),",
+      "suite": "extract"
+    },
+    {
+      "label": "an identity document is filed under no category",
+      "file": "js/domain/extract.js",
+      "find": "    identity: 'identity',\n  };",
+      "replace": "  };",
+      "suite": "extract"
     }
   ]
 }

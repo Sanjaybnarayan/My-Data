@@ -36,6 +36,10 @@
 import {
   readDate, readAmount, readField, readEitherSide, readLabelledDate,
 } from './extract-values.js';
+// The identity reader lives beside the rest of the identity-document code.
+// `tools/module-size.mjs` moved it there when this file refused to grow, the
+// same way the scalar readers went to `extract-values.js`.
+import { readIdentity } from './identifiers.js';
 
 /* ------------------------------------------------------------ identifiers */
 
@@ -87,6 +91,21 @@ export const SENSITIVE = [
     kind: 'Aadhaar',
     near: /aadhaar|aadhar|\bUIDAI\b|unique identification/i,
     pattern: /\b\d{4}\s?\d{4}\s?\d{4}\b/g,
+  },
+  {
+    // An Aadhaar enrolment id — `1234/56789/01234` — printed at the top of
+    // every eAadhaar above the word "Enrolment". It survived into the
+    // searchable text on a real document while the Aadhaar number three lines
+    // below it was correctly removed, which is the whole argument for shape
+    // *and* label: nothing about fourteen digits in that grouping is
+    // recognisable, and the word beside it is.
+    //
+    // It is not the Aadhaar number and cannot be turned into one, but it is
+    // what UIDAI's own status and reprint services take, so it belongs on the
+    // same side of this line.
+    kind: 'Enrolment',
+    near: /enrolment|enrollment|\bEID\b/i,
+    pattern: /\b\d{4}\/\d{5}\/\d{5}\b/g,
   },
   {
     kind: 'Passport',
@@ -662,6 +681,7 @@ export function readDocument(text) {
     vehicle: readVehicle,
     noDues: readNoDues,
     taxCertificate: readTaxCertificate,
+    identity: readIdentity,
   };
   const fields = READERS[kind]?.(source) ?? {};
 
@@ -714,6 +734,9 @@ export function suggestions(read, existing = {}) {
     vehicle: 'vehicle',
     noDues: 'financial',
     taxCertificate: 'tax',
+    // `js/domain/filing.js` already sorts a file named "aadhaar" into this
+    // folder. A document whose *text* says so was filed nowhere.
+    identity: 'identity',
   };
   const category = CATEGORY[read.kind];
   if (category && !existing.category) out.category = category;

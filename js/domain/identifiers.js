@@ -52,6 +52,7 @@
 // Which formats can be read is one answer, in `filing.js`. This file used to
 // carry a second copy of it as a run of mime-type branches — see `textState`.
 import { readerFor, READER } from './filing.js';
+import { readLabelledDate } from './extract-values.js';
 import { t } from '../core/locale.js';
 
 export const IDENTIFIER_KINDS = {
@@ -259,4 +260,69 @@ export function textState(document, { canRecognise = false } = {}) {
     state: 'empty',
     why: t('doc.read.nothingFound'),
   };
+}
+
+/**
+ * An identity document — the reader that was missing.
+ *
+ * `READERS` below had an entry for a policy, a receipt, a bill, an agreement,
+ * a vehicle registration, a no-dues letter and a tax certificate. It had none
+ * for `identity`, so a document `detectKind` classified as one came back with
+ * `fields: {}`. An eAadhaar was read, correctly classified, had its number
+ * found and offered — and every other thing printed on it was dropped,
+ * including the date it was issued, which the schema has a field for and the
+ * expiry machinery already knows how to use.
+ *
+ * ## What it reads, and what it deliberately does not
+ *
+ * **The issue date.** Measured against a real eAadhaar, the page carries two
+ * dates and only one of them is this: *Aadhaar no. issued* is when UIDAI
+ * issued it, and *Details as on* is when this copy was downloaded. Reading the
+ * second as an issue date would record the day somebody pressed a button.
+ *
+ * On that document it reads neither, and the reason is worth recording. The
+ * row is a single text run and its year has **three digits** — `Aadhaar no.
+ * issued: dd/mm/yyy` — while *Details as on* three points above it has four.
+ * The fourth digit is not in the text layer at all: no stray glyph sits on
+ * that row, so there is nothing to recover and a reader that produced a date
+ * anyway would have invented a year. It returns nothing, which is the honest
+ * answer, and the label set below is what reads it on a document whose year
+ * survived.
+ *
+ * **Not the issuer**, though `identityDocument.issuedBy` exists and an
+ * eAadhaar is issued by a body with a name. Measured on a real one: `UIDAI`,
+ * `Unique Identification Authority of India` and `Government of India` are
+ * none of them in the text layer — that header is an image. A reader for a
+ * field no document tested here can supply would be a guess with a function
+ * around it.
+ *
+ * **Not the holder's name, date of birth, gender or address.** An eAadhaar
+ * carries all four, and they belong to `person` rather than to this record —
+ * so writing them would mean choosing which person and whether to overwrite
+ * what somebody typed. `identifierOffers` already exists for exactly that
+ * shape of decision, and extending it is a separate piece of work with a
+ * screen attached. Reading them here and storing them nowhere would be the
+ * "collected and read by nothing" fault `tools/field-coverage.mjs` exists to
+ * catch.
+ */
+export function readIdentity(text) {
+  const source = String(text ?? '');
+
+  return kept({
+    // `issued` alone would also match "Details as on" on a line above it in a
+    // row-joined read, so the label carries the word that distinguishes them.
+    // One word, and it is not brevity for its own sake: `readLabelledDate`
+    // matches the label then skips up to twenty non-digits, so `issue` reaches
+    // "date of issue: ", "issue date: " and "Aadhaar no. issued: " alike. A
+    // list of whole phrases would also have added six sentences of English to
+    // a count that may only fall, for no extra document read.
+    issuedOn: readLabelledDate(source, ['issue']),
+  });
+}
+
+/** The fields that were actually found. Mirrors `prune` in `extract.js`. */
+function kept(object) {
+  return Object.fromEntries(
+    Object.entries(object).filter(([, v]) => v !== null && v !== undefined && v !== ''),
+  );
 }
