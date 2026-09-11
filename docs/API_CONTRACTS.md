@@ -62,9 +62,16 @@ field present on one side and missing from the other fails the run.
 | `verify` | — |
 | `versions` | `fileId` |
 
-**Not compared for `members` and `upload`.** At least one
-call site builds the payload from a variable rather than a literal, so this
-cannot read the field names — and says so rather than assuming there are none.
+**Half-compared for `upload`.** At least one
+call site builds the payload from a variable rather than a literal, so what the
+application sends is known only in part — a subset, never the whole.
+
+That loses exactly one of the two directions. *The backend reads a field nothing
+sends* cannot be trusted, because the site this cannot read may be sending it.
+*The application sends a field the backend never reads* is unaffected: the field
+was seen at a site that can be read, so it really is sent. The first is skipped
+for these actions and the second is not — dropping both for the sake of the one
+threw away field names this tool had already read.
 
 ## What this does not tell you
 
