@@ -186,6 +186,36 @@ describe('whether a document’s text was read', () => {
     assert.includes(state.why, 'no text layer');
   });
 
+  /*
+   * The sentence above, said about a locked file, is false twice.
+   *
+   * An eAadhaar is downloaded password-protected — UIDAI's default, not an
+   * unusual choice — and behind the password is a perfect text layer. The
+   * reader saw `/Encrypt`, stopped, and said so; every layer above it turned
+   * that into "no text", and the screen reached for the only explanation it
+   * had left and told the household their document was a scan.
+   *
+   * It then promised the one thing that cannot happen: *"it will be read when
+   * it reaches Drive"*. No recogniser reads a locked file, there or here.
+   */
+  test('but a locked PDF is not a scan, and is not waiting on Drive', () => {
+    const state = textState({ mimeType: 'application/pdf', ocrText: '' }, { locked: true });
+
+    assert.equal(state.state, 'locked');
+    assert.includes(state.why, 'password-protected');
+    assert.not(state.why.includes('scan'), 'a locked file was called a scan');
+    assert.not(state.why.includes('Drive'), 'a locked file was left waiting on Drive');
+  });
+
+  test('and being locked outranks what the build can recognise', () => {
+    // `canRecognise` decides between the two PDF sentences, and both are
+    // wrong here. A phone with a recogniser cannot read a locked file either.
+    const state = textState(
+      { mimeType: 'application/pdf', ocrText: '' }, { canRecognise: true, locked: true },
+    );
+    assert.equal(state.state, 'locked');
+  });
+
   test('and a file nothing can read says the dates have to be typed', () => {
     const state = textState({ mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
     assert.equal(state.state, 'empty');

@@ -121,6 +121,20 @@ function tinyPdf(lines) {
 }
 
 /**
+ * The same file with `/Encrypt` in its trailer — a password-protected PDF.
+ *
+ * That entry is what `pdf-read.js` tests for and what an eAadhaar downloaded
+ * from UIDAI carries. The streams underneath stay plain here, which changes
+ * nothing about what is being checked: the reader stops at the trailer.
+ */
+function lockedPdf(lines) {
+  return Buffer.from(
+    tinyPdf(lines).toString('latin1').replace('trailer\n<<', 'trailer\n<< /Encrypt 99 0 R'),
+    'latin1',
+  );
+}
+
+/**
  * An `.xlsx` the way Excel writes one — strings pooled in `sharedStrings.xml`
  * rather than sitting in the cells.
  */
@@ -7287,6 +7301,40 @@ async function main() {
           (await page.getByRole('button', { name: /File it against this/ }).count()) >= 1,
           shown.slice(0, 1200));
       }
+
+    {
+      /*
+       * A locked eAadhaar, through the real picker.
+       *
+       * The unit suite proves `identifiersIn` reports `locked` and that
+       * `textState` turns that into the sentence. Neither proves the *screen*
+       * asks — and the screen is where the fault lived: the reason existed at
+       * the bottom of the stack, was dropped one line above it, and the panel
+       * reached for the only explanation left and called a locked file a scan
+       * waiting on Drive. Both halves passing with nothing joining them is the
+       * exact shape this is here to catch.
+       */
+      await go(page, '#/documents');
+      await page.waitForTimeout(400);
+      await page.locator('input[type=file]:not([capture])').setInputFiles({
+        name: 'eAadhaar.pdf',
+        mimeType: 'application/pdf',
+        buffer: lockedPdf(['UNIQUE IDENTIFICATION AUTHORITY OF INDIA']),
+      });
+      await page.waitForSelector('.modal', { timeout: 8000 });
+      await page.locator('#f-document-title').fill('Aadhaar download');
+      await page.locator('#f-document-title').press('Enter');
+      await page.waitForSelector('.modal', { state: 'detached', timeout: 8000 });
+      await page.getByRole('link', { name: /Aadhaar download/ }).first().click()
+        .catch(() => page.locator('text=Aadhaar download').first().click());
+      await page.waitForTimeout(1500);
+      const locked = (await page.locator('.app-content').innerText()).trim();
+
+      check('a locked PDF is told to the household as a password, not as a scan',
+        /password-protected/i.test(locked), locked.slice(0, 1200));
+      check('and it is not sent to wait for Drive to read it',
+        !/it will be read when it reaches Drive/i.test(locked), locked.slice(0, 1200));
+    }
 
     {
       /*

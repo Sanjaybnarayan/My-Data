@@ -196,17 +196,49 @@ export function identityRecordFor(offer, document) {
  * lists. `readerFor` is the single answer and this asks it.
  *
  * @param {object} [document]
- * @param {{canRecognise?: boolean}} [options] whether this build reads
- *   pictures of text on the device. A fact about the build rather than about
- *   the document, so it is passed in rather than guessed at: the same
- *   photograph is a different sentence on a phone and in a browser.
+ * @param {{canRecognise?: boolean, locked?: boolean}} [options]
+ *   `canRecognise` is whether this build reads pictures of text on the device.
+ *   A fact about the build rather than about the document, so it is passed in
+ *   rather than guessed at: the same photograph is a different sentence on a
+ *   phone and in a browser.
+ *
+ *   `locked` is whether the file refused to open because it is encrypted. A
+ *   fact about *this file*, which only reading it can establish, so like
+ *   `canRecognise` it is passed in rather than guessed at —
+ *   `sync/drive.js#identifiersIn` asks `pdf-read.js` and hands the answer
+ *   down. See the locked case below for why it outranks everything else.
  * @returns {{read: boolean, state: string, why: string|null}}
- *   `state` is `read`, `pending-upload`, `unreadable` or `empty`.
+ *   `state` is `read`, `pending-upload`, `unreadable`, `locked` or `empty`.
  */
-export function textState(document, { canRecognise = false } = {}) {
+export function textState(document, { canRecognise = false, locked = false } = {}) {
   if (document?.ocrText) return { read: true, state: 'read', why: null };
 
   const reader = readerFor(document?.mimeType, document?.fileName);
+
+  /*
+   * Locked is checked before anything else, because everything else here
+   * would be a **false claim** about a locked file rather than a vaguer one.
+   *
+   * An eAadhaar is downloaded password-protected — that is UIDAI's default,
+   * not an unusual choice — and it carries a perfect text layer behind the
+   * password. `pdf-read.js` sees `/Encrypt`, gives up, and says exactly why:
+   * `reason: 'the PDF is encrypted'`. Every layer above it then turned that
+   * into `null`, and this function, reaching the PDF branch with no text and
+   * no reason, told the household:
+   *
+   *     this PDF has no text layer — it is a scan rather than a document
+   *
+   * which is untrue twice over, and points at the one fix that cannot work:
+   * neither Drive's recogniser nor this build's can read a locked file, so
+   * "it will be read when it reaches Drive" is a promise nothing will keep.
+   *
+   * The person holds the password. That is the whole difference between this
+   * state and the four around it: every other reason the text was not read is
+   * something they can do nothing about.
+   */
+  if (locked) {
+    return { read: false, state: 'locked', why: t('doc.read.locked') };
+  }
 
   if (reader === READER.IMAGE) {
     // A build that recognises has already tried, so Drive is not the

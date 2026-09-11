@@ -9,7 +9,7 @@ import {
 import { readDate, readAmount } from '../js/domain/extract-values.js';
 // `readIdentity` lives beside the rest of the identity-document code; the
 // module-size ratchet moved it there when `extract.js` refused to grow.
-import { readIdentity, readPersonDetails, personOffers } from '../js/domain/identifiers.js';
+import { readIdentity, readPersonDetails, personOffers, textState } from '../js/domain/identifiers.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
 
@@ -266,6 +266,79 @@ describe('an uploaded document', () => {
     assert.includes(saved.ocrText, 'INCOME TAX DEPARTMENT');
     assert.not(saved.ocrText.includes('ABCDE1234F'), 'the PAN reached a searchable field');
     assert.equal(document.identifiers[0].kind, 'PAN', 'it should still be offered to the caller');
+  });
+
+  /**
+   * A file the reader refused, and the one word it knew when it refused.
+   *
+   * `/Encrypt` in the trailer is what a password-protected PDF has and a
+   * readable one does not — `pdf-read.js` tests for exactly that, so this
+   * fixture is that file as far as every layer under test is concerned. Its
+   * streams stay plain, which changes nothing: the reader stops before it
+   * inflates anything.
+   */
+  const locked = (bytes) => {
+    const text = new TextDecoder('latin1').decode(bytes)
+      .replace('trailer\n<<', 'trailer\n<< /Encrypt 99 0 R');
+    return new Uint8Array([...text].map((c) => c.charCodeAt(0) & 0xff));
+  };
+
+  test('a locked file is reported as locked, not as unreadable', async () => {
+    const bytes = locked(new PdfDocument({ title: 'eAadhaar' })
+      .paragraph('UNIQUE IDENTIFICATION AUTHORITY OF INDIA')
+      .build());
+
+    const db = await makeDb();
+    const store = new DocumentStore({ db, transport: null });
+    const { document, read } = await store.capture(
+      asFile(bytes, { name: 'eaadhaar.pdf', type: 'application/pdf' }), { category: 'identity' },
+    );
+
+    // Filed, as it always was: an unreadable file still costs nobody the file.
+    assert.equal(read, null);
+    assert.equal(document.ocrText ?? '', '');
+
+    const found = await store.identifiersIn(document.id);
+    assert.not(found.readable);
+    assert.ok(found.locked, 'the reader knew this file was sealed and said nothing');
+  });
+
+  test('and an unlocked one is not', async () => {
+    // The other half of the same claim. Without this, `locked: true` for
+    // everything that read nothing would pass the test above.
+    const bytes = new PdfDocument({ title: 'eAadhaar' })
+      .paragraph('UNIQUE IDENTIFICATION AUTHORITY OF INDIA')
+      .build();
+
+    const db = await makeDb();
+    const store = new DocumentStore({ db, transport: null });
+    const { document } = await store.capture(
+      asFile(bytes, { name: 'eaadhaar.pdf', type: 'application/pdf' }), { category: 'identity' },
+    );
+
+    const found = await store.identifiersIn(document.id);
+    assert.ok(found.readable);
+    assert.not(found.locked);
+  });
+
+  test('and what the screen then says is about the password, not about Drive', async () => {
+    // The two halves joined: the read establishes the fact, `textState` turns
+    // it into the sentence. Each was checked alone and the join was not, which
+    // is how the reason came to be dropped between them in the first place.
+    const bytes = locked(new PdfDocument({ title: 'eAadhaar' }).paragraph('UIDAI').build());
+
+    const db = await makeDb();
+    const store = new DocumentStore({ db, transport: null });
+    const { document } = await store.capture(
+      asFile(bytes, { name: 'eaadhaar.pdf', type: 'application/pdf' }), { category: 'identity' },
+    );
+
+    const found = await store.identifiersIn(document.id);
+    const saved = await db.repo('document').get(document.id);
+    const said = textState(saved, { locked: found.locked });
+
+    assert.equal(said.state, 'locked');
+    assert.includes(said.why, 'password');
   });
 });
 

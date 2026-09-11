@@ -784,6 +784,27 @@
       "find": "  const start = text.indexOf('export const entityRules');\n  if (start < 0) return '';",
       "replace": "  const start = 0;\n  if (start < 0) return '';",
       "suite": "data"
+    },
+    {
+      "label": "a locked file's reason is dropped the way it used to be",
+      "file": "js/sync/drive.js",
+      "find": "    return { ...unread, locked: await this.#isLocked(bytes, document) };",
+      "replace": "    return unread;",
+      "suite": "extract"
+    },
+    {
+      "label": "the reader is not asked whether the file was sealed",
+      "file": "js/sync/drive.js",
+      "find": "      return scan(bytes).encrypted;",
+      "replace": "      return false;",
+      "suite": "extract"
+    },
+    {
+      "label": "a locked PDF is called a scan again",
+      "file": "js/domain/identifiers.js",
+      "find": "  if (locked) {\n    return { read: false, state: 'locked', why: t('doc.read.locked') };\n  }\n",
+      "replace": "",
+      "suite": "identifiers"
     }
   ]
 }
