@@ -143,9 +143,51 @@ who did.
 
 Inventory **57 → 55**.
 
+### And one more, from the half of a file that is not generic
+
+`js/data/validate.js` is on the exclusion list because a hit there proves
+nothing — it iterates `entity.fields` and would "use" a field no domain logic
+has heard of. True of the coercers and the type switch, and they are the reason
+the file must stay listed: `case 'number':` names a *type* that several
+entities also use as a **field** name, so a bare search there would clear
+`identityDocument.number` on the strength of a switch label.
+
+`entityRules` in the same file is the opposite. Fourteen entities' worth of
+hand-written cross-field rules, naming twenty-nine fields outright — `r.endTime`,
+`r.completedOn`, `r.monthlyLimit`, `r.creditLimit`, `r.upiId`, `r.deceasedOn`.
+
+Excluding the file wholesale hid all of them, and **`event.endTime` sat on this
+inventory while a rule refused any event whose end time preceded its start**.
+The list said the field was dead; the application was rejecting records because
+of it.
+
+The block is now read back in by position — the same way `tools/strings.mjs`
+decides a class list by where it sits rather than by how it is spelt, because a
+rule can be written in any style and no style test would have told these two
+halves apart.
+
+Inventory **55 → 54**.
+
+### What this does not fix
+
+The search still matches a field's bare name against one haystack, so it cannot
+tell `cost` on a vehicle service from `cost` on a health record, or a field
+named `url` from the field *type* `url`. **283 of 548 fields share a key with
+at least one other entity.**
+
+Scoping it to the entity was tried and does not work: a file that reads
+`record[field.key]` names a *variable*, not an entity. Measured on three
+modules that genuinely read the fields in question — `domain/kyc.js`,
+`domain/fuel.js`, `domain/upkeep.js` — the entity name appears 3, 2 and 1 times
+in the raw file and **zero times in code**. It survives only in comments, which
+this search must strip for the reason the top of this file gives.
+
+That limitation is why the entry above matters: it was found by reading an
+excluded file, not by tightening a rule.
+
 ## What a finding does *not* mean
 
-**55<!--live:unreadFields--> of 617<!--live:fields--> fields are unread, and that is not 55 bugs.** A vehicle's chassis
+**54<!--live:unreadFields--> of 617<!--live:fields--> fields are unread, and that is not 54 bugs.** A vehicle's chassis
 number and a medication's dosage are reference data: you record them, you read
 them on screen, and nothing should compute with them.
 

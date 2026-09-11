@@ -14,7 +14,6 @@
     "employment.pfNumber",
     "employment.uan",
     "event.attendees",
-    "event.endTime",
     "event.remindMinutesBefore",
     "fuelLog.station",
     "healthRecord.diagnosis",
