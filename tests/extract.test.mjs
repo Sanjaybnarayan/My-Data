@@ -1,15 +1,20 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb } from './fixture.mjs';
 import {
-  readBill, readPolicy, readIdentifiers, redact, detectKind, readDocument, suggestions, readReceipt, stopAtLabel, readAgreement, readVehicle, readNoDues, readTaxCertificate,
+  readBill, readPolicy, detectKind, readDocument, suggestions, readReceipt, stopAtLabel, readAgreement, readVehicle, readNoDues, readTaxCertificate,
 } from '../js/domain/extract.js';
+// The redaction catalogue and its matcher moved out when the module-size
+// ratchet refused to let `extract.js` grow. Imported from where they live.
+import { readIdentifiers, redact } from '../js/domain/extract-sensitive.js';
 // The scalar readers moved out when `tools/module-size.mjs` refused to let
 // `extract.js` grow. Imported from where they live rather than re-exported
 // through their old home, so the seam is visible here too.
 import { readDate, readAmount } from '../js/domain/extract-values.js';
 // `readIdentity` lives beside the rest of the identity-document code; the
 // module-size ratchet moved it there when `extract.js` refused to grow.
-import { readIdentity, readPersonDetails, personOffers, textState } from '../js/domain/identifiers.js';
+import {
+  readIdentity, readPersonDetails, personOffers, textState, IDENTIFIER_KINDS,
+} from '../js/domain/identifiers.js';
 import { DocumentStore } from '../js/sync/drive.js';
 import { PdfDocument } from '../js/reports/pdf.js';
 
@@ -102,6 +107,60 @@ describe('identifiers never reach a searchable field', () => {
   test('an Aadhaar is found spaced or unspaced', () => {
     assert.equal(readIdentifiers(aadhaar)[0].kind, 'Aadhaar');
     assert.equal(readIdentifiers('aadhaar 123456789012')[0].value, '123456789012');
+  });
+
+  /*
+   * The VID, and the two faults that came of nothing claiming it.
+   *
+   * Every modern eAadhaar prints a sixteen-digit Virtual ID directly beneath
+   * the twelve-digit Aadhaar number. Measured on a real one, the Aadhaar
+   * pattern took the first twelve digits of the VID as a second Aadhaar —
+   * offering the household a number belonging to nobody, with nothing on the
+   * screen to say which of the two candidates was theirs — and the redaction,
+   * having removed twelve of the sixteen, left `2345` sitting in `ocrText`,
+   * which is unencrypted because it is searchable.
+   *
+   * Every number below is invented.
+   */
+  const eaadhaar = 'UNIQUE IDENTIFICATION AUTHORITY OF INDIA\n'
+    + 'Aadhaar No. 2233 4455 6677\nVID : 9123 4567 8901 2345\n';
+
+  test('a VID is recognised as a VID, not as a second Aadhaar', () => {
+    const found = readIdentifiers(eaadhaar);
+    const aadhaars = found.filter((one) => one.kind === 'Aadhaar');
+
+    assert.length(aadhaars, 1, 'a VID was offered to the household as an Aadhaar');
+    assert.equal(aadhaars[0].value, '2233 4455 6677');
+    assert.ok(found.some((one) => one.kind === 'VID' && one.value === '9123 4567 8901 2345'));
+  });
+
+  test('and no fragment of it is left in the searchable text', () => {
+    const out = redact(eaadhaar);
+
+    // The four digits the old redaction left behind. A trailing piece of a
+    // credential in a searchable field is what this machinery exists to stop.
+    assert.not(/\d/.test(out), `digits survived redaction: ${out}`);
+    assert.includes(out, '[VID removed]');
+  });
+
+  test('a VID has nowhere to be filed, and is not offered one', () => {
+    // UIDAI issues a VID to be used *in place of* the Aadhaar number and lets
+    // the holder regenerate it. Filing one would store a number that quietly
+    // stops being true.
+    assert.not(Object.keys(IDENTIFIER_KINDS).includes('VID'));
+  });
+
+  test('twelve digits inside a longer run are not an Aadhaar', () => {
+    // Wider than the VID: on a KYC form that mentions Aadhaar, the first
+    // twelve digits of a card number came back as one.
+    const found = readIdentifiers('Aadhaar KYC form. Card 4111 1111 1111 1111');
+    assert.not(found.some((one) => one.kind === 'Aadhaar'), JSON.stringify(found));
+  });
+
+  test('and a hyphenated Aadhaar is caught, which it was not before', () => {
+    const found = readIdentifiers('Aadhaar 2233-4455-6677');
+    assert.equal(found[0]?.kind, 'Aadhaar');
+    assert.equal(found[0]?.value, '2233-4455-6677');
   });
 
   test('a card number needs no label', () => {

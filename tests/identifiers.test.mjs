@@ -12,7 +12,7 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   identifierOffers, identityRecordFor, mask, textState, IDENTIFIER_KINDS,
 } from '../js/domain/identifiers.js';
-import { readIdentifiers } from '../js/domain/extract.js';
+import { readIdentifiers } from '../js/domain/extract-sensitive.js';
 
 setSuite('identifiers');
 

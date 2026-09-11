@@ -126,7 +126,7 @@ another on a claim.
 
 ## What still cannot be translated
 
-**3,013<!--live:unroutedStrings--> English strings, across 161<!--live:unroutedFiles--> files.** That is the measured count from
+**3,013<!--live:unroutedStrings--> English strings, across 162<!--live:unroutedFiles--> files.** That is the measured count from
 `node tools/strings.mjs`, and it is the number that matters. They are written
 directly into the source, so no catalogue can reach them and no translator will
 ever see them.
