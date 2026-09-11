@@ -128,6 +128,7 @@ const SHELL = [
   './js/domain/chatstate.js',
   './js/domain/otp.js',
   './js/domain/extract.js',
+  './js/domain/extract-sensitive.js',
   './js/domain/extract-values.js',
   './js/domain/filing.js',
   './js/domain/breach.js',

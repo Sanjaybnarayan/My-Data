@@ -717,7 +717,7 @@
     },
     {
       "label": "an Aadhaar enrolment id reaches the searchable text",
-      "file": "js/domain/extract.js",
+      "file": "js/domain/extract-sensitive.js",
       "find": "    kind: 'Enrolment',\n    near: /enrolment|enrollment|\\bEID\\b/i,",
       "replace": "    kind: 'Enrolment',\n    near: /this-word-appears-on-no-document/i,",
       "suite": "extract"
@@ -805,6 +805,27 @@
       "find": "  if (locked) {\n    return { read: false, state: 'locked', why: t('doc.read.locked') };\n  }\n",
       "replace": "",
       "suite": "identifiers"
+    },
+    {
+      "label": "twelve digits of a sixteen-digit number are offered as an Aadhaar",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    pattern: /(?<!\\d)(?<!\\d[ \\t-])\\b\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b(?![ \\t-]?\\d)/g,",
+      "replace": "    pattern: /\\b\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b/g,",
+      "suite": "extract"
+    },
+    {
+      "label": "a VID is left for the Aadhaar rule to take a bite out of",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    kind: 'VID',",
+      "replace": "    kind: 'VID-disabled',",
+      "suite": "extract"
+    },
+    {
+      "label": "a VID is filed as though it were a lasting number",
+      "file": "js/domain/identifiers.js",
+      "find": "  Passport: 'Passport',\n};",
+      "replace": "  Passport: 'Passport',\n  VID: 'Aadhaar',\n};",
+      "suite": "extract"
     }
   ]
 }
