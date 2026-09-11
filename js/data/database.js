@@ -23,7 +23,7 @@ import { entities, entity, referenceFields, referencedIds,
 } from './schema.js';
 import { entityLabel } from '../core/labels.js';
 import { searchIndex, indexEntry } from './search.js';
-import { Chain, verify as verifyChain } from './chain.js';
+import { Chain, verify as verifyChain, headKey } from './chain.js';
 import { auditEntry, ACTIONS, historyOf, recentActivity } from './audit.js';
 import { danglingIn, unresolved } from './integrity.js';
 import { rowFilter, readScope, auditVisible } from '../security/rbac.js';
@@ -531,9 +531,36 @@ export class Database {
    *
    * Reads every entry, so this is something a person asks for rather than
    * something a screen does on the way past.
+   *
+   * The heads go with them. Each device records where its chain reached, in
+   * `meta`, in the same transaction as the entry — and walking the entries
+   * alone cannot see a row removed from the end, because what is left still
+   * adds up from the beginning. The head is the only thing that says how far
+   * the log should have reached, and it is in a different store from the rows
+   * it is about, which is what makes it worth comparing.
    */
   async verifyAudit() {
-    return verifyChain(await this.adapter.query('audit', {}));
+    return verifyChain(await this.adapter.query('audit', {}), await this.#auditHeads());
+  }
+
+  /**
+   * Every device's recorded head, keyed the way `verify` groups entries.
+   *
+   * `headKey` writes an absent device id as `local`; the entries carry `''`.
+   * Mapped back here rather than in `verify`, which should not have to know
+   * how a key was spelled.
+   */
+  async #auditHeads() {
+    const prefix = headKey('').slice(0, -'local'.length);
+    const rows = await this.adapter.query('meta', {}).catch(() => []);
+    /** @type {Record<string, string>} */
+    const heads = {};
+    for (const row of rows) {
+      if (typeof row?.key !== 'string' || !row.key.startsWith(prefix)) continue;
+      const named = row.key.slice(prefix.length);
+      heads[named === 'local' ? '' : named] = row.value;
+    }
+    return heads;
   }
 
   /* --------------------------------------------------------------- counts */

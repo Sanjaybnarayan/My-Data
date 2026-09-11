@@ -214,6 +214,79 @@ describe('the real write path', () => {
     assert.equal(head.value, last.hash);
   });
 
+  /*
+   * The end of a log, which the links have no opinion about.
+   *
+   * Delete the last few entries and what remains still adds up from the
+   * beginning: nothing in the entries says how far the chain should have
+   * reached. Measured before this was closed — three entries, the last one
+   * removed, `ok: true, checked: 2` — while `meta` still held the hash of the
+   * entry that was gone.
+   */
+  describe('entries removed from the end', () => {
+    async function threeThenDrop(db, how = (rows) => [rows[rows.length - 1]]) {
+      const asha = await makePerson(db, { name: 'Asha' });
+      await db.repo('person').update(asha.id, { occupation: 'Architect' });
+      await db.repo('person').update(asha.id, { nickname: 'Ash' });
+
+      const rows = await db.adapter.query('audit', { index: 'byAt' });
+      for (const row of how(rows)) await db.adapter.remove('audit', row.id);
+      return rows;
+    }
+
+    test('the last one is caught, where walking the links alone cannot see it', async () => {
+      const db = await makeDb();
+      await threeThenDrop(db);
+
+      const result = await db.verifyAudit();
+      assert.not(result.ok, 'a log cut short at the end passed verification');
+      assert.equal(result.devices[0].kind, 'truncated');
+      assert.equal(result.devices[0].checked, 2, 'what is left still links up, which is the point');
+    });
+
+    test('and so is the whole log, which leaves nothing to walk at all', async () => {
+      const db = await makeDb();
+      await threeThenDrop(db, (rows) => rows);
+
+      const result = await db.verifyAudit();
+      assert.not(result.ok, 'a device whose every entry was removed passed verification');
+      assert.equal(result.devices[0].kind, 'truncated');
+      assert.equal(result.devices[0].checked, 0);
+    });
+
+    test('and a device that has written nothing is not a device cut short', async () => {
+      // `headRow` writes `GENESIS` when nothing has been linked yet. Read back
+      // as a place the log should have reached, it would call every empty
+      // device tampered with — which is the cry-wolf failure this module
+      // refuses everywhere else.
+      assert.ok((await verifyDevice([], GENESIS)).ok);
+      assert.ok((await verifyDevice([], null)).ok);
+      assert.not((await verifyDevice([], 'a-hash-of-something')).ok);
+    });
+
+    test('but a log that simply ends where it says it does is intact', async () => {
+      // The other half. A check that called every honest log truncated would
+      // satisfy both of the above and be worth nothing.
+      const db = await makeDb();
+      await threeThenDrop(db, () => []);
+
+      const result = await db.verifyAudit();
+      assert.ok(result.ok, JSON.stringify(result));
+    });
+
+    test('and an altered entry is still named as altered, not as a short log', async () => {
+      // Both are true once an entry is rewritten: its fingerprint stops
+      // matching *and* the walk no longer reaches the head. The more specific
+      // answer is the useful one.
+      const db = await makeDb();
+      const rows = await threeThenDrop(db, () => []);
+      await db.adapter.write('audit', { ...rows[1], actorId: 'somebody-else' });
+
+      const result = await db.verifyAudit();
+      assert.equal(result.devices[0].kind, 'altered');
+    });
+  });
+
   test('rewriting an entry in place is caught through the database', async () => {
     // The measurement this was built from: before the chain, this succeeded
     // and nothing anywhere could tell.
