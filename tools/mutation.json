@@ -1330,6 +1330,41 @@
       "find": "  otpChannelReady(channel);\n  otpEnforceLimits(address);",
       "replace": "  otpEnforceLimits(address);\n  otpChannelReady(channel);",
       "suite": "otp"
+    },
+    {
+      "label": "this device's chat private key is written down rather than sealed",
+      "file": "js/services/chat.js",
+      "find": "    return encryptText(this.db.keyring.key, JSON.stringify(identity), DEVICE_AAD);",
+      "replace": "    return identity;",
+      "suite": "chat"
+    },
+    {
+      "label": "a chat key written before it was sealed is thrown away and reminted",
+      "file": "js/services/chat.js",
+      "find": "      if (!stored.publicKey || !stored.privateKey) return null;\n      await this.db.setMeta(DEVICE_KEY, await this.#sealIdentity(stored));\n      return stored;",
+      "replace": "      return null;",
+      "suite": "chat"
+    },
+    {
+      "label": "a chat key written before it was sealed is used and left in the clear",
+      "file": "js/services/chat.js",
+      "find": "      await this.db.setMeta(DEVICE_KEY, await this.#sealIdentity(stored));\n      return stored;",
+      "replace": "      return stored;",
+      "suite": "chat"
+    },
+    {
+      "label": "a chat key sealed to another household is reported as never enrolled",
+      "file": "js/services/chat.js",
+      "find": "      throw new AppError(t('chat.identity.unreadable'), { code: 'identity-unreadable' });",
+      "replace": "      return null;",
+      "suite": "chat"
+    },
+    {
+      "label": "the sealed chat key is not bound to the place it is stored",
+      "file": "js/services/chat.js",
+      "find": "const DEVICE_AAD = `familyos:meta:${DEVICE_KEY}`;",
+      "replace": "const DEVICE_AAD = 'familyos:meta';",
+      "suite": "chat"
     }
   ]
 }

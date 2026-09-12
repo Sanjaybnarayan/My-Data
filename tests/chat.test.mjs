@@ -1,5 +1,6 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
 import { makeDb, makePerson } from './fixture.mjs';
+import { isEncrypted, encryptText } from '../js/security/crypto.js';
 import { ChatService } from '../js/services/chat.js';
 import {
   createIdentity, seal, open, openBytes, safetyNumber, sealedTo, addressedTo,
@@ -233,9 +234,24 @@ describe('enrolling a device', () => {
     assert.length([a, b].filter((one) => one.created), 1, 'both callers believed they enrolled');
 
     // The published key is the one this device kept the private half of.
-    const kept = await db.meta('chat.deviceIdentity');
+    //
+    // Asked through `identity()` rather than by reading `meta` directly, which
+    // is what this used to do. The stored value is an envelope now — see
+    // `#sealIdentity` — so reaching into it for `.publicKey` would find
+    // `undefined` and compare it against a real key, which fails for a reason
+    // that has nothing to do with the race.
+    //
+    // Measured while changing it: this line does not hold the race. Both
+    // sides of the comparison come from the same `meta` value, so they cannot
+    // disagree — `createUnlessPresent` is what stops a second row, and the
+    // length assertion above is what holds it. What this line does hold is
+    // that the device can *open* what it published, which the seal made
+    // possible to get wrong. Said rather than left looking like two checks.
+    const kept = await chat.identity();
     assert.equal(rows[0].publicKey, kept.publicKey,
       'the published key is not the one this device can decrypt with');
+    assert.ok(isEncrypted(await db.meta('chat.deviceIdentity')),
+      'the private half was left in the clear');
   });
 
   test('and a device whose key was revoked can enrol again', async () => {
@@ -835,5 +851,162 @@ describe('the envelope readers, given something that is not an envelope', () => 
     assert.equal(await open(sealed, { id: 'dev-ravi', ...ravi }), 'bring milk');
     assert.ok(addressedTo(sealed, 'dev-ravi'));
     assert.length(sealedTo(sealed).devices, 1);
+  });
+});
+
+/**
+ * The private key that opens every message sealed to this device.
+ *
+ * `e2ee.js` said, above `createIdentity`, that it "is stored wrapped in the
+ * household's own encrypted `meta` store — so it is protected at rest by the
+ * PIN like everything else". `docs/DATA_INVENTORY.md` said "Private half
+ * wrapped like any field", and filed it under `deviceKey` records.
+ *
+ * None of that was so. There is no encrypted `meta` store —
+ * `js/auth/googlenative.js` established exactly that in its own header, about
+ * the same store, when a Google refresh token was found sitting in it in the
+ * clear. `meta` is `{ keyPath: 'key', indexes: [] }` and `setMeta` writes
+ * straight to the adapter. Measured before the fix:
+ *
+ *     meta['chat.deviceIdentity'] keys : publicKey, privateKey
+ *     sealed?                          : no
+ *     privateKey                       : MIGHAgEAMBMGByqGSM49AgEGCCqGSM49…
+ *
+ * That is base64 PKCS#8, readable by anyone holding the device's app data or
+ * browser profile, with no PIN — beside account numbers that were encrypted.
+ * `docs/CHAT_AND_E2EE.md` says what the key is worth: "a device's private key
+ * can read every message ever sent to it, past included".
+ *
+ * The second instance of one false premise, in one store. These checks are so
+ * there is not a third.
+ */
+describe('where this device keeps the key that opens its messages', () => {
+  test('it is sealed, not written down', async () => {
+    const { db, chat, asha } = await household();
+    const { device } = await chat.enrol(asha.id);
+
+    const stored = await db.meta('chat.deviceIdentity');
+    assert.ok(isEncrypted(stored), 'the private half is in `meta` in the clear');
+
+    // Not merely "not an object": the key itself must not appear anywhere in
+    // what was written. A seal that left the plaintext beside it would pass a
+    // shape check and fail this one.
+    const identity = await chat.identity();
+    assert.ok(identity?.privateKey, 'the device cannot open its own key');
+    assert.not(String(stored).includes(identity.privateKey),
+      'the private key is in the stored value as well as sealed in it');
+    assert.equal(identity.publicKey, device.publicKey);
+  });
+
+  test('and the seal is bound to the place it is stored', async () => {
+    /*
+     * The argument `fieldcrypto.js` makes per cell: a sealed value moved to
+     * another row must fail its authentication tag rather than open.
+     *
+     * Two earlier versions of this check held nothing, and the catalogue
+     * refused both. The first wrote the value to a second key and read it back
+     * from the *first* one. The second sealed under some other row's label and
+     * required a refusal — which a shared label refuses too, so it passed
+     * either way.
+     *
+     * The property is that the label **names the row**, so that is what is
+     * pinned: the label the code builds opens it, and a label with the row
+     * left out does not. Spelling the literal string is deliberate — it is an
+     * at-rest format, and changing it silently orphans every identity already
+     * stored, which is a thing a check should refuse rather than follow.
+     */
+    const { db, chat, asha } = await household();
+    await chat.enrol(asha.id);
+    const identity = await chat.identity();
+    const sealed = (aad) => encryptText(db.keyring.key, JSON.stringify(identity), aad);
+
+    // Sealed the way the code seals it, naming the row: opens.
+    await db.setMeta('chat.deviceIdentity', await sealed('familyos:meta:chat.deviceIdentity'));
+    assert.ok((await chat.identity())?.privateKey, 'the label the code uses did not open it');
+
+    // Sealed under a label that does not name the row — which is what one
+    // shared label for every `meta` value would produce. Must not open.
+    await db.setMeta('chat.deviceIdentity', await sealed('familyos:meta'));
+    await assert.throws(() => chat.identity(), /cannot be opened/i);
+  });
+
+  test('a device upgrading from the version that wrote it down keeps its key', async () => {
+    /*
+     * The half that matters more than the seal.
+     *
+     * A plaintext value here is this device's real keypair, and the public
+     * half of it is already published in `deviceKey` and already being sealed
+     * to by the rest of the household. Discarding it and minting a new one
+     * would be the exact fault `enrol` exists to prevent — "half the household
+     * sealing to a key this device no longer has" — and would make every
+     * message already sent to this device permanently unreadable.
+     *
+     * So it is taken, used, and put back properly.
+     */
+    const { db, chat, asha } = await household();
+    const legacy = await createIdentity();
+    await db.setMeta('chat.deviceIdentity', legacy);
+
+    const got = await chat.identity();
+    assert.equal(got?.privateKey, legacy.privateKey, 'the upgrade threw the key away');
+    assert.ok(isEncrypted(await db.meta('chat.deviceIdentity')),
+      'the upgrade read it and left it in the clear');
+
+    // And enrolling afterwards publishes the key that was already published,
+    // not a new one.
+    const { device } = await chat.enrol(asha.id);
+    assert.equal(device.publicKey, legacy.publicKey);
+  });
+
+  test('a locked device refuses to store it rather than storing it plainly', async () => {
+    /*
+     * The tempting fallback — write it in the clear and carry on — would make
+     * the seal optional, and an optional seal is the plaintext it replaced
+     * with an extra branch. `js/auth/googlenative.js` makes the same argument
+     * about the same choice for the refresh token.
+     */
+    const { db, chat, asha } = await household();
+    db.keyring.lock();
+
+    // The message is not pinned: the repository refuses a locked write before
+    // this code is reached, so what arrives is its `LockedError` rather than
+    // the one below. The property worth holding is the outcome — nothing was
+    // written — not which of two guards got there first. Measured while
+    // writing it, because asserting the wrong message here would have looked
+    // like this guard running when it had not.
+    await assert.throws(() => chat.enrol(asha.id));
+    assert.equal(await db.meta('chat.deviceIdentity'), null,
+      'a locked device wrote the key down anyway');
+  });
+
+  test('and a locked device cannot open the one it already has', async () => {
+    // The value is sealed under the household key, so a locked device has
+    // nothing to open it with and says so. Returning null would read as "never
+    // enrolled" to a screen that would then enrol it again — publishing a
+    // second public key for a device that already has one.
+    //
+    // `LockedError`, not a chat-specific sentence: `keyring.key` is a getter
+    // that throws, so a locked branch in this file would never run. The first
+    // draft had one, and this check is what showed it could not be reached.
+    const { db, chat, asha } = await household();
+    await chat.enrol(asha.id);
+    db.keyring.lock();
+
+    await assert.throws(() => chat.identity(), /locked/i);
+  });
+
+  test('and a sealed key from another household is refused, not ignored', async () => {
+    // Returning null would look like "this device has never enrolled", and the
+    // screen would offer to enrol it — publishing a second public key for a
+    // device that already has one. Naming it is the difference between a
+    // problem somebody can act on and a device that quietly forks.
+    const { db, chat, asha } = await household();
+    await chat.enrol(asha.id);
+
+    const theirs = await makeDb();
+    const sealed = await db.meta('chat.deviceIdentity');
+    await theirs.setMeta('chat.deviceIdentity', sealed);
+
+    await assert.throws(() => new ChatService(theirs).identity(), /cannot be opened/i);
   });
 });
