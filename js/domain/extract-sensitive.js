@@ -256,20 +256,19 @@ export const SENSITIVE = [
    * number is left alone by this, which is correct — it is a transaction
    * reference and not an account.
    *
-   * ## A policy number is the same fault and is deliberately not fixed here
+   * ## Where this line was drawn, and by whom
    *
-   * `insurance.policyNumber` and `vehicle.insurancePolicy` are `encrypted:
-   * true` too, and a policy number survives into `ocrText` whole — measured,
-   * three lines above a chassis number that is correctly removed.
+   * Four more fields met the same test — `encrypted: true` in the schema, and
+   * surviving whole into `ocrText`. They were raised rather than taken,
+   * because redacting an identifier costs something a check already names:
+   * `tests/import.test.mjs` asserts a document is findable by the policy
+   * number inside it, and calls that "the whole reason the text is stored".
    *
-   * The rule is one line and is not written, because removing it costs
-   * something a check already names. `tests/import.test.mjs` asserts a
-   * document is findable by the policy number inside it and calls that "the
-   * whole reason the text is stored". A policy number is the number a
-   * household would actually search for, which is not true of a chassis
-   * number. Redacting it trades a stated feature for a confidentiality the
-   * schema has already asked for, and which of those a household wants is
-   * theirs to say rather than a thing to decide inside a regex.
+   * The household chose. Policy numbers and a FASTag id go; survey and khata
+   * numbers stay, and the reason is on each rule below. That is a decision
+   * about how somebody searches their own paperwork, which is not a thing to
+   * settle inside a regex — so it was put to them, and this is the answer
+   * they gave.
    */
   /*
    * A payslip and a PF passbook, by the same rule as the account number.
@@ -296,6 +295,66 @@ export const SENSITIVE = [
     kind: 'Account',
     at: /(?:a\/c|acct|account)[.\s]*(?:no|number)?[:.\s]+(\d{9,18})\b/gi,
   },
+
+  /*
+   * A policy number, which the household asked to have removed.
+   *
+   * `insurance.policyNumber` and `vehicle.insurancePolicy` are `encrypted:
+   * true`, and one survived into `ocrText` whole — measured, three lines above
+   * a chassis number that was correctly removed:
+   *
+   *     Policy No. 3001/12345678/00/000  → survived
+   *     Chassis No. MA3ABC12S00123456    → [Chassis removed]
+   *
+   * **What this costs, stated because it is a real cost.** A policy number is
+   * a number somebody searches for, and after this a document cannot be found
+   * by one. `tests/import.test.mjs` used to assert exactly that findability;
+   * it now asserts the redaction instead, and says why. The trade was put to
+   * the household and this is the side they took.
+   *
+   * The lookahead requiring a digit is not decoration. Without it the
+   * alternation matches letters too, and "Policy holder: A N Other" comes back
+   * with **`holder`** redacted out of the household's own text — a rule that
+   * damages the document while removing nothing. `(?:no|number)` is required
+   * rather than optional for the same reason: "Policy Schedule" and "Policy
+   * holder" must not read as a label with a value after it.
+   */
+  {
+    kind: 'Policy',
+    at: /policy[.\s]*(?:no|number)[:.\s]+((?=[A-Z0-9/-]*\d)[A-Z0-9][A-Z0-9/-]{4,29})\b/gi,
+  },
+
+  /*
+   * A FASTag id, on the same reasoning and with less weighing needed.
+   *
+   * `vehicle.fastagId` is `encrypted: true`. Unlike a policy number it is not
+   * a handle anybody searches by — it is printed on a statement and read by a
+   * gantry — so removing it takes nothing away.
+   */
+  {
+    kind: 'FASTag',
+    at: /fastag[.\s]*(?:id|no|number)?[:.\s]+([A-Z0-9]{10,32})\b/gi,
+  },
+
+  /*
+   * ## Survey and khata numbers stay, and that is the household's answer too
+   *
+   * `property.surveyNumber` and `property.khataNumber` are `encrypted: true`
+   * and both survive whole. By the rule at the top of this file they belong
+   * here; they are absent on purpose.
+   *
+   * A survey number is often the only handle on a deed. Unlike a policy
+   * number — which arrives on a renewal notice the household already holds —
+   * it is frequently the one string that identifies which plot a scanned
+   * fifteen-page document is about. Redacting it can make a deed
+   * unfindable in the only way anybody would look for it.
+   *
+   * So the schema's decision and the search behaviour genuinely conflict here,
+   * and the conflict was resolved in favour of finding the document. Written
+   * down rather than left as an omission, because an absence with no reason
+   * beside it reads as an oversight, and the next person to measure this file
+   * against its own rule will find them and wonder.
+   */
 ];
 
 /**

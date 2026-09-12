@@ -1428,6 +1428,27 @@
       "find": "    keep: (value, nearby) => /\\bUID\\b/i.test(nearby),",
       "replace": "    keep: () => true,",
       "suite": "identifiers"
+    },
+    {
+      "label": "a policy number on a schedule reaches the searchable text",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    at: /policy[.\\s]*(?:no|number)[:.\\s]+((?=[A-Z0-9/-]*\\d)[A-Z0-9][A-Z0-9/-]{4,29})\\b/gi,",
+      "replace": "    at: /policy[.\\s]*(?:no|number)[:.\\s]+((?=[A-Z0-9/-]*\\d)[A-Z0-9][A-Z0-9/-]{40,59})\\b/gi,",
+      "suite": "identifiers"
+    },
+    {
+      "label": "the policy rule eats the words beside the label as well",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    at: /policy[.\\s]*(?:no|number)[:.\\s]+((?=[A-Z0-9/-]*\\d)[A-Z0-9][A-Z0-9/-]{4,29})\\b/gi,",
+      "replace": "    at: /policy[.\\s]*(?:no|number)?[:.\\s]+([A-Z0-9][A-Z0-9/-]{4,29})\\b/gi,",
+      "suite": "identifiers"
+    },
+    {
+      "label": "a FASTag id reaches the searchable text",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    at: /fastag[.\\s]*(?:id|no|number)?[:.\\s]+([A-Z0-9]{10,32})\\b/gi,",
+      "replace": "    at: /fastag[.\\s]*(?:id|no|number)?[:.\\s]+([A-Z0-9]{40,52})\\b/gi,",
+      "suite": "identifiers"
     }
   ]
 }
