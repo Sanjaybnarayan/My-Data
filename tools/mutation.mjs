@@ -40,6 +40,25 @@
  * one level up. When a refactor moves the code, the entry is updated on
  * purpose or removed on purpose.
  *
+ * ## While this is running, the tree is not the tree
+ *
+ * It writes into the **working copy** of a tracked file and restores it after.
+ * So for the length of a run every `git` command, every editor save and every
+ * other checker sees a tree with one deliberate fault in it, moving.
+ *
+ * That is worth a warning rather than an inference, because of which way the
+ * error points. A `git stash` taken mid-run reverts whichever mutant is
+ * applied at that moment — the suite then passes against **correct** code, and
+ * this file reports the control as `survived`. A survivor is the outcome
+ * somebody acts on: they go and write a check for a control that was already
+ * held. A concurrent `tsc` reads the same tree and reports a finding that is
+ * not in the repository.
+ *
+ * Both happened, in one session, from one `git stash` issued while a run was
+ * in the background. Nothing detected either; the numbers simply came out
+ * wrong and looked ordinary. So: let a run finish before anything else reads
+ * or writes the tree, and treat any measurement taken during one as unmeasured.
+ *
  * ## What it is not
  *
  * Not a coverage metric, and not a substitute for one. It says nothing about

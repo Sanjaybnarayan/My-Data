@@ -69,7 +69,7 @@
  * them moved the clock.
  */
 
-/* global CacheService, PropertiesService, MailApp, UrlFetchApp, Utilities, fail */
+/* global CacheService, PropertiesService, MailApp, UrlFetchApp, Utilities, fail, log */
 
 /** How long a code is worth anything. */
 var OTP_TTL_SECONDS = 600;
@@ -221,6 +221,49 @@ function otpPersonFor(address, channel) {
   return null;
 }
 
+/**
+ * Can this deployment send by this channel at all?
+ *
+ * ## The oracle this closes
+ *
+ * `otpRequest` answers `{sent: true}` whether or not the address belongs to
+ * the household, and says at length why: otherwise the endpoint answers "does
+ * this address belong to your household?" for anybody who asks, one guess at
+ * a time. It is reached before `verifyToken`, so anybody means anybody.
+ *
+ * The sending happened **inside** `if (person)`, and `otpSendSms` refused an
+ * unconfigured gateway with a 501. There is no default gateway and none in
+ * this repository, so that is every deployment until a household sets one up.
+ * Measured, against the directory the checks already use:
+ *
+ *     channel: sms, a number in the directory  ->  501 no SMS gateway configured
+ *     channel: sms, a number not in it         ->  200 {"sent":true}
+ *
+ * No timing analysis, no rate-limit arithmetic: a status code, and the answer.
+ * `tests/otp.test.mjs` had a check driving exactly that 501 and one asserting
+ * the two answers match — the first sent SMS to a number the fixture lists and
+ * the second sent email, so between them they described the leak without
+ * either noticing.
+ *
+ * The refusal is right; where it was asked was not. Whether a gateway is
+ * configured is a fact about this deployment, so it can be answered before the
+ * directory is consulted and the refusal is then the same for every address.
+ *
+ * Asked before `otpEnforceLimits` too, deliberately: a request this deployment
+ * cannot serve must not spend the household's hourly budget, or an unconfigured
+ * gateway becomes a way to stop anybody getting a code by email either.
+ */
+function otpChannelReady(channel) {
+  if (channel !== 'sms') return;
+
+  var props = PropertiesService.getUserProperties();
+  if (!props.getProperty('otpSmsEndpoint') || !props.getProperty('otpSmsToken')) {
+    throw fail('this deployment has no SMS gateway configured — set otpSmsEndpoint '
+      + 'and otpSmsToken in script properties, and register the sender id and '
+      + 'template with your provider first', 501);
+  }
+}
+
 /* ------------------------------------------------------------- sending */
 
 /**
@@ -264,15 +307,11 @@ function otpSendEmail(address, code, name, unlocks) {
  * can act on.
  */
 function otpSendSms(address, code, unlocks) {
+  otpChannelReady('sms');
+
   var props = PropertiesService.getUserProperties();
   var endpoint = props.getProperty('otpSmsEndpoint');
   var token = props.getProperty('otpSmsToken');
-
-  if (!endpoint || !token) {
-    throw fail('this deployment has no SMS gateway configured — set otpSmsEndpoint '
-      + 'and otpSmsToken in script properties, and register the sender id and '
-      + 'template with your provider first', 501);
-  }
 
   var response = UrlFetchApp.fetch(endpoint, {
     method: 'post',
@@ -305,6 +344,9 @@ function otpRequest(payload) {
   }
   if (!address) throw fail('no address was given', 400);
 
+  // Before the directory is read, and before the budget is charged. See
+  // `otpChannelReady` for why the order is the security property.
+  otpChannelReady(channel);
   otpEnforceLimits(address);
 
   var person = otpPersonFor(address, channel);
@@ -320,8 +362,27 @@ function otpRequest(payload) {
       issuedAt: Date.now(),
     }), OTP_TTL_SECONDS);
 
-    if (channel === 'sms') otpSendSms(address, code, Boolean(otpEscrowFor(person.personId)));
-    else otpSendEmail(address, code, person.name, Boolean(otpEscrowFor(person.personId)));
+    /*
+     * A delivery that fails must not change the answer either.
+     *
+     * Everything reachable from here — a gateway that refuses the message, a
+     * Gmail quota spent — is a fact about this deployment and never about the
+     * address. But it arrives *only* for an address in the directory, so
+     * letting it reach the caller would answer, in the shape of a 502, the one
+     * question this endpoint exists to refuse.
+     *
+     * Recorded where the household will see it instead. They are the ones who
+     * can act on it; the caller is unauthenticated and is told what every
+     * caller is told. The address in the message is a household member's own —
+     * nothing a stranger typed reaches this branch, because `person` is null
+     * for it.
+     */
+    try {
+      if (channel === 'sms') otpSendSms(address, code, Boolean(otpEscrowFor(person.personId)));
+      else otpSendEmail(address, code, person.name, Boolean(otpEscrowFor(person.personId)));
+    } catch (err) {
+      log('otp', 'undelivered', channel + ': ' + err.message, 0);
+    }
   }
 
   /*
@@ -330,6 +391,22 @@ function otpRequest(payload) {
    * Saying "no such person" would turn this endpoint into a way to ask which
    * addresses belong to the household, one guess at a time. The rate limit is
    * charged either way, so guessing is slow as well as uninformative.
+   *
+   * The body was always the same. What was not was the *status*: an
+   * unconfigured gateway or a refused message threw out of the branch above,
+   * and that branch is only entered for an address in the directory. Both are
+   * closed — see `otpChannelReady` and the `try` above.
+   *
+   * **What remains is timing, and is stated rather than papered over.** A
+   * known address costs a cache write and a message; an unknown one returns at
+   * once. That difference is measurable, and nothing here can honestly remove
+   * it: there is no constant-time `MailApp.sendEmail`, and sleeping for a
+   * guessed-at duration would be a number chosen to look like a defence.
+   *
+   * What bounds it is the rate limit, which is charged before the lookup:
+   * `OTP_PER_DEPLOYMENT` probes an hour, across every address, however they
+   * are spread. A household reading this should know the residual is "slow
+   * enumeration by stopwatch", not "none".
    */
   return { sent: true, expiresInSeconds: OTP_TTL_SECONDS };
 }

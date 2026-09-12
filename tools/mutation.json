@@ -1309,6 +1309,27 @@
       "find": "  return rest.split(/\\s+/).filter(Boolean)\n    .every((word) => NARROWING.some((pattern) => pattern.test(word)));",
       "replace": "  return true;",
       "suite": "gmail"
+    },
+    {
+      "label": "whether a channel can be served is decided where it can see the address",
+      "file": "apps-script/Otp.gs",
+      "find": "function otpChannelReady(channel) {\n  if (channel !== 'sms') return;",
+      "replace": "function otpChannelReady(channel) {\n  return;",
+      "suite": "otp"
+    },
+    {
+      "label": "a delivery that failed is reported to whoever asked",
+      "file": "apps-script/Otp.gs",
+      "find": "    } catch (err) {\n      log('otp', 'undelivered', channel + ': ' + err.message, 0);\n    }",
+      "replace": "    } catch (err) {\n      throw err;\n    }",
+      "suite": "otp"
+    },
+    {
+      "label": "a channel this deployment cannot use is charged to the household anyway",
+      "file": "apps-script/Otp.gs",
+      "find": "  otpChannelReady(channel);\n  otpEnforceLimits(address);",
+      "replace": "  otpEnforceLimits(address);\n  otpChannelReady(channel);",
+      "suite": "otp"
     }
   ]
 }

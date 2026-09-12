@@ -323,10 +323,23 @@ permission the application already uses — so this works with the consent scree
 you already have.
 
 Adding `drive.appdata` is optional. It moves the key into a hidden
-per-application folder that does not appear in your Drive listing. That is a
-difference in tidiness, not in security: the hidden folder is not a boundary,
-and anyone who can sign in as you reads either. A key written in one place is
-found from the other, so adding or removing the scope later loses nothing.
+per-application folder that does not appear in your Drive listing. A key
+written in one place is found from the other, so adding or removing the scope
+later loses nothing.
+
+This page used to say the difference was tidiness and not security, because
+the hidden folder is not a boundary and anyone who can sign in as you reads
+either. That is true, and it answers only one threat. `appDataFolder` is **per
+application**: another app you sign into and grant full Drive access to can
+read `FamilyOS unlock key.json`, and cannot read FamilyOS's app-data folder —
+Google grants no scope that opens another app's. The visible file can also be
+shared, sit in a folder you share, and is synced to your laptop by the Drive
+desktop client.
+
+So the hidden folder *is* a boundary against other apps you authorise, and is
+not one against your own account. Visible still has a real virtue — you can
+see where the key to your records is, and delete it — and it is what you get
+with no extra permission. Choose it knowing both things rather than one.
 
 ## Google permissions, in full
 
@@ -352,7 +365,7 @@ does nothing.
 | --- | --- | --- |
 | `profile` | Your name and picture | Shown in the corner of the app. Cosmetic. |
 | `drive.file` | Files this app creates in your Drive | Only for Continue with Google, which keeps the unlock key in a file of its own. Documents you upload do not need it — those go through the Apps Script backend, under the backend’s own permission. Narrow either way: it cannot see anything else in your Drive. |
-| `drive.appdata` | A hidden folder of its own | Tidier home for the unlock key. Optional: without it the key goes in an ordinary visible file, which works identically. |
+| `drive.appdata` | A hidden folder of its own | Optional. Without it the unlock key goes in an ordinary visible file, which FamilyOS uses identically — but which another app you grant full Drive access to can read, and which can be shared or synced to a laptop. The hidden folder cannot. See above. |
 | `gmail.readonly` | Read your mail | Only if you attach a mailbox with “Add a Gmail account” in Shops. Asked for separately, per mailbox, never at ordinary sign-in. |
 
 ### The Apps Script deployment authorises separately

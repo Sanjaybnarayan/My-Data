@@ -111,13 +111,34 @@ export class DriveEscrow {
    *
    * `drive.file` is already granted, for everything else this application does
    * with Drive, and covers a file the application itself created. So the key
-   * can go in an ordinary file with no new permission at all. It is visible in
-   * the household's Drive rather than hidden in an app folder, which is a
-   * difference in tidiness and not in security: `appDataFolder` is not a
-   * boundary — anyone who can sign in as that account reads either.
+   * can go in an ordinary file with no new permission at all.
    *
-   * Visible is arguably the better default anyway. A household that wants to
-   * know where the key to their records is can see it, and delete it.
+   * ## What the two placements actually differ by
+   *
+   * This used to say the difference was tidiness and not security, because
+   * `appDataFolder` is not a boundary — anyone who can sign in as that account
+   * reads either. That sentence is true, and it was answering only the threat
+   * it named.
+   *
+   * `appDataFolder` is **per application**. A second application the household
+   * signs into and grants full `drive` to reads `FamilyOS unlock key.json` and
+   * cannot read this application's app-data folder; Google grants no scope
+   * that opens another app's. The visible file can also be shared, sit in a
+   * folder that gets shared, and is synced to disk by a Drive desktop client.
+   * None of that is true of the hidden one.
+   *
+   * So it is a boundary against *other applications the household authorises*,
+   * and not against the household's own account. The distinction matters
+   * because a household reading the old sentence was being told an optional
+   * scope bought them nothing but neatness, and deciding on that.
+   *
+   * The fallback still earns its place — a household that cannot get the scope
+   * gets a working feature instead of a refusal from another console — and
+   * visible has the real virtue named below. It is the reasoning that was too
+   * broad, not the default.
+   *
+   * A household that wants to know where the key to their records is can see
+   * the visible one, and delete it.
    *
    * @param {{getToken: () => Promise<string>, fetchImpl?: typeof fetch,
    *          hidden?: boolean}} options
