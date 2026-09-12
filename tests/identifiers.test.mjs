@@ -354,3 +354,58 @@ describe('an account number on a statement', () => {
     assert.not(out.includes('501000123456789'));
   });
 });
+
+/**
+ * A payslip, and the Aadhaar label this file did not have.
+ *
+ * Measured against the same rule the account number was — a value the schema
+ * marks `encrypted: true` must not reach `ocrText`:
+ *
+ *     UAN: 101234567890                   → survived whole
+ *     PF No: KN/BNG/0012345/000/0001234   → survived whole
+ *     UID 234567890123                    → survived whole
+ *
+ * `employment.uan` and `employment.pfNumber` are `encrypted: true`. The third
+ * is not a missing kind but a missing *label*: `near` on the Aadhaar rule
+ * lists `aadhaar`, `aadhar`, `UIDAI` and `unique identification`, and not the
+ * abbreviation every bank KYC form prints.
+ */
+describe('identifiers on a payslip, and an Aadhaar the document calls a UID', () => {
+  test('a UAN and a PF number are kept out of the searchable text', () => {
+    const out = redact('UAN: 101234567890   PF No: KN/BNG/0012345/000/0001234');
+    assert.not(out.includes('101234567890'), 'a UAN reached the text that syncs');
+    assert.not(out.includes('KN/BNG/0012345/000/0001234'), 'a PF number reached it');
+  });
+
+  test('and the words alone take nothing with them', () => {
+    // The label needs a value after it. A payslip that mentions PF in prose is
+    // not a payslip with a PF number on that line.
+    assert.equal(redact('PF and gratuity are deducted monthly'),
+      'PF and gratuity are deducted monthly');
+  });
+
+  test('an Aadhaar labelled UID goes', () => {
+    assert.not(redact('Customer UID 234567890123 on file').includes('234567890123'));
+  });
+
+  test('and a UID somewhere else on the page takes nothing', () => {
+    /*
+     * The reason the UID rule is a rule of its own with a `keep`, rather than
+     * one more alternative in the Aadhaar rule's `near`.
+     *
+     * `readIdentifiers` tests `near` against the **whole document**. On that
+     * path, any page carrying the token — a UPI narration, a footer — would
+     * have every Aadhaar-shaped run on it redacted. That is the fault the card
+     * rule states in its own words: "presence is not proximity".
+     *
+     * The separation here is deliberate and has to be wider than `CONTEXT`,
+     * which is forty characters either side. A shorter example passes whether
+     * or not the gate exists, and the first draft of this check was one.
+     */
+    const page = 'Ref UID printed in the footer of this statement for support enquiries only.\n'
+      + 'Transaction 402773829112 posted on 3 Apr 2026 to a merchant in Bengaluru.';
+
+    assert.includes(redact(page), '402773829112',
+      'a UID in the footer redacted a transaction reference on another line');
+  });
+});
