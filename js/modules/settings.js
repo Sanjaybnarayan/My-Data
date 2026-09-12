@@ -46,6 +46,7 @@ import {
 } from './settings/privacy.js';
 import { householdCard, devicesCard } from './settings/household.js';
 import { securityCard } from './settings/security.js';
+import { PLACEMENT_KEY } from '../auth/google-unlock.js';
 import { appearanceCard, languageCard, aboutCard } from './settings/display.js';
 import { dataCard, backupCard, deletedCard, conflictsCard, exampleCard } from './settings/data.js';
 import { activityCard, connectionsCard, diagnosticsCard, breachCard } from './settings/activity.js';
@@ -111,10 +112,13 @@ const CONTENTS = {
 
   async device(db, repaint) {
     const methods = await db.keyring.methods();
+    // Read here rather than inside the card: the card renders synchronously,
+    // and this section is already the place that awaits what the cards need.
+    const keyPlacement = await db.meta(PLACEMENT_KEY);
     return [
       appearanceCard(),
       languageCard(),
-      securityCard(db, methods, repaint),
+      securityCard(db, methods, repaint, keyPlacement),
       notificationsCard(repaint),
     ];
   },

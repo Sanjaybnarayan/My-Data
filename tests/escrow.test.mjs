@@ -1,14 +1,14 @@
 import { test, describe, assert, setSuite } from './harness.mjs';
-import { DriveEscrow, mintRawKey, APPDATA_SCOPE } from '../js/security/escrow.js';
+import { DriveEscrow, mintRawKey, APPDATA_SCOPE, VISIBLE_NAME } from '../js/security/escrow.js';
 import { Keyring } from '../js/security/keyring.js';
 import { toBase64, exportKeyBytes } from '../js/security/crypto.js';
 import {
   missingScopes, completeOAuthRedirect, isOAuthAnswer,
 } from '../js/auth/google.js';
 import {
-  unlockFreshDevice, linkExistingDevice, unlinkGoogleUnlock,
+  unlockFreshDevice, linkExistingDevice, unlinkGoogleUnlock, placementRecord,
 } from '../js/auth/google-unlock.js';
-import { keyDropMessage } from '../js/modules/settings/security.js';
+import { keyDropMessage, keyPlacementNote } from '../js/modules/settings/security.js';
 
 setSuite('escrow');
 
@@ -703,5 +703,84 @@ describe('turning Continue with Google on from Settings', () => {
     const keyring = new Keyring(meta(), 1000);
     await unlockFreshDevice(keyring, drive.escrow(), '');
     await assert.throws(() => unlinkGoogleUnlock(keyring, null), 'last-method');
+  });
+});
+
+/**
+ * Where the key is, said out loud.
+ *
+ * `connectGoogleUnlock` decides between the app's hidden folder and an
+ * ordinary file from what Google actually granted at sign-in, and the answer
+ * appeared on no screen. The consequences are not cosmetic: one placement is a
+ * file a household can open their Drive and delete; the other they cannot see
+ * at all, and the only thing that removes it is disconnecting the application
+ * from their Google account. The Settings card described the first of those to
+ * everybody.
+ */
+describe('telling a household where the key to their records is kept', () => {
+  const seen = (placement, at = '2026-09-12T04:00:00.000Z') => ({ placement, at });
+
+  test('the escrow says which of the two places it uses', () => {
+    const drive = fakeDrive();
+    assert.equal(drive.escrow('tok', true).placement, 'hidden');
+    assert.equal(drive.escrow('tok', false).placement, 'visible');
+  });
+
+  test('and the record follows the escrow rather than a default', () => {
+    const drive = fakeDrive();
+    assert.equal(placementRecord(drive.escrow('tok', true)).placement, 'hidden');
+    assert.equal(placementRecord(drive.escrow('tok', false)).placement, 'visible');
+    assert.ok(Number.isFinite(Date.parse(placementRecord(drive.escrow()).at)),
+      'an undated observation is a claim about now, which this cannot make');
+  });
+
+  test('a visible key is named, so somebody can go and look for it', () => {
+    const text = keyPlacementNote(seen('visible'));
+    assert.includes(text, VISIBLE_NAME);
+    assert.ok(/delete it/.test(text), text);
+  });
+
+  test('the file name comes from the module that searches by it', () => {
+    // Spelled in one place. A screen telling somebody to look for a name that
+    // no longer matches the one `#findIn` queries would be wrong exactly where
+    // it is being read in order to go and look.
+    assert.includes(keyPlacementNote(seen('visible')), fakeDrive().escrow('tok', false).name);
+  });
+
+  test('a hidden key says it cannot be found, and what does remove it', () => {
+    const text = keyPlacementNote(seen('hidden'));
+    assert.not(text.includes(VISIBLE_NAME), 'named a file that is not there to find');
+    assert.ok(/not find it/.test(text), text);
+    assert.ok(/disconnecting/.test(text), 'the one thing that removes it is not said');
+  });
+
+  test('both are dated, because the answer can change', () => {
+    // `DriveEscrow`'s own note: take `drive.appdata` off the consent screen
+    // and the next sign-in writes the other kind. A present-tense sentence
+    // here would be a claim this cannot make.
+    for (const where of ['hidden', 'visible']) {
+      const text = keyPlacementNote(seen(where, '2026-09-12T04:00:00.000Z'));
+      assert.includes(text, '2026-09-12');
+      assert.ok(/can change/.test(text), text);
+    }
+  });
+
+  test('a device that has never seen the key says so, rather than guessing', () => {
+    // Four shapes of "no answer", including one that names a place this
+    // application does not have.
+    const unanswered = /** @type {any[]} */ ([null, undefined, {}, { placement: 'somewhere' }]);
+    for (const nothing of unanswered) {
+      const text = keyPlacementNote(nothing);
+      assert.ok(/has not seen/.test(text), text);
+      assert.not(text.includes(VISIBLE_NAME), 'guessed the visible placement');
+    }
+  });
+
+  test('and an unreadable date reads as not seen, not as a date', () => {
+    // Printing `Invalid Date` beside the location of somebody's unlock key is
+    // worse than saying nothing.
+    const text = keyPlacementNote({ placement: 'visible', at: 'whenever' });
+    assert.ok(/has not seen/.test(text), text);
+    assert.not(/Invalid/.test(text), text);
   });
 });

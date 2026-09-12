@@ -96,6 +96,48 @@ leave a gap" did not reach that rollback at all: an integrity refusal throws
 planned, head advanced, transaction then failed — needed a test that makes the
 transaction itself fail, and now has one.
 
+## Who the log says did it, and who actually did
+
+A row's `actorId`, `actorRole` and `deviceId` are **what the device claimed**.
+They are in the signed list above, which is exactly why they are still written
+unaltered: a backend that corrected them would break every chain it touched,
+and a verifier that fires on honest rows is the cry-wolf failure this whole
+design is arranged to avoid.
+
+For most of this project's life they were also all the tab held. `admit` states
+the rule — a role and a `personId` "travel with the identity, from here, and
+are never taken from the request. A caller telling the backend what role it has
+would be a caller granting itself one" — and the audit log was the one place
+that rule was not applied. Any member with a token could append a row
+attributing a deletion to the owner, from a device id that was never theirs,
+and the record meant to say who did what would carry it.
+
+So the deployment now writes its own answer beside the claim:
+
+| column | means |
+|---|---|
+| `actorId`, `actorRole`, `deviceId` | what the device said, hashed into its chain |
+| `seenActor`, `seenRole`, `seenDevice` | who the request actually authenticated as, from the token and the membership list the owner controls |
+| `seenAt` | when this deployment received the entry |
+| `disputed` | the fields where the two disagree, named |
+
+Neither half substitutes for the other. The chain proves a device's own record
+was not edited after the fact; the `seen` columns prove who the backend
+actually let in. A row with `disputed` empty is not proof of anything — it
+means nothing the server could check disagreed.
+
+Two things are deliberately **not** disputed. `at` is the device's and is
+compared with nothing: a phone that wrote an entry an hour before it synced is
+the ordinary case, and a column that fires on every honest row is a column
+nobody reads. The gap is visible because `seenAt` is written down, not because
+it is called an accusation. And an empty `seenActor` — which is what the owner
+has until they say which person they are — is "I cannot tell", never "these
+differ".
+
+The `seen` columns are outside the chain, because they are not the device's to
+sign. That is also their limit: a household that does not trust its own
+deployment gains nothing from them.
+
 ## Entries written before this existed
 
 Counted and reported as `unchained`, not condemned. They cannot be verified,
@@ -120,8 +162,8 @@ built; `auditAppend` wrote nine columns and dropped all three. So the
 comparison described here could not have been written — nothing to compare,
 and nothing to match a row to the entry it came from — and the paragraph
 proposing this tab as the anchor rested on material the backend was throwing
-away. The tab carries twelve columns now, and one made before them is widened
-on the next push rather than left behind.
+away. The tab carries seventeen columns now, and one made before them is
+widened on the next push rather than left behind.
 
 **It is not built.** Doing it properly means deciding what happens when the two
 disagree — which is a question about trust between a household's devices and

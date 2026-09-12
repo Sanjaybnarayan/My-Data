@@ -211,7 +211,58 @@ function schemaEnsure(manifest, book, context) {
 var AUDIT_COLUMNS = [
   'at', 'action', 'entity', 'recordId', 'actorId', 'actorRole', 'fields', 'deviceId', 'detail',
   'id', 'prev', 'hash',
+  'seenActor', 'seenRole', 'seenDevice', 'seenAt', 'disputed',
 ];
+
+/**
+ * ## What the two halves of a row mean, which is not the same thing
+ *
+ * `admit` states the rule this tab had not been holding to: a role "travels
+ * with the identity, from here, and is never taken from the request. A caller
+ * telling the backend what role it has would be a caller granting itself one."
+ * The same paragraph says it again about `personId`.
+ *
+ * `auditAppend` took `actorId`, `actorRole` and `deviceId` straight out of the
+ * entry. Any member with a token could therefore write a row attributing a
+ * deletion to the owner, from a device id that was never theirs, and the log
+ * would carry it as fact.
+ *
+ * **The fix is not to overwrite them**, and that is the whole design. Those
+ * three fields are inside `SIGNED` in `js/data/chain.js`, so they are part of
+ * what each device hashes. A backend that rewrote them would break every
+ * chain it touched and turn the one tamper-evidence check this repository has
+ * into a verifier that fires on honest rows — the cry-wolf failure
+ * `js/data/chain.js` names and designs around twice.
+ *
+ * So the claim is kept and the observation is written beside it:
+ *
+ * - `actorId`, `actorRole`, `deviceId` — **what the device said**, hashed into
+ *   its chain, unaltered here, and worth exactly what the device is worth.
+ * - `seenActor`, `seenRole`, `seenDevice`, `seenAt` — **what this deployment
+ *   saw**, resolved from the token and the membership list the owner controls,
+ *   never from the request body. Outside the chain, because they are not the
+ *   device's to sign.
+ * - `disputed` — names the fields where the two disagree, so a household
+ *   scanning the tab does not have to compare eight columns by eye.
+ *
+ * A row with `disputed` empty is not proof of anything; it means nothing the
+ * server could check disagreed. A row with something in it means the device
+ * claimed one thing and the request arrived as another, which is the question
+ * worth a person's attention.
+ *
+ * ## What is deliberately not disputed
+ *
+ * `at` is client-supplied and can say anything, and it is not compared with
+ * `seenAt`. Clock skew is ordinary — a phone that synced an hour after it wrote
+ * is the normal case, not an attack — and flagging it would fill the column
+ * with noise until nobody read it. `seenAt` is recorded so the gap can be seen
+ * by anyone who looks; it is not made an accusation.
+ *
+ * An empty `seenActor` is likewise not a dispute. The owner's `personId` is
+ * empty until they say which person they are (see `admit`), so the server
+ * genuinely does not know, and "I cannot tell" must not be written down as
+ * "these differ".
+ */
 
 /**
  * Create the tab, or widen one made before the last three columns existed.
@@ -478,6 +529,29 @@ function sheetPull(cursors, limit, book, context) {
 
 /* ----------------------------------------------------------------- audit */
 
+/**
+ * Where an entry's claim about who wrote it disagrees with who actually did.
+ *
+ * Each comparison needs both sides present. A claim the device did not make
+ * cannot disagree with anything, and a value the server does not hold is not
+ * evidence that the device's is wrong — see the note on `AUDIT_COLUMNS` about
+ * the owner's empty `personId`. Both directions of that are why every check
+ * requires the claim *and* the observation before it will fire.
+ *
+ * @returns {string[]} field names, in the order they appear in the tab
+ */
+function disputedFields(entry, seenActor, seenRole, seenDevice) {
+  var out = [];
+  var claimedActor = String(entry.actorId || '');
+  var claimedRole = String(entry.actorRole || '');
+  var claimedDevice = String(entry.deviceId || '');
+
+  if (claimedActor && seenActor && claimedActor !== seenActor) out.push('actorId');
+  if (claimedRole && seenRole && claimedRole !== seenRole) out.push('actorRole');
+  if (claimedDevice && seenDevice && claimedDevice !== seenDevice) out.push('deviceId');
+  return out;
+}
+
 function auditAppend(entries, book, context) {
   entries = requestList(entries, 'audit entries');
   if (!entries.length) return { appended: 0 };
@@ -492,6 +566,15 @@ function auditAppend(entries, book, context) {
   }
 
   ensureAuditSheet(book);
+
+  // Resolved once, outside the loop: every entry in a batch arrived on the
+  // same request, so they were all seen by the same caller on the same device
+  // at the same moment. Reading it per entry would invite the idea that an
+  // entry could carry its own answer, which is the defect this is closing.
+  var seenActor = String((context && context.personId) || '');
+  var seenRole = String((context && context.role) || '');
+  var seenDevice = String((context && context.deviceId) || '');
+  var seenAt = new Date().toISOString();
 
   var sheet = book.getSheetByName(AUDIT_SHEET);
   var headers = headerRow(sheet);
@@ -512,6 +595,11 @@ function auditAppend(entries, book, context) {
       id: entry.id || '',
       prev: entry.prev || '',
       hash: entry.hash || '',
+      seenActor: seenActor,
+      seenRole: seenRole,
+      seenDevice: seenDevice,
+      seenAt: seenAt,
+      disputed: disputedFields(entry, seenActor, seenRole, seenDevice).join(', '),
     };
     var row = [];
     for (var c = 0; c < headers.length; c++) {

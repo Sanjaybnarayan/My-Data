@@ -31,6 +31,7 @@ import { buildShell } from './ui/shell.js';
 import { lockScreen, recoveryKitScreen, lockNow } from './auth/lock.js';
 import { Session, AttemptLimiter } from './security/session.js';
 import { googleAuth } from './auth/googleauth.js';
+import { PLACEMENT_KEY } from './auth/google-unlock.js';
 import { AppsScriptTransport } from './sync/transport.js';
 import { CodeEscrow } from './security/codeescrow.js';
 import { SyncEngine } from './sync/engine.js';
@@ -130,8 +131,13 @@ export async function boot() {
       googleEnrolled: methods.some((m) => m.method === 'google'),
       mode: enrolled ? 'unlock' : 'enrol',
       codeEscrow,
-      onUnlocked: async ({ firstRun, googleSession: session, personId }) => {
+      onUnlocked: async ({ firstRun, googleSession: session, personId, googlePlacement }) => {
         if (session) googleSession = session;
+        // Where the unlock key was just seen. Recorded here because this is
+        // the first point in the sequence that has a database open, and never
+        // as a default — a household that did not sign in with Google leaves
+        // whatever was recorded before exactly as it was.
+        if (googlePlacement) await db.setMeta(PLACEMENT_KEY, googlePlacement);
         // A code names the person it was sent to, so the device does not have
         // to ask a question it already has the answer to. Only ever the id the
         // server returned — never one the screen decided for itself.

@@ -67,6 +67,32 @@ export function googleUnlockAvailable() {
  * @param {{prompt?: string}} [options]
  * @returns {Promise<{auth: object, escrow: DriveEscrow, email: string}>}
  */
+/**
+ * Where the last observation about the unlock key's placement is kept.
+ *
+ * In `meta` rather than on the keyring entry, because it is not part of what
+ * unlocks this device — it is a note about somebody else's Drive, taken at a
+ * moment, and a keyring entry is the wrong place for something that can be
+ * wrong.
+ */
+export const PLACEMENT_KEY = 'unlock.google.placement';
+
+/**
+ * What was true about the key's placement at the moment this was asked.
+ *
+ * The timestamp is not decoration. `DriveEscrow`'s own note says the placement
+ * follows what Google granted at sign-in and that the answer changes — take
+ * `drive.appdata` off the consent screen and the next sign-in writes a visible
+ * file instead. A stored answer with no date on it would be a claim about
+ * where a household's unlock key is *now*, which this cannot make.
+ *
+ * @param {{placement: 'hidden'|'visible'}} escrow
+ * @returns {{placement: 'hidden'|'visible', at: string}}
+ */
+export function placementRecord(escrow) {
+  return { placement: escrow.placement, at: new Date().toISOString() };
+}
+
 export async function connectGoogleUnlock({ prompt = 'select_account consent' } = {}) {
   const auth = googleAuth({ scopes: UNLOCK_SCOPES });
   await auth.signIn({ prompt });

@@ -1449,6 +1449,8 @@ describe('the id that decides whose records a caller may reach', () => {
 describe('the copy of the audit trail the household keeps off the device', () => {
   const OLD = ['at', 'action', 'entity', 'recordId', 'actorId', 'actorRole',
     'fields', 'deviceId', 'detail'];
+  const ADDED = ['id', 'prev', 'hash',
+    'seenActor', 'seenRole', 'seenDevice', 'seenAt', 'disputed'];
 
   const entry = (over = {}) => ({
     id: 'aud_1', at: '2026-09-11T00:00:00.000Z', action: 'update', entity: 'person',
@@ -1510,7 +1512,7 @@ describe('the copy of the audit trail the household keeps off the device', () =>
     send(book, [entry()]);
 
     assert.deep(book.head.slice(0, OLD.length), OLD, 'the existing columns moved');
-    assert.deep(book.head.slice(OLD.length), ['id', 'prev', 'hash']);
+    assert.deep(book.head.slice(OLD.length), ADDED);
   });
 
   test('without putting a value under the wrong heading', () => {
@@ -1549,7 +1551,7 @@ describe('the copy of the audit trail the household keeps off the device', () =>
   test('and a workbook with no audit tab yet gets one with every column', () => {
     const book = auditBook(null);
     assert.ok(send(book, [entry()]).ok);
-    assert.deep(book.head, [...OLD, 'id', 'prev', 'hash']);
+    assert.deep(book.head, [...OLD, ...ADDED]);
   });
 
   test('an entry with no chain on it still lands, rather than the batch failing', () => {
@@ -1563,6 +1565,114 @@ describe('the copy of the audit trail the household keeps off the device', () =>
     assert.ok(send(book, [bare]).ok);
     const row = book.written[0];
     assert.equal(row[book.head.indexOf('hash')], '');
+  });
+
+  /*
+   * `admit` states the rule: a role and a `personId` "travel with the
+   * identity, from here, and are never taken from the request. A caller
+   * telling the backend what role it has would be a caller granting itself
+   * one." `auditAppend` read all three of `actorId`, `actorRole` and
+   * `deviceId` out of the entry, so the log — the one record meant to say who
+   * did what — was the one place that rule was not applied.
+   *
+   * The claim is still written, because those fields are inside `SIGNED` in
+   * `js/data/chain.js` and rewriting them here would break every device's
+   * chain. What is new is that the deployment's own answer is written beside
+   * it.
+   */
+  const household = (book) => backend({
+    owner: OWNER,
+    tokens,
+    workbook: book,
+    properties: {
+      workbookId: 'wb1',
+      sheetMap: '{}',
+      members: JSON.stringify([{ email: SPOUSE, role: 'spouse', personId: 'p-asha' }]),
+    },
+  });
+
+  const sendAs = (book, token, entries, deviceId = 'dev_a') => household(book)
+    .post('audit', token, { entries }, { deviceId });
+
+  const cell = (book, name, index = 0) => book.written[index][book.head.indexOf(name)];
+
+  test('a member writing a row as the owner has both answers recorded', () => {
+    const book = auditBook(OLD);
+    // The spouse's own token, and an entry claiming the owner did it from a
+    // device that is not the one the request came from.
+    assert.ok(sendAs(book, 'spouse-token',
+      [entry({ actorId: 'p-owner', actorRole: 'owner', deviceId: 'dev_owner' })],
+      'dev_spouse').ok);
+
+    assert.equal(cell(book, 'actorId'), 'p-owner', 'the claim was rewritten');
+    assert.equal(cell(book, 'actorRole'), 'owner', 'the claim was rewritten');
+    assert.equal(cell(book, 'deviceId'), 'dev_owner', 'the claim was rewritten');
+
+    assert.equal(cell(book, 'seenActor'), 'p-asha');
+    assert.equal(cell(book, 'seenRole'), 'spouse');
+    assert.equal(cell(book, 'seenDevice'), 'dev_spouse');
+    assert.equal(cell(book, 'disputed'), 'actorId, actorRole, deviceId');
+  });
+
+  test('the claim is left exactly as the device hashed it', () => {
+    // Not a nicety. `SIGNED` in js/data/chain.js covers actorId, actorRole and
+    // deviceId, so a backend that corrected them would make every honest row
+    // fail its own chain check — the cry-wolf verifier that file designs
+    // against. The dispute goes in a column of its own for that reason.
+    const book = auditBook(OLD);
+    sendAs(book, 'spouse-token', [entry({ actorRole: 'owner' })]);
+    assert.equal(cell(book, 'actorRole'), 'owner');
+    assert.equal(cell(book, 'hash'), 'abc123', 'the row no longer matches its hash');
+  });
+
+  test('an honest row disputes nothing', () => {
+    const book = auditBook(OLD);
+    sendAs(book, 'spouse-token',
+      [entry({ actorId: 'p-asha', actorRole: 'spouse', deviceId: 'dev_x' })], 'dev_x');
+    assert.equal(cell(book, 'disputed'), '');
+  });
+
+  test('a clock that disagrees is recorded and is not called a dispute', () => {
+    // `at` is the device's and can say anything. A phone that wrote an entry
+    // an hour before it synced is the ordinary case, so the gap is written
+    // down where it can be seen and is not made an accusation — a column that
+    // fires on every honest row is a column nobody reads.
+    const book = auditBook(OLD);
+    sendAs(book, 'spouse-token',
+      [entry({ at: '2001-01-01T00:00:00.000Z', actorId: 'p-asha', actorRole: 'spouse', deviceId: 'dev_a' })]);
+
+    assert.equal(cell(book, 'at'), '2001-01-01T00:00:00.000Z');
+    assert.not(cell(book, 'seenAt') === cell(book, 'at'),
+      'the receive time was taken from the entry, so it says nothing the entry did not');
+    assert.ok(Date.parse(String(cell(book, 'seenAt'))) > Date.parse('2020-01-01T00:00:00.000Z'),
+      'nothing records when the deployment actually received it');
+    assert.equal(cell(book, 'disputed'), '');
+  });
+
+  test('what the deployment cannot tell is not written down as a difference', () => {
+    // The owner is admitted by identity and is not in the member list, so
+    // their personId is empty until they say which person they are. That is
+    // "I do not know", and recording it as a disagreement would put a mark
+    // against every row the owner writes.
+    const book = auditBook(OLD);
+    sendAs(book, 'owner-token', [entry({ actorId: 'p-owner', actorRole: 'owner' })]);
+
+    assert.equal(cell(book, 'seenActor'), '');
+    assert.equal(cell(book, 'disputed'), '', 'an unknown was reported as a mismatch');
+  });
+
+  test('every row of one batch carries the same observation', () => {
+    // They arrived on one request from one caller. Resolving it per entry
+    // would invite the idea that an entry could carry its own answer, which
+    // is the defect being closed.
+    const book = auditBook(OLD);
+    sendAs(book, 'spouse-token',
+      [entry({ id: 'aud_1' }), entry({ id: 'aud_2', actorRole: 'child' })]);
+
+    assert.equal(cell(book, 'seenRole', 0), 'spouse');
+    assert.equal(cell(book, 'seenRole', 1), 'spouse');
+    assert.equal(cell(book, 'disputed', 0), 'actorId, actorRole');
+    assert.equal(cell(book, 'disputed', 1), 'actorId, actorRole');
   });
 });
 
