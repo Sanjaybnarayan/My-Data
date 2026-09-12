@@ -215,7 +215,7 @@ const DEPLOYED = ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs', 'Gmail.gs', '
 
 export function backend({
   owner = 'owner@example.com', tokens = {}, properties = {},
-  driveFiles = {}, revisions = {}, files = DEPLOYED,
+  driveFiles = {}, revisions = {}, mail = [], files = DEPLOYED,
   workbook = null,
   randomBytes = () => [0, 0, 0, 0],
   now = () => Date.now(),
@@ -227,6 +227,18 @@ export function backend({
   const mailed = [];
   /** Workbooks the script decided to make, which is a decision worth seeing. */
   const created = [];
+  /** Every mail query that reached Gmail, which is the point of the guard. */
+  const searched = [];
+
+  /** A Gmail message, from the plain object a test wrote. */
+  const message = (given) => ({
+    getId: () => given.id ?? 'msg_1',
+    getFrom: () => given.from ?? 'shop@example.com',
+    getSubject: () => given.subject ?? 'Your order',
+    getDate: () => new Date(given.date ?? '2026-01-01T00:00:00.000Z'),
+    getPlainBody: () => given.plainBody ?? '',
+    getBody: () => given.body ?? '',
+  });
 
   /*
    * A lock that excludes, and a record of which kind was taken.
@@ -444,7 +456,22 @@ export function backend({
      * defined` — the audit's second named fixture gap.
      */
     ScriptApp: { getOAuthToken: () => 'stub-oauth-token' },
-    GmailApp: {},
+    /*
+     * A mailbox that records what it was asked for.
+     *
+     * Deliberately not a Gmail query engine. Simulating `OR`, `-in:trash` and
+     * body search would be writing a second Gmail and then testing that one —
+     * and the thing under test is which queries `gmailSearch` will *pass on*,
+     * not what Gmail does with them. So the stub keeps every query it is
+     * handed and returns whatever messages the test supplied, and the checks
+     * assert on `searched`: a refused query must not appear in it at all.
+     */
+    GmailApp: {
+      search(query, start, limit) {
+        searched.push({ query: query, start: start, limit: limit });
+        return mail.length ? [{ getMessages: () => mail.map(message) }] : [];
+      },
+    },
     console: { log: (...args) => logged.push(args.join(' ')), warn() {}, error() {} },
 
     /*
@@ -507,6 +534,6 @@ export function backend({
    * caller of a real overlap sees.
    */
   return Object.assign(api, {
-    props, cache, fetched, logged, owner, driveFiles, mailed, locks, held, created,
+    props, cache, fetched, logged, owner, driveFiles, mailed, locks, held, created, searched,
   });
 }

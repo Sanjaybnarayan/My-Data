@@ -14,15 +14,41 @@
  * Reading mail requires a scope that can read all of it — Gmail has no
  * "only these senders" permission, and pretending otherwise would be
  * dishonest. So the limit that actually holds is this function: it runs the
- * query it is given, refuses a query that does not name senders, and returns
- * a bounded number of messages. A household can read the query in
- * `domain/merchants.js`, see the exact list of shops, and check it against
- * what comes back.
+ * query it is given, refuses a query that is not a list of senders and terms
+ * that narrow it, and returns a bounded number of messages. A household can
+ * read the query in `domain/merchants.js`, see the exact list of shops, and
+ * check it against what comes back.
+ *
+ * That sentence used to say "refuses a query that does not name senders", and
+ * the check behind it was `query.indexOf('from:') === -1`. A substring is not
+ * a constraint. `from:me OR is:unread` contains `from:` and asks Gmail for the
+ * whole mailbox; so does `(from:a) subject:password`. The one limit this file
+ * claimed to have could be stepped over by typing four characters, and the
+ * paragraph above was the only place anybody would have looked for it.
+ * `assertSenderQuery` is a grammar now, and what it accepts is what
+ * `searchQuery` builds and nothing wider.
  *
  * Bodies are truncated hard. A receipt's total sits near the top; the rest is
  * marketing, and shipping the whole of it would mean holding a copy of the
  * mailbox in transit for no benefit.
+ *
+ * ## Who may ask
+ *
+ * Nobody was being asked. `gmailSearch` took a `context` and spent it on a log
+ * line — the same fault `driveUpload` had, in the same shape, one file over.
+ * So any member this household had ever added, at any role, could search the
+ * owner's mailbox: a child, a guest, a member of staff.
+ *
+ * `transaction` is the entity this mail becomes, so its ACL decides, which is
+ * the rule `driveAllows` already applies to `document`. Searching is a read
+ * and is checked as one — the same mapping `driveDownload` uses — so the
+ * adults who file receipts today go on doing it, and the three roles that
+ * cannot read a transaction can no longer read the mail one would have come
+ * from.
  */
+
+/* eslint-env googleappsscript */
+/* global GmailApp, Utilities, fail, log, policyAllows */
 
 /** Enough of a receipt to find the total, and no more. */
 var MAX_BODY_CHARS = 4000;
@@ -30,20 +56,95 @@ var MAX_BODY_CHARS = 4000;
 /** A ceiling on one call, well inside the six-minute execution limit. */
 var MAX_MESSAGES = 200;
 
+/** A sender term: `from:` and a domain, optionally with a mailbox before it. */
+var SENDER = /^from:(?:[A-Za-z0-9._%+-]+@)?[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+
+/**
+ * Terms that can only make the result smaller.
+ *
+ * Every one of these removes messages from what the sender group already
+ * matched. Nothing here can add a message, which is the property that makes
+ * the list safe to extend: a term that is not on it is refused, and a term
+ * that is on it cannot widen the search past the shops named in front of it.
+ */
+var NARROWING = [
+  /^after:\d{4}\/\d{1,2}\/\d{1,2}$/,
+  /^before:\d{4}\/\d{1,2}\/\d{1,2}$/,
+  /^newer_than:\d{1,4}[dmy]$/,
+  /^older_than:\d{1,4}[dmy]$/,
+  /^-in:trash$/,
+  /^-in:spam$/,
+];
+
+/**
+ * Refuse anything that is not senders, then narrowing.
+ *
+ * The shape `domain/merchants.js` builds and the only shape accepted:
+ *
+ *     (from:zomato.com OR from:swiggy.in) after:2026/01/01 -in:trash -in:spam
+ *
+ * A single unbracketed sender is accepted too, because the connection probe on
+ * the receipts screen sends `from:example.com` to ask whether this deployment
+ * can read mail at all.
+ *
+ * `OR` is the whole reason this is a grammar rather than a search for a
+ * substring: inside the leading group it joins senders, and anywhere else it
+ * joins a sender to something that is not one. So the group is taken first and
+ * every remaining word has to match a term that can only narrow. There is no
+ * allowance for free text — a bare word in a Gmail query is a body search
+ * across everything the scope can reach.
+ */
+function assertSenderQuery(query) {
+  var refuse = function () {
+    throw fail('a mail search must be a list of senders, and terms that narrow it', 400);
+  };
+
+  var group;
+  var rest;
+
+  if (query.charAt(0) === '(') {
+    var close = query.indexOf(')');
+    if (close === -1) refuse();
+    var nested = query.indexOf('(', 1);
+    if (nested !== -1 && nested < close) refuse();
+    group = query.slice(1, close);
+    rest = query.slice(close + 1);
+  } else {
+    var space = query.indexOf(' ');
+    group = space === -1 ? query : query.slice(0, space);
+    rest = space === -1 ? '' : query.slice(space);
+  }
+
+  var senders = group.split(/\s+OR\s+/);
+  if (!senders.length) refuse();
+  for (var i = 0; i < senders.length; i++) {
+    if (!SENDER.test(senders[i].trim())) refuse();
+  }
+
+  var words = rest.split(/\s+/);
+  for (var w = 0; w < words.length; w++) {
+    if (!words[w]) continue;
+    var ok = false;
+    for (var n = 0; n < NARROWING.length; n++) {
+      if (NARROWING[n].test(words[w])) { ok = true; break; }
+    }
+    if (!ok) refuse();
+  }
+}
+
 /**
  * @param {{query: string, limit: number}} payload
  * @returns {{messages: Array, query: string, truncated: boolean}}
  */
 function gmailSearch(payload, context) {
+  var role = (context && context.role) || 'guest';
+  if (!policyAllows(role, 'read', 'transaction')) {
+    throw fail('your role may not read the household mail', 403);
+  }
+
   var query = String(payload.query || '').trim();
   if (!query) throw fail('no search query was supplied', 400);
-
-  // The client builds this from its merchant registry. A query with no sender
-  // term would be a request to read the whole mailbox, which this refuses on
-  // principle rather than trusting the caller to have meant something else.
-  if (query.indexOf('from:') === -1) {
-    throw fail('a mail search must name the senders it is for', 400);
-  }
+  assertSenderQuery(query);
 
   var limit = Math.min(Number(payload.limit) || 100, MAX_MESSAGES);
   var threads = GmailApp.search(query, 0, limit);

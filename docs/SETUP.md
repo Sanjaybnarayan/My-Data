@@ -62,9 +62,23 @@ anybody. The trade is that you do the setup once.
 > `Gmail.gs` reads the receipts shops email you, which is what Finance → Shops
 > is built on. Gmail has no "only these senders" permission, so the scope it
 > asks for can read the whole mailbox — that is Google's design, not a choice
-> made here. What limits it is `Gmail.gs` itself: it refuses any search that
-> does not name senders, and the query the app sends is printed on screen
-> before it runs. If you would rather not grant it, delete `Gmail.gs` and its
+> made here. What limits it is `Gmail.gs` itself: a search must be a list of
+> senders, optionally narrowed by a date or by leaving out Bin and Spam, and
+> nothing else is accepted — no subject terms, no bare words, no `OR` joining
+> a sender to anything that is not one. The query the app sends is printed on
+> screen before it runs, so you can check it against that rule yourself.
+>
+> This paragraph used to say only "it refuses any search that does not name
+> senders", and the check behind it looked for `from:` anywhere in the query.
+> `from:me OR is:unread` satisfies that and asks Gmail for everything. The
+> sentence was the limit; the code was not keeping it. It is a grammar now.
+>
+> Only a household member who may read the family's transactions can ask at
+> all — an owner, a spouse or an adult. A child, a guest or a member of staff
+> is refused, which is what the roles already said about the records this mail
+> becomes and what the mail search now says too.
+>
+> If you would rather not grant it, delete `Gmail.gs` and its
 > scope line from `appsscript.json` before deploying; everything else works
 > unchanged and the Shops tab will simply report that mail search is not
 > available.

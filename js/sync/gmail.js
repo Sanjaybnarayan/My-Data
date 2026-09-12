@@ -40,6 +40,7 @@
  */
 
 import { TransportError } from '../core/errors.js';
+import { isSenderQuery } from '../domain/merchants.js';
 
 // Declared in `core/scopes.js` alongside what each is for, and re-exported
 // here so callers of this module do not have to know that.
@@ -82,10 +83,14 @@ export class GmailClient {
    * @param {number} limit
    */
   async mail(query, limit = 100) {
-    if (!query || !query.includes('from:')) {
-      // The same refusal the backend makes. A query with no sender term is a
-      // request to read the whole mailbox, and neither route will build or
-      // send one.
+    if (!isSenderQuery(query)) {
+      // The same refusal the backend makes, from the same grammar. A query
+      // that is not a list of senders and terms that narrow it is a request
+      // to read the whole mailbox, and neither route will build or send one.
+      //
+      // This used to be `query.includes('from:')`, which `from:me OR
+      // is:unread` satisfies — so the refusal named a limit it was not
+      // applying. See `isSenderQuery`.
       throw new TransportError('a mail search must name the senders it is for',
         { status: 400, retryable: false });
     }
