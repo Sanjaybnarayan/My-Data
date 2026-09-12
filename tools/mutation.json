@@ -1449,6 +1449,27 @@
       "find": "    at: /fastag[.\\s]*(?:id|no|number)?[:.\\s]+([A-Z0-9]{10,32})\\b/gi,",
       "replace": "    at: /fastag[.\\s]*(?:id|no|number)?[:.\\s]+([A-Z0-9]{40,52})\\b/gi,",
       "suite": "identifiers"
+    },
+    {
+      "label": "a withheld Google permission is never mentioned to anybody",
+      "file": "js/modules/settings/connection.js",
+      "find": "  const ids = auth.missingScopes();\n  if (!ids.length) return null;",
+      "replace": "  const ids = [];\n  if (!ids.length) return null;",
+      "suite": "scopes"
+    },
+    {
+      "label": "the missing permission is named by its scope URL",
+      "file": "js/modules/settings/connection.js",
+      "find": "  const names = (known.length ? known.map((scope) => scope.title) : ids).join(', ');",
+      "replace": "  const names = ids.join(', ');",
+      "suite": "scopes"
+    },
+    {
+      "label": "nothing says where a withheld permission is fixed",
+      "file": "js/modules/settings/connection.js",
+      "find": "    text: [what, effects, t('settings.google.scopeGap.fix')].filter(Boolean).join(' '),",
+      "replace": "    text: [what, effects].filter(Boolean).join(' '),",
+      "suite": "scopes"
     }
   ]
 }

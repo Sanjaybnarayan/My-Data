@@ -8,6 +8,7 @@ import {
 } from '../js/core/scopes.js';
 import { config } from '../js/core/config.js';
 import { t } from '../js/core/locale.js';
+import { scopeGap } from '../js/modules/settings/connection.js';
 
 setSuite('scopes');
 
@@ -163,5 +164,86 @@ describe('the registry matches the deployed manifest', () => {
     const setup = await readFile(join(ROOT, 'docs', 'SETUP.md'), 'utf8');
     assert.not(/browser\s+never\s+talks\s+to\s+Gmail/i.test(setup),
       'SETUP.md still claims the browser never reads mail');
+  });
+});
+
+/**
+ * A permission Google withheld, named where somebody will see it.
+ *
+ * `GoogleAuth.missingScopes()` had **no caller anywhere in `js/`**. Its header
+ * says what it was written for:
+ *
+ *     Google returns a perfectly good token after somebody unticks a
+ *     permission on the consent screen, and after a Cloud project that never
+ *     listed a scope drops it. Both then surface as a refusal from whichever
+ *     API call needed it — which names the wrong problem, and sends people
+ *     looking at their Drive rather than at their consent screen.
+ *
+ * Nothing asked it, so it named nothing, and the misdiagnosis it exists to
+ * prevent went on happening. A diagnostic with no reader is not a diagnostic.
+ *
+ * `scopeGap` is a function rather than four lines inside the card because the
+ * mutation catalogue has refused screen-level entries five times in this work:
+ * a decision taken inside a render is a decision no check can reach.
+ */
+describe('telling somebody which Google permission is missing', () => {
+  /** Just enough of `GoogleAuth` for the thing under test. */
+  const signedIn = (missing) => ({ isSignedIn: true, missingScopes: () => missing });
+
+  test('says nothing when everything asked for was granted', () => {
+    assert.equal(scopeGap(signedIn([])), null);
+  });
+
+  test('and says nothing before anybody has signed in', () => {
+    // An empty grant claims nothing. Warning about permissions that have not
+    // been asked for yet would be a warning nobody can act on.
+    assert.equal(scopeGap({ isSignedIn: false, missingScopes: () => ['openid'] }), null);
+    assert.equal(scopeGap(null), null);
+  });
+
+  test('names the permission by its title, not its URL', () => {
+    const drive = SCOPES.find((scope) => scope.id.includes('drive.file'));
+    assert.ok(drive, 'the scope catalogue no longer lists drive.file — this check is stale');
+
+    const gap = scopeGap(signedIn([drive.id]));
+    assert.ok(gap, 'a withheld permission was not reported at all');
+    assert.includes(gap.text, drive.title);
+    assert.not(gap.text.includes('googleapis.com'),
+      'the message shows a scope URL, which is not a thing anybody can act on');
+  });
+
+  test('and says what stops working, in the catalogue’s own words', () => {
+    // `without` is already written per scope in `js/core/scopes.js`. A second
+    // phrasing here would be a second thing to keep true.
+    const drive = SCOPES.find((scope) => scope.id.includes('drive.file'));
+    assert.includes(scopeGap(signedIn([drive.id])).text, drive.without);
+  });
+
+  test('and where to fix it, which is not where the failure appears', () => {
+    /*
+     * The whole point of the diagnostic. Without this the first sign is a
+     * refusal from Drive or Sheets, and the answer is on a consent screen in
+     * a different console.
+     */
+    const drive = SCOPES.find((scope) => scope.id.includes('drive.file'));
+    assert.includes(scopeGap(signedIn([drive.id])).text, 'consent screen');
+  });
+
+  test('a scope this build does not describe is still named', () => {
+    // Saying "one permission is missing" without saying which would be the
+    // same failure one level up.
+    const gap = scopeGap(signedIn(['https://www.googleapis.com/auth/something.new']));
+    assert.ok(gap);
+    assert.includes(gap.text, 'something.new');
+  });
+
+  test('two missing permissions are counted, not listed as one', () => {
+    const two = SCOPES.slice(0, 2).map((scope) => scope.id);
+    const gap = scopeGap(signedIn(two));
+    assert.equal(gap.ids.length, 2);
+    assert.includes(gap.text, '2');
+    for (const id of two) {
+      assert.includes(gap.text, SCOPES.find((scope) => scope.id === id).title);
+    }
   });
 });
