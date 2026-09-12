@@ -24,6 +24,19 @@ const CARD_WORD = /\b(card|debit|credit|visa|mastercard|rupay|amex)\b/i;
 const VID_WORD = /\bVID\b|virtual\s*id/i;
 
 /**
+ * Twelve digits that are **not part of a longer run** — an Aadhaar's shape.
+ *
+ * Named because two rules below need exactly it: the one gated on the words
+ * UIDAI prints, and the one gated on the `UID` abbreviation a KYC form uses.
+ * Written twice they could drift, and the lookarounds are the half that took
+ * two goes to get right — see the rule that carries the explanation.
+ *
+ * A regex with `g` carries `lastIndex`, so the two rules cannot share one
+ * object: this is the source, and each rule builds its own from it.
+ */
+const AADHAAR_SHAPE = '(?<!\\d)(?<!\\d[ \\t-])\\b\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b(?![ \\t-]?\\d)';
+
+/**
  * The check digit every payment card carries.
  *
  * Doubling every second digit from the right and summing must give a multiple
@@ -120,7 +133,39 @@ export const SENSITIVE = [
      * `[\s-]` inside also widens what is caught: `2233-4455-6677` matched
      * nothing before this and was left in the text whole.
      */
-    pattern: /(?<!\d)(?<!\d[ \t-])\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b(?![ \t-]?\d)/g,
+    pattern: new RegExp(AADHAAR_SHAPE, 'g'),
+  },
+  {
+    /*
+     * The same number, where the document calls it a **UID**.
+     *
+     * `near` above lists `aadhaar`, `aadhar`, `UIDAI` and `unique
+     * identification`, and not the abbreviation every bank KYC form uses.
+     * Measured: `UID 234567890123 recorded at branch` came through whole.
+     *
+     * A separate rule rather than one more alternative in that `near`, and
+     * the difference is the one this file has already paid for twice.
+     * `readIdentifiers` tests `near` against the **whole document** — so
+     * adding `UID` there would mean that any page containing the token,
+     * including a UPI narration or a reference in a footer, has every
+     * Aadhaar-shaped run on it redacted. That is the fault the card rule
+     * describes in its own words: "presence is not proximity".
+     *
+     * So `keep` gates it on the forty characters around the digits, the way
+     * the VID rule does. A document that says UID beside twelve digits loses
+     * them; a document that says UID somewhere else does not.
+     *
+     * Same `kind`, so it dedupes against the rule above and files through
+     * `IDENTIFIER_KINDS.Aadhaar` exactly as that one does.
+     *
+     * It will sometimes take a transaction reference labelled UID, and that
+     * is the direction this file says to be wrong in: "a missed Aadhaar stays
+     * in the searchable text, which is the expensive direction".
+     */
+    kind: 'Aadhaar',
+    near: /\bUID\b/i,
+    pattern: new RegExp(AADHAAR_SHAPE, 'g'),
+    keep: (value, nearby) => /\bUID\b/i.test(nearby),
   },
   {
     // An Aadhaar enrolment id — `1234/56789/01234` — printed at the top of
@@ -226,6 +271,27 @@ export const SENSITIVE = [
    * schema has already asked for, and which of those a household wants is
    * theirs to say rather than a thing to decide inside a regex.
    */
+  /*
+   * A payslip and a PF passbook, by the same rule as the account number.
+   *
+   * `employment.uan` and `employment.pfNumber` are `encrypted: true`, and
+   * both survived whole — measured:
+   *
+   *     UAN: 101234567890   PF No: KN/BNG/0012345/000/0001234
+   *
+   * A UAN is twelve digits and a PF number is an establishment code with
+   * slashes; neither shape is recognisable on its own, and both labels are
+   * printed on every payslip. So both are anchored on the label, like the
+   * chassis and engine rules above.
+   */
+  {
+    kind: 'UAN',
+    at: /\bUAN\b[.\s]*(?:no|number)?[:.\s]+(\d{12})\b/gi,
+  },
+  {
+    kind: 'PF',
+    at: /\bPF\b[.\s]*(?:a\/c|account|no|number)?[:.\s]+([A-Z0-9][A-Z0-9/-]{6,29})\b/gi,
+  },
   {
     kind: 'Account',
     at: /(?:a\/c|acct|account)[.\s]*(?:no|number)?[:.\s]+(\d{9,18})\b/gi,

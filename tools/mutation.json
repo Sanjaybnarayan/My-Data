@@ -809,8 +809,8 @@
     {
       "label": "twelve digits of a sixteen-digit number are offered as an Aadhaar",
       "file": "js/domain/extract-sensitive.js",
-      "find": "    pattern: /(?<!\\d)(?<!\\d[ \\t-])\\b\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b(?![ \\t-]?\\d)/g,",
-      "replace": "    pattern: /\\b\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b/g,",
+      "find": "const AADHAAR_SHAPE = '(?<!\\\\d)(?<!\\\\d[ \\\\t-])\\\\b\\\\d{4}[\\\\s-]?\\\\d{4}[\\\\s-]?\\\\d{4}\\\\b(?![ \\\\t-]?\\\\d)';",
+      "replace": "const AADHAAR_SHAPE = '\\\\b\\\\d{4}[\\\\s-]?\\\\d{4}[\\\\s-]?\\\\d{4}\\\\b';",
       "suite": "extract"
     },
     {
@@ -1399,6 +1399,34 @@
       "file": "js/domain/extract-sensitive.js",
       "find": "    at: /(?:a\\/c|acct|account)[.\\s]*(?:no|number)?[:.\\s]+(\\d{9,18})\\b/gi,",
       "replace": "    near: /a\\/c|acct|account/i,\n    pattern: /\\b\\d{9,18}\\b/g,",
+      "suite": "identifiers"
+    },
+    {
+      "label": "a UAN on a payslip reaches the searchable text",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    at: /\\bUAN\\b[.\\s]*(?:no|number)?[:.\\s]+(\\d{12})\\b/gi,",
+      "replace": "    at: /\\bUAN\\b[.\\s]*(?:no|number)?[:.\\s]+(\\d{40,50})\\b/gi,",
+      "suite": "identifiers"
+    },
+    {
+      "label": "a PF number on a payslip reaches the searchable text",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    at: /\\bPF\\b[.\\s]*(?:a\\/c|account|no|number)?[:.\\s]+([A-Z0-9][A-Z0-9/-]{6,29})\\b/gi,",
+      "replace": "    at: /\\bPF\\b[.\\s]*(?:a\\/c|account|no|number)?[:.\\s]+([A-Z0-9][A-Z0-9/-]{40,59})\\b/gi,",
+      "suite": "identifiers"
+    },
+    {
+      "label": "an Aadhaar the document calls a UID stays in the text",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    kind: 'Aadhaar',\n    near: /\\bUID\\b/i,",
+      "replace": "    kind: 'Aadhaar',\n    near: /\\bnothing-matches-this\\b/i,",
+      "suite": "identifiers"
+    },
+    {
+      "label": "a UID anywhere on the page redacts every twelve-digit run on it",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    keep: (value, nearby) => /\\bUID\\b/i.test(nearby),",
+      "replace": "    keep: () => true,",
       "suite": "identifiers"
     }
   ]
