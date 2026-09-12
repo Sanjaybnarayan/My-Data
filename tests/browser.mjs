@@ -7393,18 +7393,30 @@ async function main() {
        * now, and a table claiming three formats work while one is clicked is
        * the shape of overclaim this repository keeps finding.
        */
-      /** @type {[string, string, string, Buffer, string][]} */
+      /*
+       * `wanted` is something the redaction table leaves alone, and `gone` is
+       * something it must remove.
+       *
+       * The spreadsheet used to be checked by its policy number, and that
+       * stopped being a test of reading the file the day `extract-sensitive.js`
+       * started taking policy numbers out of `ocrText` — the household asked
+       * for that, and `insurance.policyNumber` is `encrypted: true`. Checked by
+       * the premium instead, which proves the same thing about the reader, and
+       * the number is now checked for its **absence** so the redaction is held
+       * on the screen path too and not only in the unit suite.
+       */
+      /** @type {[string, string, string, Buffer, string, string|null][]} */
       const alsoRead = [
         ['a spreadsheet policy', 'policy.xlsx',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           sheetFile(['Policy Number: OG-26-1201-4081', 'Premium Rs. 12,500 due on 04/03/2027']),
-          'OG-26-1201-4081'],
+          '12,500', 'OG-26-1201-4081'],
         ['a plain text bill', 'tatapower.txt', 'text/plain',
           Buffer.from('TATA POWER\nTotal Amount Rs. 1,880.00\nDue Date: 02/11/2026\n', 'utf8'),
-          'TATA POWER'],
+          'TATA POWER', null],
       ];
 
-      for (const [what, name, mimeType, buffer, wanted] of alsoRead) {
+      for (const [what, name, mimeType, buffer, wanted, gone] of alsoRead) {
         await go(page, '#/documents');
         await page.waitForTimeout(400);
         await page.locator('input[type=file]:not([capture])').setInputFiles({
@@ -7437,6 +7449,12 @@ async function main() {
         check(`${what} is read through the picker`,
           stored.found && stored.ocrText.includes(wanted),
           `${name}: ${JSON.stringify(stored).slice(0, 240)}`);
+
+        if (gone) {
+          check(`and ${what} does not carry its identifier into the searchable text`,
+            !stored.ocrText.includes(gone),
+            `${name}: ${JSON.stringify(stored).slice(0, 240)}`);
+        }
       }
 
       /*
