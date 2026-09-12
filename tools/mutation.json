@@ -1365,6 +1365,13 @@
       "find": "const DEVICE_AAD = `familyos:meta:${DEVICE_KEY}`;",
       "replace": "const DEVICE_AAD = 'familyos:meta';",
       "suite": "chat"
+    },
+    {
+      "label": "the backup is said to be encrypted without saying what is not",
+      "file": "js/locale/en-household.js",
+      "find": "The most sensitive values there — account numbers, PAN, diagnoses, passwords — are encrypted with a key Google never sees. Most other fields, names, dates, amounts and addresses among them, are plain text in the Sheet, so admitting somebody gives them those.",
+      "replace": "Everything sensitive in it is encrypted with a key Google never sees.",
+      "suite": "locale"
     }
   ]
 }
