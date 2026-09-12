@@ -87,11 +87,25 @@ const INFO = new TextEncoder().encode('familyos/chat/v1');
 /**
  * A new device identity.
  *
- * `privateKey` is extractable on purpose: it has to be exported to be stored,
- * and it is stored wrapped in the household's own encrypted `meta` store — so
- * it is protected at rest by the PIN like everything else. Non-extractable
- * would mean a key that cannot survive a page reload, which is not a stronger
- * system, only a broken one.
+ * `privateKey` is extractable on purpose: it has to be exported to be stored.
+ * Non-extractable would mean a key that cannot survive a page reload, which is
+ * not a stronger system, only a broken one.
+ *
+ * This used to add "and it is stored wrapped in the household's own encrypted
+ * `meta` store — so it is protected at rest by the PIN like everything else".
+ * **There is no encrypted `meta` store.** `js/auth/googlenative.js` had
+ * established that in its own header, about the same store, when a Google
+ * refresh token was found sitting in it in the clear: `meta` is
+ * `{ keyPath: 'key', indexes: [] }` and `setMeta` writes straight to the
+ * adapter. So this key — which `docs/CHAT_AND_E2EE.md` says "can read every
+ * message ever sent to it, past included" — was base64 PKCS#8 in IndexedDB,
+ * beside account numbers that were encrypted, behind a sentence saying it was
+ * not.
+ *
+ * `ChatService.#sealIdentity` is what makes the claim true now, and it says so
+ * where the sealing happens rather than here. This function mints a keypair
+ * and knows nothing about where it goes, which is why the old sentence could
+ * be wrong for as long as it was: it described somebody else's code.
  */
 export async function createIdentity() {
   const pair = await subtle().generateKey(

@@ -734,6 +734,7 @@ export const strings = {
   'chat.why.withdrawn': 'This message was withdrawn.',
   'chat.why.sentBefore': 'Sent before this device joined, so it was never sealed to it.',
   'chat.why.keyChanged': 'Sealed to a key this device no longer has.',
+  'chat.identity.unreadable': 'This device\u2019s chat key cannot be opened with the household key it has. Chat has to be set up again on this device.',
   'chat.why.notEnrolled': 'This device has no chat identity yet.',
   'chat.why.unreadable': 'This message could not be opened.',
   'chat.devices.thisDevice': 'This device',

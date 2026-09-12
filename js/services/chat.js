@@ -26,12 +26,21 @@ import { Service } from './service.js';
 import {
   createIdentity, seal, open, sealBytes, openBytes, safetyNumber, sealedTo, ESCROW_ID,
 } from '../security/e2ee.js';
+import { encryptText, decryptText, isEncrypted } from '../security/crypto.js';
+import { t } from '../core/locale.js';
 import { AppError } from '../core/errors.js';
 import { newId } from '../core/ids.js';
 import { readFlags, setFlag } from '../domain/chatstate.js';
 import { attributionOf } from '../domain/attribution.js';
 
 const DEVICE_KEY = 'chat.deviceIdentity';
+
+/**
+ * Binds the sealed identity to this one key, the way `fieldcrypto.js` binds a
+ * cell to its record and field. A value lifted out of `meta` and put back
+ * under another key fails its authentication tag rather than opening.
+ */
+const DEVICE_AAD = `familyos:meta:${DEVICE_KEY}`;
 const ESCROW_KEY = 'chat.escrowIdentity';
 
 /** Where per-device chat state lives. Never reaches the outbox. */
@@ -68,8 +77,7 @@ export class ChatService extends Service {
      * nothing pending, so awaiting WebCrypto inside one would end it. So make
      * a candidate, then let one caller's candidate win, and use the winner's.
      */
-    const identity = existing
-      ?? (await this.db.claimMetaValue(DEVICE_KEY, await createIdentity())).value;
+    const identity = existing ?? await this.#claimIdentity();
 
     const { record: device, created } = await this.repo('deviceKey').createUnlessPresent({
       person: personId,
@@ -88,8 +96,108 @@ export class ChatService extends Service {
 
   /** This device's keypair, or null before it has been enrolled. */
   async identity() {
-    const stored = await this.db.meta(DEVICE_KEY);
-    return stored?.publicKey && stored?.privateKey ? stored : null;
+    return this.#openIdentity(await this.db.meta(DEVICE_KEY));
+  }
+
+  /**
+   * Seal an identity for `meta`.
+   *
+   * ## What this is fixing
+   *
+   * `e2ee.js` said, above `createIdentity`, that the private half "is stored
+   * wrapped in the household's own encrypted `meta` store — so it is protected
+   * at rest by the PIN like everything else", and `docs/DATA_INVENTORY.md`
+   * said "Private half wrapped like any field".
+   *
+   * There is no encrypted `meta` store. `googlenative.js` established that in
+   * its own header, for the same reason and about the same store: `meta` is
+   * `{ keyPath: 'key', indexes: [] }` and `setMeta` writes straight to the
+   * adapter. So the ECDH private key that opens every message sealed to this
+   * device sat in IndexedDB as base64 PKCS#8, in the clear, behind two
+   * sentences saying it did not — while the account numbers next to it were
+   * encrypted.
+   *
+   * What that cost: the PIN protects the household data key and every
+   * encrypted field, and protected none of this. Anyone with the device's app
+   * data or browser profile — a stolen laptop, a copied profile, an Android
+   * backup — read the key without it, and `docs/CHAT_AND_E2EE.md` says what
+   * that key is worth: "a device's private key can read every message ever
+   * sent to it, past included".
+   *
+   * The second instance of the same false premise, in the same store. The
+   * first was a Google refresh token.
+   *
+   * ## Refusing rather than falling back
+   *
+   * With a locked keyring this throws rather than storing the key in the
+   * clear. The tempting fallback would make the seal optional, and an optional
+   * seal is the plaintext it replaced with an extra branch — `googlenative.js`
+   * makes the same argument about the same choice.
+   */
+  async #sealIdentity(identity) {
+    // `keyring.key` throws `LockedError` on a locked device — it is a getter,
+    // not a value — so there is no `if (!key)` here. A branch written for that
+    // state would never run, and `googlenative.js` has one: its `#keepRefresh`
+    // documents "with no keyring, or a locked one, this does not store the
+    // token" and reaches that outcome by the throw, not by the `return false`
+    // beneath it. One sentence for one state, and it is the one every other
+    // locked read already gives.
+    return encryptText(this.db.keyring.key, JSON.stringify(identity), DEVICE_AAD);
+  }
+
+  /**
+   * Open a stored identity, upgrading one written before it was sealed.
+   *
+   * A plaintext value here is this device's real keypair from an older
+   * version. It is used and re-sealed rather than discarded: throwing it away
+   * would orphan the public key this device has already published, which is
+   * exactly the fault `enrol` exists to prevent — "half the household sealing
+   * to a key this device no longer has", and every message already sent to it
+   * unreadable for good.
+   */
+  async #openIdentity(stored) {
+    if (!stored) return null;
+
+    if (!isEncrypted(stored)) {
+      if (!stored.publicKey || !stored.privateKey) return null;
+      await this.db.setMeta(DEVICE_KEY, await this.#sealIdentity(stored));
+      return stored;
+    }
+
+    // Read outside the `try`, and that placement is the whole of it: inside,
+    // the `LockedError` this getter throws is caught by the handler below and
+    // reported as a key that cannot be opened — telling somebody who only
+    // needed to unlock that chat "has to be set up again on this device".
+    // Written the wrong way first; the locked check is what found it.
+    const key = this.db.keyring.key;
+
+    let opened;
+    try {
+      opened = JSON.parse(await decryptText(key, stored, DEVICE_AAD));
+    } catch {
+      // A different data key, or a tampered value. Either way it is not this
+      // device's identity, and pretending otherwise fails further in — where
+      // it would look like a message nobody can read rather than a key nobody
+      // can open.
+      throw new AppError(t('chat.identity.unreadable'), { code: 'identity-unreadable' });
+    }
+    return opened?.publicKey && opened?.privateKey ? opened : null;
+  }
+
+  /**
+   * One caller's candidate wins the claim; everybody else uses the winner's.
+   *
+   * Sealed *before* the claim for the reason the candidate is generated before
+   * it: a real IndexedDB transaction closes when the microtask queue drains
+   * with nothing pending, so awaiting WebCrypto inside one would end it. The
+   * loser opens what the winner stored, which is the same work `identity()`
+   * does and none of it inside a transaction.
+   */
+  async #claimIdentity() {
+    const candidate = await createIdentity();
+    const sealed = await this.#sealIdentity(candidate);
+    const { won, value } = await this.db.claimMetaValue(DEVICE_KEY, sealed);
+    return won ? candidate : this.#openIdentity(value);
   }
 
   /**
