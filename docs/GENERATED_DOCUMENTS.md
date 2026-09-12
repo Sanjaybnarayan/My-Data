@@ -101,3 +101,34 @@ place. It is not a small piece and it is not started.
 generations from one template are related only by `generatedFrom` carrying the
 same name; nothing groups them, and Drive's revision count applies to a file
 rather than to a template's history.
+
+## The revision count this page twice calls "revision-backed"
+
+It stopped being that, between this page being written and being read again.
+
+`countRevisions` gets the number from Drive, through `driveVersions`. When the
+document ACL was put on the Drive actions — the gap `driveAllows` in
+`apps-script/Drive.gs` describes in its own header — the guard went on
+`driveVersions`, and `countRevisions` was calling
+that same function with no caller to hand it. `driveAllows(undefined, 'read')`
+reads a role of `guest`; the `document` ACL refuses a guest; and the `try` that
+exists so a Drive outage cannot lose an upload turned that 403 into the `|| 1`
+fallback.
+
+So **every upload has reported one revision since**, generated or scanned, and
+the `· v3` the documents screen prints beside a replaced document stopped
+appearing. Nothing said so: the count was plausible, the upload succeeded, and
+no line was logged.
+
+The fetch is now a function of its own with no guard, called only from inside
+`driveUpload` — which has already asserted `write` on `document`, a right the
+same ACL treats as narrower than the `read` that was being skipped. The action
+keeps its guard. Four checks cover it, and they are the first in the repository
+to run `driveUpload` to its end: until the fixture learned `base64Decode` and
+`newBlob`, the first statement past the guard threw, so every earlier check on
+uploading was a check on being refused.
+
+It was found by reading what the guard's callers pass it rather than what the
+guard does, which is the reading that finds this shape of fault: a control put
+on a function that had two callers, only one of which was ever the caller it
+was written for.

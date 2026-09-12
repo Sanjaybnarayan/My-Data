@@ -1059,10 +1059,12 @@ describe('the identity that reaches the action', () => {
     // refused the write.
     //
     // The read is asserted as "not refused by policy" rather than as a
-    // success: `driveVersions` reaches `ScriptApp` and `UrlFetchApp`, which
-    // this harness does not stub, so it fails at 500 for a reason that has
-    // nothing to do with the rule under test. Asserting `ok` here would be
-    // asserting the stub.
+    // success: this file has no revision list set up for `abc`, so what
+    // comes back is the empty-list fallback rather than an answer, for a
+    // reason that has nothing to do with the rule under test. Asserting `ok`
+    // here would be asserting the stub. (When this was written the harness
+    // stubbed neither `ScriptApp` nor `UrlFetchApp` and the call failed at
+    // 500; both are stubbed now, and the caveat is narrower than it was.)
     const adult = withFiles([{ email: SPOUSE, role: 'adult', personId: 'p-asha' }]);
     assert.not(
       adult.post('versions', 'spouse-token', { fileId: 'abc' }, { deviceId: 'd1' }).status === 403,
@@ -1561,5 +1563,105 @@ describe('the copy of the audit trail the household keeps off the device', () =>
     assert.ok(send(book, [bare]).ok);
     const row = book.written[0];
     assert.equal(row[book.head.indexOf('hash')], '');
+  });
+});
+
+/**
+ * The version history a re-uploaded document was said to keep.
+ *
+ * `driveUpload` returns `versionCount`, `js/sync/drive.js` stores it on the
+ * document record, and `js/modules/documents.js` prints `· v3` beside a
+ * document that has been replaced. The count comes from `countRevisions`,
+ * which asked Drive for the file's revision list.
+ *
+ * It stopped asking. When the document ACL was applied to Drive — the gap
+ * described in 'the identity that reaches the action' above — the guard went
+ * on `driveVersions`, and `countRevisions` was calling that same function
+ * with no caller to give it. `driveAllows(undefined, 'read')` reads a role of
+ * `guest`, the `document` ACL refuses a guest, and the `try` that exists for
+ * a Drive outage swallowed the 403 and returned the fallback. Every upload
+ * has reported one revision since, and the badge stopped appearing.
+ *
+ * Nothing in the response says so: the count is plausible, the upload
+ * succeeds, and no line is logged. This is what a security control taking a
+ * feature with it looks like when it is not looked for.
+ *
+ * These are the first checks to run `driveUpload` to its end. Until the
+ * fixture learned `base64Decode` and `newBlob`, the first statement past the
+ * guard threw, so every existing check on uploading was a check on refusal.
+ */
+describe('how many versions of a document the household is told it has', () => {
+  const FILES = ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs'];
+
+  const upload = (api, token, over = {}) => api.post('upload', token, {
+    documentId: 'doc_1',
+    name: 'passport.pdf',
+    mimeType: 'application/pdf',
+    content: Buffer.from('scan').toString('base64'),
+    category: 'identity',
+    person: { id: 'p-asha', name: 'Asha' },
+    ...over,
+  }, { deviceId: 'd1' });
+
+  const household = (members, revisions) => backend({
+    owner: OWNER,
+    tokens,
+    files: FILES,
+    revisions,
+    properties: { members: JSON.stringify(members), workbookId: 'book-1' },
+  });
+
+  test('an upload reports the revisions the file actually has', () => {
+    const api = household([], {
+      'file-passport.pdf': [{ id: 'r1' }, { id: 'r2' }, { id: 'r3' }],
+    });
+
+    const body = upload(api, 'owner-token');
+    assert.ok(body.ok, body.error);
+    assert.equal(body.data.versionCount, 3,
+      'the upload reported a revision count the file does not have');
+
+    // The count was not merely wrong — the question was never asked. A fix
+    // that returned 3 by another route would pass the line above and leave
+    // the fallback in place, so the request itself is what is asserted.
+    assert.ok(
+      api.fetched.some((url) => url.includes('/revisions')),
+      'the upload never asked Drive for the revision list');
+  });
+
+  test('a file Drive will not list falls back to one, and the upload stands', () => {
+    // The `try` earns its place for this: a revoked scope or a Drive outage
+    // must not lose an upload that has already written the bytes. What it
+    // must not do is hide a refusal that is this code's own doing.
+    const api = household([], {});
+
+    const body = upload(api, 'owner-token');
+    assert.ok(body.ok, body.error);
+    assert.equal(body.data.versionCount, 1);
+  });
+
+  test('the guard the split moved is still on the action', () => {
+    const api = household(
+      [{ email: SPOUSE, role: 'guest', personId: 'p-asha' }],
+      { abc: [{ id: 'r1' }, { id: 'r2' }] },
+    );
+
+    const body = api.post('versions', 'spouse-token', { fileId: 'abc' }, { deviceId: 'd1' });
+    assert.not(body.ok, 'a guest was handed a revision list');
+    assert.equal(body.status, 403);
+    assert.not(
+      api.fetched.some((url) => url.includes('/revisions')),
+      'the refusal still asked Drive');
+  });
+
+  test('uploading is a write, and an adult may not', () => {
+    // The other half of the same rule, and the first check to reach it: an
+    // adult passes `driveAllows(context, "read")` everywhere else in this
+    // file, so a guard written with the wrong action would go unnoticed.
+    const api = household([{ email: SPOUSE, role: 'adult', personId: 'p-asha' }], {});
+
+    const body = upload(api, 'spouse-token');
+    assert.not(body.ok, 'an adult uploaded a document');
+    assert.equal(body.status, 403);
   });
 });

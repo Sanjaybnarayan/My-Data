@@ -285,6 +285,73 @@ export function searchQuery({ since = '', keys = [], extra = [] } = {}) {
   return parts.join(' ');
 }
 
+/** A sender term: `from:` and a domain, optionally with a mailbox in front. */
+const SENDER = /^from:(?:[A-Za-z0-9._%+-]+@)?[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+
+/**
+ * Terms that can only make the result smaller — every one of them removes
+ * messages the sender group already matched, and none of them can add one.
+ */
+const NARROWING = [
+  /^after:\d{4}\/\d{1,2}\/\d{1,2}$/,
+  /^before:\d{4}\/\d{1,2}\/\d{1,2}$/,
+  /^newer_than:\d{1,4}[dmy]$/,
+  /^older_than:\d{1,4}[dmy]$/,
+  /^-in:trash$/,
+  /^-in:spam$/,
+];
+
+/**
+ * Is this a list of senders, and terms that narrow it?
+ *
+ * The guard on both mail routes used to be `query.includes('from:')`, and a
+ * substring is not a constraint. `from:me OR is:unread` contains `from:` and
+ * asks Gmail for the whole mailbox; so does `(from:a.com) subject:password`.
+ * The paragraph above `searchQuery` is the household's privacy argument, and
+ * it was only true of what this file *builds*, never of what either route
+ * would *accept*.
+ *
+ * `OR` is why this is a grammar. Inside the leading group it joins senders;
+ * anywhere else it joins a sender to something that is not one. So the group
+ * is taken first and every word after it must be a narrowing term. A bare
+ * word is refused outright — in a Gmail query that is a body search across
+ * everything the scope can reach.
+ *
+ * A single unbracketed sender is accepted because the receipts screen probes
+ * a connection with `from:example.com` to learn whether a route can read mail
+ * at all.
+ *
+ * `apps-script/Gmail.gs` states the same grammar in its own language and
+ * refuses first. It is written twice because the two routes share no runtime,
+ * and `tests/gmail.test.mjs` runs the same table of queries through both so
+ * the copies cannot drift apart in silence.
+ */
+export function isSenderQuery(query) {
+  const text = String(query ?? '').trim();
+  if (!text) return false;
+
+  let group;
+  let rest;
+
+  if (text.startsWith('(')) {
+    const close = text.indexOf(')');
+    if (close === -1) return false;
+    const nested = text.indexOf('(', 1);
+    if (nested !== -1 && nested < close) return false;
+    group = text.slice(1, close);
+    rest = text.slice(close + 1);
+  } else {
+    const space = text.indexOf(' ');
+    group = space === -1 ? text : text.slice(0, space);
+    rest = space === -1 ? '' : text.slice(space);
+  }
+
+  if (!group.split(/\s+OR\s+/).every((term) => SENDER.test(term.trim()))) return false;
+
+  return rest.split(/\s+/).filter(Boolean)
+    .every((word) => NARROWING.some((pattern) => pattern.test(word)));
+}
+
 /** `/@zomato\.com$/` → `zomato.com`, for a Gmail `from:` term. */
 function domainOf(pattern) {
   const source = pattern.source

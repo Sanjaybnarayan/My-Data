@@ -415,6 +415,31 @@ function driveTrash(fileId, context) {
 
 function driveVersions(fileId, context) {
   driveAllows(context, 'read');
+  return revisionsOf(fileId);
+}
+
+/**
+ * The revision list itself, with no guard of its own.
+ *
+ * Separated because `driveVersions` served two callers with one signature:
+ * the `versions` action, which arrives with a caller, and `countRevisions`,
+ * which is reached only from inside an upload and passed none. When the guard
+ * went in, the second caller became `driveAllows(undefined, 'read')` — role
+ * `guest`, which the `document` ACL refuses — and the `try` around it turned
+ * that 403 into the `|| 1` fallback. So **every upload has reported
+ * `versionCount: 1`** since, whatever the file's history, and the `· v3` the
+ * documents list shows beside a re-uploaded document stopped appearing.
+ *
+ * It failed silently in the one direction that hides it: the count is
+ * plausible, the upload succeeds, and nothing is logged.
+ *
+ * Nothing is granted by splitting it. `countRevisions` runs only inside
+ * `driveUpload`, which has already asserted `write` on `document` — a right
+ * the same ACL treats as strictly narrower than the `read` being skipped.
+ * The action keeps its guard; the internal caller keeps the right it already
+ * proved.
+ */
+function revisionsOf(fileId) {
   var url = 'https://www.googleapis.com/drive/v3/files/' + fileId
     + '/revisions?fields=revisions(id,modifiedTime,size)';
   var response = UrlFetchApp.fetch(url, {
@@ -427,7 +452,7 @@ function driveVersions(fileId, context) {
 
 function countRevisions(fileId) {
   try {
-    var result = driveVersions(fileId);
+    var result = revisionsOf(fileId);
     return (result.revisions || []).length || 1;
   } catch (err) {
     return 1;

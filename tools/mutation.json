@@ -1260,6 +1260,55 @@
       "find": "      row.push(Object.prototype.hasOwnProperty.call(value, headers[c]) ? value[headers[c]] : '');",
       "replace": "      row.push(value[AUDIT_COLUMNS[c]] === undefined ? '' : value[AUDIT_COLUMNS[c]]);",
       "suite": "backend"
+    },
+    {
+      "label": "counting revisions goes back through the guarded action",
+      "file": "apps-script/Drive.gs",
+      "find": "    var result = revisionsOf(fileId);",
+      "replace": "    var result = driveVersions(fileId);",
+      "suite": "backend"
+    },
+    {
+      "label": "the revision list is handed out with no caller checked",
+      "file": "apps-script/Drive.gs",
+      "find": "function driveVersions(fileId, context) {\n  driveAllows(context, 'read');\n  return revisionsOf(fileId);\n}",
+      "replace": "function driveVersions(fileId, context) {\n  return revisionsOf(fileId);\n}",
+      "suite": "backend"
+    },
+    {
+      "label": "uploading is checked as a read rather than a write",
+      "file": "apps-script/Drive.gs",
+      "find": "  driveAllows(context, 'write');\n  if (!payload.content) throw fail('no file content was supplied', 400);",
+      "replace": "  driveAllows(context, 'read');\n  if (!payload.content) throw fail('no file content was supplied', 400);",
+      "suite": "backend"
+    },
+    {
+      "label": "the mailbox is searched for whoever asks",
+      "file": "apps-script/Gmail.gs",
+      "find": "  var role = (context && context.role) || 'guest';\n  if (!policyAllows(role, 'read', 'transaction')) {\n    throw fail('your role may not read the household mail', 403);\n  }\n",
+      "replace": "",
+      "suite": "gmail"
+    },
+    {
+      "label": "naming a sender anywhere in the query is enough for the backend",
+      "file": "apps-script/Gmail.gs",
+      "find": "  assertSenderQuery(query);",
+      "replace": "  if (query.indexOf('from:') === -1) {\n    throw fail('a mail search must name the senders it is for', 400);\n  }",
+      "suite": "gmail"
+    },
+    {
+      "label": "naming a sender anywhere in the query is enough for the browser",
+      "file": "js/sync/gmail.js",
+      "find": "    if (!isSenderQuery(query)) {",
+      "replace": "    if (!query || !query.includes('from:')) {",
+      "suite": "gmail"
+    },
+    {
+      "label": "a term that widens the search is taken for one that narrows it",
+      "file": "js/domain/merchants.js",
+      "find": "  return rest.split(/\\s+/).filter(Boolean)\n    .every((word) => NARROWING.some((pattern) => pattern.test(word)));",
+      "replace": "  return true;",
+      "suite": "gmail"
     }
   ]
 }
