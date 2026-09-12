@@ -186,6 +186,50 @@ export const SENSITIVE = [
     kind: 'Engine',
     at: /engine[.\s]*(?:no|number)?[:.\s]+([A-Z0-9]{6,20})\b/gi,
   },
+
+  /*
+   * This is here for the reason the pair above are, applied to the documents
+   * this application actually ingests.
+   *
+   * The rule this file states for itself is that a value the schema has
+   * already marked `encrypted: true` must not reach `ocrText`. Measured
+   * against that rule, two were missing — and both sit on document categories
+   * the schema names:
+   *
+   *     Account No: 501000123456789      → survived whole
+   *
+   * `account.accountNumber` and the account a `bankStatement` is for are
+   * `encrypted: true`. The application had decided, and was writing them in
+   * the clear into a field that is searchable and therefore syncs to a cell in
+   * the household's Sheet. A bank statement is exactly the paper a household
+   * scans.
+   *
+   * Anchored on the label through `at`, like the chassis and engine rules and
+   * for the same reason: nine to eighteen digits is also a reference number,
+   * an invoice number and a UPI narration, and redacting every such run would
+   * gut the text. `UPI/P2A/609812345678/RENT` on the line below the account
+   * number is left alone by this, which is correct — it is a transaction
+   * reference and not an account.
+   *
+   * ## A policy number is the same fault and is deliberately not fixed here
+   *
+   * `insurance.policyNumber` and `vehicle.insurancePolicy` are `encrypted:
+   * true` too, and a policy number survives into `ocrText` whole — measured,
+   * three lines above a chassis number that is correctly removed.
+   *
+   * The rule is one line and is not written, because removing it costs
+   * something a check already names. `tests/import.test.mjs` asserts a
+   * document is findable by the policy number inside it and calls that "the
+   * whole reason the text is stored". A policy number is the number a
+   * household would actually search for, which is not true of a chassis
+   * number. Redacting it trades a stated feature for a confidentiality the
+   * schema has already asked for, and which of those a household wants is
+   * theirs to say rather than a thing to decide inside a regex.
+   */
+  {
+    kind: 'Account',
+    at: /(?:a\/c|acct|account)[.\s]*(?:no|number)?[:.\s]+(\d{9,18})\b/gi,
+  },
 ];
 
 /**

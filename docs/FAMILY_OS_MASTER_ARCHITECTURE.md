@@ -241,6 +241,7 @@ another caller to migrate.
 | Agreement reading — the e-stamp header only; a deed's body is prose | **partial** | `export:js/domain/extract.js#readAgreement` |
 | Registration certificate reading | **exists** | `export:js/domain/extract.js#readVehicle` |
 | A chassis or engine number never reaches searchable text | **exists** | `wired:js/domain/extract-sensitive.js#Chassis` |
+| A bank account number on a statement never reaches searchable text | **exists** | `wired:js/domain/extract-sensitive.js#Account` |
 | An Aadhaar VID is redacted whole, and never filed as an Aadhaar | **exists** | `wired:js/domain/extract-sensitive.js#VID` |
 | A document that gave two expiry dates says so on screen | **exists** | `wired:js/modules/documents.js#expiryConflict` |
 | A staff record shows the person's documents, without a second reference | **exists** | `wired:js/modules/family.js#documentsForStaff` |
