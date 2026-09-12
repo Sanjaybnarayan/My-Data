@@ -424,7 +424,7 @@
     {
       "label": "an emergency contact's number goes back into the clear",
       "file": "js/data/schema.js",
-      "find": "    { key: 'phone', type: 'phone', required: true, encrypted: true }, // sealed ⇒ no list",
+      "find": "    { key: 'phone', type: 'phone', required: true, encrypted: true }, // sealed \u21d2 no list",
       "replace": "    { key: 'phone', type: 'phone', required: true, list: true },",
       "suite": "privacy"
     },
@@ -487,8 +487,8 @@
     {
       "label": "a security claim's pointer at the attempt limiter goes back to a file that never existed",
       "file": "js/security/crypto.js",
-      "find": " * case, and it is why `security/session.js` also enforces an attempt limit —",
-      "replace": " * case, and it is why `unlock.js` also enforces an attempt limit —",
+      "find": " * case, and it is why `security/session.js` also enforces an attempt limit \u2014",
+      "replace": " * case, and it is why `unlock.js` also enforces an attempt limit \u2014",
       "suite": "modules"
     },
     {
@@ -508,7 +508,7 @@
     {
       "label": "a parser that matched nothing would let the pinning check pass on anything",
       "file": "tools/supply-chain.mjs",
-      "find": "  if (!mavenDeps.length) found.push('no Maven coordinates parsed — this check would pass on anything');\n",
+      "find": "  if (!mavenDeps.length) found.push('no Maven coordinates parsed \u2014 this check would pass on anything');\n",
       "replace": "",
       "suite": "native"
     },
@@ -1054,7 +1054,7 @@
     {
       "label": "a field nothing redacts takes whatever it is given",
       "file": "js/data/diagnostics.js",
-      "find": "  if (!LABEL.test(text)) return '«unlabelled»';\n",
+      "find": "  if (!LABEL.test(text)) return '\u00abunlabelled\u00bb';\n",
       "replace": "",
       "suite": "diagnostics"
     },
@@ -1068,7 +1068,7 @@
     {
       "label": "a record id reaches the diagnostics log whole",
       "file": "js/data/diagnostics.js",
-      "find": "  return text.replace(ID_IN_LABEL, '$1_«id»');",
+      "find": "  return text.replace(ID_IN_LABEL, '$1_\u00abid\u00bb');",
       "replace": "  return text;",
       "suite": "diagnostics"
     },
@@ -1369,7 +1369,7 @@
     {
       "label": "the backup is said to be encrypted without saying what is not",
       "file": "js/locale/en-household.js",
-      "find": "The most sensitive values there — account numbers, PAN, diagnoses, passwords — are encrypted with a key Google never sees. Most other fields, names, dates, amounts and addresses among them, are plain text in the Sheet, so admitting somebody gives them those.",
+      "find": "The most sensitive values there \u2014 account numbers, PAN, diagnoses, passwords \u2014 are encrypted with a key Google never sees. Most other fields, names, dates, amounts and addresses among them, are plain text in the Sheet, so admitting somebody gives them those.",
       "replace": "Everything sensitive in it is encrypted with a key Google never sees.",
       "suite": "locale"
     },
@@ -1512,6 +1512,48 @@
       "find": "      disputed: disputedFields(entry, seenActor, seenRole, seenDevice).join(', '),",
       "replace": "      disputed: '',",
       "suite": "backend"
+    },
+    {
+      "label": "the escrow answers the same place whichever one it uses",
+      "file": "js/security/escrow.js",
+      "find": "    return this.#hidden ? 'hidden' : 'visible';",
+      "replace": "    return 'visible';",
+      "suite": "escrow"
+    },
+    {
+      "label": "a key nobody can see is described as a file they can delete",
+      "file": "js/modules/settings/security.js",
+      "find": "  const where = record.placement === 'hidden'",
+      "replace": "  const where = record.placement === 'nowhere'",
+      "suite": "escrow"
+    },
+    {
+      "label": "the file to look for is named by the screen rather than by the search",
+      "file": "js/modules/settings/security.js",
+      "find": "    : t('settings.security.keyPlace.visible', { when, name: VISIBLE_NAME });",
+      "replace": "    : t('settings.security.keyPlace.visible', { when, name: 'the key file' });",
+      "suite": "escrow"
+    },
+    {
+      "label": "nothing says where the key is can change",
+      "file": "js/modules/settings/security.js",
+      "find": "  return [where, t('settings.security.keyPlace.moves')].join(' ');",
+      "replace": "  return where;",
+      "suite": "escrow"
+    },
+    {
+      "label": "a date that cannot be read is printed beside the key anyway",
+      "file": "js/modules/settings/security.js",
+      "find": "  if (!Number.isFinite(seen)) return t('settings.security.keyPlace.unknown');",
+      "replace": "  if (false) return t('settings.security.keyPlace.unknown');",
+      "suite": "escrow"
+    },
+    {
+      "label": "the observation about the key carries no date",
+      "file": "js/auth/google-unlock.js",
+      "find": "  return { placement: escrow.placement, at: new Date().toISOString() };",
+      "replace": "  return { placement: escrow.placement, at: '' };",
+      "suite": "escrow"
     }
   ]
 }

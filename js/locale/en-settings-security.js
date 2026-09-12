@@ -28,4 +28,17 @@ export const settingsSecurityStrings = {
   // or remove. The second says the one thing that does remove it.
   'settings.security.keyDropped': 'The key file is gone from Drive.',
   'settings.security.keyPartlyDropped': 'The key file in your Drive is deleted. A copy may remain in the app’s hidden folder, which FamilyOS can no longer reach — disconnecting FamilyOS from your Google account removes it.',
+
+  // Where the key actually went. Two placements, two different things a
+  // household can do about it, and until now neither was said anywhere: the
+  // card described the visible file to everybody, including the households
+  // whose key is in a folder they cannot open.
+  //
+  // Both lines are in the past tense on purpose. The placement follows what
+  // Google granted at sign-in and can change between one sign-in and the next,
+  // so this is a record of what was seen and when — not a claim about now.
+  'settings.security.keyPlace.visible': 'Last seen {when}: the key is a file in your Drive called “{name}”. You can open your Drive, see it, and delete it.',
+  'settings.security.keyPlace.hidden': 'Last seen {when}: the key is in this app’s hidden folder in your Drive. You will not find it by searching Drive, and the only thing that removes it is disconnecting FamilyOS from your Google account.',
+  'settings.security.keyPlace.moves': 'Which of the two it is follows what Google granted when you signed in, so it can change.',
+  'settings.security.keyPlace.unknown': 'This device has not seen where the key is kept. Signing in with Google again will say.',
 };

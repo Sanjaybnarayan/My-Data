@@ -17,6 +17,7 @@ import { toast } from '../ui/components/toast.js';
 import { platformAuthenticatorAvailable, unlockWithBiometric } from './biometric.js';
 import {
   googleUnlockAvailable, connectGoogleUnlock, unlockFreshDevice, GOOGLE_METHOD,
+  placementRecord,
 } from './google-unlock.js';
 import { CODE_METHOD } from '../security/codeescrow.js';
 import { addressLooksSendable, codeLooksComplete } from '../domain/otp.js';
@@ -427,6 +428,12 @@ export function lockScreen({
           // and imply the first sheet of paper no longer counts.
           firstRun: outcome === 'found',
           googleSession: auth,
+          // Where the key actually went, carried out so the app can record it.
+          // This screen has no database — it runs before one is open — and the
+          // alternative was for a household never to be told where the key to
+          // their records is until they happened to turn the feature off and
+          // on again in Settings.
+          googlePlacement: placementRecord(escrow),
         });
         return;
       }
@@ -443,7 +450,13 @@ export function lockScreen({
       }
       await keyring.unlockWithRawKey(record.rawKey, GOOGLE_METHOD);
       limiter?.clear?.();
-      onUnlocked({ method: GOOGLE_METHOD, googleSession: auth });
+      // A successful read is the stronger observation of the two: the key was
+      // not written here, it was *found* here, a moment ago.
+      onUnlocked({
+        method: GOOGLE_METHOD,
+        googleSession: auth,
+        googlePlacement: placementRecord(escrow),
+      });
     } catch (err) {
       replace(message, userMessage(err));
     }

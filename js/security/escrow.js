@@ -62,7 +62,16 @@ const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
  * without opening it.
  */
 const HIDDEN_NAME = 'familyos.keywrap.json';
-const VISIBLE_NAME = 'FamilyOS unlock key.json';
+
+/**
+ * The name of the file a household can actually find in their own Drive.
+ *
+ * Exported because Settings tells them what to look for, and a screen that
+ * spelled the name itself would be a second copy of it — free to drift from
+ * the one `#findIn` searches by, and wrong in the one place somebody is
+ * reading it in order to go and look.
+ */
+export const VISIBLE_NAME = 'FamilyOS unlock key.json';
 
 /**
  * 32 fresh bytes for an escrow to hold. Not stored — `put` does that, with the
@@ -151,6 +160,26 @@ export class DriveEscrow {
 
   get name() {
     return this.#hidden ? HIDDEN_NAME : VISIBLE_NAME;
+  }
+
+  /**
+   * Which of the two places this instance reads and writes.
+   *
+   * Exposed because until now nothing outside this module could find out, and
+   * the answer is the one thing a household most reasonably wants to know
+   * about their own unlock key: whether it is a file they can see in their
+   * Drive and delete, or one they cannot see at all.
+   *
+   * It is an observation, never a setting. Where the key goes follows what
+   * Google granted at sign-in, and the note on the constructor explains why
+   * that can change between one sign-in and the next — so anything that stores
+   * this has stored what was true when it asked, which is a different claim
+   * from what is true now, and must say so.
+   *
+   * @returns {'hidden'|'visible'}
+   */
+  get placement() {
+    return this.#hidden ? 'hidden' : 'visible';
   }
 
   get configured() {

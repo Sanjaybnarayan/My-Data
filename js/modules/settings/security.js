@@ -13,7 +13,7 @@
 
 import { card, cardHeader, button, badge } from '../../ui/components/basics.js';
 import { config } from '../../core/config.js';
-import { googleUnlockAvailable, connectGoogleUnlock, linkExistingDevice, unlinkGoogleUnlock, GOOGLE_METHOD } from '../../auth/google-unlock.js';
+import { googleUnlockAvailable, connectGoogleUnlock, linkExistingDevice, unlinkGoogleUnlock, GOOGLE_METHOD, PLACEMENT_KEY, placementRecord } from '../../auth/google-unlock.js';
 import { h } from '../../ui/dom.js';
 import { modal, confirm, prompt } from '../../ui/components/modal.js';
 import {
@@ -22,10 +22,11 @@ import {
 import { toast } from '../../ui/components/toast.js';
 import { userMessage } from '../../core/errors.js';
 import { CodeEscrow, CODE_METHOD } from '../../security/codeescrow.js';
-import { mintRawKey } from '../../security/escrow.js';
+import { mintRawKey, VISIBLE_NAME } from '../../security/escrow.js';
 import { addressLooksSendable } from '../../domain/otp.js';
 import { app } from '../../context.js';
 import { t } from '../../core/locale.js';
+import { toDay } from '../../core/dates.js';
 
 /* -------------------------------------------------------------- security */
 
@@ -59,7 +60,7 @@ function methodName(method) {
  * started *with* Google had its second phone take the enrolment path, mint a
  * new key, and write it over the one the first phone depended on.
  */
-function googleUnlockRow(db, methods, repaint) {
+function googleUnlockRow(db, methods, repaint, placement = null) {
   const entry = methods.find((m) => m.method === GOOGLE_METHOD);
 
   return h('div', { class: 'stack stack--tight' }, [
@@ -67,10 +68,17 @@ function googleUnlockRow(db, methods, repaint) {
       ? `Signing in with ${entry.label || 'your Google account'} unlocks this device. `
         + 'Google holds the key that opens your records, which is what lets a new '
         + 'phone pick up where this one left off.'
-      : 'Continue with Google keeps the key that unlocks your records in a file in '
-        + 'your own Drive, so a new phone can open them without your PIN. It also '
+      // "in a file in your own Drive" was true of one of the two placements and
+      // was told to everybody. A household whose key is in the app's hidden
+      // folder has no such file to find.
+      : 'Continue with Google keeps the key that unlocks your records in your own '
+        + 'Google Drive, so a new phone can open them without your PIN. It also '
         + 'means anyone who can sign in as you can read them. Off by default, for '
         + 'that reason.'),
+
+    // Only once it is on. Before that there is no key anywhere and the
+    // question has no answer yet.
+    entry ? h('p', { class: 'small muted' }, keyPlacementNote(placement)) : null,
 
     h('div', { class: 'row' }, [
       entry
@@ -91,6 +99,10 @@ async function turnOn(db, repaint) {
   try {
     const { escrow, email } = await connectGoogleUnlock();
     const { outcome } = await linkExistingDevice(db.keyring, escrow, email);
+    // Recorded after the link succeeded, not before: a note saying where the
+    // key is, written when no key was published, is the kind of confident
+    // wrong answer this card exists to stop giving.
+    await db.setMeta(PLACEMENT_KEY, placementRecord(escrow));
     toast(outcome === 'published'
       ? `On. ${email || 'That account'} can now unlock FamilyOS on any device.`
       : `Linked to the key already in ${email || 'that account'}.`,
@@ -140,6 +152,50 @@ async function turnOff(db, repaint) {
   } catch (err) {
     if (err.code !== 'cancelled') toast(userMessage(err), { kind: 'error' });
   }
+}
+
+/**
+ * Where this household's unlock key was last seen, in words.
+ *
+ * The placement is chosen in `connectGoogleUnlock` from what Google actually
+ * granted, and until now it was shown nowhere — so half of all households were
+ * reading a card that described a file in their Drive while their key sat in a
+ * folder Drive will not show them. The two cases are not cosmetically
+ * different: one they can open and delete themselves, the other they cannot
+ * see and can only remove by disconnecting the application entirely.
+ *
+ * Past tense throughout, and dated, because that is the strongest true claim.
+ * `DriveEscrow`'s own note says the placement follows the grant and that the
+ * grant changes — take `drive.appdata` off the consent screen and the next
+ * sign-in writes the other kind, leaving the household holding both. A present
+ * tense sentence here would be the comfortable half of that.
+ *
+ * Exported for the same reason `keyDropMessage` below is: the sentence is the
+ * thing, and a sentence nobody can question is how the last one stayed wrong.
+ *
+ * @param {{placement?: 'hidden'|'visible', at?: string}|null} record
+ * @returns {string}
+ */
+export function keyPlacementNote(record) {
+  if (record?.placement !== 'hidden' && record?.placement !== 'visible') {
+    return t('settings.security.keyPlace.unknown');
+  }
+
+  // A bad or missing timestamp reads as "not seen", rather than as a date.
+  // Printing `Invalid Date` beside the location of somebody's unlock key would
+  // be worse than saying nothing.
+  const seen = Date.parse(record.at ?? '');
+  if (!Number.isFinite(seen)) return t('settings.security.keyPlace.unknown');
+
+  const when = toDay(new Date(seen));
+  const where = record.placement === 'hidden'
+    ? t('settings.security.keyPlace.hidden', { when })
+    : t('settings.security.keyPlace.visible', { when, name: VISIBLE_NAME });
+
+  // Joined rather than interpolated. A template literal here reads to
+  // `tools/strings.mjs` as a sentence written in this file, which is exactly
+  // what it must not be.
+  return [where, t('settings.security.keyPlace.moves')].join(' ');
 }
 
 /**
@@ -268,7 +324,7 @@ async function codeOff(db, repaint) {
   await repaint();
 }
 
-export function securityCard(db, methods = [], repaint = () => {}) {
+export function securityCard(db, methods = [], repaint = () => {}, keyPlacement = null) {
   return card({}, [
     cardHeader('Security', null, { iconName: 'lock' }),
     h('div', { class: 'stack stack--tight' }, [
@@ -295,7 +351,7 @@ export function securityCard(db, methods = [], repaint = () => {}) {
             + 'them cannot be recovered by anyone.'),
       ]),
 
-      googleUnlockAvailable() ? googleUnlockRow(db, methods, repaint) : null,
+      googleUnlockAvailable() ? googleUnlockRow(db, methods, repaint, keyPlacement) : null,
 
       // Only where there is a backend to hold the key. Without one the button
       // could do nothing but fail.
