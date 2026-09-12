@@ -1260,6 +1260,27 @@
       "find": "      row.push(Object.prototype.hasOwnProperty.call(value, headers[c]) ? value[headers[c]] : '');",
       "replace": "      row.push(value[AUDIT_COLUMNS[c]] === undefined ? '' : value[AUDIT_COLUMNS[c]]);",
       "suite": "backend"
+    },
+    {
+      "label": "counting revisions goes back through the guarded action",
+      "file": "apps-script/Drive.gs",
+      "find": "    var result = revisionsOf(fileId);",
+      "replace": "    var result = driveVersions(fileId);",
+      "suite": "backend"
+    },
+    {
+      "label": "the revision list is handed out with no caller checked",
+      "file": "apps-script/Drive.gs",
+      "find": "function driveVersions(fileId, context) {\n  driveAllows(context, 'read');\n  return revisionsOf(fileId);\n}",
+      "replace": "function driveVersions(fileId, context) {\n  return revisionsOf(fileId);\n}",
+      "suite": "backend"
+    },
+    {
+      "label": "uploading is checked as a read rather than a write",
+      "file": "apps-script/Drive.gs",
+      "find": "  driveAllows(context, 'write');\n  if (!payload.content) throw fail('no file content was supplied', 400);",
+      "replace": "  driveAllows(context, 'read');\n  if (!payload.content) throw fail('no file content was supplied', 400);",
+      "suite": "backend"
     }
   ]
 }

@@ -215,7 +215,7 @@ const DEPLOYED = ['Policy.gs', 'Code.gs', 'Drive.gs', 'Sheets.gs', 'Gmail.gs', '
 
 export function backend({
   owner = 'owner@example.com', tokens = {}, properties = {},
-  driveFiles = {}, files = DEPLOYED,
+  driveFiles = {}, revisions = {}, files = DEPLOYED,
   workbook = null,
   randomBytes = () => [0, 0, 0, 0],
   now = () => Date.now(),
@@ -270,6 +270,26 @@ export function backend({
     UrlFetchApp: {
       fetch(url) {
         fetched.push(url);
+
+        /*
+         * Drive's revision list, which `DriveApp` cannot give.
+         *
+         * Left unstubbed this returned 400, and `driveVersions` turns any
+         * non-200 into an empty list — so every revision count came back as
+         * the `|| 1` fallback whatever the code did. A count that is 1 no
+         * matter what cannot show a count being got wrong, which is the
+         * shape of fixture gap this file exists to avoid.
+         */
+        const listing = /\/drive\/v3\/files\/([^/?]+)\/revisions/.exec(url);
+        if (listing) {
+          const id = decodeURIComponent(listing[1]);
+          const found = revisions[id];
+          return {
+            getResponseCode: () => (found ? 200 : 404),
+            getContentText: () => JSON.stringify(found ? { revisions: found } : { error: 'no such file' }),
+          };
+        }
+
         const token = decodeURIComponent((/access_token=([^&]*)/.exec(url) ?? [])[1] ?? '');
         const info = tokens[token];
         return {
@@ -281,6 +301,22 @@ export function backend({
 
     Utilities: {
       base64EncodeWebSafe: (bytes) => Buffer.from(bytes).toString('base64url'),
+      base64Encode: (bytes) => Buffer.from(bytes).toString('base64'),
+      base64Decode: (text) => [...Buffer.from(String(text), 'base64')],
+
+      /*
+       * A blob that carries its bytes, its type and its name.
+       *
+       * Absent until now, and its absence meant `driveUpload` had never once
+       * run end to end under test: the first line past the guard is a
+       * `base64Decode`, and the harness stopped there. Every check on upload
+       * was a check on being refused.
+       */
+      newBlob: (bytes, mimeType, name) => ({
+        getBytes: () => bytes,
+        getContentType: () => mimeType,
+        getName: () => name,
+      }),
 
       /*
        * A real SHA-256, because the stub it replaced returned the input
