@@ -184,14 +184,62 @@ function schemaEnsure(manifest, book, context) {
   return { created: created, columnsAdded: columnsAdded };
 }
 
+/**
+ * What a row of the audit tab holds.
+ *
+ * `id`, `prev` and `hash` were not on this list, and the client has been
+ * sending all three on every push since the chain was built. They were read
+ * off the request and dropped on the floor.
+ *
+ * `docs/AUDIT_CHAIN.md` says otherwise, in the paragraph that proposes this
+ * tab as the anchor the chain does not have:
+ *
+ *   "Audit entries replicate to an append-only `_Audit` tab where nothing in
+ *    the client ever issues an update or a delete, and they now carry their
+ *    hashes with them. Comparing a local chain against that copy would close
+ *    most of the gap."
+ *
+ * They did not carry their hashes, and the comparison it describes could not
+ * have been written: without `hash` there is nothing to compare and without
+ * `id` there is nothing to match a row to the entry it came from. The sentence
+ * was load-bearing for the only plan this repository has for making the audit
+ * trail worth more than tamper-evidence on one device.
+ *
+ * Carrying them does not build that comparison, and this change does not claim
+ * to. It stops the material being thrown away.
+ */
+var AUDIT_COLUMNS = [
+  'at', 'action', 'entity', 'recordId', 'actorId', 'actorRole', 'fields', 'deviceId', 'detail',
+  'id', 'prev', 'hash',
+];
+
+/**
+ * Create the tab, or widen one made before the last three columns existed.
+ *
+ * Appended on the right, for the reason `schemaEnsure` gives about entity
+ * sheets: inserting in place would move every value in every row of a log
+ * whose whole worth is that nothing moves in it.
+ */
 function ensureAuditSheet(book) {
-  if (book.getSheetByName(AUDIT_SHEET)) return;
-  var sheet = book.insertSheet(AUDIT_SHEET);
-  sheet.getRange(1, 1, 1, 9).setValues([[
-    'at', 'action', 'entity', 'recordId', 'actorId', 'actorRole', 'fields', 'deviceId', 'detail',
-  ]]);
-  sheet.setFrozenRows(1);
-  sheet.getRange(1, 1, 1, 9).setFontWeight('bold');
+  var sheet = book.getSheetByName(AUDIT_SHEET);
+
+  if (!sheet) {
+    sheet = book.insertSheet(AUDIT_SHEET);
+    sheet.getRange(1, 1, 1, AUDIT_COLUMNS.length).setValues([AUDIT_COLUMNS]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, AUDIT_COLUMNS.length).setFontWeight('bold');
+    return;
+  }
+
+  var existing = headerRow(sheet);
+  var missing = [];
+  for (var i = 0; i < AUDIT_COLUMNS.length; i++) {
+    if (existing.indexOf(AUDIT_COLUMNS[i]) === -1) missing.push(AUDIT_COLUMNS[i]);
+  }
+  if (!missing.length) return;
+
+  sheet.getRange(1, existing.length + 1, 1, missing.length).setValues([missing]);
+  sheet.getRange(1, existing.length + 1, 1, missing.length).setFontWeight('bold');
 }
 
 function headerRow(sheet) {
@@ -446,23 +494,35 @@ function auditAppend(entries, book, context) {
   ensureAuditSheet(book);
 
   var sheet = book.getSheetByName(AUDIT_SHEET);
+  var headers = headerRow(sheet);
   var rows = entries.map(function (entry) {
-    return [
-      entry.at || new Date().toISOString(),
-      entry.action || '',
-      entry.entity || '',
-      entry.recordId || '',
-      entry.actorId || '',
-      entry.actorRole || '',
-      (entry.fields || []).join(', '),
-      entry.deviceId || '',
-      JSON.stringify(entry.detail || {}),
-    ];
+    // Written against the tab's own header row rather than a fixed order, so
+    // a workbook widened by `ensureAuditSheet` and one made after it both get
+    // each value under the column that names it.
+    var value = {
+      at: entry.at || new Date().toISOString(),
+      action: entry.action || '',
+      entity: entry.entity || '',
+      recordId: entry.recordId || '',
+      actorId: entry.actorId || '',
+      actorRole: entry.actorRole || '',
+      fields: (entry.fields || []).join(', '),
+      deviceId: entry.deviceId || '',
+      detail: JSON.stringify(entry.detail || {}),
+      id: entry.id || '',
+      prev: entry.prev || '',
+      hash: entry.hash || '',
+    };
+    var row = [];
+    for (var c = 0; c < headers.length; c++) {
+      row.push(Object.prototype.hasOwnProperty.call(value, headers[c]) ? value[headers[c]] : '');
+    }
+    return row;
   });
 
   // Append only. Nothing in this deployment ever updates or deletes an audit
   // row, which is the only property that makes the log worth keeping.
-  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
   if (context && context.email) log('audit', context.email, rows.length + ' entries', 0);
   return { appended: rows.length };
 }

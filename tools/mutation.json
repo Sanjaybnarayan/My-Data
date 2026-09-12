@@ -1239,6 +1239,27 @@
       "find": "  if (!book) {\n    book = SpreadsheetApp.create('FamilyOS Data');",
       "replace": "  if (true) {\n    book = SpreadsheetApp.create('FamilyOS Data');",
       "suite": "policy"
+    },
+    {
+      "label": "the audit replica throws the chain away again",
+      "file": "apps-script/Sheets.gs",
+      "find": "  'at', 'action', 'entity', 'recordId', 'actorId', 'actorRole', 'fields', 'deviceId', 'detail',\n  'id', 'prev', 'hash',\n];",
+      "replace": "  'at', 'action', 'entity', 'recordId', 'actorId', 'actorRole', 'fields', 'deviceId', 'detail',\n];",
+      "suite": "backend"
+    },
+    {
+      "label": "a tab made before the chain columns is left without them",
+      "file": "apps-script/Sheets.gs",
+      "find": "  var existing = headerRow(sheet);\n  var missing = [];\n  for (var i = 0; i < AUDIT_COLUMNS.length; i++) {\n    if (existing.indexOf(AUDIT_COLUMNS[i]) === -1) missing.push(AUDIT_COLUMNS[i]);\n  }\n  if (!missing.length) return;",
+      "replace": "  return;",
+      "suite": "backend"
+    },
+    {
+      "label": "the audit row is written in a fixed order whatever the tab says",
+      "file": "apps-script/Sheets.gs",
+      "find": "      row.push(Object.prototype.hasOwnProperty.call(value, headers[c]) ? value[headers[c]] : '');",
+      "replace": "      row.push(value[AUDIT_COLUMNS[c]] === undefined ? '' : value[AUDIT_COLUMNS[c]]);",
+      "suite": "backend"
     }
   ]
 }
