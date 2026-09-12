@@ -1386,6 +1386,20 @@
       "find": "export function answerable(purpose) {\n  return !purpose.localOnly || Boolean(purpose.aboutAPerson);\n}",
       "replace": "export function answerable() {\n  return true;\n}",
       "suite": "consent"
+    },
+    {
+      "label": "an account number on a statement reaches the searchable text",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    at: /(?:a\\/c|acct|account)[.\\s]*(?:no|number)?[:.\\s]+(\\d{9,18})\\b/gi,",
+      "replace": "    at: /(?:a\\/c|acct|account)[.\\s]*(?:no|number)?[:.\\s]+(\\d{40,50})\\b/gi,",
+      "suite": "identifiers"
+    },
+    {
+      "label": "the account rule takes every long digit run, not the labelled one",
+      "file": "js/domain/extract-sensitive.js",
+      "find": "    at: /(?:a\\/c|acct|account)[.\\s]*(?:no|number)?[:.\\s]+(\\d{9,18})\\b/gi,",
+      "replace": "    near: /a\\/c|acct|account/i,\n    pattern: /\\b\\d{9,18}\\b/g,",
+      "suite": "identifiers"
     }
   ]
 }

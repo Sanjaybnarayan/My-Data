@@ -12,7 +12,7 @@ import { test, describe, assert, setSuite } from './harness.mjs';
 import {
   identifierOffers, identityRecordFor, mask, textState, IDENTIFIER_KINDS,
 } from '../js/domain/identifiers.js';
-import { readIdentifiers } from '../js/domain/extract-sensitive.js';
+import { readIdentifiers, redact } from '../js/domain/extract-sensitive.js';
 
 setSuite('identifiers');
 
@@ -299,5 +299,58 @@ describe('end to end, from the text of a scan', () => {
     const offers = identifierOffers(readIdentifiers(text), doc({ title: 'Aadhaar' }), []);
     assert.equal(offers[0].kind, 'Aadhaar');
     assert.equal(offers[0].state, 'offer');
+  });
+});
+
+/**
+ * A bank account number is a value the schema has already decided about.
+ *
+ * `extract-sensitive.js` states its own rule for what belongs in its table:
+ * a value the schema marks `encrypted: true` must not reach `ocrText`, which
+ * is searchable and therefore syncs to a cell in the household's Sheet. That
+ * is the whole argument its chassis and engine rules are built on —
+ * "`vehicle.chassisNumber` and `vehicle.engineNumber` are `encrypted: true` in
+ * the schema. The application had decided these were sensitive and was
+ * writing them, in the clear, into `ocrText`."
+ *
+ * Measured against that rule, a bank statement was not covered:
+ *
+ *     Account No: 501000123456789      → survived whole
+ *
+ * `account.accountNumber` is `encrypted: true`, and a bank statement is
+ * exactly the paper a household scans.
+ */
+describe('an account number on a statement', () => {
+  test('does not reach the searchable text', () => {
+    const text = 'Account No: 501000123456789   IFSC HDFC0000123';
+    assert.not(redact(text).includes('501000123456789'),
+      'a number the schema encrypts was left in the text that syncs');
+    assert.includes(redact(text), '[Account removed]');
+  });
+
+  test('in the short form a statement actually prints', () => {
+    assert.not(redact('A/c No. 123456789012345 held at branch 0021')
+      .includes('123456789012345'));
+  });
+
+  test('and nothing else on the page goes with it', () => {
+    /*
+     * The reason this is anchored on its label rather than on nine-to-eighteen
+     * digits: a statement is full of runs that shape matches and that a
+     * household needs to keep. A UPI narration one line below the account
+     * number is a transaction reference, not an account.
+     */
+    const page = [
+      'HDFC BANK LTD — Statement of Account, period Apr 2026',
+      'Account No: 501000123456789',
+      'UPI/P2A/609812345678/RENT',
+      'Order no. 402-7738291-1234567',
+    ].join('\n');
+    const out = redact(page);
+
+    assert.includes(out, 'Statement of Account');
+    assert.includes(out, '609812345678', 'a UPI reference was taken for an account');
+    assert.includes(out, '402-7738291-1234567', 'an order number was taken for an account');
+    assert.not(out.includes('501000123456789'));
   });
 });
