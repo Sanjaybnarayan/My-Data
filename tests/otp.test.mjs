@@ -906,3 +906,88 @@ describe('how many codes may be checked, not just sent', () => {
     assert.equal(again.ok, true);
   });
 });
+
+/**
+ * The question this endpoint exists to refuse.
+ *
+ * `otpRequest` answers `{sent: true}` for an address it has never heard of,
+ * and says why in its own words: otherwise it answers "does this address
+ * belong to your household?" for anybody who asks, one guess at a time. It is
+ * reached before `verifyToken`, so anybody means anybody.
+ *
+ * The body was the same. The **status** was not. Sending happened inside
+ * `if (person)`, and `otpSendSms` refused an unconfigured gateway with a 501 —
+ * and there is no default gateway and none in this repository, so that was
+ * every deployment until a household set one up:
+ *
+ *     channel: sms, a number in the directory  ->  501 no SMS gateway configured
+ *     channel: sms, a number not in it         ->  200 {"sent":true}
+ *
+ * No timing analysis, no rate-limit arithmetic: a status code, and the answer.
+ *
+ * Two checks above already described this between them and neither noticed.
+ * 'says the same thing for an address it has never heard of' sends **email**,
+ * where nothing throws; 'and refuses a channel it does not have' sends SMS to
+ * `+919876500000`, which is the number the fixture directory lists. Each was
+ * right about what it asserted. Nothing asked the two questions together, and
+ * that is what the table below is for.
+ */
+describe('whether a stranger can learn which addresses the household has', () => {
+  const NUMBERS = [
+    ['+919876500000', 'a number the directory lists'],
+    ['+919999900000', 'a number nothing has ever heard of'],
+  ];
+
+  /** The two answers, as a caller would see them: status and body together. */
+  const answers = (api, channel) => NUMBERS.map(([address]) => {
+    const out = api.post('otp.request', '', { channel, address });
+    return JSON.stringify({ ok: out.ok, status: out.status ?? 200, data: out.data ?? null });
+  });
+
+  test('an unconfigured gateway refuses both the same way', () => {
+    const [known, stranger] = answers(withOtp(), 'sms');
+    assert.equal(stranger, known, 'the refusal told a stranger which number is the household\'s');
+    assert.includes(known, '501');
+  });
+
+  test('a gateway that refuses the message says nothing about the address', () => {
+    /*
+     * The other half, and the reason the fix is not only the hoisted check: a
+     * configured gateway that rejects a send threw a 502 out of the same
+     * branch, for the same reason, with the same consequence. The harness
+     * answers any URL it does not recognise with a non-200, which is exactly
+     * the gateway-refuses case.
+     */
+    const api = withOtp({
+      properties: {
+        otpSmsEndpoint: 'https://gateway.example/send',
+        otpSmsToken: 'gw-token',
+        workbookId: 'book-1',
+      },
+    });
+
+    const [known, stranger] = answers(api, 'sms');
+    assert.equal(stranger, known, 'a failed delivery told a stranger the number is known');
+    assert.includes(known, '"sent":true');
+  });
+
+  test('and an address that cannot be served does not spend the send budget', () => {
+    /*
+     * `otpChannelReady` runs before `otpEnforceLimits` on purpose. If the
+     * refusal were charged, anybody could spend `OTP_PER_DEPLOYMENT` on a
+     * channel this deployment cannot use and stop the household getting a code
+     * by email — a denial of service dressed as a rate limit, which is the
+     * argument `otpEnforceVerifyLimits` already makes about its own counter.
+     */
+    const api = withOtp();
+    for (let i = 0; i < 70; i += 1) {
+      api.post('otp.request', '', { channel: 'sms', address: '+919876500000' });
+    }
+
+    const byEmail = api.post('otp.request', '', {
+      channel: 'email', address: 'asha@example.com',
+    });
+    assert.equal(byEmail.ok, true, byEmail.error);
+    assert.length(api.mailed, 1);
+  });
+});
