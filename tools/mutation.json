@@ -1243,8 +1243,8 @@
     {
       "label": "the audit replica throws the chain away again",
       "file": "apps-script/Sheets.gs",
-      "find": "  'at', 'action', 'entity', 'recordId', 'actorId', 'actorRole', 'fields', 'deviceId', 'detail',\n  'id', 'prev', 'hash',\n];",
-      "replace": "  'at', 'action', 'entity', 'recordId', 'actorId', 'actorRole', 'fields', 'deviceId', 'detail',\n];",
+      "find": "  'id', 'prev', 'hash',\n  'seenActor', 'seenRole', 'seenDevice', 'seenAt', 'disputed',\n];",
+      "replace": "  'seenActor', 'seenRole', 'seenDevice', 'seenAt', 'disputed',\n];",
       "suite": "backend"
     },
     {
@@ -1470,6 +1470,48 @@
       "find": "    text: [what, effects, t('settings.google.scopeGap.fix')].filter(Boolean).join(' '),",
       "replace": "    text: [what, effects].filter(Boolean).join(' '),",
       "suite": "scopes"
+    },
+    {
+      "label": "the audit log takes the caller's role from the entry, as it used to",
+      "file": "apps-script/Sheets.gs",
+      "find": "  var seenRole = String((context && context.role) || '');",
+      "replace": "  var seenRole = String((entries[0] && entries[0].actorRole) || '');",
+      "suite": "backend"
+    },
+    {
+      "label": "the device the request came from is taken from the entry as well",
+      "file": "apps-script/Sheets.gs",
+      "find": "  var seenDevice = String((context && context.deviceId) || '');",
+      "replace": "  var seenDevice = String((entries[0] && entries[0].deviceId) || '');",
+      "suite": "backend"
+    },
+    {
+      "label": "the receive time is whatever the device said it was",
+      "file": "apps-script/Sheets.gs",
+      "find": "  var seenAt = new Date().toISOString();",
+      "replace": "  var seenAt = String((entries[0] && entries[0].at) || '');",
+      "suite": "backend"
+    },
+    {
+      "label": "the backend corrects the claim instead of recording it, breaking the chain",
+      "file": "apps-script/Sheets.gs",
+      "find": "      actorRole: entry.actorRole || '',",
+      "replace": "      actorRole: seenRole || entry.actorRole || '',",
+      "suite": "backend"
+    },
+    {
+      "label": "a person the deployment cannot name is reported as a mismatch",
+      "file": "apps-script/Sheets.gs",
+      "find": "  if (claimedActor && seenActor && claimedActor !== seenActor) out.push('actorId');",
+      "replace": "  if (claimedActor !== seenActor) out.push('actorId');",
+      "suite": "backend"
+    },
+    {
+      "label": "nothing says the claim and the request disagreed",
+      "file": "apps-script/Sheets.gs",
+      "find": "      disputed: disputedFields(entry, seenActor, seenRole, seenDevice).join(', '),",
+      "replace": "      disputed: '',",
+      "suite": "backend"
     }
   ]
 }
