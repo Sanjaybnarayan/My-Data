@@ -409,3 +409,67 @@ describe('identifiers on a payslip, and an Aadhaar the document calls a UID', ()
       'a UID in the footer redacted a transaction reference on another line');
   });
 });
+
+/**
+ * A policy number and a FASTag id, removed at the household's request.
+ *
+ * Both are `encrypted: true` in the schema — `insurance.policyNumber`,
+ * `vehicle.insurancePolicy`, `vehicle.fastagId` — and both survived whole into
+ * `ocrText`, which is searchable and syncs to a cell in the household's Sheet.
+ * Measured before the rules, a policy number sat three lines above a chassis
+ * number that was correctly removed.
+ *
+ * These were raised rather than taken the first time, because redacting a
+ * policy number costs findability that `tests/import.test.mjs` names as "the
+ * whole reason the text is stored". The household was asked and chose the
+ * redaction; that test now asserts the other side of it.
+ *
+ * Survey and khata numbers are the same shape of fault and are deliberately
+ * still readable — the last check here holds that, so the exception cannot be
+ * closed by accident.
+ */
+describe('a policy schedule, and the identifiers left readable on purpose', () => {
+  test('a policy number does not reach the searchable text', () => {
+    const out = redact('Policy No. 3001/12345678/00/000\nChassis No. MA3ABC12S00123456');
+    assert.not(out.includes('3001/12345678/00/000'), 'a policy number reached the text that syncs');
+    assert.includes(out, '[Policy removed]');
+    // The chassis number beside it still goes. It did before; this is the
+    // asymmetry that made the gap visible in the first place.
+    assert.includes(out, '[Chassis removed]');
+  });
+
+  test('and the word alone takes nothing with it', () => {
+    /*
+     * `(?:no|number)` is required rather than optional, and the lookahead
+     * demands a digit. Without either, "Policy holder: A N Other" comes back
+     * with `holder` redacted — a rule that damages the document while removing
+     * nothing at all.
+     */
+    const out = redact('Policy holder: A N Other, Policy Schedule attached');
+    assert.equal(out, 'Policy holder: A N Other, Policy Schedule attached');
+  });
+
+  test('a FASTag id goes too', () => {
+    // Unlike a policy number this is not a handle anybody searches by — it is
+    // printed on a statement and read by a gantry — so it cost nothing.
+    assert.not(redact('FASTag ID 34161FA820328C6E1234567 balance Rs 500')
+      .includes('34161FA820328C6E1234567'));
+  });
+
+  test('a survey or khata number stays readable, on purpose', () => {
+    /*
+     * The exception, held by a check so it cannot be closed by accident.
+     *
+     * Both are `encrypted: true` and by this file's own rule they belong in
+     * the table. A survey number is often the only handle on a deed — unlike a
+     * policy number, which arrives on a renewal notice the household already
+     * holds — so redacting it can make a fifteen-page scan unfindable in the
+     * one way anybody would look for it.
+     *
+     * If a later change adds them, this fails and asks for the decision to be
+     * made again rather than absorbed.
+     */
+    const deed = 'Survey No. 123/4A   Khata No. 1234/5678 of Bengaluru North';
+    assert.equal(redact(deed), deed);
+  });
+});

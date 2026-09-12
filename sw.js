@@ -57,6 +57,7 @@ const SHELL = [
   './js/locale/en-settings-security.js',
   './js/locale/en-chain.js',
   './js/locale/en-household.js',
+  './js/locale/en-settings-connection.js',
   './js/locale/en-instalments.js',
   './js/locale/en-finance-screen.js',
   './js/locale/en-calendar.js',

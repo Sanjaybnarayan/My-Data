@@ -16,19 +16,92 @@ import { h } from '../../ui/dom.js';
 import { modal, confirm } from '../../ui/components/modal.js';
 import { toast } from '../../ui/components/toast.js';
 import { userMessage } from '../../core/errors.js';
+import { t } from '../../core/locale.js';
+import { SCOPES } from '../../core/scopes.js';
 
 /* ---------------------------------------------------------------- Google */
 
+/**
+ * Which permissions Google withheld, said in a way somebody can act on.
+ *
+ * ## Why this exists
+ *
+ * `GoogleAuth.missingScopes()` had **no caller anywhere in `js/`**. Its own
+ * header says what it was for:
+ *
+ *     Google returns a perfectly good token after somebody unticks a
+ *     permission on the consent screen, and after a Cloud project that never
+ *     listed a scope drops it. Both then surface as a refusal from whichever
+ *     API call needed it — which names the wrong problem, and sends people
+ *     looking at their Drive rather than at their consent screen.
+ *
+ * Nothing asked it, so it named nothing, and the misdiagnosis it was written
+ * to prevent went on happening. A diagnostic with no reader is not a
+ * diagnostic.
+ *
+ * ## What it says
+ *
+ * The scope's **title** rather than its URL, and the scope catalogue's own
+ * `without` sentence for what stops working — `js/core/scopes.js` already
+ * writes both, per scope, and a second phrasing here would be a second thing
+ * to keep true. Then where to fix it, because the answer is on a consent
+ * screen in a different console and nothing about a failed sync suggests that.
+ *
+ * ## Why it is a function and not four lines inside the card
+ *
+ * The mutation catalogue has refused screen-level entries five times in this
+ * work: a decision taken inside a render function is a decision no check can
+ * reach. This returns a value, and `tests/connections.test.mjs` reads it.
+ *
+ * A scope granted *wider* than asked is not a gap — `include_granted_scopes`
+ * means earlier consents come back too, so only the missing direction counts,
+ * which is what `missingScopes` already computes.
+ *
+ * @param {{isSignedIn?: boolean, missingScopes?: () => string[]}} auth
+ * @returns {{ids: string[], text: string}|null} null when nothing is missing
+ */
+export function scopeGap(auth) {
+  // Nothing has been granted or withheld until somebody has signed in, and an
+  // empty grant claims nothing — `missingScopes` already returns [] for that.
+  if (!auth?.isSignedIn || typeof auth.missingScopes !== 'function') return null;
+
+  const ids = auth.missingScopes();
+  if (!ids.length) return null;
+
+  const known = ids.map((id) => SCOPES.find((scope) => scope.id === id)).filter(Boolean);
+  // A scope this build does not describe still gets named, by its id. Saying
+  // "one permission is missing" and not which one would be the same failure
+  // one level up.
+  const names = (known.length ? known.map((scope) => scope.title) : ids).join(', ');
+  const effects = known.map((scope) => scope.without).join(' ');
+
+  const what = ids.length === 1
+    ? t('settings.google.scopeGap.one', { names })
+    : t('settings.google.scopeGap.many', { count: String(ids.length), names });
+
+  return {
+    ids,
+    text: [what, effects, t('settings.google.scopeGap.fix')].filter(Boolean).join(' '),
+  };
+}
+
 export function googleCard(auth, sync, status) {
   const configured = isConfigured();
+  const gap = scopeGap(auth);
 
   return card({}, [
     cardHeader('Google account', configured
-      ? badge(auth.isSignedIn ? 'connected' : 'signed out', auth.isSignedIn ? 'positive' : 'warning')
+      ? badge(
+        gap ? t('settings.google.scopeGap.badge') : auth.isSignedIn ? 'connected' : 'signed out',
+        gap ? 'warning' : auth.isSignedIn ? 'positive' : 'warning',
+      )
       : badge('not configured', 'warning'), { iconName: 'cloud' }),
 
     configured
       ? h('div', { class: 'stack stack--tight' }, [
+        // Above the description, because it is the thing to act on and a
+        // person who reads only one line should read this one.
+        gap ? h('p', { class: ['small', 'warn'] }, gap.text) : null,
         h('p', { class: 'small muted' }, auth.profile?.email
           ? `Signed in as ${auth.profile.email}. FamilyOS can only see the files it creates — `
             + 'the rest of your Drive is invisible to it.'

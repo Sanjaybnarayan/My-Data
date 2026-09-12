@@ -524,12 +524,36 @@ describe('a document that can be read', () => {
 
     const saved = await db.repo('document').get(document.id);
     assert.ok(saved.ocrText, 'nothing was read out of the document');
-    assert.includes(saved.ocrText, 'KA51AB1234');
 
-    // The whole reason the text is stored: finding the document by a number
-    // that appears inside it and nowhere in anything anybody typed.
-    assert.ok(matches(saved, 'KA51AB1234'), 'the document is not findable by its contents');
+    /*
+     * `450000` rather than the policy number, and the swap is the record of a
+     * decision rather than a convenience.
+     *
+     * Both halves of what this test was for are unchanged: the writer and the
+     * reader still have to agree, and the document still has to be findable by
+     * a number that appears inside it and nowhere in anything anybody typed —
+     * the title is "Motor policy" and the category is "insurance", so `450000`
+     * can only have come from the page.
+     *
+     * What is gone is findability by the **policy number** specifically.
+     * `insurance.policyNumber` is `encrypted: true`, so by the rule
+     * `js/domain/extract-sensitive.js` states for itself it must not reach
+     * `ocrText`, which is searchable and syncs to a cell in the household's
+     * Sheet. That conflicts with this test's original claim, and the conflict
+     * is real: a policy number is a number somebody searches for.
+     *
+     * It was put to the household rather than settled here, and they chose the
+     * redaction. The cost is written down instead of quietly absorbed.
+     */
+    assert.includes(saved.ocrText, '450000');
+    assert.ok(matches(saved, '450000'), 'the document is not findable by its contents');
     assert.not(matches(saved, 'KA99ZZ0000'));
+
+    // The other side of that decision, asserted so it cannot quietly lapse.
+    assert.not(saved.ocrText.includes('KA51AB1234'),
+      'a value the schema encrypts reached the searchable field');
+    assert.not(matches(saved, 'KA51AB1234'),
+      'the document is still findable by the policy number');
   });
 
   test('a file with no readable text is still stored', async () => {

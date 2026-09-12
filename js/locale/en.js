@@ -29,6 +29,7 @@ import { settingsDataStrings } from './en-settings-data.js';
 import { settingsSecurityStrings } from './en-settings-security.js';
 import { chainStrings } from './en-chain.js';
 import { householdStrings } from './en-household.js';
+import { settingsConnectionStrings } from './en-settings-connection.js';
 import { instalmentStrings } from './en-instalments.js';
 import { financeScreenStrings } from './en-finance-screen.js';
 import { calendarStrings } from './en-calendar.js';
@@ -49,6 +50,7 @@ export const strings = {
   ...settingsSecurityStrings,
   ...chainStrings,
   ...householdStrings,
+  ...settingsConnectionStrings,
   ...instalmentStrings,
   ...financeScreenStrings,
   ...calendarStrings,
