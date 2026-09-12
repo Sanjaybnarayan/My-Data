@@ -141,6 +141,55 @@ export function privacyCard(db, repaint) {
  * with, and stopping their backup over a question nobody put to them would be
  * a data-loss bug wearing a privacy costume.
  */
+/**
+ * Can this purpose be answered here, and should the screen offer the buttons?
+ *
+ * ## What this used to be, and what it cost
+ *
+ * `!purpose.localOnly`, with the reasoning that nothing leaves the device so
+ * there is nothing to agree to — and that offering a control which changes
+ * nothing "teaches people the rest of the list is theatre too". Sound, and it
+ * reached three purposes it was not about.
+ *
+ * `js/data/consent.js` draws the line one field further in, and says why at
+ * length. `hasConsent` auto-grants `localOnly && !aboutAPerson` only:
+ *
+ *     That reasoning fails completely when the third party is a *person* — a
+ *     member of staff, a child. Nothing leaves the device and there is still
+ *     somebody whose records these are, who either was told or was not.
+ *
+ * `report` makes the same exception for `gaps`, with the same explanation:
+ * "Excluding them would have made the one gap this pair exists to surface
+ * permanently invisible."
+ *
+ * So `staffRecords`, `childRecords` and `screenTime` need a recorded answer,
+ * are counted as gaps until they get one — and this screen showed them as
+ * "Nothing to agree to — this never leaves the device" with no buttons.
+ *
+ * ## The part that was not only a wrong sentence
+ *
+ * This module is the **only** importer of `record` from `js/data/consent.js`.
+ * Nothing else in the application writes a decision. So those three could not
+ * be answered anywhere, ever, and:
+ *
+ *   - `js/services/screentime.js` refuses to read without a recorded decision
+ *     — `withoutStops`, the one purpose where "no" has to stop something — so
+ *     **screen time could never be turned on**;
+ *   - `js/modules/wellbeing.js` says "Consent lives on the settings screen,
+ *     where every other purpose does" and links here, into the dead end;
+ *   - the card's own header counted them as "things happening without a
+ *     record" for ever, with no way to answer.
+ *
+ * The rule is taken from `hasConsent` rather than restated, because two places
+ * deciding who may be asked is how the two come to disagree — which is what
+ * this was.
+ *
+ * @param {{localOnly?: boolean, aboutAPerson?: boolean}} purpose
+ */
+export function answerable(purpose) {
+  return !purpose.localOnly || Boolean(purpose.aboutAPerson);
+}
+
 export function consentCard(db, repaint, consent) {
   const gaps = consent.gaps.length;
 
@@ -159,17 +208,13 @@ export function consentCard(db, repaint, consent) {
 
   const line = (row) => {
     const purpose = PURPOSES[row.purpose];
-
-    // Nothing leaves the device, so there is nothing to agree to. Offering
-    // Agree and No here would be a decision that changes nothing — the kind
-    // of control that teaches people the rest of the list is theatre too.
-    const answerable = !purpose.localOnly;
+    const askable = answerable(purpose);
 
     return listItem({
       title: t(purpose.title) + (row.subject ? ` — ${row.subject}` : ''),
       subtitle: [
         t(purpose.what),
-        !answerable
+        !askable
           ? 'Nothing to agree to — this never leaves the device.'
           : row.decision === DECISIONS.UNRECORDED
             ? (row.neverAsked
@@ -183,9 +228,9 @@ export function consentCard(db, repaint, consent) {
       ].join(' · '),
       leading: badge(
         row.active ? 'on' : 'off',
-        answerable && row.active && row.decision !== DECISIONS.GRANTED ? 'warning' : '',
+        askable && row.active && row.decision !== DECISIONS.GRANTED ? 'warning' : '',
       ),
-      trailing: answerable
+      trailing: askable
         ? h('div', { class: 'row' }, [
           row.decision === DECISIONS.GRANTED
             ? button('Stop', {

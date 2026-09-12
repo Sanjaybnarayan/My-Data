@@ -18,6 +18,7 @@ import {
 import { SyncEngine } from '../js/sync/engine.js';
 import { FakeTransport } from '../js/sync/transport.js';
 import { DocumentStore } from '../js/sync/drive.js';
+import { answerable } from '../js/modules/settings/privacy.js';
 
 setSuite('consent');
 
@@ -457,5 +458,72 @@ describe('consent about a person, rather than about Google', () => {
     });
     assert.ok(staff.id, 'a staff record was refused for want of consent');
     assert.not(await hasConsent(db, 'staffRecords', person.id));
+  });
+});
+
+/**
+ * Which purposes the one screen that records decisions will let you answer.
+ *
+ * `js/modules/settings/privacy.js` is the **only** importer of `record` from
+ * this module. Nothing else in the application writes a decision, so a purpose
+ * that screen will not offer is a purpose that can never be answered at all.
+ *
+ * It gated the buttons on `!purpose.localOnly`, and this file draws the line
+ * one field further in and says why twice. `hasConsent` auto-grants
+ * `localOnly && !aboutAPerson` only, because "that reasoning fails completely
+ * when the third party is a *person*"; `report` makes the same exception for
+ * `gaps`, because "excluding them would have made the one gap this pair exists
+ * to surface permanently invisible".
+ *
+ * So the three purposes about a person were shown as "Nothing to agree to —
+ * this never leaves the device", with no control, while:
+ *
+ *   - `js/services/screentime.js` refused to read without a recorded decision,
+ *     so screen time could never be turned on;
+ *   - `js/modules/wellbeing.js` linked here saying consent "lives on the
+ *     settings screen, where every other purpose does";
+ *   - the card's header counted them as happening without a record for ever.
+ *
+ * A control that cannot be reached is the more expensive half of the thing the
+ * old comment was guarding against.
+ */
+describe('who may be asked, on the only screen that asks', () => {
+  // Typed at the point of use: not every purpose declares the field, so the
+  // inferred union does not carry it.
+  const aboutAPerson = (purpose) => Boolean(
+    /** @type {{aboutAPerson?: boolean}} */ (purpose).aboutAPerson);
+
+  test('a purpose about another person is answerable', () => {
+    for (const name of ['staffRecords', 'childRecords', 'screenTime']) {
+      const purpose = PURPOSES[name];
+      assert.ok(aboutAPerson(purpose), `${name} is no longer about a person — this check is stale`);
+      assert.ok(answerable(purpose), `${name} cannot be answered anywhere in the application`);
+    }
+  });
+
+  test('and a local purpose about nobody is not', () => {
+    // The original reasoning, kept: a control that changes nothing teaches
+    // people the rest of the list is theatre too.
+    assert.ok(PURPOSES.assistant.localOnly);
+    assert.not(aboutAPerson(PURPOSES.assistant));
+    assert.not(answerable(PURPOSES.assistant));
+  });
+
+  test('and the screen agrees with `hasConsent` rather than repeating it', async () => {
+    /*
+     * Derived, not typed twice. Two places deciding who may be asked is how
+     * the two come to disagree, which is exactly what this was: a purpose
+     * `hasConsent` would never grant on its own, that the screen would never
+     * offer either.
+     *
+     * So for every purpose: the screen offers a control if and only if an
+     * unanswered one is not treated as agreed.
+     */
+    const db = await makeDb();
+    for (const [name, purpose] of Object.entries(PURPOSES)) {
+      const assumed = await hasConsent(db, name, aboutAPerson(purpose) ? 'p-nobody' : '');
+      assert.equal(answerable(/** @type {any} */ (purpose)), !assumed,
+        `${name}: the screen and hasConsent disagree about whether it needs an answer`);
+    }
   });
 });

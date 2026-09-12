@@ -641,3 +641,57 @@ describe('registries hold keys, not sentences translated at import', () => {
     }
   });
 });
+
+/**
+ * What a household is told, at the one moment they decide.
+ *
+ * `docs/DATA_INVENTORY.md` says this in the line it calls the most important
+ * in its own table:
+ *
+ *     Reading the Sheet is reading most of the records, with no key involved
+ *
+ * — the consequence of 7.3% encryption coverage, which that document states
+ * plainly and at length. The Settings paragraph shown when an owner admits
+ * somebody to the backup said the opposite: *"Everything sensitive in it is
+ * encrypted with a key Google never sees."*
+ *
+ * So the repository knew, and the one screen where it matters did not. The
+ * sentence is not wrong about encryption — the encrypted fields really are
+ * encrypted, under a key Google really never sees. It is wrong about
+ * *everything*, and the household is being asked to decide who gets the rest.
+ *
+ * Both halves are held below, and the encrypted half alone is the sentence
+ * that was wrong — so a check for it alone would have passed against the
+ * copy this replaced.
+ */
+describe('what admitting somebody to the backup is said to give them', () => {
+  const note = () => english['settings.household.admitNote'];
+
+  test('it names what the key protects', () => {
+    assert.ok(note(), 'the paragraph is not routed, so no catalogue can hold it');
+    assert.ok(/encrypted with a key Google never sees/i.test(note()),
+      'the encrypted half is no longer named');
+  });
+
+  test('and it names what the key does not', () => {
+    // The half that was missing. Without it the paragraph reads as a promise
+    // that the Sheet is unreadable, which `docs/DATA_INVENTORY.md` spends its
+    // most emphatic line saying it is not.
+    assert.ok(/plain text/i.test(note()),
+      'the paragraph does not say that most fields are plain text in the Sheet');
+    assert.not(/everything sensitive/i.test(note()),
+      'the paragraph still claims everything sensitive is encrypted');
+  });
+
+  test('and the schema agrees that both halves are needed', () => {
+    /*
+     * Derived rather than asserted, so this cannot drift into a check on a
+     * sentence. If a later change encrypted every field, the second half
+     * would become false and this would say so rather than keeping a warning
+     * that had stopped being true.
+     */
+    const fields = entity('person').fields;
+    assert.ok(fields.some((f) => f.encrypted), 'nothing is encrypted, so the first half is wrong');
+    assert.ok(fields.some((f) => !f.encrypted), 'everything is encrypted, so the second half is wrong');
+  });
+});

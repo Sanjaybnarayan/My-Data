@@ -327,10 +327,7 @@ export function householdCard() {
             field, roleField, button('Admit', { onClick: add }),
           ]),
           h('p', { class: 'small muted', style: { marginTop: 'var(--space-2)' } },
-            'They also need to be a test user on your OAuth consent screen, and they '
-            + 'need the household’s recovery phrase or their own PIN enrolled on their '
-            + 'device — this list decides who may reach the backup, not who can read it. '
-            + 'Everything sensitive in it is encrypted with a key Google never sees.'),
+            t('settings.household.admitNote')),
         ])
         : h('p', { class: 'small muted', style: { marginTop: 'var(--space-3)' } },
           'Only the account that deployed the backend can change this list.'),
