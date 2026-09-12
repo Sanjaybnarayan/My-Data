@@ -1372,6 +1372,20 @@
       "find": "The most sensitive values there — account numbers, PAN, diagnoses, passwords — are encrypted with a key Google never sees. Most other fields, names, dates, amounts and addresses among them, are plain text in the Sheet, so admitting somebody gives them those.",
       "replace": "Everything sensitive in it is encrypted with a key Google never sees.",
       "suite": "locale"
+    },
+    {
+      "label": "a purpose about another person can be answered nowhere",
+      "file": "js/modules/settings/privacy.js",
+      "find": "  return !purpose.localOnly || Boolean(purpose.aboutAPerson);",
+      "replace": "  return !purpose.localOnly;",
+      "suite": "consent"
+    },
+    {
+      "label": "every local purpose is offered, including the ones that change nothing",
+      "file": "js/modules/settings/privacy.js",
+      "find": "export function answerable(purpose) {\n  return !purpose.localOnly || Boolean(purpose.aboutAPerson);\n}",
+      "replace": "export function answerable() {\n  return true;\n}",
+      "suite": "consent"
     }
   ]
 }
